@@ -22,6 +22,7 @@ import (
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/migration"
+	"github.com/hosting-panel/panel/internal/monitoring"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 	"github.com/hosting-panel/panel/internal/rbac"
@@ -59,6 +60,7 @@ func (a *API) Handler() http.Handler {
 			r.Use(a.authenticate)
 			r.Get("/me", a.me)
 			r.Get("/server", a.serverOverview)
+			r.Get("/server/monitor", a.serverMonitor)
 			r.Get("/server/services", a.serverServices)
 			r.Get("/server/processes", a.serverProcesses)
 			r.Post("/server/reboot", a.notImplemented("server.reboot"))
@@ -81,6 +83,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/accounts/bulk/suspend", a.bulkSuspend)
 			r.Get("/accounts/export", a.exportAccounts)
 			r.Post("/accounts/import", a.importAccount)
+			r.Post("/accounts/import/cpanel", a.importCPanel)
 			r.Route("/accounts/{accountID}", func(r chi.Router) {
 				r.Get("/", a.getAccount)
 				r.Patch("/", a.modifyAccount)
@@ -329,6 +332,17 @@ func (a *API) serverOverview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"system": info, "stats": a.Store.Stats(), "services": defaultServices()})
 }
 
+func (a *API) serverMonitor(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ServerRead) {
+		return
+	}
+	root := ""
+	if a.Agent != nil {
+		root = a.Agent.Root
+	}
+	writeJSON(w, 200, monitoring.Collect(a.Store, root))
+}
+
 func (a *API) serverServices(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.ServerServicesRead) {
 		return
@@ -466,6 +480,37 @@ func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(r, "account.import", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc})
+}
+
+func (a *API) importCPanel(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.AccountsCreate) {
+		return
+	}
+	var in struct {
+		Root     string `json:"root"`
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		a.fail(w, r, 400, "INVALID_JSON", "invalid cpanel import", false)
+		return
+	}
+	exp, err := migration.FromCPanel(in.Root, in.Username)
+	if err != nil {
+		a.fail(w, r, 400, "CPANEL_IMPORT", err.Error(), false)
+		return
+	}
+	raw, err := json.Marshal(exp)
+	if err != nil {
+		a.fail(w, r, 400, "CPANEL_IMPORT", err.Error(), false)
+		return
+	}
+	acc, err := migration.Import(a.Store, raw)
+	if err != nil {
+		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
+		return
+	}
+	a.audit(r, "account.import.cpanel", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
+	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "source": "cpanel"})
 }
 
 func (a *API) exportAccounts(w http.ResponseWriter, r *http.Request) {
@@ -1201,12 +1246,33 @@ func clientIP(r *http.Request) string {
 }
 
 func defaultServices() []map[string]any {
-	names := []string{"panel-api", "panel-worker", "panel-agent", "postgresql", "nginx", "powerdns", "mariadb", "postfix", "dovecot", "rspamd", "redis", "clamav"}
-	out := make([]map[string]any, 0, len(names))
-	for _, n := range names {
-		out = append(out, map[string]any{"name": n, "health": "healthy", "desired_enabled": true, "observed_running": true})
+	type probe struct{ name, pid string }
+	probes := []probe{
+		{"nginx", "/run/nginx.pid"},
+		{"php-fpm", "/run/php/php8.3-fpm.pid"},
+		{"mariadb", "/run/mysqld/mysqld.pid"},
+		{"postgresql", "/var/run/postgresql/16-main.pid"},
+		{"postfix", "/var/spool/postfix/pid/master.pid"},
+		{"dovecot", "/run/dovecot/master.pid"},
+		{"pdns", "/run/pdns.pid"},
+	}
+	out := []map[string]any{}
+	for _, p := range probes {
+		running := false
+		if b, err := os.ReadFile(p.pid); err == nil && len(bytesTrim(b)) > 0 {
+			running = true
+		}
+		health := "stopped"
+		if running {
+			health = "healthy"
+		}
+		out = append(out, map[string]any{"name": p.name, "health": health, "desired_enabled": true, "observed_running": running})
 	}
 	return out
+}
+
+func bytesTrim(b []byte) []byte {
+	return []byte(strings.TrimSpace(string(b)))
 }
 
 func validateDNS(r store.DNSRecord) error {

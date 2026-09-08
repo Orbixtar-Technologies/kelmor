@@ -1,0 +1,5 @@
+DNS=acme.test
+DOMAIN=acme.test
+PLAN=starter
+IP=203.0.113.10
+USER=acme42

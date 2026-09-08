@@ -20,15 +20,15 @@ import (
 )
 
 type Manifest struct {
-	FormatVersion int            `json:"format_version"`
-	AccountID     string         `json:"account_id"`
-	Username      string         `json:"username"`
-	CreatedAt     string         `json:"created_at"`
-	PanelVersion  string         `json:"panel_version"`
-	Kind          string         `json:"kind"`
-	Files         map[string]any `json:"files"`
-	Databases     []string       `json:"databases"`
-	Mailboxes     []string       `json:"mailboxes"`
+	FormatVersion int               `json:"format_version"`
+	AccountID     string            `json:"account_id"`
+	Username      string            `json:"username"`
+	CreatedAt     string            `json:"created_at"`
+	PanelVersion  string            `json:"panel_version"`
+	Kind          string            `json:"kind"`
+	Files         map[string]any    `json:"files"`
+	Databases     []string          `json:"databases"`
+	Mailboxes     []string          `json:"mailboxes"`
 	Checksums     map[string]string `json:"checksums"`
 }
 

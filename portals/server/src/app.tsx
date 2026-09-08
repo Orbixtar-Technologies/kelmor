@@ -242,7 +242,23 @@ function ImportAccount () {
 				}
 			}}>
 				<input name="export" type="file" accept="application/json" required />
-				<button type="submit">Import account</button>
+				<button type="submit">Import native export</button>
+			</form>
+			<form className="row" onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				try {
+					const r = await api<any>('/api/v1/accounts/import/cpanel', { method: 'POST', body: JSON.stringify({
+						root: fd.get('root'), username: fd.get('username'),
+					}) })
+					setMsg(`cPanel import queued for ${r.account?.username || r.resource_id}`)
+				} catch (err) {
+					setMsg(err instanceof Error ? err.message : 'cpanel import failed')
+				}
+			}}>
+				<input name="root" placeholder="/var/tmp/cpmove-user" required />
+				<input name="username" placeholder="username" required />
+				<button type="submit">Import extracted cpmove</button>
 			</form>
 			{msg ? <p className="notice">{msg}</p> : null}
 		</>

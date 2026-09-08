@@ -61,6 +61,13 @@ func Import(st store.Store, raw []byte) (*store.Account, error) {
 		return nil, errMissing("domain collision")
 	}
 	acc := exp.Account
+	if acc.LinuxUID < 20000 {
+		acc.LinuxUID = st.AllocUID()
+		acc.LinuxGID = acc.LinuxUID
+	}
+	if acc.HomePath == "" {
+		acc.HomePath = "/home/" + acc.Username
+	}
 	st.PutAccount(&acc)
 	for i := range exp.Domains {
 		st.PutDomain(&exp.Domains[i])

@@ -112,6 +112,10 @@ func TestMVPAcceptancePath(t *testing.T) {
 	if len(audit) == 0 {
 		t.Fatal("audit empty")
 	}
+	mon := get(t, srv.URL+"/api/v1/server/monitor", token)
+	if mon["failed_jobs"] == nil {
+		t.Fatal("monitor")
+	}
 }
 
 func mustExport(t *testing.T, st store.Store, aid string) *migration.HostingAccountExport {

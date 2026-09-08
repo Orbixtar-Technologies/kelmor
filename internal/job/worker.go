@@ -454,9 +454,13 @@ func (w *Worker) createBackup(j *store.Job) error {
 	if w.Agent != nil && w.Agent.Root != "" {
 		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
 	}
-	repo := &backup.Local{Root: filepath.Join(filepath.Dir(home), "..", "backups")}
+	localRoot := filepath.Join(filepath.Dir(home), "..", "backups")
 	if w.Agent != nil && w.Agent.Root != "" {
-		repo.Root = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
+		localRoot = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
+	}
+	repo, err := backup.Open(b.Destination, localRoot)
+	if err != nil {
+		return err
 	}
 	man, key, err := backup.Build(context.Background(), w.Box, repo, acc, w.Store.ListDBs(acc.ID), w.Store.ListMailboxes(acc.ID), home)
 	if err != nil {
@@ -490,7 +494,14 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
 		repoRoot = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
 	}
-	repo := &backup.Local{Root: repoRoot}
+	dest := b.Destination
+	if dest == "" {
+		dest = "local"
+	}
+	repo, err := backup.Open(dest, repoRoot)
+	if err != nil {
+		return err
+	}
 	man, err := backup.Restore(context.Background(), w.Box, repo, key, home)
 	if err != nil {
 		return err
