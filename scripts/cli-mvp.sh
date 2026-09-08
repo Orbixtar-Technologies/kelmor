@@ -46,12 +46,22 @@ bop=$(echo "$bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(
 sus=$($CLI account suspend "$aid")
 sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$sop" ]] && $CLI job wait "$sop"
-code=$(curl -sS -o /tmp/climvp-sus.html -w '%{http_code}' -H 'Host: climvp.test' http://127.0.0.1/)
+code=""
+for _ in $(seq 1 20); do
+  code=$(curl -sS -o /tmp/climvp-sus.html -w '%{http_code}' -H 'Host: climvp.test' http://127.0.0.1/)
+  [[ "$code" == "503" ]] && break
+  sleep 0.2
+done
 [[ "$code" == "503" ]] || { echo "climvp expected 503, got $code" >&2; exit 1; }
 uns=$($CLI account unsuspend "$aid")
 uop=$(echo "$uns" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$uop" ]] && $CLI job wait "$uop"
-code=$(curl -sS -o /tmp/climvp.html -w '%{http_code}' -H 'Host: climvp.test' http://127.0.0.1/)
+code=""
+for _ in $(seq 1 20); do
+  code=$(curl -sS -o /tmp/climvp.html -w '%{http_code}' -H 'Host: climvp.test' http://127.0.0.1/)
+  [[ "$code" == "200" ]] && break
+  sleep 0.2
+done
 [[ "$code" == "200" ]]
 $CLI account sftp-password "$aid" 'SftpPass!2026' >/dev/null
 $CLI firewall apply | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True or d.get("message"), d'

@@ -206,12 +206,22 @@ migcode=$(curl -sS -o /tmp/e2emig.html -w '%{http_code}' -H 'Host: e2emig.test' 
 sus=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/suspend" -H "$AUTH")
 sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$sop" suspend
-suscode=$(curl -sS -o /tmp/live-sus.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+suscode=""
+for _ in $(seq 1 20); do
+  suscode=$(curl -sS -o /tmp/live-sus.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+  [[ "$suscode" == "503" ]] && break
+  sleep 0.2
+done
 [[ "$suscode" == "503" ]] || { echo "expected HTTP 503 while suspended, got $suscode" >&2; exit 1; }
 uns=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/unsuspend" -H "$AUTH")
 uop=$(echo "$uns" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$uop" unsuspend
-uncode=$(curl -sS -o /tmp/live-uns.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+uncode=""
+for _ in $(seq 1 20); do
+  uncode=$(curl -sS -o /tmp/live-uns.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+  [[ "$uncode" == "200" ]] && break
+  sleep 0.2
+done
 [[ "$uncode" == "200" ]] || { echo "expected HTTP 200 after unsuspend, got $uncode" >&2; exit 1; }
 
 TUSER="tm$(date +%s)"
@@ -229,7 +239,12 @@ for i in $(seq 1 40); do
   [[ "$st" == "active" ]] && break
   sleep 1
 done
-tcode=$(curl -sS -o /tmp/termacc.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+tcode=""
+for _ in $(seq 1 20); do
+  tcode=$(curl -sS -o /tmp/termacc.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+  [[ "$tcode" == "200" ]] && break
+  sleep 0.2
+done
 [[ "$tcode" == "200" ]] || { echo "termacc HTTP $tcode" >&2; exit 1; }
 term=$(curl -sS -X POST "$BASE/api/v1/accounts/$tid/terminate" -H "$AUTH")
 trop=$(echo "$term" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
@@ -245,7 +260,12 @@ if getent passwd "$TUSER" >/dev/null; then
   echo "linux user $TUSER still exists" >&2
   exit 1
 fi
-gone=$(curl -sS -o /tmp/term-gone.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+gone=""
+for _ in $(seq 1 20); do
+  gone=$(curl -sS -o /tmp/term-gone.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+  [[ "$gone" == "404" ]] && break
+  sleep 0.2
+done
 [[ "$gone" == "404" ]] || { echo "terminated host should 404, got $gone" >&2; cat /tmp/term-gone.html >&2; exit 1; }
 if grep -q "$TDOM" /tmp/term-gone.html; then
   echo "terminated host still rendered tenant content" >&2
