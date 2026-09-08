@@ -18,6 +18,12 @@ fi
 for i in $(seq 1 20); do
   st=$($CLI account get "$aid" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
   echo "climvp status=$st"
+  if [[ "$st" == "suspended" ]]; then
+    uns=$($CLI account unsuspend "$aid")
+    uop=$(echo "$uns" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+    [[ -n "$uop" ]] && $CLI job wait "$uop"
+    continue
+  fi
   [[ "$st" == "active" ]] && break
   sleep 1
 done
