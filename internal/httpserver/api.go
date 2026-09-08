@@ -80,6 +80,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/accounts/{accountID}/suspend", a.suspendAccount)
 			r.Post("/accounts/{accountID}/unsuspend", a.unsuspendAccount)
 			r.Post("/accounts/{accountID}/terminate", a.terminateAccount)
+			r.Post("/accounts/{accountID}/migrate", a.migrateAccount)
 			r.Post("/accounts/{accountID}/impersonate", a.impersonate)
 			r.Get("/accounts/{accountID}/usage", a.accountUsage)
 			r.Post("/accounts/bulk/suspend", a.bulkSuspend)
@@ -594,6 +595,63 @@ func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	a.audit(r, "account.export", "account", aid, true, nil, map[string]any{"username": exp.Account.Username})
 	writeJSON(w, 200, exp)
+}
+
+func (a *API) migrateAccount(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.AccountsCreate) {
+		return
+	}
+	srcID := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, srcID, rbac.AccountsRead) {
+		return
+	}
+	var in struct {
+		Username string `json:"username"`
+		Domain   string `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		a.fail(w, r, 400, "INVALID_JSON", "invalid migrate request", false)
+		return
+	}
+	if err := validate.Username(in.Username); err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	ascii, err := validate.NormalizeDomain(in.Domain)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	exp, err := migration.Export(a.Store, srcID)
+	if err != nil {
+		a.fail(w, r, 404, "NOT_FOUND", err.Error(), false)
+		return
+	}
+	raw, err := json.Marshal(exp)
+	if err != nil {
+		a.fail(w, r, 500, "EXPORT", err.Error(), false)
+		return
+	}
+	srcHome := exp.Account.HomePath
+	acc, err := migration.ImportAs(a.Store, raw, in.Username, ascii, actor(r).UserID)
+	if err != nil {
+		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
+		return
+	}
+	a.Store.AddMember(acc.ID, actor(r).UserID)
+	copied := ""
+	if srcHome != "" && srcHome != acc.HomePath {
+		job, _ := a.Store.EnqueueJob(&store.Job{
+			Type: "account.copy_homedir", ResourceType: "account", ResourceID: acc.ID,
+			Payload: map[string]any{"account_id": acc.ID, "username": acc.Username, "source": srcHome, "dest": acc.HomePath},
+			State:   "queued",
+		})
+		if job != nil {
+			copied = job.ID
+		}
+	}
+	a.audit(r, "account.migrate", "account", acc.ID, true, map[string]any{"source": srcID}, map[string]any{"username": acc.Username, "domain": ascii})
+	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "homedir_job": copied, "source_id": srcID})
 }
 
 func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {

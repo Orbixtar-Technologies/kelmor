@@ -278,6 +278,23 @@ function AccountDetail () {
 					await reload()
 				}}>Queue encrypted backup</button>
 			</div>
+			<form className="row" onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				try {
+					const r = await api<any>(`/api/v1/accounts/${id}/migrate`, {
+						method: 'POST',
+						body: JSON.stringify({ username: fd.get('migrate_username'), domain: fd.get('migrate_domain') }),
+					})
+					setMsg(`Migrated to ${r.account?.username || r.resource_id}`)
+				} catch (err) {
+					setMsg(err instanceof Error ? err.message : 'migrate failed')
+				}
+			}}>
+				<input name="migrate_username" placeholder="new username" required />
+				<input name="migrate_domain" placeholder="new primary domain" required />
+				<button type="submit">Migrate to new account</button>
+			</form>
 			<h2>Websites</h2>
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()

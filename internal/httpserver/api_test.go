@@ -36,6 +36,16 @@ func TestAccountProvisionFlow(t *testing.T) {
 	if _, ok := created["operation_id"].(string); !ok {
 		t.Fatal("missing operation")
 	}
+	aid := created["resource_id"].(string)
+	mig := post(t, srv.URL+"/api/v1/accounts/"+aid+"/migrate", token, map[string]string{
+		"username": "moved42", "domain": "moved.test",
+	})
+	if mig["resource_id"] == aid || mig["resource_id"] == "" {
+		t.Fatalf("migrate: %v", mig)
+	}
+	if mig["source_id"] != aid {
+		t.Fatalf("source %v", mig)
+	}
 }
 
 func TestCPanelImportQueuesHomedirCopy(t *testing.T) {

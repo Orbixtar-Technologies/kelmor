@@ -137,6 +137,25 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/{accountID}/migrate:
+    post:
+      operationId: migrateAccount
+      x-capability: accounts.create
+      x-audit-action: account.migrate
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, domain]
+              properties:
+                username: { type: string }
+                domain: { type: string }
+      responses:
+        "202": { description: import and homedir copy queued }
   /accounts/{accountID}/terminate:
     post:
       operationId: terminateAccount

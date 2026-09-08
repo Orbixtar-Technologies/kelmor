@@ -90,6 +90,7 @@ func All() []Phase {
 		named{"templates", checkNoop, applyTemplates, verifyNoop},
 		named{"tls", checkNoop, applyTLS, verifyTLS},
 		named{"systemd", checkNoop, applySystemd, verifySystemd},
+		named{"quota_homes", checkNoop, applyQuotaHomes, verifyQuotaHomes},
 		named{"host_runtime", checkNoop, applyHostRuntime, verifyHostRuntime},
 		named{"administrator", checkNoop, applyAdministrator, verifyNoop},
 		named{"health_checks", checkNoop, applyHealth, verifyHealth},

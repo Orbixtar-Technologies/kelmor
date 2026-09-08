@@ -151,19 +151,7 @@ func main() {
 }
 
 func migrateAccount(base, token, id, user, domain string) {
-	exp := do(http.MethodGet, base+"/api/v1/accounts/"+id+"/export", token, nil, false)
-	raw, err := json.Marshal(exp)
-	if err != nil {
-		fatal(err.Error())
-	}
-	path := "/tmp/panel-migrate-" + user + ".json"
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		fatal(err.Error())
-	}
-	out := doBytes(http.MethodPost, base+"/api/v1/accounts/import?username="+user+"&domain="+domain, token, raw)
-	if op, _ := out["resource_id"].(string); op != "" {
-		fmt.Fprintf(os.Stderr, "imported %s from %s\n", user, path)
-	}
+	post(base+"/api/v1/accounts/"+id+"/migrate", token, map[string]any{"username": user, "domain": domain})
 }
 
 func waitJob(base, token, id string) {

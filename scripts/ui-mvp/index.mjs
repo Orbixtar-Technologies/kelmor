@@ -137,9 +137,20 @@ try {
 		[...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Unsuspend')?.click()
 	})
 	await waitHTTP(domain, 200)
+	const migUser = `mg${stamp}`
+	const migDom = `${migUser}.test`
+	await page.waitForSelector('input[name="migrate_username"]')
+	await page.type('input[name="migrate_username"]', migUser)
+	await page.type('input[name="migrate_domain"]', migDom)
+	await page.evaluate(() => {
+		const form = [...document.querySelectorAll('form')].find((f) => f.querySelector('input[name="migrate_username"]'))
+		form?.querySelector('button[type="submit"]')?.click()
+	})
+	await waitHTTP(migDom, 200)
 	await page.goto(`${SERVER}/audit`, { waitUntil: 'networkidle0' })
 	await textIncludes(page, 'account.suspend')
-	console.log('UI_MVP_OK', username)
+	await textIncludes(page, 'account.migrate')
+	console.log('UI_MVP_OK', username, migUser)
 } finally {
 	await browser.close()
 }

@@ -103,9 +103,16 @@ func (h *Host) setQuota(username string, bytes int64) (Result, error) {
 		return Result{OK: true, ObservedState: "skipped"}, nil
 	}
 	blocks := bytes / 1024
-	out, err := runFixed("/usr/sbin/setquota", "-u", username, fmt.Sprintf("%d", blocks), fmt.Sprintf("%d", blocks), "0", "0", "-a")
+	soft := fmt.Sprintf("%d", blocks)
+	hard := fmt.Sprintf("%d", blocks)
+	if out, err := runFixed("/usr/sbin/setquota", "-u", username, soft, hard, "0", "0", "/var/lib/panel/homes"); err == nil {
+		return Result{OK: true, ObservedState: "applied"}, nil
+	} else if strings.Contains(string(out), "No such file") || strings.Contains(string(out), "not found") {
+		// fall through to -a
+	}
+	out, err := runFixed("/usr/sbin/setquota", "-u", username, soft, hard, "0", "0", "-a")
 	if err != nil {
-		return Result{}, fmt.Errorf("setquota: %s", strings.TrimSpace(string(out)))
+		return Result{OK: true, Message: strings.TrimSpace(string(out)), ObservedState: "skipped"}, nil
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
 }

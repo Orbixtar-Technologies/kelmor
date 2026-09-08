@@ -29,7 +29,7 @@ PANEL_DEV=1 PANEL_AGENT_SOCK=/run/panel/agent.sock \
 cd portals/server && npm install && npm run dev
 cd portals/account && npm install && npm run dev
 ./scripts/live-e2e.sh
-./scripts/ui-mvp.sh          # Chrome: Server Portal + Account Portal MVP path
+./scripts/ui-mvp.sh          # Chrome: provision → files/mail/backups → suspend → migrate → audit
 ```
 
 - API: `http://127.0.0.1:18080`
