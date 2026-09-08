@@ -189,7 +189,10 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	}
 	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplySystemdSlice",
-		Params: mustJSON(map[string]any{"username": acc.Username, "cpu_percent": pkg.CPUPercent, "memory_bytes": pkg.MemoryBytes}),
+		Params: mustJSON(map[string]any{
+			"username": acc.Username, "cpu_percent": pkg.CPUPercent, "memory_bytes": pkg.MemoryBytes,
+			"tasks_max": pkg.ProcessLimit, "io_weight": pkg.IOWeight, "iops": pkg.IOPS,
+		}),
 	})
 	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "SetFilesystemQuota",

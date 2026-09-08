@@ -184,6 +184,18 @@ php_admin_value[open_basedir] = /home/%s:/tmp:/usr/share/php
 `, account, account, group, account, maxChildren, account)
 }
 
-func SystemdSlice(username string, cpuPercent int, memoryBytes int64, tasksMax int) string {
-	return fmt.Sprintf("[Slice]\nCPUQuota=%d%%\nMemoryMax=%d\nTasksMax=%d\nIOWeight=100\n", cpuPercent, memoryBytes, tasksMax)
+func SystemdSlice(username string, cpuPercent int, memoryBytes int64, tasksMax, ioWeight, iops int) string {
+	if tasksMax < 1 {
+		tasksMax = 100
+	}
+	if ioWeight < 1 {
+		ioWeight = 100
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[Slice]\nCPUQuota=%d%%\nMemoryMax=%d\nTasksMax=%d\nIOWeight=%d\n", cpuPercent, memoryBytes, tasksMax, ioWeight)
+	if iops > 0 {
+		fmt.Fprintf(&b, "# panel_iops=%d\n", iops)
+	}
+	_ = username
+	return b.String()
 }

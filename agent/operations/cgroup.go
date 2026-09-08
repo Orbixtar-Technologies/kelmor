@@ -8,14 +8,16 @@ import (
 	"strings"
 
 	"github.com/hosting-panel/panel/internal/pkg/validate"
+	"golang.org/x/sys/unix"
 )
 
 const panelCgroupRoot = "/sys/fs/cgroup/panel.accounts"
 
-func (h *Host) applyCgroupLimits(username string, cpuPercent int, memoryBytes int64, tasks int) error {
+func (h *Host) applyCgroupLimits(username string, cpuPercent int, memoryBytes int64, tasks, ioWeight, iops int) error {
 	if err := validate.Username(username); err != nil {
 		return err
 	}
+	h.persistCgroupSpec(username, cpuPercent, memoryBytes, tasks, ioWeight, iops)
 	if !h.live() {
 		return nil
 	}
@@ -25,7 +27,7 @@ func (h *Host) applyCgroupLimits(username string, cpuPercent int, memoryBytes in
 	if err := os.MkdirAll(panelCgroupRoot, 0o755); err != nil {
 		return fmt.Errorf("cgroup parent: %w", err)
 	}
-	_ = os.WriteFile(filepath.Join(panelCgroupRoot, "cgroup.subtree_control"), []byte("+cpu +memory +pids\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(panelCgroupRoot, "cgroup.subtree_control"), []byte("+cpu +memory +pids +io\n"), 0o644)
 	dir := filepath.Join(panelCgroupRoot, username)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("cgroup %s: %w", username, err)
@@ -46,8 +48,44 @@ func (h *Host) applyCgroupLimits(username string, cpuPercent int, memoryBytes in
 			return fmt.Errorf("pids.max: %w", err)
 		}
 	}
+	h.applyCgroupIO(dir, username, ioWeight, iops)
 	attachUserProcesses(username, dir)
 	return nil
+}
+
+func (h *Host) persistCgroupSpec(username string, cpuPercent int, memoryBytes int64, tasks, ioWeight, iops int) {
+	body := fmt.Sprintf("cpu_percent=%d\nmemory_bytes=%d\nprocess_limit=%d\nio_weight=%d\niops=%d\n",
+		cpuPercent, memoryBytes, tasks, ioWeight, iops)
+	_, _ = h.ApplyFile("/var/lib/panel/cgroup/"+username, []byte(body), 0o644)
+}
+
+func (h *Host) applyCgroupIO(dir, username string, ioWeight, iops int) {
+	if ioWeight > 0 {
+		if ioWeight > 10000 {
+			ioWeight = 10000
+		}
+		_ = os.WriteFile(filepath.Join(dir, "io.weight"), []byte(fmt.Sprintf("default %d\n", ioWeight)), 0o644)
+	}
+	if iops < 1 {
+		return
+	}
+	maj, min, ok := backingDev("/home/" + username)
+	if !ok {
+		maj, min, ok = backingDev("/home")
+	}
+	if !ok {
+		return
+	}
+	line := fmt.Sprintf("%d:%d riops=%d wiops=%d\n", maj, min, iops, iops)
+	_ = os.WriteFile(filepath.Join(dir, "io.max"), []byte(line), 0o644)
+}
+
+func backingDev(path string) (maj, min uint32, ok bool) {
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		return 0, 0, false
+	}
+	return unix.Major(st.Dev), unix.Minor(st.Dev), true
 }
 
 func attachPID(dir string, pid int) {

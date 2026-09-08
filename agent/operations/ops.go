@@ -204,9 +204,11 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			CPUPercent  int    `json:"cpu_percent"`
 			MemoryBytes int64  `json:"memory_bytes"`
 			TasksMax    int    `json:"tasks_max"`
+			IOWeight    int    `json:"io_weight"`
+			IOPS        int    `json:"iops"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.applySlice(p.Username, p.CPUPercent, p.MemoryBytes, p.TasksMax)
+		return h.applySlice(p.Username, p.CPUPercent, p.MemoryBytes, p.TasksMax, p.IOWeight, p.IOPS)
 	case "SetFilesystemQuota":
 		var p struct {
 			Username string `json:"username"`

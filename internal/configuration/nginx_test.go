@@ -70,6 +70,13 @@ func TestNginxPythonProxiesOnHTTPS(t *testing.T) {
 	}
 }
 
+func TestSystemdSliceUsesPackageIO(t *testing.T) {
+	s := SystemdSlice("acme42", 80, 64<<20, 40, 250, 500)
+	if !contains(s, "IOWeight=250") || !contains(s, "TasksMax=40") || !contains(s, "panel_iops=500") {
+		t.Fatal(s)
+	}
+}
+
 func TestPHPPool(t *testing.T) {
 	p := PHPPool("acme42", "8.5", 8)
 	if p == "" || !contains(p, "open_basedir") {

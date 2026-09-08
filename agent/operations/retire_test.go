@@ -27,6 +27,9 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	if _, err := h.enforceAccountBandwidth("gone42", true); err != nil {
 		t.Fatal(err)
 	}
+	if err := h.applyCgroupLimits("gone42", 50, 64<<20, 20, 80, 250); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := h.retireAccount("gone42", []string{"site-1"}, []string{"gone.test"}); err != nil {
 		t.Fatal(err)
 	}
@@ -47,5 +50,8 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/bandwidth/gone42")); !os.IsNotExist(err) {
 		t.Fatal("bandwidth dir remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/cgroup/gone42")); !os.IsNotExist(err) {
+		t.Fatal("cgroup spec remains")
 	}
 }

@@ -17,7 +17,27 @@ func TestAttachPIDWritesProcs(t *testing.T) {
 
 func TestApplyCgroupLimitsSkippedWhenNotLive(t *testing.T) {
 	h := &Host{Root: t.TempDir()}
-	if err := h.applyCgroupLimits("acme42", 50, 64<<20, 20); err != nil {
+	if err := h.applyCgroupLimits("acme42", 50, 64<<20, 20, 80, 250); err != nil {
 		t.Fatal(err)
 	}
+	b, err := os.ReadFile(filepath.Join(h.Root, "var/lib/panel/cgroup/acme42"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsCgroup(string(b), "io_weight=80") || !containsCgroup(string(b), "iops=250") {
+		t.Fatal(string(b))
+	}
+}
+
+func containsCgroup(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || indexCgroup(s, sub) >= 0)
+}
+
+func indexCgroup(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

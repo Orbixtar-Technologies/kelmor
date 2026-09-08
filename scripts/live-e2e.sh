@@ -359,6 +359,10 @@ done
 [[ "$bcode" == "200" ]] || { echo "bwacc HTTP $bcode before hold" >&2; exit 1; }
 wid=$(curl -sS "$BASE/api/v1/accounts/$bid/websites" -H "$AUTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or []; print(items[0]["id"] if items else "")')
 [[ -n "$wid" ]] || { echo "bwacc website missing" >&2; exit 1; }
+sudo grep -q "IOWeight=100" "/etc/systemd/system/panel-account-${BUSER}.slice" || { echo "expected IOWeight on ${BUSER} slice" >&2; cat "/etc/systemd/system/panel-account-${BUSER}.slice" >&2; exit 1; }
+sudo grep -q "panel_iops=100" "/etc/systemd/system/panel-account-${BUSER}.slice" || { echo "expected iops comment on slice" >&2; exit 1; }
+sudo grep -q 'io_weight=100' "/var/lib/panel/cgroup/${BUSER}" || { echo "cgroup spec missing" >&2; cat "/var/lib/panel/cgroup/${BUSER}" >&2; exit 1; }
+echo "cgroup-io ok"
 sudo grep -q 'limit_conn panel_acct 50' "/etc/nginx/panel-sites/${wid}.conf" || { echo "expected limit_conn 50 on $wid" >&2; cat "/etc/nginx/panel-sites/${wid}.conf" >&2; exit 1; }
 sudo grep -q 'limit_conn_zone $panel_account' /etc/nginx/conf.d/panel-conn-limit.conf || { echo "nginx conn zone missing" >&2; exit 1; }
 sudo grep -q "$BDOM $BUSER" /etc/nginx/conf.d/panel-conn-limit.conf || { echo "conn map missing $BDOM" >&2; cat /etc/nginx/conf.d/panel-conn-limit.conf >&2; exit 1; }
