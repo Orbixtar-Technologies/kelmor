@@ -693,22 +693,41 @@ func (w *Worker) recordUsage(acc *store.Account) {
 	if acc == nil {
 		return
 	}
+	now := time.Now().UTC()
+	u := &store.Usage{AccountID: acc.ID, CollectedAt: now}
+	if w.Agent != nil {
+		raw, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "MeasureAccountUsage",
+			Params: mustJSON(map[string]any{"username": acc.Username, "home": acc.HomePath}),
+		})
+		if err == nil {
+			b, _ := json.Marshal(raw)
+			var got operations.AccountUsage
+			if json.Unmarshal(b, &got) == nil {
+				u.DiskBytes = got.DiskBytes
+				u.InodeCount = got.InodeCount
+				u.ProcessCount = int(got.ProcessCount)
+				u.MemoryBytes = got.MemoryBytes
+				w.Store.PutUsage(u)
+				return
+			}
+		}
+	}
 	home := acc.HomePath
 	if w.Agent != nil && w.Agent.Root != "" {
 		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
 	}
-	var bytes, inodes int64
 	_ = filepath.Walk(home, func(_ string, info os.FileInfo, err error) error {
 		if err != nil || info == nil {
 			return nil
 		}
-		inodes++
+		u.InodeCount++
 		if info.Mode().IsRegular() {
-			bytes += info.Size()
+			u.DiskBytes += info.Size()
 		}
 		return nil
 	})
-	w.Store.PutUsage(&store.Usage{AccountID: acc.ID, CollectedAt: time.Now().UTC(), DiskBytes: bytes, InodeCount: inodes})
+	w.Store.PutUsage(u)
 }
 
 func publicIPv4() string {

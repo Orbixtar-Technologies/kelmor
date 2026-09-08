@@ -292,7 +292,14 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			Name string `json:"name"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return map[string]any{"name": p.Name, "health": "healthy", "running": true}, nil
+		return probeService(p.Name), nil
+	case "MeasureAccountUsage":
+		var p struct {
+			Username string `json:"username"`
+			Home     string `json:"home"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.measureAccountUsage(p.Username, p.Home)
 	case "ValidateConfiguration":
 		return Result{OK: true, Message: "valid"}, nil
 	case "ApplyFirewall":

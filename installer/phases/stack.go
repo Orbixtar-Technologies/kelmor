@@ -240,6 +240,16 @@ logpath = /var/lib/panel/logs/api.jsonl
 	if err := os.WriteFile(root(c, "etc/fail2ban/jail.d/panel.conf"), []byte(jail), 0o644); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(root(c, "etc/fail2ban/filter.d"), 0o755); err != nil {
+		return err
+	}
+	filter := `[Definition]
+failregex = ^.*"event":"auth.login".*"success":false.*"source_ip":"<HOST>"
+ignoreregex =
+`
+	if err := os.WriteFile(root(c, "etc/fail2ban/filter.d/panel-auth.conf"), []byte(filter), 0o644); err != nil {
+		return err
+	}
 	sftp := `Match Group panel-sftp
     ChrootDirectory /home/%u
     ForceCommand internal-sftp
@@ -424,6 +434,8 @@ func verifySecurity(c Config) error {
 		"etc/nginx/modsec/panel.conf",
 		"etc/rspamd/local.d/panel.conf",
 		"etc/clamav/panel.conf",
+		"etc/fail2ban/jail.d/panel.conf",
+		"etc/fail2ban/filter.d/panel-auth.conf",
 		"etc/ssh/sshd_config.d/panel-sftp.conf",
 	} {
 		if _, err := os.Stat(root(c, p)); err != nil {

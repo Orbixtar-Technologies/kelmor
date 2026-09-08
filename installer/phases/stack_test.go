@@ -31,6 +31,7 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/powerdns/pdns.conf",
 		"var/panel/host/etc/panel/nftables-panel.nft",
 		"var/panel/host/etc/fail2ban/jail.d/panel.conf",
+		"var/panel/host/etc/fail2ban/filter.d/panel-auth.conf",
 		"var/panel/host/etc/nginx/modsec/panel.conf",
 		"var/panel/host/etc/nginx/modsec/panel-enforce.conf",
 		"var/panel/host/etc/nginx/panel-sites/01-modsec-probe.conf",

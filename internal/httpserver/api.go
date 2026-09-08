@@ -201,6 +201,7 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		Metadata: map[string]any{"username": in.Username},
 	})
 	if !ok {
+		a.logAuthFailure(ip, in.Username)
 		a.fail(w, r, 401, "INVALID_CREDENTIALS", "Invalid username or password", false)
 		return
 	}
@@ -356,10 +357,32 @@ func (a *API) serverMonitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := ""
-	if a.Agent != nil {
+	if a.Agent != nil && a.Agent.Sock == "" {
 		root = a.Agent.Root
 	}
-	writeJSON(w, 200, monitoring.Collect(a.Store, root))
+	writeJSON(w, 200, monitoring.CollectMeasured(a.Store, root, func(acc store.Account) *store.Usage {
+		if a.Agent == nil {
+			return nil
+		}
+		params, _ := json.Marshal(map[string]any{"username": acc.Username, "home": acc.HomePath})
+		raw, err := a.Agent.Dispatch(r.Context(), operations.Request{
+			Method: "MeasureAccountUsage",
+			Params: params,
+		})
+		if err != nil {
+			return nil
+		}
+		b, _ := json.Marshal(raw)
+		var got operations.AccountUsage
+		if json.Unmarshal(b, &got) != nil {
+			return nil
+		}
+		return &store.Usage{
+			AccountID: acc.ID, CollectedAt: time.Now().UTC(),
+			DiskBytes: got.DiskBytes, InodeCount: got.InodeCount,
+			MemoryBytes: got.MemoryBytes, ProcessCount: int(got.ProcessCount),
+		}
+	}))
 }
 
 func (a *API) serverServices(w http.ResponseWriter, r *http.Request) {
@@ -1415,6 +1438,31 @@ func (a *API) audit(r *http.Request, action, rtype, rid string, ok bool, before,
 		Action: action, ResourceType: rtype, ResourceID: rid, RequestID: logging.RequestID(r.Context()),
 		Success: ok, SourceIP: clientIP(r), UserAgent: r.UserAgent(), Before: before, After: after,
 	})
+}
+
+func (a *API) logAuthFailure(ip, username string) {
+	if ip == "" {
+		ip = "0.0.0.0"
+	}
+	rec, _ := json.Marshal(map[string]any{
+		"event": "auth.login", "success": false, "source_ip": ip, "username": username,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	base := os.Getenv("PANEL_STATE_DIR")
+	if base == "" {
+		base = "/var/lib/panel"
+	}
+	if a.Agent != nil && a.Agent.Sock == "" && a.Agent.Root != "" {
+		base = filepath.Join(a.Agent.Root, "var/lib/panel")
+	}
+	dir := filepath.Join(base, "logs")
+	_ = os.MkdirAll(dir, 0o750)
+	f, err := os.OpenFile(filepath.Join(dir, "api.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(rec, '\n'))
+	_ = f.Close()
 }
 
 func (a *API) fail(w http.ResponseWriter, r *http.Request, status int, code, msg string, _ bool) {

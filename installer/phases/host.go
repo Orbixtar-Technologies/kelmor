@@ -24,6 +24,8 @@ func applyHostRuntime(c Config) error {
 		{"/usr/sbin/pdns_server", "--daemon"},
 		{"/usr/sbin/clamd"},
 		{"/usr/bin/freshclam", "--daemon"},
+		{"/usr/bin/rspamd", "-c", "/etc/rspamd/rspamd.conf"},
+		{"/usr/bin/fail2ban-server", "-xf", "start"},
 	}
 	for _, args := range starts {
 		if _, err := os.Stat(args[0]); err != nil {

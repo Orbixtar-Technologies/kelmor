@@ -16,15 +16,27 @@ type Snapshot struct {
 }
 
 func Collect(st store.Store, hostRoot string) Snapshot {
+	return CollectMeasured(st, hostRoot, nil)
+}
+
+func CollectMeasured(st store.Store, hostRoot string, measure func(store.Account) *store.Usage) Snapshot {
 	now := time.Now().UTC()
 	snap := Snapshot{CollectedAt: now, FailedJobs: len(st.ListJobs("failed", 500))}
 	horizon := now.Add(14 * 24 * time.Hour)
 	for _, acc := range st.ListAccounts("", "") {
-		home := acc.HomePath
-		if hostRoot != "" && len(acc.HomePath) > 1 {
-			home = filepath.Join(hostRoot, filepath.FromSlash(acc.HomePath[1:]))
+		var u store.Usage
+		if measure != nil {
+			if got := measure(acc); got != nil {
+				u = *got
+			}
 		}
-		u := walkUsage(acc.ID, home, now)
+		if u.AccountID == "" {
+			home := acc.HomePath
+			if hostRoot != "" && len(acc.HomePath) > 1 {
+				home = filepath.Join(hostRoot, filepath.FromSlash(acc.HomePath[1:]))
+			}
+			u = walkUsage(acc.ID, home, now)
+		}
 		st.PutUsage(&u)
 		snap.Accounts = append(snap.Accounts, u)
 		for _, c := range st.ListCerts(acc.ID) {
