@@ -319,6 +319,40 @@ function AccountDetail () {
 				<tbody>{sites.map((s) => <tr key={s.id}><td>{s.runtime} {s.runtime_version}</td><td>{s.document_root}</td><td>{s.enabled ? 'yes' : 'no'}</td></tr>)}</tbody>
 			</table>
 			<h2>DNS {zones[0] ? zones[0].name : ''}</h2>
+			{zones[0] ? (
+				<form className="row" onSubmit={async (e) => {
+					e.preventDefault()
+					const fd = new FormData(e.currentTarget)
+					try {
+						await api(`/api/v1/accounts/${id}/dns/zones/${zones[0].id}/records`, {
+							method: 'POST',
+							body: JSON.stringify({
+								name: fd.get('name'),
+								type: fd.get('type'),
+								content: fd.get('content'),
+								ttl: Number(fd.get('ttl') || 300),
+							}),
+						})
+						setMsg('DNS record queued')
+						await reload()
+					} catch (err) {
+						setMsg(err instanceof Error ? err.message : 'dns failed')
+					}
+				}}>
+					<input name="name" placeholder="www" required />
+					<select name="type">
+						<option value="A">A</option>
+						<option value="AAAA">AAAA</option>
+						<option value="CNAME">CNAME</option>
+						<option value="MX">MX</option>
+						<option value="TXT">TXT</option>
+						<option value="NS">NS</option>
+					</select>
+					<input name="content" placeholder="203.0.113.10" required />
+					<input name="ttl" type="number" defaultValue={300} min={60} />
+					<button type="submit">Add DNS record</button>
+				</form>
+			) : <p>Zone appears after provisioning.</p>}
 			{records.length === 0 ? <p>No records yet.</p> : (
 				<table>
 					<thead><tr><th>Name</th><th>Type</th><th>Content</th></tr></thead>

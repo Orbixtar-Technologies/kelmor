@@ -162,6 +162,68 @@ func statusOf(t *testing.T, method, url, token string, body any) int {
 	return res.StatusCode
 }
 
+func TestPackageLimitsAndDiskQuota(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := post(t, srv.URL+"/api/v1/packages", token, map[string]any{
+		"name": "Tiny", "domains": 1, "subdomains": 0, "alias_domains": 0,
+		"databases": 1, "mailboxes": 1, "cron_jobs": 1, "application_instances": 1,
+		"disk_bytes": 8,
+	})
+	created := post(t, srv.URL+"/api/v1/accounts", token, map[string]string{
+		"username": "tiny1", "primary_domain": "tiny.test", "package_id": pkg["id"].(string),
+		"owner_email": "o@tiny.test", "owner_password": "TenantPass!2026",
+	})
+	aid := created["resource_id"].(string)
+	code, body := postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/domains", token, map[string]string{
+		"fqdn": "addon.tiny.test", "type": "addon",
+	})
+	if code != 403 {
+		t.Fatalf("addon domain: %d %v", code, body)
+	}
+	if err, _ := body["error"].(map[string]any); err == nil || err["code"] != "PACKAGE_LIMIT" {
+		t.Fatalf("code: %v", body)
+	}
+	code, _ = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/databases", token, map[string]string{"name": "one", "engine": "mariadb"})
+	if code >= 400 {
+		t.Fatalf("first db should succeed: %d", code)
+	}
+	code, body = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/databases", token, map[string]string{"name": "two", "engine": "mariadb"})
+	if code != 403 {
+		t.Fatalf("second db: %d %v", code, body)
+	}
+	code, body = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/files", token, map[string]string{
+		"path": "/public_html/big.txt", "content": "0123456789",
+	})
+	if code != 403 {
+		t.Fatalf("disk quota: %d %v", code, body)
+	}
+}
+
+func postStatus(t *testing.T, url, token string, body any) (int, map[string]any) {
+	t.Helper()
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(res.Body).Decode(&out)
+	return res.StatusCode, out
+}
+
 func get(t *testing.T, url, token string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)

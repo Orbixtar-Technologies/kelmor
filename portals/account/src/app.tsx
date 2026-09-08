@@ -219,23 +219,61 @@ function Domains ({ accountId }: { accountId: string }) {
 function DNS ({ accountId }: { accountId: string }) {
 	const [zones, setZones] = useState<any[]>([])
 	const [records, setRecords] = useState<any[]>([])
-	useEffect(() => {
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones`).then(async (r) => {
-			setZones(r.items)
-			if (r.items[0]) {
-				const rec = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${r.items[0].id}/records`)
-				setRecords(rec.items)
-			}
-		})
-	}, [accountId])
+	const [msg, setMsg] = useState('')
+	async function load () {
+		const r = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones`)
+		setZones(r.items)
+		if (r.items[0]) {
+			const rec = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${r.items[0].id}/records`)
+			setRecords(rec.items)
+		} else {
+			setRecords([])
+		}
+	}
+	useEffect(() => { load().catch((e) => setMsg(e instanceof Error ? e.message : 'failed')) }, [accountId])
 	return (
 		<>
 			<h1>DNS</h1>
 			{zones.length === 0 ? <p>No zones yet. They appear after account provisioning completes.</p> : (
-				<table>
-					<thead><tr><th>Name</th><th>Type</th><th>Content</th></tr></thead>
-					<tbody>{records.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.type}</td><td>{r.content}</td></tr>)}</tbody>
-				</table>
+				<>
+					<form onSubmit={async (e) => {
+						e.preventDefault()
+						const fd = new FormData(e.currentTarget)
+						try {
+							await api(`/api/v1/accounts/${accountId}/dns/zones/${zones[0].id}/records`, {
+								method: 'POST',
+								body: JSON.stringify({
+									name: fd.get('name'),
+									type: fd.get('type'),
+									content: fd.get('content'),
+									ttl: Number(fd.get('ttl') || 300),
+								}),
+							})
+							setMsg('Record queued for sync')
+							await load()
+						} catch (err) {
+							setMsg(err instanceof Error ? err.message : 'failed')
+						}
+					}}>
+						<input name="name" placeholder="www" required />
+						<select name="type">
+							<option value="A">A</option>
+							<option value="AAAA">AAAA</option>
+							<option value="CNAME">CNAME</option>
+							<option value="MX">MX</option>
+							<option value="TXT">TXT</option>
+							<option value="NS">NS</option>
+						</select>
+						<input name="content" placeholder="203.0.113.10" required />
+						<input name="ttl" type="number" defaultValue={300} min={60} />
+						<button type="submit">Add record</button>
+					</form>
+					{msg ? <p>{msg}</p> : null}
+					<table>
+						<thead><tr><th>Name</th><th>Type</th><th>Content</th></tr></thead>
+						<tbody>{records.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.type}</td><td>{r.content}</td></tr>)}</tbody>
+					</table>
+				</>
 			)}
 		</>
 	)

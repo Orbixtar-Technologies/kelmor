@@ -5,7 +5,7 @@ A desired-state hosting operating platform for **Ubuntu 24.04 LTS**. It exposes 
 - **Server Portal** — host, reseller and package administration
 - **Account Portal** — tenant websites, DNS, mail, files and backups
 
-The control plane is written in Go. Portals never write Nginx, `/etc/passwd`, or systemd units. They call the API, which records desired state and durable jobs. Workers call a typed privileged agent.
+The control plane is written in Go. Portals never write Nginx, `/etc/passwd`, or systemd units. They call the API, which records desired state and durable jobs. Workers call a typed privileged agent. Package limits (domains, mailboxes, databases, cron, applications) are enforced on create. File writes are rejected when the account home would exceed `disk_bytes` even if the kernel has no usrquota support.
 
 This repository is the first production slice of that architecture: schema, auth/RBAC/audit, job engine, agent operations, both portals, CLI, and a resumable installer. Full Ubuntu service installation (Postfix, PowerDNS, MariaDB, …) is orchestrated by installer phases and is intended to run on a clean 24.04 host, not inside a containerized control plane.
 

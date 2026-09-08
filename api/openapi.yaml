@@ -181,6 +181,7 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+        "403": { description: package domain limit exceeded }
   /accounts/{accountID}/websites:
     get:
       operationId: listWebsites
@@ -211,6 +212,7 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+        "403": { description: package database limit exceeded }
   /accounts/{accountID}/mail/mailboxes:
     get:
       operationId: listMailboxes
@@ -226,6 +228,7 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+        "403": { description: package mailbox limit exceeded }
   /jobs:
     get:
       operationId: listJobs
@@ -292,6 +295,7 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "200": { description: written via agent }
+        "403": { description: package disk quota exceeded }
   /accounts/{accountID}/sftp-password:
     post:
       operationId: setSFTPPassword

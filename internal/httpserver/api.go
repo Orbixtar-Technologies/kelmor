@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,7 @@ import (
 	"github.com/hosting-panel/panel/agent/policy"
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
+	"github.com/hosting-panel/panel/internal/limits"
 	"github.com/hosting-panel/panel/internal/migration"
 	"github.com/hosting-panel/panel/internal/monitoring"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
@@ -999,6 +1001,10 @@ func (a *API) createDomain(w http.ResponseWriter, r *http.Request) {
 	if in.Type == "" {
 		in.Type = "addon"
 	}
+	if err := a.enforceDomainLimit(aid, in.Type); err != nil {
+		a.rejectLimit(w, r, err)
+		return
+	}
 	acc := a.Store.GetAccount(aid)
 	d := &store.Domain{ID: id.New(), AccountID: aid, FQDN: ascii, ASCII: ascii, Type: in.Type, DocumentRoot: acc.HomePath + "/" + ascii, DNSManaged: true, Status: "provisioning"}
 	a.Store.PutDomain(d)
@@ -1053,6 +1059,10 @@ func (a *API) createApp(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.ApplicationsWrite) {
 		return
 	}
+	if err := a.enforceCountLimit(aid, "applications", len(a.Store.ListApps(aid)), func(p *store.Package) int { return p.ApplicationInstances }); err != nil {
+		a.rejectLimit(w, r, err)
+		return
+	}
 	var in store.Application
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	in.ID = id.New()
@@ -1076,6 +1086,10 @@ func (a *API) listDBs(w http.ResponseWriter, r *http.Request) {
 func (a *API) createDB(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.DatabasesWrite) {
+		return
+	}
+	if err := a.enforceCountLimit(aid, "databases", len(a.Store.ListDBs(aid)), func(p *store.Package) int { return p.Databases }); err != nil {
+		a.rejectLimit(w, r, err)
 		return
 	}
 	var in struct {
@@ -1185,12 +1199,20 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: in.LocalPart, QuotaBytes: 1 << 30, PasswordHash: hash, Status: "provisioning"}
+	updating := false
 	for _, existing := range a.Store.ListMailboxes(aid) {
 		if existing.DomainID == md.ID && existing.LocalPart == in.LocalPart {
 			existing.PasswordHash = hash
 			existing.Status = "provisioning"
 			mb = &existing
+			updating = true
 			break
+		}
+	}
+	if !updating {
+		if err := a.enforceCountLimit(aid, "mailboxes", len(a.Store.ListMailboxes(aid)), func(p *store.Package) int { return p.Mailboxes }); err != nil {
+			a.rejectLimit(w, r, err)
+			return
 		}
 	}
 	a.Store.PutMailbox(mb)
@@ -1318,6 +1340,10 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "PATH_DENIED", err.Error(), false)
 		return
 	}
+	if err := a.enforceDiskQuota(r.Context(), acc, int64(len(in.Content))); err != nil {
+		a.rejectLimit(w, r, err)
+		return
+	}
 	mode := uint32(0o640)
 	if strings.Contains(clean, "/public_html/") || strings.HasSuffix(clean, "/public_html") {
 		mode = 0o644
@@ -1351,6 +1377,10 @@ func (a *API) createCron(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validate.CronCommand(c.Command); err != nil {
 		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	if err := a.enforceCountLimit(aid, "cron_jobs", len(a.Store.ListCrons(aid)), func(p *store.Package) int { return p.CronJobs }); err != nil {
+		a.rejectLimit(w, r, err)
 		return
 	}
 	if acc := a.Store.GetAccount(aid); acc != nil && c.WorkingDirectory == "" {
@@ -1521,6 +1551,61 @@ func (a *API) logAuthFailure(ip, username string) {
 	}
 	_, _ = f.Write(append(rec, '\n'))
 	_ = f.Close()
+}
+
+func (a *API) accountPackage(accountID string) *store.Package {
+	acc := a.Store.GetAccount(accountID)
+	if acc == nil || acc.PackageID == "" {
+		return nil
+	}
+	return a.Store.GetPackage(acc.PackageID)
+}
+
+func (a *API) enforceDomainLimit(accountID, typ string) error {
+	pkg := a.accountPackage(accountID)
+	kind := limits.DomainKind(typ)
+	return limits.Enforce(limits.CountDomains(a.Store, accountID, kind), limits.DomainLimit(pkg, typ), kind)
+}
+
+func (a *API) enforceCountLimit(accountID, kind string, used int, limitFn func(*store.Package) int) error {
+	pkg := a.accountPackage(accountID)
+	limit := 0
+	if pkg != nil {
+		limit = limitFn(pkg)
+	}
+	return limits.Enforce(used, limit, kind)
+}
+
+func (a *API) enforceDiskQuota(ctx context.Context, acc *store.Account, incoming int64) error {
+	if acc == nil {
+		return nil
+	}
+	pkg := a.accountPackage(acc.ID)
+	if pkg == nil || pkg.DiskBytes <= 0 || a.Agent == nil {
+		return nil
+	}
+	params, _ := json.Marshal(map[string]any{"username": acc.Username, "home": acc.HomePath})
+	raw, err := a.Agent.Dispatch(ctx, operations.Request{Method: "MeasureAccountUsage", Params: params})
+	if err != nil {
+		return limits.Check{Kind: "disk_bytes", Limit: pkg.DiskBytes, Used: pkg.DiskBytes}
+	}
+	b, _ := json.Marshal(raw)
+	var u operations.AccountUsage
+	_ = json.Unmarshal(b, &u)
+	return limits.DiskWouldExceed(u.DiskBytes, incoming, pkg.DiskBytes)
+}
+
+func (a *API) rejectLimit(w http.ResponseWriter, r *http.Request, err error) {
+	var c limits.Check
+	if errors.As(err, &c) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": map[string]any{
+			"code": "PACKAGE_LIMIT", "message": c.Error(),
+			"request_id": logging.RequestID(r.Context()),
+			"details":    map[string]any{"kind": c.Kind, "used": c.Used, "limit": c.Limit},
+		}})
+		return
+	}
+	a.fail(w, r, http.StatusForbidden, "PACKAGE_LIMIT", err.Error(), false)
 }
 
 func (a *API) fail(w http.ResponseWriter, r *http.Request, status int, code, msg string, _ bool) {
