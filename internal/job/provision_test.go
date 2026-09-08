@@ -190,6 +190,7 @@ func TestRestoreDoesNotUnsuspend(t *testing.T) {
 	acc.Status = "suspended"
 	acc.DesiredRevision++
 	st.PutAccount(acc)
+	_ = os.Chmod(filepath.Join(root, "home", "rs42"), 0o755)
 	if err := w.restoreBackup(&store.Job{Payload: map[string]any{"backup_id": b.ID, "account_id": acc.ID}}); err != nil {
 		t.Fatal(err)
 	}
