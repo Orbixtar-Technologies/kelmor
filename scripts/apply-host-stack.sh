@@ -132,6 +132,8 @@ if [[ ! -s /var/lib/clamav/panel.ndb ]]; then
   sudo chown -R clamav:clamav /var/lib/clamav /run/clamav 2>/dev/null || true
 fi
 if [[ -x /usr/sbin/clamd ]] && ! pgrep -x clamd >/dev/null; then
+  grep -q '^PidFile' /etc/clamav/clamd.conf || echo 'PidFile /run/clamav/clamd.pid' | sudo tee -a /etc/clamav/clamd.conf >/dev/null
+  grep -q '^TCPSocket' /etc/clamav/clamd.conf || echo 'TCPSocket 3310' | sudo tee -a /etc/clamav/clamd.conf >/dev/null
   sudo /usr/sbin/clamd --config-file=/etc/clamav/clamd.conf || true
 fi
 if [[ -f /etc/nginx/modules-enabled/50-mod-http-modsecurity.conf ]]; then

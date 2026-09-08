@@ -1257,24 +1257,35 @@ func clientIP(r *http.Request) string {
 }
 
 func defaultServices() []map[string]any {
-	type probe struct{ name, pid string }
+	type probe struct{ name, pid, addr string }
 	probes := []probe{
-		{"nginx", "/run/nginx.pid"},
-		{"php-fpm", "/run/php/php8.3-fpm.pid"},
-		{"mariadb", "/run/mysqld/mysqld.pid"},
-		{"postgresql", "/var/run/postgresql/16-main.pid"},
-		{"postfix", "/var/spool/postfix/pid/master.pid"},
-		{"dovecot", "/run/dovecot/master.pid"},
-		{"pdns", "/run/pdns.pid"},
-		{"rspamd", "/run/rspamd/rspamd.pid"},
-		{"clamav", "/run/clamav/clamd.pid"},
-		{"sshd", "/run/sshd.pid"},
+		{"nginx", "/run/nginx.pid", "127.0.0.1:80"},
+		{"php-fpm", "/run/php/php8.3-fpm.pid", ""},
+		{"mariadb", "/run/mysqld/mysqld.pid", "127.0.0.1:3306"},
+		{"postgresql", "/var/run/postgresql/16-main.pid", ""},
+		{"postfix", "/var/spool/postfix/pid/master.pid", "127.0.0.1:25"},
+		{"dovecot", "/run/dovecot/master.pid", "127.0.0.1:993"},
+		{"pdns", "/run/pdns.pid", "127.0.0.1:53"},
+		{"rspamd", "/run/rspamd/rspamd.pid", "127.0.0.1:11332"},
+		{"clamav", "/run/clamav/clamd.pid", "unix:/run/clamav/clamd.ctl"},
+		{"sshd", "/run/sshd.pid", "127.0.0.1:22"},
 	}
 	out := []map[string]any{}
 	for _, p := range probes {
 		running := false
 		if b, err := os.ReadFile(p.pid); err == nil && len(bytesTrim(b)) > 0 {
 			running = true
+		}
+		if !running && p.addr != "" {
+			network, addr := "tcp", p.addr
+			if strings.HasPrefix(p.addr, "unix:") {
+				network, addr = "unix", strings.TrimPrefix(p.addr, "unix:")
+			}
+			c, err := net.DialTimeout(network, addr, 150*time.Millisecond)
+			if err == nil {
+				_ = c.Close()
+				running = true
+			}
 		}
 		health := "stopped"
 		if running {
