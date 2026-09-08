@@ -71,7 +71,7 @@ func ensureFPM(version string) {
 		}
 	}
 	bin := "/usr/sbin/php-fpm" + version
-	_ = startDetached(bin, "/")
+	_, _ = startDetached(bin, "/")
 }
 
 func (h *Host) applySlice(username string, cpu int, memory int64, tasks int) (Result, error) {
@@ -84,6 +84,9 @@ func (h *Host) applySlice(username string, cpu int, memory int64, tasks int) (Re
 	body := configuration.SystemdSlice(username, cpu, memory, tasks)
 	_, err := h.ApplyFile("/etc/systemd/system/panel-account-"+username+".slice", []byte(body), 0o644)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := h.applyCgroupLimits(username, cpu, memory, tasks); err != nil {
 		return Result{}, err
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil

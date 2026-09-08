@@ -67,14 +67,14 @@ func runFixed(bin string, args ...string) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
-func startDetached(bin, dir string, args ...string) error {
+func startDetached(bin, dir string, args ...string) (int, error) {
 	bin = filepath.Clean(bin)
 	if !allowedBins[bin] {
-		return fmt.Errorf("executable not allow-listed")
+		return 0, fmt.Errorf("executable not allow-listed")
 	}
 	for _, a := range args {
 		if strings.ContainsAny(a, ";|&$`\n") {
-			return fmt.Errorf("illegal argument")
+			return 0, fmt.Errorf("illegal argument")
 		}
 	}
 	cmd := exec.Command(bin, args...)
@@ -83,7 +83,13 @@ func startDetached(bin, dir string, args ...string) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	if cmd.Process != nil {
+		return cmd.Process.Pid, nil
+	}
+	return 0, nil
 }
 
 func (h *Host) live() bool {

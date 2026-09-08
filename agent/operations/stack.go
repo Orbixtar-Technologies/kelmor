@@ -133,9 +133,13 @@ func startAccountProcess(account, workDir, runtime string) error {
 				bin = "/usr/bin/nodejs"
 			}
 		}
-		return startDetached("/usr/sbin/runuser", workDir, "-u", account, "--", bin, "server.js")
+		pid, err := startDetached("/usr/sbin/runuser", workDir, "-u", account, "--", bin, "server.js")
+		attachPID(accountCgroupDir(account), pid)
+		return err
 	case "python":
-		return startDetached("/usr/sbin/runuser", workDir, "-u", account, "--", "/usr/bin/python3", "app.py")
+		pid, err := startDetached("/usr/sbin/runuser", workDir, "-u", account, "--", "/usr/bin/python3", "app.py")
+		attachPID(accountCgroupDir(account), pid)
+		return err
 	default:
 		return nil
 	}
