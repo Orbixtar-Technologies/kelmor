@@ -269,9 +269,19 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			Engine   string `json:"engine"`
 			Name     string `json:"name"`
 			Username string `json:"username"`
+			DropUser bool   `json:"drop_user"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.dropHostedDatabase(p.Engine, p.Name, p.Username)
+		return h.dropHostedDatabase(p.Engine, p.Name, p.Username, p.DropUser)
+	case "RemoveManagedFile":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		h.removeManaged(p.Path)
+		return Result{OK: true, ObservedState: "absent"}, nil
 	case "ApplyMailMaps":
 		virtual, domains, passwd, uids, gids, sendLimits, aliases, err := decodeMaps(req.Params)
 		if err != nil {

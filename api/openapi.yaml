@@ -316,6 +316,18 @@ paths:
       responses:
         "202": { description: queued }
         "403": { description: package database limit exceeded }
+  /accounts/{accountID}/databases/{databaseID}:
+    delete:
+      operationId: deleteDatabase
+      x-capability: databases.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: databaseID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: drop queued }
   /accounts/{accountID}/mail/mailboxes:
     get:
       operationId: listMailboxes

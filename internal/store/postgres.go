@@ -487,6 +487,10 @@ func (p *PG) ListDBs(accountID string) []HostedDatabase {
 	return out
 }
 
+func (p *PG) DeleteDB(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM hosted_databases WHERE id=$1`, id)
+}
+
 func (p *PG) PutDBUser(u *DatabaseUser) {
 	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO database_users (id, account_id, username, engine, password_enc) VALUES ($1,$2,$3,$4,'') ON CONFLICT (id) DO NOTHING`, u.ID, u.AccountID, u.Username, u.Engine)
 }

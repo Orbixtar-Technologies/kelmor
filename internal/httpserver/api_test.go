@@ -481,6 +481,38 @@ func TestMailAliasAndMailboxDelete(t *testing.T) {
 	}
 }
 
+func TestDeleteDatabaseAndCertOwnership(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "dblab1", "primary_domain": "dblab.test", "package_id": pkg,
+		"owner_email": "o@dblab.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	created := post(t, srv.URL+"/api/v1/accounts/"+aid+"/databases", admin, map[string]any{"name": "scratch", "engine": "mariadb"})
+	db := created["database"].(map[string]any)
+	if db["name"] != "dblab1_scratch" {
+		t.Fatalf("%v", created)
+	}
+	did := db["id"].(string)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/databases/"+did, admin, nil) != 202 {
+		t.Fatal("delete database")
+	}
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/certificates", admin, map[string]any{"hostname": "evil.example"}) != 400 {
+		t.Fatal("foreign cert hostname")
+	}
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/certificates", admin, map[string]any{"hostname": "dblab.test"}) != 202 {
+		t.Fatal("owned cert hostname")
+	}
+}
+
 func get(t *testing.T, url, token string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)

@@ -26,6 +26,7 @@ panel-cli ssh-key delete <account-id> <key-id>
 panel-cli dnssec enable <account-id> <zone-id>
 panel-cli dnssec ds <account-id> <zone-id>
 panel-cli db create <account-id> shop mariadb
+panel-cli db delete <account-id> <database-id>
 panel-cli domain create <account-id> python.example.test python
 panel-cli website create <account-id> <domain-id> node
 panel-cli wordpress install <account-id> <website-id> 'My site' wpadmin 'WpAdmin!2026' owner@example.test

@@ -41,6 +41,7 @@ func main() {
   dnssec disable <account_id> <zone_id>
   dnssec ds <account_id> <zone_id>
   db create <account_id> <name> <engine>
+  db delete <account_id> <database_id>
   website create <account_id> <domain_id> <runtime>
   wordpress install <account_id> <website_id> <title> <admin> <password> <email>
   domain create <account_id> <fqdn> [runtime] [type]
@@ -122,6 +123,8 @@ func main() {
 		do(http.MethodDelete, base+"/api/v1/accounts/"+args[3]+"/mail/aliases/"+args[4], token, nil, true)
 	case args[0] == "db" && len(args) == 5 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/databases", token, map[string]any{"name": args[3], "engine": args[4]})
+	case args[0] == "db" && args[1] == "delete" && len(args) == 4:
+		do(http.MethodDelete, base+"/api/v1/accounts/"+args[2]+"/databases/"+args[3], token, nil, true)
 	case args[0] == "domain" && len(args) >= 4 && args[1] == "create":
 		body := map[string]any{"fqdn": args[3]}
 		if len(args) >= 5 {

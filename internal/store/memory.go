@@ -314,6 +314,11 @@ func (m *Memory) ListDBs(accountID string) []HostedDatabase {
 	}
 	return out
 }
+func (m *Memory) DeleteDB(id string) {
+	m.mu.Lock()
+	delete(m.DBs, id)
+	m.mu.Unlock()
+}
 func (m *Memory) PutDBUser(u *DatabaseUser) { m.mu.Lock(); m.DBUsers[u.ID] = u; m.mu.Unlock() }
 func (m *Memory) ListDBUsers(accountID string) []DatabaseUser {
 	m.mu.RLock()

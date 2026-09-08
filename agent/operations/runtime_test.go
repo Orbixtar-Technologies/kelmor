@@ -13,10 +13,10 @@ func TestIdent(t *testing.T) {
 
 func TestDropHostedDatabaseRejectsIdent(t *testing.T) {
 	h := &Host{Root: t.TempDir()}
-	if _, err := h.dropHostedDatabase("mariadb", "bad-name", "okuser"); err == nil {
+	if _, err := h.dropHostedDatabase("mariadb", "bad-name", "okuser", true); err == nil {
 		t.Fatal("expected invalid identifier")
 	}
-	res, err := h.dropHostedDatabase("mariadb", "okdb", "okuser")
+	res, err := h.dropHostedDatabase("mariadb", "okdb", "okuser", true)
 	if err != nil || !res.OK {
 		t.Fatalf("%v %#v", err, res)
 	}

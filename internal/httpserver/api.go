@@ -102,6 +102,7 @@ func (a *API) Handler() http.Handler {
 				r.Post("/wordpress", a.installWordPress)
 				r.Get("/databases", a.listDBs)
 				r.Post("/databases", a.createDB)
+				r.Delete("/databases/{databaseID}", a.deleteDB)
 				r.Get("/dns/zones", a.listZones)
 				r.Get("/dns/zones/{zoneID}/records", a.listRecords)
 				r.Post("/dns/zones/{zoneID}/records", a.createRecord)
@@ -1212,6 +1213,14 @@ func (a *API) createDB(w http.ResponseWriter, r *http.Request) {
 	if in.Engine == "" {
 		in.Engine = "mariadb"
 	}
+	if acc == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "account missing", false)
+		return
+	}
+	if err := validate.LocalPart(in.Name); err != nil || strings.Contains(in.Name, ".") {
+		a.fail(w, r, 400, "VALIDATION", "database name must be a simple identifier", false)
+		return
+	}
 	name := acc.Username + "_" + in.Name
 	d := &store.HostedDatabase{ID: id.New(), AccountID: aid, Engine: in.Engine, Name: name, Status: "provisioning"}
 	if len(a.Store.ListDBUsers(aid)) == 0 {
@@ -1226,6 +1235,25 @@ func (a *API) createDB(w http.ResponseWriter, r *http.Request) {
 	}
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "database.provision", ResourceType: "database", ResourceID: d.ID, Payload: map[string]any{"database_id": d.ID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "database": d})
+}
+
+func (a *API) deleteDB(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.DatabasesWrite) {
+		return
+	}
+	d := a.Store.GetDB(chi.URLParam(r, "databaseID"))
+	if d == nil || d.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "database missing", false)
+		return
+	}
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "database.delete", ResourceType: "database", ResourceID: d.ID,
+		Payload: map[string]any{"database_id": d.ID},
+		State:   "queued",
+	})
+	a.audit(r, "database.delete", "database", d.ID, true, map[string]any{"name": d.Name, "engine": d.Engine}, nil)
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
 func (a *API) listZones(w http.ResponseWriter, r *http.Request) {
@@ -1615,6 +1643,23 @@ func (a *API) requestCert(w http.ResponseWriter, r *http.Request) {
 		Hostname string `json:"hostname"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
+	host, err := validate.NormalizeDomain(in.Hostname)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	owned := false
+	for _, d := range a.Store.ListDomains(aid) {
+		if d.ASCII == host {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		a.fail(w, r, 400, "VALIDATION", "hostname must be a domain on this account", false)
+		return
+	}
+	in.Hostname = host
 	c := &store.Certificate{ID: id.New(), AccountID: aid, Hostname: in.Hostname, Kind: "domain", Status: "requested"}
 	a.Store.PutCert(c)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "certificate.provision", ResourceType: "certificate", ResourceID: c.ID, Payload: map[string]any{"certificate_id": c.ID}, State: "queued"})

@@ -46,6 +46,7 @@ type Store interface {
 	PutDB(*HostedDatabase)
 	GetDB(string) *HostedDatabase
 	ListDBs(accountID string) []HostedDatabase
+	DeleteDB(id string)
 	PutDBUser(*DatabaseUser)
 	ListDBUsers(accountID string) []DatabaseUser
 

@@ -144,6 +144,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.installWordPress(j)
 	case "database.provision":
 		return w.provisionDB(j)
+	case "database.delete":
+		return w.deleteDB(j)
 	case "dns.sync":
 		return w.syncDNS(j)
 	case "mailbox.provision":
@@ -256,7 +258,7 @@ func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
 		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "DropHostedDatabase",
 			Params: mustJSON(map[string]any{
-				"engine": d.Engine, "name": d.Name, "username": acc.Username + "_u",
+				"engine": d.Engine, "name": d.Name, "username": acc.Username + "_u", "drop_user": true,
 			}),
 		})
 		if err != nil {
@@ -580,6 +582,39 @@ func (w *Worker) provisionDB(j *store.Job) error {
 	_, _ = w.Agent.ApplyFile("/home/"+acc.Username+"/.panel-database."+d.Engine, []byte(note), 0o600)
 	d.Status = "active"
 	w.Store.PutDB(d)
+	return nil
+}
+
+func (w *Worker) deleteDB(j *store.Job) error {
+	d := w.Store.GetDB(str(j.Payload["database_id"]))
+	if d == nil {
+		return nil
+	}
+	acc := w.Store.GetAccount(d.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	remaining := 0
+	for _, other := range w.Store.ListDBs(acc.ID) {
+		if other.ID != d.ID && other.Status != "terminated" {
+			remaining++
+		}
+	}
+	dropUser := remaining == 0
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "DropHostedDatabase",
+		Params: mustJSON(map[string]any{
+			"engine": d.Engine, "name": d.Name, "username": acc.Username + "_u", "drop_user": dropUser,
+		}),
+	})
+	if err != nil {
+		return err
+	}
+	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "RemoveManagedFile",
+		Params: mustJSON(map[string]any{"path": "/home/" + acc.Username + "/.panel-database." + d.Engine + "." + d.Name}),
+	})
+	w.Store.DeleteDB(d.ID)
 	return nil
 }
 

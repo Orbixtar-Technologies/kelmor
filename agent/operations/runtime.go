@@ -162,8 +162,11 @@ func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Resu
 	return Result{OK: true, ObservedState: "active"}, nil
 }
 
-func (h *Host) dropHostedDatabase(engine, name, dbUser string) (Result, error) {
-	if !ident(name) || !ident(dbUser) {
+func (h *Host) dropHostedDatabase(engine, name, dbUser string, dropUser bool) (Result, error) {
+	if !ident(name) {
+		return Result{}, fmt.Errorf("invalid database identifier")
+	}
+	if dropUser && !ident(dbUser) {
 		return Result{}, fmt.Errorf("invalid database identifier")
 	}
 	if !h.live() {
@@ -171,10 +174,9 @@ func (h *Host) dropHostedDatabase(engine, name, dbUser string) (Result, error) {
 	}
 	switch engine {
 	case "mariadb", "mysql":
-		stmts := []string{
-			fmt.Sprintf("DROP DATABASE IF EXISTS %s", name),
-			fmt.Sprintf("DROP USER IF EXISTS '%s'@'localhost'", dbUser),
-			"FLUSH PRIVILEGES",
+		stmts := []string{fmt.Sprintf("DROP DATABASE IF EXISTS %s", name)}
+		if dropUser {
+			stmts = append(stmts, fmt.Sprintf("DROP USER IF EXISTS '%s'@'localhost'", dbUser), "FLUSH PRIVILEGES")
 		}
 		for _, stmt := range stmts {
 			out, err := runFixed("/usr/bin/mariadb", "-e", stmt)
@@ -186,7 +188,9 @@ func (h *Host) dropHostedDatabase(engine, name, dbUser string) (Result, error) {
 		if out, err := runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "DROP DATABASE IF EXISTS "+name); err != nil {
 			return Result{}, fmt.Errorf("psql: %s", strings.TrimSpace(string(out)))
 		}
-		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "DROP USER IF EXISTS "+dbUser)
+		if dropUser {
+			_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "DROP USER IF EXISTS "+dbUser)
+		}
 	default:
 		return Result{}, fmt.Errorf("unsupported engine")
 	}

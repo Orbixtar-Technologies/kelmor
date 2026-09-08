@@ -506,7 +506,17 @@ function Databases ({ accountId }: { accountId: string }) {
 				<button type="submit">Create database</button>
 			</form>
 			</Can>
-			<ul>{items.map((d) => <li key={d.id}>{d.name} ({d.engine}) {d.status}</li>)}</ul>
+			<ul>{items.map((d) => (
+				<li key={d.id}>
+					{d.name} ({d.engine}) {d.status}
+					<Can cap="databases.write">
+						<button type="button" onClick={async () => {
+							await api(`/api/v1/accounts/${accountId}/databases/${d.id}`, { method: 'DELETE' })
+							setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/databases`)))
+						}}>Delete</button>
+					</Can>
+				</li>
+			))}</ul>
 		</>
 	)
 }
