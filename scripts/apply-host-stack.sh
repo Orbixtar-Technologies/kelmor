@@ -16,7 +16,8 @@ sudo chmod 0755 /var/vmail
 
 sudo install -d -m 0755 /var/lib/panel /var/lib/panel/dns /var/lib/panel/dns/zones
 sudo chgrp ubuntu /var/lib/panel /var/lib/panel/backups /var/lib/panel/backups/staging /run/panel || true
-sudo chmod 0775 /var/lib/panel/backups /var/lib/panel/backups/staging /run/panel || true
+sudo chmod 0775 /var/lib/panel/backups /var/lib/panel/backups/staging || true
+sudo chmod 0751 /run/panel || true
 
 if [[ ! -f /var/lib/panel/certs/imap.panel.local.crt ]]; then
   sudo openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \

@@ -400,7 +400,7 @@ func (h *Host) CreateDirectoryTree(path string, mode uint32) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if mode == 0 || hostingDirMode(p) == 0o755 {
+	if mode == 0 {
 		mode = uint32(hostingDirMode(p))
 	}
 	if err := os.MkdirAll(p, os.FileMode(mode)); err != nil {
@@ -466,6 +466,11 @@ func (h *Host) chownAccountPath(p string) {
 	gid, err2 := strconv.Atoi(u.Gid)
 	if err1 != nil || err2 != nil {
 		return
+	}
+	if strings.Contains(p, "/public_html") {
+		if wg := webServerGID(); wg > 0 {
+			gid = wg
+		}
 	}
 	_ = os.Chown(p, uid, gid)
 }

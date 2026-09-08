@@ -114,9 +114,9 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 	if h.live() {
 		_, _ = runFixed("/bin/systemctl", "daemon-reload")
 		_, _ = runFixed("/bin/systemctl", "start", "panel-app-"+websiteID+".service")
-		if _, err := os.Stat(sock); err != nil {
-			_ = startAccountProcess(account, workDir, runtime)
-		}
+		// systemd unit start is often blocked (policy-rc.d); always
+		// launch the unix-socket process as the account user.
+		_ = startAccountProcess(account, workDir, runtime)
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
 }

@@ -212,6 +212,6 @@ func (h *Host) copyHomedir(username, source, dest string) (Result, error) {
 		return Result{}, err
 	}
 	pub := filepath.Join(dst, "public_html")
-	_ = os.Chmod(pub, 0o755)
+	_ = os.Chmod(pub, hostingDirMode(pub))
 	return Result{OK: true, Message: fmt.Sprintf("copied %d files", copied), ObservedState: "copied"}, nil
 }

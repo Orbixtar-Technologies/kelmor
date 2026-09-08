@@ -15,6 +15,20 @@ func TestNginxSiteValid(t *testing.T) {
 	}
 }
 
+func TestNginxPythonProxiesOnHTTPS(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{
+		WebsiteID: "py1", Domain: "python.acme.test", DocumentRoot: "/home/acme/python",
+		Runtime: "python", TLSCert: "/var/lib/panel/certs/python.acme.test.crt",
+		TLSKey: "/var/lib/panel/certs/python.acme.test.key",
+	})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "unix:/run/panel/apps/py1.sock") {
+		t.Fatal(conf)
+	}
+}
+
 func TestPHPPool(t *testing.T) {
 	p := PHPPool("acme42", "8.5", 8)
 	if p == "" || !contains(p, "open_basedir") {

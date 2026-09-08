@@ -26,7 +26,10 @@ func main() {
 			sock = "var/panel/run/agent.sock"
 		}
 	}
-	_ = os.MkdirAll(dir(sock), 0o750)
+	_ = os.MkdirAll(dir(sock), 0o751)
+	// nginx (www-data) must traverse to /run/panel/apps/*.sock;
+	// the agent socket itself stays 0660 root:panel.
+	_ = os.Chmod(dir(sock), 0o751)
 	_ = os.Remove(sock)
 	ln, err := net.Listen("unix", sock)
 	if err != nil {

@@ -12,30 +12,65 @@ import (
 )
 
 func hostingDirMode(path string) os.FileMode {
-	if strings.HasSuffix(filepath.Clean(path), "public_html") {
-		return 0o755
-	}
+	// public_html is 0750 (owner + web group). World-readable 0755
+	// lets one tenant read another tenant's files.
+	_ = path
 	return 0o750
+}
+
+func webServerGID() int {
+	for _, name := range []string{"www-data", "nginx"} {
+		g, err := user.LookupGroup(name)
+		if err != nil {
+			continue
+		}
+		id, err := strconv.Atoi(g.Gid)
+		if err == nil {
+			return id
+		}
+	}
+	return -1
 }
 
 func hardenSFTPHome(home string, uid, gid int) error {
 	if err := os.Chown(home, 0, 0); err != nil {
 		return err
 	}
-	if err := os.Chmod(home, 0o755); err != nil {
+	// 0751: nginx can traverse; other tenants cannot list or write.
+	if err := os.Chmod(home, 0o751); err != nil {
 		return err
 	}
+	webgid := webServerGID()
 	for _, d := range []string{"public_html", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
 		p := filepath.Join(home, d)
 		mode := os.FileMode(0o750)
-		if d == "public_html" {
-			mode = 0o755
-		}
 		_ = os.MkdirAll(p, mode)
 		_ = os.Chmod(p, mode)
-		_ = os.Chown(p, uid, gid)
+		ownGid := gid
+		if d == "public_html" && webgid > 0 {
+			ownGid = webgid
+		}
+		_ = os.Chown(p, uid, ownGid)
+		if d == "public_html" {
+			hardenPublicFiles(p, uid, ownGid)
+		}
 	}
 	return nil
+}
+
+func hardenPublicFiles(dir string, uid, gid int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		_ = os.Chmod(p, 0o640)
+		_ = os.Chown(p, uid, gid)
+	}
 }
 
 func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell string) (Result, error) {

@@ -12,7 +12,7 @@ func applyHostRuntime(c Config) error {
 	if c.Dev {
 		return nil
 	}
-	_ = os.MkdirAll("/run/panel", 0o775)
+	_ = os.MkdirAll("/run/panel", 0o751)
 	starts := [][]string{
 		{"/usr/sbin/php-fpm8.3"},
 		{"/usr/sbin/nginx"},
