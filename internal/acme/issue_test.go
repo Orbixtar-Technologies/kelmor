@@ -27,6 +27,9 @@ func TestIssuerName(t *testing.T) {
 	if IssuerName("https://acme-staging-v02.api.letsencrypt.org/directory") != "letsencrypt-staging" {
 		t.Fatal("staging")
 	}
+	if IssuerName("https://127.0.0.1:14000/dir") != "pebble" {
+		t.Fatal("local pebble")
+	}
 }
 
 func TestIssueFallsBackToDevCert(t *testing.T) {

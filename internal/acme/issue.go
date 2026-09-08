@@ -185,7 +185,7 @@ func IssuerName(directory string) string {
 	switch {
 	case strings.Contains(directory, "staging"):
 		return "letsencrypt-staging"
-	case strings.Contains(directory, "pebble"):
+	case strings.Contains(directory, "pebble") || strings.Contains(directory, ":14000"):
 		return "pebble"
 	default:
 		return "letsencrypt"
