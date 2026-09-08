@@ -2,12 +2,29 @@ package operations
 
 import (
 	"fmt"
+	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
+
+func hardenSFTPHome(home string, uid, gid int) error {
+	if err := os.Chown(home, 0, 0); err != nil {
+		return err
+	}
+	if err := os.Chmod(home, 0o755); err != nil {
+		return err
+	}
+	for _, d := range []string{"public_html", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
+		p := filepath.Join(home, d)
+		_ = os.MkdirAll(p, 0o750)
+		_ = os.Chown(p, uid, gid)
+	}
+	return nil
+}
 
 func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell string) (Result, error) {
 	if err := validate.Username(username); err != nil {
@@ -28,14 +45,28 @@ func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell str
 		return h.CreateLinuxUser(username, uid, gid, home, shell)
 	}
 	if _, err := user.Lookup(username); err == nil {
+		_, _ = runFixed("/usr/sbin/usermod", "-aG", "panel-sftp", username)
+		_ = hardenSFTPHome(home, uid, gid)
 		return Result{OK: true, Message: "unix identity exists", ObservedState: "exists"}, nil
 	}
 	if out, err := runFixed("/usr/sbin/groupadd", "-g", strconv.Itoa(gid), username); err != nil && !strings.Contains(string(out), "already exists") {
 		return Result{}, fmt.Errorf("groupadd: %s", strings.TrimSpace(string(out)))
 	}
-	args := []string{"-u", strconv.Itoa(uid), "-g", strconv.Itoa(gid), "-d", home, "-s", shell, "-m", username}
+	if out, err := runFixed("/usr/sbin/groupadd", "panel-sftp"); err != nil && !strings.Contains(string(out), "already exists") {
+		return Result{}, fmt.Errorf("groupadd panel-sftp: %s", strings.TrimSpace(string(out)))
+	}
+	args := []string{"-u", strconv.Itoa(uid), "-g", strconv.Itoa(gid), "-d", home, "-s", shell, "-m", "-G", "panel-sftp", username}
 	if out, err := runFixed("/usr/sbin/useradd", args...); err != nil && !strings.Contains(string(out), "already exists") {
 		return Result{}, fmt.Errorf("useradd: %s", strings.TrimSpace(string(out)))
+	}
+	if _, err := user.Lookup(username); err == nil {
+		_, _ = runFixed("/usr/sbin/usermod", "-aG", "panel-sftp", username)
+	}
+	if _, err := h.CreateLinuxUser(username, uid, gid, home, shell); err != nil {
+		return Result{}, err
+	}
+	if err := hardenSFTPHome(home, uid, gid); err != nil {
+		return Result{}, err
 	}
 	return Result{OK: true, Message: "unix identity created", ObservedState: "exists"}, nil
 }

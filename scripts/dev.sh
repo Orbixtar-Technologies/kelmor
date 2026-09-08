@@ -5,6 +5,9 @@ export PANEL_DEV=1
 export PANEL_STATE_DIR="${PANEL_STATE_DIR:-$PWD/var/panel}"
 export PANEL_API_ADDR="${PANEL_API_ADDR:-127.0.0.1:18080}"
 export PANEL_DATABASE_URL="${PANEL_DATABASE_URL:-postgres:///panel_control?host=/var/run/postgresql}"
+if [[ -S /run/panel/agent.sock ]]; then
+  export PANEL_AGENT_SOCK="${PANEL_AGENT_SOCK:-/run/panel/agent.sock}"
+fi
 mkdir -p "$PANEL_STATE_DIR"
 go run ./cmd/panel-install --dev --non-interactive --hostname localhost --admin-email admin@localhost >/tmp/panel-install.out || true
 go run ./cmd/panel-dev

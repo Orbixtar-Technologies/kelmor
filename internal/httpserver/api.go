@@ -1037,26 +1037,24 @@ func (a *API) listFiles(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "PATH_DENIED", err.Error(), false)
 		return
 	}
-	root := a.Agent.Root
-	real := clean
-	if root != "" {
-		real = filepath.Join(root, strings.TrimPrefix(clean, "/"))
-	}
-	entries, err := os.ReadDir(real)
+	params, _ := json.Marshal(map[string]any{"path": clean})
+	raw, err := a.Agent.Dispatch(r.Context(), operations.Request{
+		Method: "ListDirectory",
+		Params: params,
+	})
 	if err != nil {
 		writeJSON(w, 200, map[string]any{"path": rel, "items": []any{}, "note": "directory not provisioned yet"})
 		return
 	}
-	items := []map[string]any{}
-	for _, e := range entries {
-		info, _ := e.Info()
-		sz := int64(0)
-		if info != nil {
-			sz = info.Size()
-		}
-		items = append(items, map[string]any{"name": e.Name(), "dir": e.IsDir(), "size": sz})
+	b, _ := json.Marshal(raw)
+	var listing struct {
+		Items []map[string]any `json:"items"`
 	}
-	writeJSON(w, 200, map[string]any{"path": rel, "items": items})
+	_ = json.Unmarshal(b, &listing)
+	if listing.Items == nil {
+		listing.Items = []map[string]any{}
+	}
+	writeJSON(w, 200, map[string]any{"path": rel, "items": listing.Items})
 }
 
 func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {

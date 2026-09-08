@@ -33,6 +33,14 @@ type Manifest struct {
 }
 
 func Build(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, home string) (Manifest, string, error) {
+	raw, err := packHome(home)
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	return BuildArchive(ctx, box, repo, acc, dbs, mail, raw)
+}
+
+func BuildArchive(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, raw []byte) (Manifest, string, error) {
 	man := Manifest{
 		FormatVersion: 1,
 		AccountID:     acc.ID,
@@ -48,10 +56,6 @@ func Build(ctx context.Context, box *secret.Box, repo Repository, acc *store.Acc
 	}
 	for _, m := range mail {
 		man.Mailboxes = append(man.Mailboxes, m.LocalPart)
-	}
-	raw, err := packHome(home)
-	if err != nil {
-		return man, "", err
 	}
 	sum := sha256.Sum256(raw)
 	man.Checksums["files.tar.gz"] = hex.EncodeToString(sum[:])
@@ -71,38 +75,45 @@ func Build(ctx context.Context, box *secret.Box, repo Repository, acc *store.Acc
 	if err := repo.Verify(ctx, key, man.Checksums["files.tar.gz"]); err != nil {
 		return man, "", err
 	}
-	_ = mb
 	return man, key, nil
 }
 
-func Restore(ctx context.Context, box *secret.Box, repo Repository, key, destHome string) (Manifest, error) {
+func OpenArchive(ctx context.Context, box *secret.Box, repo Repository, key string) (Manifest, []byte, error) {
 	enc, err := repo.Get(ctx, key)
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
 	plain, err := box.Decrypt(enc)
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
 	if !bytes.HasPrefix(plain, []byte("HPM1")) {
-		return Manifest{}, fmt.Errorf("unknown backup magic")
+		return Manifest{}, nil, fmt.Errorf("unknown backup magic")
 	}
 	rest := plain[4:]
 	i := bytes.IndexByte(rest, 0)
 	if i < 0 {
-		return Manifest{}, fmt.Errorf("corrupt backup")
+		return Manifest{}, nil, fmt.Errorf("corrupt backup")
 	}
 	var man Manifest
 	if err := json.Unmarshal(rest[:i], &man); err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
 	if man.FormatVersion != 1 {
-		return Manifest{}, fmt.Errorf("unsupported backup format %d", man.FormatVersion)
+		return Manifest{}, nil, fmt.Errorf("unsupported backup format %d", man.FormatVersion)
 	}
 	raw := rest[i+1:]
 	sum := sha256.Sum256(raw)
 	if man.Checksums["files.tar.gz"] != hex.EncodeToString(sum[:]) {
-		return Manifest{}, fmt.Errorf("checksum mismatch")
+		return Manifest{}, nil, fmt.Errorf("checksum mismatch")
+	}
+	return man, raw, nil
+}
+
+func Restore(ctx context.Context, box *secret.Box, repo Repository, key, destHome string) (Manifest, error) {
+	man, raw, err := OpenArchive(ctx, box, repo, key)
+	if err != nil {
+		return Manifest{}, err
 	}
 	if err := unpackHome(raw, destHome); err != nil {
 		return man, err

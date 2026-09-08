@@ -20,11 +20,15 @@ createdb panel_control             # once
 
 ```bash
 make build
-PANEL_DEV=1 PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql \
-  PANEL_STATE_DIR=$PWD/var/panel go run ./cmd/panel-dev
+sudo ./scripts/apply-host-stack.sh   # Postfix, Dovecot, PowerDNS, nginx, privileged agent
+PANEL_DEV=1 PANEL_AGENT_SOCK=/run/panel/agent.sock \
+  PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql \
+  PANEL_STATE_DIR=$PWD/var/panel PANEL_PUBLIC_IPV4=127.0.0.1 \
+  ./dist/bin/panel-dev
 # other terminals
 cd portals/server && npm install && npm run dev
 cd portals/account && npm install && npm run dev
+./scripts/live-e2e.sh
 ```
 
 - API: `http://127.0.0.1:18080`

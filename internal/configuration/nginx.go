@@ -15,6 +15,8 @@ type WebsiteSpec struct {
 	ProxyTarget   string
 	HTTPSRedirect bool
 	Revision      int64
+	TLSCert       string
+	TLSKey        string
 }
 
 func NginxSite(s WebsiteSpec) string {
@@ -29,7 +31,7 @@ func NginxSite(s WebsiteSpec) string {
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
 	fmt.Fprintf(&b, "    error_log /var/log/nginx/%s.error.log;\n", s.WebsiteID)
 	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
-	if s.HTTPSRedirect {
+	if s.HTTPSRedirect && s.TLSCert != "" {
 		b.WriteString("    if ($scheme = http) { return 301 https://$host$request_uri; }\n")
 	}
 	switch s.Runtime {
@@ -50,6 +52,29 @@ func NginxSite(s WebsiteSpec) string {
 		b.WriteString("    location / { try_files $uri $uri/ =404; }\n")
 	}
 	b.WriteString("}\n")
+	if s.TLSCert != "" && s.TLSKey != "" {
+		b.WriteString("server {\n")
+		b.WriteString("    listen 443 ssl;\n")
+		b.WriteString("    listen [::]:443 ssl;\n")
+		fmt.Fprintf(&b, "    server_name %s;\n", s.Domain)
+		fmt.Fprintf(&b, "    root %s;\n", s.DocumentRoot)
+		b.WriteString("    index index.php index.html;\n")
+		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)
+		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.TLSKey)
+		b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+		switch s.Runtime {
+		case "php":
+			sock := s.Account
+			if sock == "" {
+				sock = s.WebsiteID
+			}
+			b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
+			fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
+		default:
+			b.WriteString("    location / { try_files $uri $uri/ =404; }\n")
+		}
+		b.WriteString("}\n")
+	}
 	return b.String()
 }
 
@@ -76,8 +101,8 @@ func PHPPool(account, version string, maxChildren int) string {
 user = %s
 group = %s
 listen = /run/php/panel-%s.sock
-listen.owner = nginx
-listen.group = nginx
+listen.owner = www-data
+listen.group = www-data
 pm = ondemand
 pm.max_children = %d
 php_admin_value[open_basedir] = /home/%s:/tmp:/usr/share/php

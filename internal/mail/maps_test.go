@@ -18,8 +18,11 @@ func TestVirtualMaps(t *testing.T) {
 		t.Fatalf("%v", recs)
 	}
 	v := Virtual(recs)
-	if !strings.Contains(v, "info@acme.test") {
+	if !strings.Contains(v, "info@acme.test") || !strings.Contains(v, "acme.test/info/Maildir/") {
 		t.Fatal(v)
+	}
+	if !strings.Contains(UIDMap(recs), "20010") {
+		t.Fatal(UIDMap(recs))
 	}
 	p := PasswdFile(recs)
 	if !strings.Contains(p, "{ARGON2ID}") {

@@ -164,8 +164,9 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		Method: "SetFilesystemQuota",
 		Params: mustJSON(map[string]any{"username": acc.Username, "bytes": pkg.DiskBytes}),
 	})
+	pubIP := publicIPv4()
 	for _, d := range w.Store.ListDomains(acc.ID) {
-		_ = w.ensureDomainStack(&d, acc)
+		_ = w.ensureDomainStack(&d, acc, pubIP)
 	}
 	switch acc.Status {
 	case "terminating":
@@ -184,20 +185,34 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	return nil
 }
 
-func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account) error {
+func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP string) error {
+	if pubIP == "" {
+		pubIP = publicIPv4()
+	}
 	d.Status = "active"
 	w.Store.PutDomain(d)
 	if w.Store.ZoneByDomain(d.ID) == nil {
 		z := &store.DNSZone{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Name: d.ASCII, Provider: "powerdns", DesiredRevision: 1, ObservedRevision: 1}
 		w.Store.PutZone(z)
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "A", Content: "203.0.113.10", TTL: 3600})
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "A", Content: pubIP, TTL: 3600})
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "ns1", Type: "A", Content: pubIP, TTL: 3600})
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "mail", Type: "A", Content: pubIP, TTL: 3600})
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "MX", Content: "mail." + d.ASCII, TTL: 3600, Priority: intPtr(10)})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:203.0.113.10 ~all", TTL: 3600})
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:" + pubIP + " ~all", TTL: 3600})
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "_dmarc", Type: "TXT", Content: "v=DMARC1; p=none", TTL: 3600})
+	}
+	if len(w.Store.ListCerts(acc.ID)) == 0 {
+		exp := time.Now().Add(90 * 24 * time.Hour)
+		c := &store.Certificate{ID: store.NewID(), AccountID: acc.ID, Hostname: d.ASCII, Kind: "domain", Status: "active", NotAfter: &exp, Issuer: "panel-dev"}
+		w.Store.PutCert(c)
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "IssueDevCertificate",
+			Params: mustJSON(map[string]any{"hostname": d.ASCII, "days": 90}),
+		})
 	}
 	site := findSite(w.Store, d.ID)
 	if site == nil {
-		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: "php", RuntimeVersion: "8.5", DocumentRoot: d.DocumentRoot, HTTPSRedirect: true, Enabled: acc.Status != "suspended", DesiredRevision: 1}
+		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: "php", RuntimeVersion: "8.3", DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
 		w.Store.PutWebsite(site)
 	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
@@ -209,7 +224,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account) error {
 	}
 	if site.Runtime == "php" {
 		ver := site.RuntimeVersion
-		if ver == "" {
+		if ver == "" || ver == "8.5" {
 			ver = "8.3"
 		}
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
@@ -238,15 +253,6 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account) error {
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
 		_ = w.writeZone(z)
 	}
-	if len(w.Store.ListCerts(acc.ID)) == 0 {
-		exp := time.Now().Add(90 * 24 * time.Hour)
-		c := &store.Certificate{ID: store.NewID(), AccountID: acc.ID, Hostname: d.ASCII, Kind: "domain", Status: "active", NotAfter: &exp, Issuer: "panel-dev"}
-		w.Store.PutCert(c)
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
-			Method: "IssueDevCertificate",
-			Params: mustJSON(map[string]any{"hostname": d.ASCII, "days": 90}),
-		})
-	}
 	return nil
 }
 
@@ -256,7 +262,7 @@ func (w *Worker) provisionDomain(j *store.Job) error {
 	if d == nil || acc == nil {
 		return fmt.Errorf("missing domain or account")
 	}
-	return w.ensureDomainStack(d, acc)
+	return w.ensureDomainStack(d, acc, publicIPv4())
 }
 
 func (w *Worker) provisionWebsite(j *store.Job) error {
@@ -381,6 +387,8 @@ func (w *Worker) applyMailStack(accountID string) error {
 			"virtual": mail.Virtual(recs),
 			"domains": mail.Domains(recs),
 			"passwd":  mail.PasswdFile(recs),
+			"uids":    mail.UIDMap(recs),
+			"gids":    mail.GIDMap(recs),
 		}),
 	})
 	return err
@@ -451,12 +459,38 @@ func (w *Worker) createBackup(j *store.Job) error {
 		return fmt.Errorf("backup prerequisites missing")
 	}
 	home := acc.HomePath
-	if w.Agent != nil && w.Agent.Root != "" {
+	localRoot := "/var/lib/panel/backups"
+	if w.Agent != nil && w.Agent.Sock == "" && w.Agent.Root != "" {
 		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
-	}
-	localRoot := filepath.Join(filepath.Dir(home), "..", "backups")
-	if w.Agent != nil && w.Agent.Root != "" {
 		localRoot = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
+	}
+	if w.Agent != nil && w.Agent.Sock != "" {
+		staging := "/var/lib/panel/backups/staging/" + b.ID + ".tar.gz"
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "PackDirectory",
+			Params: mustJSON(map[string]any{"source": acc.HomePath, "dest": staging}),
+		}); err != nil {
+			return err
+		}
+		raw, err := os.ReadFile(staging)
+		if err != nil {
+			return err
+		}
+		repo, err := backup.Open(b.Destination, localRoot)
+		if err != nil {
+			return err
+		}
+		man, key, err := backup.BuildArchive(context.Background(), w.Box, repo, acc, w.Store.ListDBs(acc.ID), w.Store.ListMailboxes(acc.ID), raw)
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		b.State = "succeeded"
+		b.FinishedAt = &now
+		b.Checksum = man.Checksums["files.tar.gz"]
+		b.Manifest = map[string]any{"format_version": man.FormatVersion, "key": key, "account_id": man.AccountID, "checksums": man.Checksums}
+		w.Store.PutBackup(b)
+		return nil
 	}
 	repo, err := backup.Open(b.Destination, localRoot)
 	if err != nil {
@@ -490,7 +524,7 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 	}
 	home := acc.HomePath
 	repoRoot := "/var/lib/panel/backups"
-	if w.Agent != nil && w.Agent.Root != "" {
+	if w.Agent != nil && w.Agent.Sock == "" && w.Agent.Root != "" {
 		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
 		repoRoot = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
 	}
@@ -501,6 +535,30 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 	repo, err := backup.Open(dest, repoRoot)
 	if err != nil {
 		return err
+	}
+	if w.Agent != nil && w.Agent.Sock != "" {
+		man, raw, err := backup.OpenArchive(context.Background(), w.Box, repo, key)
+		if err != nil {
+			return err
+		}
+		if err := backup.Preflight(man, acc); err != nil {
+			return err
+		}
+		staging := "/var/lib/panel/backups/staging/restore-" + b.ID + ".tar.gz"
+		if _, err := w.Agent.ApplyFile(staging, raw, 0o640); err != nil {
+			return err
+		}
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "UnpackDirectory",
+			Params: mustJSON(map[string]any{"archive": staging, "dest": acc.HomePath}),
+		}); err != nil {
+			return err
+		}
+		acc.Status = "active"
+		acc.DesiredRevision++
+		acc.ObservedRevision = acc.DesiredRevision
+		w.Store.PutAccount(acc)
+		return nil
 	}
 	man, err := backup.Restore(context.Background(), w.Box, repo, key, home)
 	if err != nil {
@@ -548,6 +606,13 @@ func (w *Worker) recordUsage(acc *store.Account) {
 		return nil
 	})
 	w.Store.PutUsage(&store.Usage{AccountID: acc.ID, CollectedAt: time.Now().UTC(), DiskBytes: bytes, InodeCount: inodes})
+}
+
+func publicIPv4() string {
+	if v := os.Getenv("PANEL_PUBLIC_IPV4"); v != "" {
+		return v
+	}
+	return "127.0.0.1"
 }
 
 func findSite(st store.Store, domainID string) *store.Website {

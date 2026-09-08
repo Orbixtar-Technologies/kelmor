@@ -30,7 +30,14 @@ func ZoneFile(zone store.DNSZone, records []store.DNSRecord, serial int64) strin
 		if r.Priority != nil && (r.Type == "MX" || r.Type == "SRV") {
 			prio = fmt.Sprintf("%d ", *r.Priority)
 		}
-		fmt.Fprintf(&b, "%s %d IN %s %s%s\n", name, r.TTL, r.Type, prio, r.Content)
+		content := r.Content
+		switch r.Type {
+		case "MX", "CNAME", "NS", "SRV":
+			if content != "" && !strings.HasSuffix(content, ".") && !strings.Contains(content, ":") {
+				content += "."
+			}
+		}
+		fmt.Fprintf(&b, "%s %d IN %s %s%s\n", name, r.TTL, r.Type, prio, content)
 	}
 	return b.String()
 }

@@ -2,11 +2,27 @@ package operations
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
+
+func reloadFPM(version string) {
+	pidFile := "/run/php/php" + version + "-fpm.pid"
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 1 {
+		return
+	}
+	_ = syscall.Kill(pid, syscall.SIGUSR2)
+}
 
 func (h *Host) applyPHPPool(account, version string, maxChildren int) (Result, error) {
 	if err := validate.Username(account); err != nil {
@@ -24,6 +40,9 @@ func (h *Host) applyPHPPool(account, version string, maxChildren int) (Result, e
 	path := fmt.Sprintf("/etc/php/%s/fpm/pool.d/panel-%s.conf", version, account)
 	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
 		return Result{}, err
+	}
+	if h.live() {
+		reloadFPM(version)
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
 }
@@ -49,6 +68,9 @@ func (h *Host) setQuota(username string, bytes int64) (Result, error) {
 	}
 	if !h.live() {
 		return Result{OK: true, ObservedState: "applied"}, nil
+	}
+	if _, err := os.Stat("/usr/sbin/setquota"); err != nil {
+		return Result{OK: true, ObservedState: "skipped"}, nil
 	}
 	blocks := bytes / 1024
 	out, err := runFixed("/usr/sbin/setquota", "-u", username, fmt.Sprintf("%d", blocks), fmt.Sprintf("%d", blocks), "0", "0", "-a")

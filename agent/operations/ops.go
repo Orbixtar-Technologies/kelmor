@@ -181,11 +181,31 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		_ = json.Unmarshal(req.Params, &p)
 		return h.createHostedDatabase(p.Engine, p.Name, p.Username, p.Password)
 	case "ApplyMailMaps":
-		virtual, domains, passwd, err := decodeMaps(req.Params)
+		virtual, domains, passwd, uids, gids, err := decodeMaps(req.Params)
 		if err != nil {
 			return nil, err
 		}
-		return h.applyMailMaps(virtual, domains, passwd)
+		return h.applyMailMaps(virtual, domains, passwd, uids, gids)
+	case "ListDirectory":
+		var p struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.listDirectory(p.Path)
+	case "PackDirectory":
+		var p struct {
+			Source string `json:"source"`
+			Dest   string `json:"dest"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.packDirectory(p.Source, p.Dest)
+	case "UnpackDirectory":
+		var p struct {
+			Archive string `json:"archive"`
+			Dest    string `json:"dest"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.unpackDirectory(p.Archive, p.Dest)
 	case "CreateMailboxHome":
 		var p struct {
 			Domain    string `json:"domain"`
@@ -253,6 +273,21 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 }
 
 func (h *Host) GetSystemInfo() (SystemInfo, error) {
+	if h.Sock != "" {
+		v, err := CallUnix(context.Background(), h.Sock, Request{Method: "GetSystemInfo"})
+		if err != nil {
+			return SystemInfo{}, err
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			return SystemInfo{}, err
+		}
+		var info SystemInfo
+		if err := json.Unmarshal(b, &info); err != nil {
+			return SystemInfo{}, err
+		}
+		return info, nil
+	}
 	hn, _ := os.Hostname()
 	info := SystemInfo{
 		Hostname: hn,
@@ -328,6 +363,16 @@ func (h *Host) DeleteLinuxUser(username string) (Result, error) {
 }
 
 func (h *Host) CreateDirectoryTree(path string, mode uint32) (Result, error) {
+	if h.Sock != "" {
+		_, err := CallUnix(context.Background(), h.Sock, Request{
+			Method: "CreateDirectoryTree",
+			Params: mustRaw(map[string]any{"path": path, "mode": mode}),
+		})
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{OK: true, ObservedState: "exists"}, nil
+	}
 	p, err := h.resolve(path)
 	if err != nil {
 		return Result{}, err
@@ -342,6 +387,16 @@ func (h *Host) CreateDirectoryTree(path string, mode uint32) (Result, error) {
 }
 
 func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, error) {
+	if h.Sock != "" {
+		_, err := CallUnix(context.Background(), h.Sock, Request{
+			Method: "ApplyFile",
+			Params: mustRaw(map[string]any{"path": path, "content": string(content), "mode": mode}),
+		})
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{OK: true, ObservedState: "written"}, nil
+	}
 	p, err := h.resolve(path)
 	if err != nil {
 		return Result{}, err
@@ -363,8 +418,34 @@ func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, erro
 	return Result{OK: true, ObservedState: "written"}, nil
 }
 
+func (h *Host) listDirectory(path string) (any, error) {
+	p, err := h.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(p)
+	if err != nil {
+		return map[string]any{"path": path, "items": []any{}}, nil
+	}
+	items := []map[string]any{}
+	for _, e := range entries {
+		info, _ := e.Info()
+		sz := int64(0)
+		if info != nil {
+			sz = info.Size()
+		}
+		items = append(items, map[string]any{"name": e.Name(), "dir": e.IsDir(), "size": sz})
+	}
+	return map[string]any{"path": path, "items": items}, nil
+}
+
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {
 	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true)
 }
 
 type diskStat struct{ total, used, itotal, iused uint64 }
+
+func mustRaw(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}

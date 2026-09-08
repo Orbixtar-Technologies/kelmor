@@ -28,7 +28,10 @@ var allowedBins = map[string]bool{
 	"/usr/bin/pdnsutil":    true,
 	"/usr/sbin/postqueue":  true,
 	"/usr/sbin/postsuper":  true,
-	"/usr/sbin/postmap":    true,
+	"/usr/sbin/postmap":     true,
+	"/usr/sbin/postfix":     true,
+	"/usr/bin/doveadm":      true,
+	"/usr/bin/pdns_control": true,
 }
 
 var allowedServices = map[string]bool{

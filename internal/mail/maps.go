@@ -58,7 +58,7 @@ func Virtual(recs []Recipient) string {
 	var b strings.Builder
 	b.WriteString("# panel virtual mailbox map — generated, do not edit\n")
 	for _, r := range recs {
-		fmt.Fprintf(&b, "%s %s/%s/\n", r.Address, r.Domain, r.LocalPart)
+		fmt.Fprintf(&b, "%s %s/%s/Maildir/\n", r.Address, r.Domain, r.LocalPart)
 	}
 	return b.String()
 }
@@ -76,6 +76,22 @@ func Domains(recs []Recipient) string {
 	var b strings.Builder
 	for _, n := range names {
 		fmt.Fprintf(&b, "%s OK\n", n)
+	}
+	return b.String()
+}
+
+func UIDMap(recs []Recipient) string {
+	var b strings.Builder
+	for _, r := range recs {
+		fmt.Fprintf(&b, "%s %d\n", r.Address, r.UID)
+	}
+	return b.String()
+}
+
+func GIDMap(recs []Recipient) string {
+	var b strings.Builder
+	for _, r := range recs {
+		fmt.Fprintf(&b, "%s %d\n", r.Address, r.GID)
 	}
 	return b.String()
 }

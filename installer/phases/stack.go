@@ -23,7 +23,7 @@ webserver=yes
 webserver-address=127.0.0.1
 webserver-port=8081
 api=yes
-api-key=$PANEL_PDNS_API_KEY
+api-key=panel-loopback
 `
 	if err := os.WriteFile(root(c, "etc/powerdns/pdns.conf"), []byte(body), 0o640); err != nil {
 		return err
@@ -65,8 +65,8 @@ virtual_mailbox_base = /var/vmail
 virtual_mailbox_domains = hash:/var/lib/panel/mail/vdomains
 virtual_mailbox_maps = hash:/var/lib/panel/mail/virtual
 virtual_minimum_uid = 20000
-virtual_uid_maps = static:20000
-virtual_gid_maps = static:20000
+virtual_uid_maps = hash:/var/lib/panel/mail/uids
+virtual_gid_maps = hash:/var/lib/panel/mail/gids
 smtpd_tls_security_level = may
 smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 `
@@ -84,12 +84,14 @@ userdb {
   driver = passwd-file
   args = /var/lib/panel/mail/passwd
 }
-ssl = required
+ssl = yes
+ssl_cert = </var/lib/panel/certs/imap.panel.local.crt
+ssl_key = </var/lib/panel/certs/imap.panel.local.key
 `
 	if err := os.WriteFile(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
 		return err
 	}
-	for _, name := range []string{"virtual", "vdomains", "passwd"} {
+	for _, name := range []string{"virtual", "vdomains", "passwd", "uids", "gids"} {
 		p := root(c, "var/lib/panel/mail/"+name)
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			if err := os.WriteFile(p, []byte("# panel mail map\n"), 0o640); err != nil {

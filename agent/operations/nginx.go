@@ -21,11 +21,18 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	if _, err := h.CreateDirectoryTree(docroot, 0o750); err != nil {
 		return Result{}, err
 	}
-	body := configuration.NginxSite(configuration.WebsiteSpec{
+	spec := configuration.WebsiteSpec{
 		WebsiteID: websiteID, Account: account, Domain: domain, DocumentRoot: docroot,
 		Runtime: runtime, PHPVersion: phpVersion, ProxyTarget: proxyTarget,
 		HTTPSRedirect: httpsRedirect, Revision: 1,
-	})
+	}
+	if certAbs, err := h.resolve("/var/lib/panel/certs/" + domain + ".crt"); err == nil {
+		if _, err := os.Stat(certAbs); err == nil {
+			spec.TLSCert = "/var/lib/panel/certs/" + domain + ".crt"
+			spec.TLSKey = "/var/lib/panel/certs/" + domain + ".key"
+		}
+	}
+	body := configuration.NginxSite(spec)
 	if err := configuration.ValidateNginx(body); err != nil {
 		return Result{}, err
 	}
@@ -35,6 +42,9 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	}
 	if err := h.testNginx(); err != nil {
 		return Result{}, err
+	}
+	if h.live() {
+		_, _ = runFixed("/usr/sbin/nginx", "-s", "reload")
 	}
 	index := strings.TrimSuffix(docroot, "/") + "/index.html"
 	abs, err := h.resolve(index)

@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"os/user"
+	"strconv"
 	"syscall"
 
 	"github.com/hosting-panel/panel/agent/operations"
@@ -31,6 +33,14 @@ func main() {
 		log.Fatal(err)
 	}
 	_ = os.Chmod(sock, 0o660)
+	for _, name := range []string{"panel", "ubuntu"} {
+		if g, err := user.LookupGroup(name); err == nil {
+			if gid, err := strconv.Atoi(g.Gid); err == nil {
+				_ = os.Chown(sock, 0, gid)
+				break
+			}
+		}
+	}
 	logg := logging.New("panel-agent")
 	host := &operations.Host{Root: os.Getenv("PANEL_HOST_ROOT")}
 	logg.Info(ctx, "agent.listen", map[string]any{"socket": sock})

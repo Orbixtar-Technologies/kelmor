@@ -3,6 +3,7 @@ package operations
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
 
-func (h *Host) applyMailMaps(virtual, domains, passwd string) (Result, error) {
+func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids string) (Result, error) {
 	if _, err := h.ApplyFile("/var/lib/panel/mail/virtual", []byte(virtual), 0o640); err != nil {
 		return Result{}, err
 	}
@@ -21,15 +22,27 @@ func (h *Host) applyMailMaps(virtual, domains, passwd string) (Result, error) {
 	if _, err := h.ApplyFile("/var/lib/panel/mail/passwd", []byte(passwd), 0o640); err != nil {
 		return Result{}, err
 	}
+	if uids != "" {
+		if _, err := h.ApplyFile("/var/lib/panel/mail/uids", []byte(uids), 0o640); err != nil {
+			return Result{}, err
+		}
+	}
+	if gids != "" {
+		if _, err := h.ApplyFile("/var/lib/panel/mail/gids", []byte(gids), 0o640); err != nil {
+			return Result{}, err
+		}
+	}
 	if h.live() {
-		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains"} {
+		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains", "/var/lib/panel/mail/uids", "/var/lib/panel/mail/gids"} {
+			if _, err := os.Stat(mapfile); err != nil {
+				continue
+			}
 			if out, err := runFixed("/usr/sbin/postmap", mapfile); err != nil {
 				return Result{}, fmt.Errorf("postmap: %s", strings.TrimSpace(string(out)))
 			}
 		}
-		for _, svc := range []string{"postfix", "dovecot"} {
-			_, _ = runFixed("/bin/systemctl", "reload-or-restart", svc)
-		}
+		_, _ = runFixed("/usr/sbin/postfix", "reload")
+		_, _ = runFixed("/usr/bin/doveadm", "reload")
 	}
 	return Result{OK: true, Message: "mail maps written", ObservedState: "applied"}, nil
 }
@@ -95,6 +108,18 @@ func (h *Host) createMailboxHome(domain, local string, uid, gid int) (Result, er
 	if _, err := h.ApplyFile(base+"/.panel-mailbox", []byte(meta), 0o640); err != nil {
 		return Result{}, err
 	}
+	if h.live() && uid >= 20000 {
+		real, err := h.resolve(base)
+		if err == nil {
+			_ = os.Chown(real, uid, gid)
+			_ = filepath.Walk(real, func(p string, info os.FileInfo, err error) error {
+				if err == nil {
+					_ = os.Chown(p, uid, gid)
+				}
+				return nil
+			})
+		}
+	}
 	return Result{OK: true, ObservedState: "exists"}, nil
 }
 
@@ -105,6 +130,22 @@ func (h *Host) applyDNSZone(name, body string) (Result, error) {
 	path := "/var/lib/panel/dns/zones/" + name + ".zone"
 	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
 		return Result{}, err
+	}
+	inc := fmt.Sprintf("zone \"%s\" { type master; file \"%s.zone\"; };\n", name, name)
+	named := "/var/lib/panel/dns/named-zones.conf"
+	prev := ""
+	if rp, err := h.resolve(named); err == nil {
+		if b, err := os.ReadFile(rp); err == nil {
+			prev = string(b)
+		}
+	}
+	if !strings.Contains(prev, `zone "`+name+`"`) {
+		if _, err := h.ApplyFile(named, []byte(prev+inc), 0o644); err != nil {
+			return Result{}, err
+		}
+	}
+	if h.live() {
+		_, _ = runFixed("/usr/bin/pdns_control", "rediscover")
 	}
 	return Result{OK: true, Message: "zone written", ObservedState: "applied"}, nil
 }
@@ -152,17 +193,19 @@ func (h *Host) issueDevCertificate(hostname string, days int) (Result, error) {
 	return Result{OK: true, Message: "certificate written", ObservedState: "active"}, nil
 }
 
-func decodeMaps(raw json.RawMessage) (virtual, domains, passwd string, err error) {
+func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids string, err error) {
 	var p struct {
 		Virtual string `json:"virtual"`
 		Domains string `json:"domains"`
 		Passwd  string `json:"passwd"`
+		UIDs    string `json:"uids"`
+		GIDs    string `json:"gids"`
 	}
 	if err = json.Unmarshal(raw, &p); err != nil {
-		return "", "", "", err
+		return "", "", "", "", "", err
 	}
 	if strings.ContainsAny(p.Virtual, "\x00") {
-		return "", "", "", fmt.Errorf("NUL in mail map")
+		return "", "", "", "", "", fmt.Errorf("NUL in mail map")
 	}
-	return p.Virtual, p.Domains, p.Passwd, nil
+	return p.Virtual, p.Domains, p.Passwd, p.UIDs, p.GIDs, nil
 }
