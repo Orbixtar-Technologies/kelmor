@@ -330,6 +330,24 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "200": { description: zones }
+  /accounts/{accountID}/dns/zones/{zoneID}/records/{recordID}:
+    delete:
+      operationId: deleteDNSRecord
+      x-capability: dns.write
+      x-audit-action: dns.record.delete
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - in: path
+          name: zoneID
+          required: true
+          schema: { type: string }
+        - in: path
+          name: recordID
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: record deleted and zone sync queued }
+        "404": { description: zone or record missing }
   /accounts/{accountID}/certificates:
     get:
       operationId: listCertificates

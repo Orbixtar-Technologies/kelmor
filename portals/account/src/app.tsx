@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { api, asList, clearToken, getToken, setToken } from './client'
+import { Can, CapProvider } from './rbac'
 
 interface Me {
 	user: { username: string; roles: string[] }
-	actor: { account_ids?: string[]; accountIDs?: string[]; AccountIDs?: string[] }
+	actor: { account_ids?: string[]; capabilities?: Record<string, boolean> }
 }
 
 export function App () {
@@ -46,9 +47,11 @@ export function App () {
 		)
 	}
 
-	const ids = (me.actor as any).account_ids || []
+	const ids = me.actor?.account_ids || []
 	const accountId = ids[0] || ''
+	const caps = me.actor?.capabilities || {}
 	return (
+		<CapProvider caps={caps}>
 		<div className="shell">
 			<header className="top">
 				<strong>Account Portal</strong>
@@ -58,15 +61,15 @@ export function App () {
 			<div className="body">
 				<nav>
 					<NavLink to="/" end>Dashboard</NavLink>
-					<NavLink to="/websites">Websites</NavLink>
-					<NavLink to="/domains">Domains</NavLink>
-					<NavLink to="/dns">DNS</NavLink>
-					<NavLink to="/email">Email</NavLink>
-					<NavLink to="/databases">Databases</NavLink>
-					<NavLink to="/files">Files</NavLink>
-					<NavLink to="/ssl">SSL/TLS</NavLink>
-					<NavLink to="/backups">Backups</NavLink>
-					<NavLink to="/cron">Cron</NavLink>
+					{caps['websites.read'] ? <NavLink to="/websites">Websites</NavLink> : null}
+					{caps['domains.read'] ? <NavLink to="/domains">Domains</NavLink> : null}
+					{caps['dns.read'] ? <NavLink to="/dns">DNS</NavLink> : null}
+					{caps['mail.read'] ? <NavLink to="/email">Email</NavLink> : null}
+					{caps['databases.read'] ? <NavLink to="/databases">Databases</NavLink> : null}
+					{caps['files.read'] ? <NavLink to="/files">Files</NavLink> : null}
+					{caps['websites.read'] ? <NavLink to="/ssl">SSL/TLS</NavLink> : null}
+					{caps['backups.read'] ? <NavLink to="/backups">Backups</NavLink> : null}
+					{caps['cron.read'] ? <NavLink to="/cron">Cron</NavLink> : null}
 				</nav>
 				<main>
 					{!accountId ? <p>No hosting account is attached to this login yet. Ask the administrator to provision one, then sign in as that username.</p> : (
@@ -86,6 +89,7 @@ export function App () {
 				</main>
 			</div>
 		</div>
+		</CapProvider>
 	)
 }
 
@@ -118,6 +122,7 @@ function Websites ({ accountId }: { accountId: string }) {
 		<>
 			<h1>Websites</h1>
 			<p>PHP-FPM, static files, or a Node/Python unit applied through the privileged agent.</p>
+			<Can cap="websites.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -138,6 +143,7 @@ function Websites ({ accountId }: { accountId: string }) {
 				</select>
 				<button type="submit">Apply website</button>
 			</form>
+			</Can>
 			{msg ? <p>{msg}</p> : null}
 			{items.length === 0 ? <p>No websites yet. Provisioning creates one after the account job finishes.</p> : (
 				<table>
@@ -160,6 +166,7 @@ function Certificates ({ accountId }: { accountId: string }) {
 		<>
 			<h1>SSL/TLS</h1>
 			<p>Issues a certificate through the control plane (Pebble in the lab, Let’s Encrypt on a public host).</p>
+			<Can cap="websites.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -177,6 +184,7 @@ function Certificates ({ accountId }: { accountId: string }) {
 				<input name="hostname" placeholder="www.example.test" required />
 				<button type="submit">Request certificate</button>
 			</form>
+			</Can>
 			{msg ? <p>{msg}</p> : null}
 			{items.length === 0 ? <p>No certificates yet.</p> : (
 				<table>
@@ -198,6 +206,7 @@ function Domains ({ accountId }: { accountId: string }) {
 	return (
 		<>
 			<h1>Domains</h1>
+			<Can cap="domains.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -210,6 +219,7 @@ function Domains ({ accountId }: { accountId: string }) {
 				<input name="fqdn" placeholder="addon.example.com" required />
 				<button type="submit">Attach domain</button>
 			</form>
+			</Can>
 			{msg ? <p>{msg}</p> : null}
 			<ul>{items.map((d) => <li key={d.id}>{d.ascii_fqdn} ({d.type}) {d.status}</li>)}</ul>
 		</>
@@ -236,6 +246,7 @@ function DNS ({ accountId }: { accountId: string }) {
 			<h1>DNS</h1>
 			{zones.length === 0 ? <p>No zones yet. They appear after account provisioning completes.</p> : (
 				<>
+					<Can cap="dns.write">
 					<form onSubmit={async (e) => {
 						e.preventDefault()
 						const fd = new FormData(e.currentTarget)
@@ -268,10 +279,24 @@ function DNS ({ accountId }: { accountId: string }) {
 						<input name="ttl" type="number" defaultValue={300} min={60} />
 						<button type="submit">Add record</button>
 					</form>
+					</Can>
 					{msg ? <p>{msg}</p> : null}
 					<table>
-						<thead><tr><th>Name</th><th>Type</th><th>Content</th></tr></thead>
-						<tbody>{records.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.type}</td><td>{r.content}</td></tr>)}</tbody>
+						<thead><tr><th>Name</th><th>Type</th><th>Content</th><th></th></tr></thead>
+						<tbody>{records.map((r) => (
+							<tr key={r.id}>
+								<td>{r.name}</td><td>{r.type}</td><td>{r.content}</td>
+								<td>
+									<Can cap="dns.write">
+										<button type="button" onClick={async () => {
+											await api(`/api/v1/accounts/${accountId}/dns/zones/${zones[0].id}/records/${r.id}`, { method: 'DELETE' })
+											setMsg('Record deleted')
+											await load()
+										}}>Delete</button>
+									</Can>
+								</td>
+							</tr>
+						))}</tbody>
 					</table>
 				</>
 			)}
@@ -289,6 +314,7 @@ function Email ({ accountId }: { accountId: string }) {
 	return (
 		<>
 			<h1>Email</h1>
+			<Can cap="mail.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -302,6 +328,7 @@ function Email ({ accountId }: { accountId: string }) {
 				<input name="password" type="password" required />
 				<button type="submit">Create mailbox</button>
 			</form>
+			</Can>
 			<ul>{boxes.map((b) => <li key={b.id}>{b.local_part} — {b.status}</li>)}</ul>
 		</>
 	)
@@ -313,6 +340,7 @@ function Databases ({ accountId }: { accountId: string }) {
 	return (
 		<>
 			<h1>Databases</h1>
+			<Can cap="databases.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -323,6 +351,7 @@ function Databases ({ accountId }: { accountId: string }) {
 				<select name="engine"><option value="mariadb">MariaDB</option><option value="postgres">PostgreSQL</option></select>
 				<button type="submit">Create database</button>
 			</form>
+			</Can>
 			<ul>{items.map((d) => <li key={d.id}>{d.name} ({d.engine}) {d.status}</li>)}</ul>
 		</>
 	)
@@ -338,6 +367,7 @@ function Files ({ accountId }: { accountId: string }) {
 		<>
 			<h1>Files</h1>
 			<p>Path {path}</p>
+			<Can cap="files.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -364,6 +394,7 @@ function Files ({ accountId }: { accountId: string }) {
 				<textarea name="content" rows={6} placeholder="file contents" required />
 				<button type="submit">Write file</button>
 			</form>
+			</Can>
 			<ul>
 				{items.map((f) => (
 					<li key={f.name}>
@@ -381,18 +412,22 @@ function Backups ({ accountId }: { accountId: string }) {
 	return (
 		<>
 			<h1>Backups</h1>
+			<Can cap="backups.create">
 			<button type="button" onClick={async () => {
 				await api(`/api/v1/accounts/${accountId}/backups`, { method: 'POST', body: JSON.stringify({ kind: 'full', destination: 'local' }) })
 				setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
 			}}>Create full backup</button>
+			</Can>
 			<ul>{items.map((b) => (
 				<li key={b.id}>
 					{b.kind} {b.state} {b.destination} {b.checksum ? `sha256:${b.checksum.slice(0, 12)}` : ''}
 					{b.state === 'succeeded' ? (
+						<Can cap="backups.restore">
 						<button type="button" onClick={async () => {
 							await api(`/api/v1/accounts/${accountId}/restores`, { method: 'POST', body: JSON.stringify({ backup_id: b.id, mode: 'in_place' }) })
 							setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
 						}}>Restore</button>
+						</Can>
 					) : null}
 				</li>
 			))}</ul>
@@ -406,6 +441,7 @@ function Cron ({ accountId }: { accountId: string }) {
 	return (
 		<>
 			<h1>Cron jobs</h1>
+			<Can cap="cron.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -418,6 +454,7 @@ function Cron ({ accountId }: { accountId: string }) {
 				<input name="command" placeholder="php cron.php" required />
 				<button type="submit">Add job</button>
 			</form>
+			</Can>
 			<ul>{items.map((c) => <li key={c.id}>{c.schedule} {c.command}</li>)}</ul>
 		</>
 	)

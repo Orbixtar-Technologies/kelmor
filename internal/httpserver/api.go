@@ -103,6 +103,7 @@ func (a *API) Handler() http.Handler {
 				r.Get("/dns/zones", a.listZones)
 				r.Get("/dns/zones/{zoneID}/records", a.listRecords)
 				r.Post("/dns/zones/{zoneID}/records", a.createRecord)
+				r.Delete("/dns/zones/{zoneID}/records/{recordID}", a.deleteRecord)
 				r.Get("/mail/domains", a.listMailDomains)
 				r.Get("/mail/mailboxes", a.listMailboxes)
 				r.Post("/mail/mailboxes", a.createMailbox)
@@ -1140,6 +1141,35 @@ func (a *API) createRecord(w http.ResponseWriter, r *http.Request) {
 	a.Store.PutRecord(&rec)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "dns.sync", ResourceType: "dns_zone", ResourceID: rec.ZoneID, Payload: map[string]any{"zone_id": rec.ZoneID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "record": rec})
+}
+
+func (a *API) deleteRecord(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.DNSWrite) {
+		return
+	}
+	zid := chi.URLParam(r, "zoneID")
+	z := a.Store.GetZone(zid)
+	if z == nil || z.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "zone missing", false)
+		return
+	}
+	rid := chi.URLParam(r, "recordID")
+	found := false
+	for _, rec := range a.Store.ListRecords(zid) {
+		if rec.ID == rid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		a.fail(w, r, 404, "NOT_FOUND", "record missing", false)
+		return
+	}
+	a.Store.DeleteRecord(rid)
+	job, _ := a.Store.EnqueueJob(&store.Job{Type: "dns.sync", ResourceType: "dns_zone", ResourceID: zid, Payload: map[string]any{"zone_id": zid}, State: "queued"})
+	a.audit(r, "dns.record.delete", "dns_record", rid, true, nil, map[string]any{"zone_id": zid})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "deleted": rid})
 }
 
 func (a *API) listMailDomains(w http.ResponseWriter, r *http.Request) {

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/auth"
+	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/store"
 )
@@ -214,6 +216,73 @@ func postStatus(t *testing.T, url, token string, body any) (int, map[string]any)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(res.Body).Decode(&out)
+	return res.StatusCode, out
+}
+
+func TestCapabilityRBACAndDNSDelete(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := auth.HashPassword("AuditPass!2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.PutUser(&store.User{
+		ID: id.New(), Username: "auditor", Email: "audit@localhost", PasswordHash: hash,
+		DisplayName: "Auditor", Status: "active", Roles: []string{"auditor"},
+	})
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	me := get(t, srv.URL+"/api/v1/me", admin)
+	caps := me["actor"].(map[string]any)["capabilities"].(map[string]any)
+	if caps["accounts.terminate"] != true || caps["security.audit.read"] != true {
+		t.Fatalf("admin caps: %v", caps)
+	}
+	aud := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "auditor", "password": "AuditPass!2026"})["token"].(string)
+	audMe := get(t, srv.URL+"/api/v1/me", aud)
+	audCaps := audMe["actor"].(map[string]any)["capabilities"].(map[string]any)
+	if audCaps["accounts.create"] == true || audCaps["packages.write"] == true {
+		t.Fatalf("auditor must not write: %v", audCaps)
+	}
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/packages", aud, map[string]string{"name": "Nope"}) != 403 {
+		t.Fatal("auditor created package")
+	}
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "rbac1", "primary_domain": "rbac.test", "package_id": pkg,
+		"owner_email": "o@rbac.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	z := &store.DNSZone{ID: id.New(), AccountID: aid, Name: "rbac.test", Provider: "powerdns"}
+	st.PutZone(z)
+	rec := &store.DNSRecord{ID: id.New(), ZoneID: z.ID, Name: "www", Type: "A", Content: "203.0.113.10", TTL: 300}
+	st.PutRecord(rec)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/dns/zones/"+z.ID+"/records/"+rec.ID, aud, nil) != 403 {
+		t.Fatal("auditor deleted DNS")
+	}
+	code, body := delStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/dns/zones/"+z.ID+"/records/"+rec.ID, admin)
+	if code != 202 {
+		t.Fatalf("delete %d %v", code, body)
+	}
+	if len(st.ListRecords(z.ID)) != 0 {
+		t.Fatal("record remains")
+	}
+}
+
+func delStatus(t *testing.T, url, token string) (int, map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodDelete, url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

@@ -1,19 +1,24 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import { api, asList, clearToken, getToken, setToken } from './client'
+import { Can, CapProvider, Forbidden } from './rbac'
 
 interface User { username: string; roles: string[]; email: string }
+interface Me {
+	user: User
+	actor: { capabilities?: Record<string, boolean> }
+}
 
 export function App () {
-	const [user, setUser] = useState<User | null>(null)
+	const [me, setMe] = useState<Me | null>(null)
 	const [error, setError] = useState('')
 
 	useEffect(() => {
 		if (!getToken()) return
-		api<{ user: User }>('/api/v1/me').then((r) => setUser(r.user)).catch(() => clearToken())
+		api<Me>('/api/v1/me').then(setMe).catch(() => clearToken())
 	}, [])
 
-	if (!user) {
+	if (!me) {
 		return (
 			<main className="auth">
 				<section className="card">
@@ -30,7 +35,7 @@ export function App () {
 								body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }),
 							})
 							setToken(r.token)
-							setUser(r.user)
+							setMe(await api<Me>('/api/v1/me'))
 						} catch (err) {
 							setError(err instanceof Error ? err.message : 'Login failed')
 						}
@@ -45,36 +50,39 @@ export function App () {
 		)
 	}
 
+	const caps = me.actor?.capabilities || {}
 	return (
-		<div className="shell">
-			<aside>
-				<p className="brand">Server Portal</p>
-				<nav>
-					<NavLink to="/" end>Dashboard</NavLink>
-					<NavLink to="/accounts">Accounts</NavLink>
-					<NavLink to="/import">Import</NavLink>
-					<NavLink to="/resellers">Resellers</NavLink>
-					<NavLink to="/packages">Packages</NavLink>
-					<NavLink to="/monitor">Usage</NavLink>
-					<NavLink to="/jobs">Jobs</NavLink>
-					<NavLink to="/audit">Audit</NavLink>
-				</nav>
-				<button className="ghost" onClick={() => { clearToken(); setUser(null) }}>Sign out {user.username}</button>
-			</aside>
-			<main className="content">
-				<Routes>
-					<Route path="/" element={<Dashboard />} />
-					<Route path="/accounts" element={<Accounts />} />
-					<Route path="/accounts/:id" element={<AccountDetail />} />
-					<Route path="/import" element={<ImportAccount />} />
-					<Route path="/resellers" element={<Resellers />} />
-					<Route path="/packages" element={<Packages />} />
-					<Route path="/monitor" element={<Monitor />} />
-					<Route path="/jobs" element={<Jobs />} />
-					<Route path="/audit" element={<Audit />} />
-				</Routes>
-			</main>
-		</div>
+		<CapProvider caps={caps}>
+			<div className="shell">
+				<aside>
+					<p className="brand">Server Portal</p>
+					<nav>
+						{caps['server.read'] ? <NavLink to="/" end>Dashboard</NavLink> : null}
+						{caps['accounts.read'] ? <NavLink to="/accounts">Accounts</NavLink> : null}
+						{caps['accounts.create'] ? <NavLink to="/import">Import</NavLink> : null}
+						{caps['resellers.read'] ? <NavLink to="/resellers">Resellers</NavLink> : null}
+						{caps['packages.read'] ? <NavLink to="/packages">Packages</NavLink> : null}
+						{caps['billing.usage.read'] ? <NavLink to="/monitor">Usage</NavLink> : null}
+						{(caps['server.read'] || caps['accounts.read']) ? <NavLink to="/jobs">Jobs</NavLink> : null}
+						{caps['security.audit.read'] ? <NavLink to="/audit">Audit</NavLink> : null}
+					</nav>
+					<button className="ghost" onClick={() => { clearToken(); setMe(null) }}>Sign out {me.user.username}</button>
+				</aside>
+				<main className="content">
+					<Routes>
+						<Route path="/" element={caps['server.read'] ? <Dashboard /> : <Forbidden title="Dashboard" />} />
+						<Route path="/accounts" element={caps['accounts.read'] ? <Accounts /> : <Forbidden title="Accounts" />} />
+						<Route path="/accounts/:id" element={caps['accounts.read'] ? <AccountDetail /> : <Forbidden title="Account" />} />
+						<Route path="/import" element={caps['accounts.create'] ? <ImportAccount /> : <Forbidden title="Import" />} />
+						<Route path="/resellers" element={caps['resellers.read'] ? <Resellers /> : <Forbidden title="Resellers" />} />
+						<Route path="/packages" element={caps['packages.read'] ? <Packages /> : <Forbidden title="Packages" />} />
+						<Route path="/monitor" element={caps['billing.usage.read'] ? <Monitor /> : <Forbidden title="Usage" />} />
+						<Route path="/jobs" element={(caps['server.read'] || caps['accounts.read']) ? <Jobs /> : <Forbidden title="Jobs" />} />
+						<Route path="/audit" element={caps['security.audit.read'] ? <Audit /> : <Forbidden title="Audit" />} />
+					</Routes>
+				</main>
+			</div>
+		</CapProvider>
 	)
 }
 
@@ -120,6 +128,7 @@ function FirewallPanel () {
 		<section>
 			<h2>Host firewall</h2>
 			<p>Applies nftables <code>table inet panel</code> with a drop policy on inbound traffic, keeping loopback, established flows, and hosting plus already-bound management ports.</p>
+			<Can cap="server.firewall.write">
 			<button type="button" onClick={async () => {
 				setMsg('')
 				try {
@@ -129,6 +138,7 @@ function FirewallPanel () {
 					setMsg(e instanceof Error ? e.message : 'apply failed')
 				}
 			}}>Apply table inet panel</button>
+			</Can>
 			{msg ? <p className="notice">{msg}</p> : null}
 		</section>
 	)
@@ -153,6 +163,7 @@ function Accounts () {
 	return (
 		<>
 			<header><h1>Hosting accounts</h1><p>Each account gets a dedicated Linux identity and a reconciliation job.</p></header>
+			<Can cap="accounts.create">
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -188,6 +199,7 @@ function Accounts () {
 				</select>
 				<button type="submit">Provision account</button>
 			</form>
+			</Can>
 			<input className="search" placeholder="Search username or domain" value={q} onChange={(e) => setQ(e.target.value)} />
 			{msg ? <p className="notice">{msg}</p> : null}
 			{items.length === 0 ? <Empty title="No accounts match" detail="Create a customer above or clear the search filter." /> : (
@@ -198,8 +210,10 @@ function Accounts () {
 							<tr key={a.id}>
 								<td><NavLink to={`/accounts/${a.id}`}>{a.username}</NavLink></td><td>{a.primary_domain}</td><td>{a.status}</td><td>{a.linux_uid}</td>
 								<td>
-									<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/suspend`, reload, setMsg)}>Suspend</button>
-									<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
+									<Can cap="accounts.suspend">
+										<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/suspend`, reload, setMsg)}>Suspend</button>
+										<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
+									</Can>
 								</td>
 							</tr>
 						))}
@@ -255,12 +269,16 @@ function AccountDetail () {
 			<header><h1>{acc.username}</h1><p>{acc.primary_domain} · UID {acc.linux_uid} · {acc.status} · {acc.home_path}</p></header>
 			{msg ? <p className="notice">{msg}</p> : null}
 			<div className="row">
-				<button type="button" onClick={() => act(`/api/v1/accounts/${id}/suspend`, reload, setMsg)}>Suspend</button>
-				<button type="button" onClick={() => act(`/api/v1/accounts/${id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
+				<Can cap="accounts.suspend">
+					<button type="button" onClick={() => act(`/api/v1/accounts/${id}/suspend`, reload, setMsg)}>Suspend</button>
+					<button type="button" onClick={() => act(`/api/v1/accounts/${id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
+				</Can>
+				<Can cap="accounts.terminate">
 				<button type="button" onClick={() => {
 					if (!window.confirm(`Terminate ${acc.username}? This removes the Linux user, websites, and mail.`)) return
 					act(`/api/v1/accounts/${id}/terminate`, reload, setMsg)
 				}}>Terminate</button>
+				</Can>
 				<button type="button" onClick={async () => {
 					const exp = await api<any>(`/api/v1/accounts/${id}/export`)
 					const blob = new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' })
@@ -272,12 +290,15 @@ function AccountDetail () {
 					URL.revokeObjectURL(url)
 					setMsg('Native export downloaded')
 				}}>Download native export</button>
+				<Can cap="backups.create">
 				<button type="button" onClick={async () => {
 					await api(`/api/v1/accounts/${id}/backups`, { method: 'POST', body: JSON.stringify({ kind: 'full', destination: 'local' }) })
 					setMsg('Backup queued')
 					await reload()
 				}}>Queue encrypted backup</button>
+				</Can>
 			</div>
+			<Can cap="accounts.create">
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -295,7 +316,9 @@ function AccountDetail () {
 				<input name="migrate_domain" placeholder="new primary domain" required />
 				<button type="submit">Migrate to new account</button>
 			</form>
+			</Can>
 			<h2>Websites</h2>
+			<Can cap="websites.write">
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -314,12 +337,14 @@ function AccountDetail () {
 				</select>
 				<button type="submit">Apply website</button>
 			</form>
+			</Can>
 			<table>
 				<thead><tr><th>Runtime</th><th>Root</th><th>Enabled</th></tr></thead>
 				<tbody>{sites.map((s) => <tr key={s.id}><td>{s.runtime} {s.runtime_version}</td><td>{s.document_root}</td><td>{s.enabled ? 'yes' : 'no'}</td></tr>)}</tbody>
 			</table>
 			<h2>DNS {zones[0] ? zones[0].name : ''}</h2>
 			{zones[0] ? (
+				<Can cap="dns.write">
 				<form className="row" onSubmit={async (e) => {
 					e.preventDefault()
 					const fd = new FormData(e.currentTarget)
@@ -352,14 +377,29 @@ function AccountDetail () {
 					<input name="ttl" type="number" defaultValue={300} min={60} />
 					<button type="submit">Add DNS record</button>
 				</form>
+				</Can>
 			) : <p>Zone appears after provisioning.</p>}
 			{records.length === 0 ? <p>No records yet.</p> : (
 				<table>
-					<thead><tr><th>Name</th><th>Type</th><th>Content</th></tr></thead>
-					<tbody>{records.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.type}</td><td>{r.content}</td></tr>)}</tbody>
+					<thead><tr><th>Name</th><th>Type</th><th>Content</th><th></th></tr></thead>
+					<tbody>{records.map((r) => (
+						<tr key={r.id}>
+							<td>{r.name}</td><td>{r.type}</td><td>{r.content}</td>
+							<td>
+								<Can cap="dns.write">
+									<button type="button" onClick={async () => {
+										await api(`/api/v1/accounts/${id}/dns/zones/${zones[0].id}/records/${r.id}`, { method: 'DELETE' })
+										setMsg('DNS record deleted')
+										await reload()
+									}}>Delete</button>
+								</Can>
+							</td>
+						</tr>
+					))}</tbody>
 				</table>
 			)}
 			<h2>Mail</h2>
+			<Can cap="mail.write">
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -374,11 +414,13 @@ function AccountDetail () {
 				<input name="password" type="password" placeholder="mailbox password" required />
 				<button type="submit">Create mailbox</button>
 			</form>
+			</Can>
 			<table>
 				<thead><tr><th>Mailbox</th><th>Status</th></tr></thead>
 				<tbody>{mailboxes.map((m) => <tr key={m.id}><td>{m.local_part}</td><td>{m.status}</td></tr>)}</tbody>
 			</table>
 			<h2>Files in public_html</h2>
+			<Can cap="files.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -392,6 +434,7 @@ function AccountDetail () {
 				<textarea name="content" rows={4} placeholder="file contents" required />
 				<button type="submit">Write file</button>
 			</form>
+			</Can>
 			<ul>{files.map((f) => <li key={f.name}>{f.dir ? f.name + '/' : `${f.name} (${f.size})`}</li>)}</ul>
 			<h2>Backups</h2>
 			<ul>{backups.map((b) => <li key={b.id}>{b.kind} {b.state} {b.destination} {b.checksum ? b.checksum.slice(0, 12) : ''}</li>)}</ul>
@@ -460,6 +503,7 @@ function Packages () {
 	return (
 		<>
 			<header><h1>Packages</h1><p>Reusable CPU, memory, I/O and feature limits enforced through slices and quotas.</p></header>
+			<Can cap="packages.write">
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -477,6 +521,7 @@ function Packages () {
 				<input name="name" placeholder="package name" required />
 				<button type="submit">Create package</button>
 			</form>
+			</Can>
 			<table>
 				<thead><tr><th>Name</th><th>CPU %</th><th>Memory</th><th>Disk</th></tr></thead>
 				<tbody>{items.map((p) => <tr key={p.id}><td>{p.name}</td><td>{p.cpu_percent}</td><td>{fmtBytes(p.memory_bytes)}</td><td>{fmtBytes(p.disk_bytes)}</td></tr>)}</tbody>
@@ -491,6 +536,7 @@ function Resellers () {
 	return (
 		<>
 			<header><h1>Resellers</h1><p>Delegated privileges. A reseller never sees root secrets or foreign customers.</p></header>
+			<Can cap="resellers.create">
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
@@ -511,6 +557,7 @@ function Resellers () {
 				<input name="password" type="password" placeholder="login password" required />
 				<button type="submit">Create reseller</button>
 			</form>
+			</Can>
 			{items.length === 0 ? <Empty title="No resellers yet" detail="Create one to delegate packages and customer accounts." /> : (
 				<table><thead><tr><th>Name</th><th>Status</th></tr></thead>
 					<tbody>{items.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.status}</td></tr>)}</tbody></table>
