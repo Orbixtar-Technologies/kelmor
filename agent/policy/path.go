@@ -15,6 +15,7 @@ var allowedRoots = []string{
 	"/run/panel/",
 	"/var/vmail/",
 	"/etc/panel/",
+	"/etc/ssh/sshd_config.d/",
 	"/var/tmp/panel-imports/",
 }
 

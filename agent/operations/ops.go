@@ -208,6 +208,13 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.setQuota(p.Username, p.Bytes)
+	case "EnforceAccountDisk":
+		var p struct {
+			Username string `json:"username"`
+			Home     string `json:"home"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.enforceAccountDisk(p.Username, p.Home)
 	case "ApplyPhpPool":
 		var p struct {
 			Account     string `json:"account"`
@@ -459,6 +466,9 @@ func (h *Host) CreateDirectoryTree(path string, mode uint32) (Result, error) {
 }
 
 func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, error) {
+	if err := h.rejectHomeWrite(path, int64(len(content))); err != nil {
+		return Result{}, err
+	}
 	if h.Sock != "" {
 		_, err := CallUnix(context.Background(), h.Sock, Request{
 			Method: "ApplyFile",

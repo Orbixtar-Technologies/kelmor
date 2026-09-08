@@ -96,6 +96,9 @@ func (h *Host) setQuota(username string, bytes int64) (Result, error) {
 	if err := validate.Username(username); err != nil {
 		return Result{}, err
 	}
+	if err := h.persistQuota(username, bytes); err != nil {
+		return Result{}, err
+	}
 	if !h.live() {
 		return Result{OK: true, ObservedState: "applied"}, nil
 	}

@@ -34,6 +34,7 @@ func (h *Host) retireAccount(username string, websiteIDs, domains []string) (Res
 	h.removeManaged("/etc/systemd/system/panel-account-" + username + ".slice")
 	h.removeManaged("/etc/cron.d/panel-" + username)
 	h.removeManaged("/var/lib/panel/cron/" + username)
+	h.clearQuotaFiles(username)
 	for _, domain := range domains {
 		ascii, err := validate.NormalizeDomain(domain)
 		if err != nil {

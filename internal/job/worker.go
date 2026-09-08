@@ -764,6 +764,10 @@ func (w *Worker) recordUsage(acc *store.Account) {
 				u.ProcessCount = int(got.ProcessCount)
 				u.MemoryBytes = got.MemoryBytes
 				w.Store.PutUsage(u)
+				_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+					Method: "EnforceAccountDisk",
+					Params: mustJSON(map[string]any{"username": acc.Username, "home": acc.HomePath}),
+				})
 				return
 			}
 		}

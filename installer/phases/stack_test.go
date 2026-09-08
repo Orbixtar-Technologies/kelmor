@@ -38,6 +38,7 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/rspamd/local.d/panel.conf",
 		"var/panel/host/etc/clamav/panel.conf",
 		"var/panel/host/etc/ssh/sshd_config.d/panel-sftp.conf",
+		"var/panel/host/var/lib/panel/quotas",
 		"var/panel/host/etc/nginx/panel-sites/00-acme.conf",
 		"var/panel/host/var/lib/panel/acme-www/.well-known/acme-challenge",
 		"var/panel/host/etc/systemd/system/panel-agent.service",

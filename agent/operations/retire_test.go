@@ -21,6 +21,9 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	if _, err := h.createMailboxHome("gone.test", "info", 20020, 20020); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := h.setQuota("gone42", 100); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := h.retireAccount("gone42", []string{"site-1"}, []string{"gone.test"}); err != nil {
 		t.Fatal(err)
 	}
@@ -35,5 +38,8 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/vmail/gone.test")); !os.IsNotExist(err) {
 		t.Fatal("mail tree remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/quotas/gone42")); !os.IsNotExist(err) {
+		t.Fatal("quota file remains")
 	}
 }

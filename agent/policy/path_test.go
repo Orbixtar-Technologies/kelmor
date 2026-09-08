@@ -15,6 +15,9 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/var/tmp/panel-imports/acme42/homedir"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := ValidateManagedPath("/etc/ssh/sshd_config.d/zz-panel-sftp-quota.conf"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ValidateManagedPath("/etc/cron.d/panel-acme42"); err != nil {
 		t.Fatal(err)
 	}

@@ -250,7 +250,12 @@ ignoreregex =
 	if err := os.WriteFile(root(c, "etc/fail2ban/filter.d/panel-auth.conf"), []byte(filter), 0o644); err != nil {
 		return err
 	}
-	sftp := `Match Group panel-sftp
+	if err := os.MkdirAll(root(c, "var/lib/panel/quotas"), 0o755); err != nil {
+		return err
+	}
+	sftp := `# Chrooted tenant SFTP. Over-quota users get internal-sftp -R
+# from /etc/ssh/sshd_config.d/zz-panel-sftp-quota.conf (agent-managed).
+Match Group panel-sftp
     ChrootDirectory /home/%u
     ForceCommand internal-sftp
     AllowTcpForwarding no
@@ -438,6 +443,7 @@ func verifySecurity(c Config) error {
 		"etc/fail2ban/jail.d/panel.conf",
 		"etc/fail2ban/filter.d/panel-auth.conf",
 		"etc/ssh/sshd_config.d/panel-sftp.conf",
+		"var/lib/panel/quotas",
 	} {
 		if _, err := os.Stat(root(c, p)); err != nil {
 			return err
