@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/hosting-panel/panel/agent/operations"
 )
@@ -34,8 +35,12 @@ func TestIssuerName(t *testing.T) {
 
 func TestIssueFallsBackToDevCert(t *testing.T) {
 	h := &operations.Host{Root: t.TempDir()}
-	if err := Issue(context.Background(), h, "acme.test", "ops@acme.test", ""); err != nil {
+	exp, err := Issue(context.Background(), h, "acme.test", "ops@acme.test", "")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if exp.Before(time.Now().Add(80 * 24 * time.Hour)) {
+		t.Fatalf("expected ~90d notAfter, got %s", exp)
 	}
 	if _, err := os.Stat(h.Root + "/var/lib/panel/certs/acme.test.crt"); err != nil {
 		t.Fatal(err)

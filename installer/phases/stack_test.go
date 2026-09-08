@@ -67,6 +67,9 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(worker), "PANEL_PDNS_URL=http://127.0.0.1:8081") {
 		t.Fatalf("worker unit missing PowerDNS URL: %s", worker)
 	}
+	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/acme.env") {
+		t.Fatalf("worker unit missing ACME env file: %s", worker)
+	}
 	pdns, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf"))
 	if err != nil {
 		t.Fatal(err)

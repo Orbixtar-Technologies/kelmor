@@ -347,6 +347,10 @@ func applyTLS(c Config) error {
 	if err := os.MkdirAll(root(c, "var/lib/panel/certs"), 0o750); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(root(c, "var/lib/panel/secrets"), 0o750); err != nil {
+		return err
+	}
+	_ = writeUnlessExists(root(c, "var/lib/panel/acme.env"), []byte("# PANEL_ACME_DIRECTORY=https://acme-v02.api.letsencrypt.org/directory\n"), 0o640)
 	if err := os.MkdirAll(root(c, "etc/nginx/panel-sites"), 0o755); err != nil {
 		return err
 	}
@@ -457,6 +461,7 @@ Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 Environment=PANEL_STATE_DIR=/var/lib/panel
 Environment=PANEL_PDNS_URL=http://127.0.0.1:8081
 Environment=PANEL_PDNS_API_KEY=panel-loopback
+EnvironmentFile=-/var/lib/panel/acme.env
 ExecStart=/usr/local/panel/bin/panel-worker
 Restart=on-failure
 RestartSec=2

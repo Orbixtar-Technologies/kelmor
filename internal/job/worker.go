@@ -75,11 +75,29 @@ func (w *Worker) reap() {
 }
 
 func (w *Worker) scanDrift(ctx context.Context) {
+	w.scanCertRenewals()
 	for _, acc := range w.Store.DriftedAccounts() {
 		_, _ = w.Store.EnqueueJob(&store.Job{
 			Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
 			Payload: map[string]any{"account_id": acc.ID}, State: "queued",
 			IdempotencyKey: fmt.Sprintf("reconcile:%s:%d", acc.ID, acc.DesiredRevision),
+		})
+	}
+}
+
+func (w *Worker) scanCertRenewals() {
+	cutoff := time.Now().Add(30 * 24 * time.Hour)
+	for _, c := range w.Store.ListCerts("") {
+		if c.Status != "active" || c.NotAfter == nil || !c.NotAfter.Before(cutoff) {
+			continue
+		}
+		cp := c
+		cp.Status = "renewing"
+		w.Store.PutCert(&cp)
+		_, _ = w.Store.EnqueueJob(&store.Job{
+			Type: "certificate.provision", ResourceType: "certificate", ResourceID: c.ID,
+			Payload: map[string]any{"certificate_id": c.ID}, State: "queued",
+			IdempotencyKey: fmt.Sprintf("cert-renew:%s:%s", c.ID, c.NotAfter.UTC().Format("20060102")),
 		})
 	}
 }
@@ -787,10 +805,10 @@ func (w *Worker) provisionCert(j *store.Job) error {
 			contact = owner.Email
 		}
 	}
-	if err := acme.Issue(context.Background(), w.Agent, c.Hostname, contact, acme.Directory()); err != nil {
+	exp, err := acme.Issue(context.Background(), w.Agent, c.Hostname, contact, acme.Directory())
+	if err != nil {
 		return err
 	}
-	exp := time.Now().Add(90 * 24 * time.Hour)
 	c.Status = "active"
 	c.NotAfter = &exp
 	c.Issuer = acme.IssuerName(acme.Directory())

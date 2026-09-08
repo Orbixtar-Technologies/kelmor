@@ -23,21 +23,24 @@ import (
 	"github.com/hosting-panel/panel/agent/operations"
 )
 
-func Issue(ctx context.Context, agent *operations.Host, hostname, contact, directory string) error {
+func Issue(ctx context.Context, agent *operations.Host, hostname, contact, directory string) (time.Time, error) {
 	if directory == "" {
 		_, err := agent.Dispatch(ctx, operations.Request{
 			Method: "IssueDevCertificate",
 			Params: mustJSON(map[string]any{"hostname": hostname, "days": 90}),
 		})
-		return err
+		if err != nil {
+			return time.Time{}, err
+		}
+		return time.Now().Add(90 * 24 * time.Hour), nil
 	}
-	acctKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	acctKey, err := loadOrCreateAccountKey(agent)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	cl := &acme.Client{Key: acctKey, DirectoryURL: directory}
 	if insecureDirectory(directory) {
@@ -50,16 +53,16 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 	}
 	acct := &acme.Account{Contact: []string{"mailto:" + contact}}
 	if _, err := cl.Register(ctx, acct, acme.AcceptTOS); err != nil && err != acme.ErrAccountAlreadyExists {
-		return fmt.Errorf("acme register: %w", err)
+		return time.Time{}, fmt.Errorf("acme register: %w", err)
 	}
 	order, err := cl.AuthorizeOrder(ctx, acme.DomainIDs(hostname))
 	if err != nil {
-		return fmt.Errorf("acme order: %w", err)
+		return time.Time{}, fmt.Errorf("acme order: %w", err)
 	}
 	for _, u := range order.AuthzURLs {
 		az, err := cl.GetAuthorization(ctx, u)
 		if err != nil {
-			return err
+			return time.Time{}, err
 		}
 		var httpCh *acme.Challenge
 		for _, ch := range az.Challenges {
@@ -69,37 +72,37 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 			}
 		}
 		if httpCh == nil {
-			return fmt.Errorf("no http-01 challenge for %s", hostname)
+			return time.Time{}, fmt.Errorf("no http-01 challenge for %s", hostname)
 		}
 		val, err := cl.HTTP01ChallengeResponse(httpCh.Token)
 		if err != nil {
-			return err
+			return time.Time{}, err
 		}
 		if _, err := agent.Dispatch(ctx, operations.Request{
 			Method: "ApplyACMEChallenge",
 			Params: mustJSON(map[string]any{"token": httpCh.Token, "body": val}),
 		}); err != nil {
-			return err
+			return time.Time{}, err
 		}
 		if agent.Root == "" {
 			if err := waitHTTP01(hostname, httpCh.Token, val); err != nil {
-				return err
+				return time.Time{}, err
 			}
 		}
 		if _, err := cl.Accept(ctx, httpCh); err != nil {
-			return err
+			return time.Time{}, err
 		}
 		if _, err := cl.WaitAuthorization(ctx, az.URI); err != nil {
-			return err
+			return time.Time{}, err
 		}
 	}
 	csrDER, err := newCSR(hostname, certKey)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	der, _, err := cl.CreateOrderCert(ctx, order.FinalizeURL, csrDER, true)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	var certPEM []byte
 	for _, c := range der {
@@ -107,26 +110,32 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 	}
 	kb, err := x509.MarshalECPrivateKey(certKey)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kb})
 	if _, err := agent.Dispatch(ctx, operations.Request{
 		Method: "ApplyFile",
 		Params: mustJSON(map[string]any{"path": "/var/lib/panel/certs/" + hostname + ".crt", "content_b64": base64.StdEncoding.EncodeToString(certPEM), "mode": 0o644}),
 	}); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if _, err := agent.Dispatch(ctx, operations.Request{
 		Method: "ApplyFile",
 		Params: mustJSON(map[string]any{"path": "/var/lib/panel/certs/" + hostname + ".key", "content_b64": base64.StdEncoding.EncodeToString(keyPEM), "mode": 0o600}),
 	}); err != nil {
-		return err
+		return time.Time{}, err
 	}
-	_, err = agent.Dispatch(ctx, operations.Request{
+	if _, err := agent.Dispatch(ctx, operations.Request{
 		Method: "ReloadService",
 		Params: mustJSON(map[string]any{"name": "nginx"}),
-	})
-	return err
+	}); err != nil {
+		return time.Time{}, err
+	}
+	exp := time.Now().Add(90 * 24 * time.Hour)
+	if leaf := ParseLeafNotAfter(certPEM); leaf != nil {
+		exp = leaf.NotAfter
+	}
+	return exp, nil
 }
 
 func waitHTTP01(hostname, token, body string) error {
