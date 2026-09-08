@@ -153,6 +153,51 @@ func TestReconcileRewritesLoopbackARecords(t *testing.T) {
 	}
 }
 
+func TestRestoreDoesNotUnsuspend(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	pkgs := st.ListPackages()
+	acc := &store.Account{
+		ID: "acc-rs", Username: "rs42", PrimaryDomain: "rs.test",
+		PackageID: pkgs[0].ID, Status: "provisioning", HomePath: "/home/rs42",
+		LinuxUID: 20013, LinuxGID: 20013, DesiredRevision: 1,
+	}
+	st.PutAccount(acc)
+	st.PutDomain(&store.Domain{
+		ID: "dom-rs", AccountID: acc.ID, FQDN: "rs.test", ASCII: "rs.test",
+		Type: "primary", DocumentRoot: "/home/rs42/public_html", Status: "provisioning",
+	})
+	root := t.TempDir()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: root}, logging.New("test"), box, "tester")
+	if err := w.provisionAccount(&store.Job{
+		Type: "account.provision", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID, "domain_id": "dom-rs"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b := &store.BackupRun{ID: "bak-rs", AccountID: acc.ID, Kind: "full", State: "queued", Destination: "local"}
+	st.PutBackup(b)
+	if err := w.createBackup(&store.Job{Payload: map[string]any{"backup_id": b.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	acc = st.GetAccount(acc.ID)
+	acc.Status = "suspended"
+	acc.DesiredRevision++
+	st.PutAccount(acc)
+	if err := w.restoreBackup(&store.Job{Payload: map[string]any{"backup_id": b.ID, "account_id": acc.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.GetAccount(acc.ID); got.Status != "suspended" {
+		t.Fatalf("restore unsuspended account: %s", got.Status)
+	}
+}
+
 func TestReconcileKeepsLaterSuspend(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

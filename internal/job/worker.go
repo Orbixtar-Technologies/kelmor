@@ -1365,10 +1365,6 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 		return err
 	}
 	_ = w.applyMailStack(acc.ID)
-	acc.Status = "active"
-	acc.DesiredRevision++
-	acc.ObservedRevision = acc.DesiredRevision
-	w.Store.PutAccount(acc)
 	return nil
 }
 
