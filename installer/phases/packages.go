@@ -59,16 +59,26 @@ func applyWebStack(c Config) error {
 	}
 	include := "include /etc/nginx/panel-sites/*.conf;\n"
 	modsec := "modsecurity on;\nmodsecurity_rules_file /etc/nginx/modsec/panel.conf;\n"
+	conn := "limit_conn_zone $panel_account zone=panel_acct:10m;\n"
 	if c.Dev {
+		if err := os.MkdirAll(root(c, "etc/nginx/conf.d"), 0o755); err != nil {
+			return err
+		}
 		if err := os.WriteFile(root(c, "etc/nginx/panel-sites.conf"), []byte(include), 0o644); err != nil {
 			return err
 		}
-		return os.WriteFile(root(c, "etc/nginx/panel-modsec.conf"), []byte(modsec), 0o644)
+		if err := os.WriteFile(root(c, "etc/nginx/panel-modsec.conf"), []byte(modsec), 0o644); err != nil {
+			return err
+		}
+		return os.WriteFile(root(c, "etc/nginx/conf.d/panel-conn-limit.conf"), []byte(conn), 0o644)
 	}
 	if err := os.WriteFile("/etc/nginx/conf.d/panel-sites.conf", []byte(include), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile("/etc/nginx/conf.d/panel-modsec.conf", []byte(modsec), 0o644)
+	if err := os.WriteFile("/etc/nginx/conf.d/panel-modsec.conf", []byte(modsec), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile("/etc/nginx/conf.d/panel-conn-limit.conf", []byte(conn), 0o644)
 }
 
 func applyDatabaseStack(c Config) error {

@@ -6,19 +6,20 @@ import (
 )
 
 type WebsiteSpec struct {
-	WebsiteID     string
-	Account       string
-	Domain        string
-	DocumentRoot  string
-	Runtime       string
-	PHPVersion    string
-	ProxyTarget   string
-	HTTPSRedirect bool
-	Revision      int64
-	TLSCert       string
-	TLSKey        string
-	Enabled       bool
-	BandwidthHold bool
+	WebsiteID             string
+	Account               string
+	Domain                string
+	DocumentRoot          string
+	Runtime               string
+	PHPVersion            string
+	ProxyTarget           string
+	HTTPSRedirect         bool
+	Revision              int64
+	TLSCert               string
+	TLSKey                string
+	Enabled               bool
+	BandwidthHold         bool
+	ConcurrentWebRequests int
 }
 
 func NginxSite(s WebsiteSpec) string {
@@ -46,6 +47,7 @@ func NginxSite(s WebsiteSpec) string {
 	b.WriteString("    index index.php index.html;\n")
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
 	fmt.Fprintf(&b, "    error_log /var/log/nginx/%s.error.log;\n", s.WebsiteID)
+	b.WriteString(connLimitLines(s))
 	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
 	if s.HTTPSRedirect && s.TLSCert != "" {
 		b.WriteString("    if ($scheme = http) { return 301 https://$host$request_uri; }\n")
@@ -77,6 +79,7 @@ func NginxSite(s WebsiteSpec) string {
 		b.WriteString("    index index.php index.html;\n")
 		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)
 		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.TLSKey)
+		b.WriteString(connLimitLines(s))
 		b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
 		switch s.Runtime {
 		case "php":
@@ -98,6 +101,17 @@ func NginxSite(s WebsiteSpec) string {
 		b.WriteString("}\n")
 	}
 	return b.String()
+}
+
+func connLimitLines(s WebsiteSpec) string {
+	if s.Account == "" || s.ConcurrentWebRequests < 1 {
+		return ""
+	}
+	return fmt.Sprintf("    set $panel_account %q;\n    limit_conn panel_acct %d;\n    limit_conn_status 429;\n", s.Account, s.ConcurrentWebRequests)
+}
+
+func NginxConnZone() string {
+	return "limit_conn_zone $panel_account zone=panel_acct:10m;\n"
 }
 
 func limitedServer(listen string, s WebsiteSpec, status int, body string) string {

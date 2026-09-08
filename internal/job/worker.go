@@ -369,9 +369,13 @@ func (w *Worker) applySiteRuntime(site *store.Website, acc *store.Account) error
 		if ver == "" || ver == "8.5" {
 			ver = "8.3"
 		}
+		children := w.concurrentWebRequests(acc)
+		if children < 1 {
+			children = 8
+		}
 		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "ApplyPhpPool",
-			Params: mustJSON(map[string]any{"account": acc.Username, "version": ver, "max_children": 8}),
+			Params: mustJSON(map[string]any{"account": acc.Username, "version": ver, "max_children": children}),
 		})
 		return err
 	case "node", "python":
@@ -896,6 +900,17 @@ func (w *Worker) websiteEnabled(acc *store.Account) bool {
 	}
 }
 
+func (w *Worker) concurrentWebRequests(acc *store.Account) int {
+	if acc == nil {
+		return 0
+	}
+	pkg := w.Store.GetPackage(acc.PackageID)
+	if pkg == nil || pkg.ConcurrentWebRequests < 1 {
+		return 0
+	}
+	return pkg.ConcurrentWebRequests
+}
+
 func (w *Worker) bandwidthHold(acc *store.Account) bool {
 	if acc == nil {
 		return false
@@ -921,7 +936,8 @@ func (w *Worker) applyWebsiteDispatch(acc *store.Account, site *store.Website, d
 			"website_id": site.ID, "account": acc.Username, "domain": d.ASCII,
 			"document_root": site.DocumentRoot, "runtime": site.Runtime,
 			"https_redirect": site.HTTPSRedirect, "enabled": w.websiteEnabled(acc),
-			"bandwidth_hold": w.bandwidthHold(acc),
+			"bandwidth_hold":          w.bandwidthHold(acc),
+			"concurrent_web_requests": w.concurrentWebRequests(acc),
 		}),
 	})
 	return err

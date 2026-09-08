@@ -359,6 +359,9 @@ done
 [[ "$bcode" == "200" ]] || { echo "bwacc HTTP $bcode before hold" >&2; exit 1; }
 wid=$(curl -sS "$BASE/api/v1/accounts/$bid/websites" -H "$AUTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or []; print(items[0]["id"] if items else "")')
 [[ -n "$wid" ]] || { echo "bwacc website missing" >&2; exit 1; }
+sudo grep -q 'limit_conn panel_acct 50' "/etc/nginx/panel-sites/${wid}.conf" || { echo "expected limit_conn 50 on $wid" >&2; cat "/etc/nginx/panel-sites/${wid}.conf" >&2; exit 1; }
+sudo grep -q 'limit_conn_zone $panel_account' /etc/nginx/conf.d/panel-conn-limit.conf || { echo "nginx conn zone missing" >&2; exit 1; }
+echo "conn-limit ok"
 now=$(date -u +'%d/%b/%Y:%H:%M:%S +0000')
 echo "127.0.0.1 - - [${now}] \"GET / HTTP/1.1\" 200 500 \"-\" \"live-e2e\"" | sudo tee "/var/log/nginx/${wid}.access.log" >/dev/null
 sudo chmod 644 "/var/log/nginx/${wid}.access.log"

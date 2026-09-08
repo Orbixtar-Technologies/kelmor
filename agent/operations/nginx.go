@@ -10,7 +10,7 @@ import (
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
-func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect, enabled, bandwidthHold bool) (Result, error) {
+func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect, enabled, bandwidthHold bool, concurrent int) (Result, error) {
 	if _, err := validate.NormalizeDomain(domain); err != nil {
 		return Result{}, err
 	}
@@ -26,13 +26,16 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 		WebsiteID: websiteID, Account: account, Domain: domain, DocumentRoot: docroot,
 		Runtime: runtime, PHPVersion: phpVersion, ProxyTarget: proxyTarget,
 		HTTPSRedirect: httpsRedirect, Revision: 1, Enabled: enabled,
-		BandwidthHold: bandwidthHold,
+		BandwidthHold: bandwidthHold, ConcurrentWebRequests: concurrent,
 	}
 	if certAbs, err := h.resolve("/var/lib/panel/certs/" + domain + ".crt"); err == nil {
 		if _, err := os.Stat(certAbs); err == nil {
 			spec.TLSCert = "/var/lib/panel/certs/" + domain + ".crt"
 			spec.TLSKey = "/var/lib/panel/certs/" + domain + ".key"
 		}
+	}
+	if _, err := h.ApplyFile("/etc/nginx/conf.d/panel-conn-limit.conf", []byte(configuration.NginxConnZone()), 0o644); err != nil {
+		return Result{}, err
 	}
 	body := configuration.NginxSite(spec)
 	if err := configuration.ValidateNginx(body); err != nil {

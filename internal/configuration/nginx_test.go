@@ -12,6 +12,23 @@ func TestNginxSuspendedReturns503(t *testing.T) {
 	}
 }
 
+func TestNginxConcurrentLimitConn(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{
+		WebsiteID: "abc", Account: "acme42", Domain: "acme.test",
+		DocumentRoot: "/home/acme/public_html", Runtime: "php", Enabled: true,
+		ConcurrentWebRequests: 12,
+	})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "limit_conn panel_acct 12") || !contains(conf, `set $panel_account "acme42"`) {
+		t.Fatal(conf)
+	}
+	if NginxConnZone() == "" || !contains(NginxConnZone(), "limit_conn_zone") {
+		t.Fatal("http zone required")
+	}
+}
+
 func TestNginxBandwidthHoldReturns509(t *testing.T) {
 	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", Enabled: true, BandwidthHold: true})
 	if err := ValidateNginx(conf); err != nil {

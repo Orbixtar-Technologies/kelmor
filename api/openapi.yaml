@@ -38,6 +38,11 @@ paths:
       operationId: logout
       responses:
         "200": { description: session revoked }
+  /auth/refresh:
+    post:
+      operationId: refreshSession
+      responses:
+        "200": { description: session extended }
   /me:
     get:
       operationId: getMe
@@ -62,6 +67,18 @@ paths:
       x-audit-action: server.firewall.apply
       responses:
         "200": { description: table inet panel applied }
+  /server/monitor:
+    get:
+      operationId: serverMonitor
+      x-capability: server.read
+      responses:
+        "200": { description: per-account disk, bandwidth, inode, and process usage }
+  /server/services:
+    get:
+      operationId: serverServices
+      x-capability: server.services.read
+      responses:
+        "200": { description: host service probes }
   /server/reboot:
     post:
       operationId: rebootHost
@@ -173,6 +190,52 @@ paths:
                 domain: { type: string }
       responses:
         "202": { description: import and homedir copy queued }
+  /accounts/{accountID}/usage:
+    get:
+      operationId: accountUsage
+      x-capability: billing.usage.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: latest disk, bandwidth, and process usage }
+  /accounts/{accountID}/impersonate:
+    post:
+      operationId: impersonateAccount
+      x-capability: accounts.impersonate
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: tenant session issued }
+  /accounts/{accountID}/cron:
+    get:
+      operationId: listCron
+      x-capability: cron.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: cron jobs }
+    post:
+      operationId: createCron
+      x-capability: cron.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: cron apply queued }
+  /accounts/{accountID}/applications:
+    get:
+      operationId: listApplications
+      x-capability: applications.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: application instances }
+    post:
+      operationId: createApplication
+      x-capability: applications.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: application deploy queued }
   /accounts/{accountID}/terminate:
     post:
       operationId: terminateAccount
