@@ -510,7 +510,82 @@ func (w *Worker) applyMailStack(accountID string) error {
 			"send_limits": mail.SendLimits(recs),
 		}),
 	})
+	if err != nil {
+		return err
+	}
+	return w.ensureDKIM(recs)
+}
+
+func (w *Worker) ensureDKIM(recs []mail.Recipient) error {
+	if w.Agent == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var domains []string
+	for _, r := range recs {
+		if r.Domain == "" || seen[r.Domain] {
+			continue
+		}
+		seen[r.Domain] = true
+		domains = append(domains, r.Domain)
+	}
+	for _, domain := range domains {
+		raw, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "EnsureDKIM",
+			Params: mustJSON(map[string]any{"domain": domain}),
+		})
+		if err != nil {
+			return err
+		}
+		b, _ := json.Marshal(raw)
+		var rec operations.DKIMRecord
+		if json.Unmarshal(b, &rec) != nil || rec.TXT == "" {
+			continue
+		}
+		w.publishDKIMTXT(domain, rec.TXT)
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyDKIMSigning",
+		Params: mustJSON(map[string]any{"domains": domains}),
+	})
 	return err
+}
+
+func (w *Worker) publishDKIMTXT(domain, txt string) {
+	for _, acc := range w.Store.ListAccounts("", "") {
+		for _, d := range w.Store.ListDomains(acc.ID) {
+			if d.ASCII != domain {
+				continue
+			}
+			z := w.Store.ZoneByDomain(d.ID)
+			if z == nil {
+				return
+			}
+			updated := false
+			for _, rec := range w.Store.ListRecords(z.ID) {
+				if rec.Type == "TXT" && rec.Name == "default._domainkey" {
+					rec.Content = txt
+					w.Store.PutRecord(&rec)
+					updated = true
+					break
+				}
+			}
+			if !updated {
+				w.Store.PutRecord(&store.DNSRecord{
+					ID: store.NewID(), ZoneID: z.ID, Name: "default._domainkey",
+					Type: "TXT", Content: txt, TTL: 3600,
+				})
+			}
+			z.DesiredRevision++
+			w.Store.PutZone(z)
+			_ = w.writeZone(z)
+			p := &dns.PowerDNS{BaseURL: os.Getenv("PANEL_PDNS_URL"), APIKey: os.Getenv("PANEL_PDNS_API_KEY")}
+			_ = p.UpsertRecord(context.Background(), z.Name, dns.Record{
+				Name: "default._domainkey", Type: "TXT", Content: txt, TTL: 3600,
+			})
+			return
+		}
+	}
 }
 
 func (w *Worker) provisionMailbox(j *store.Job) error {

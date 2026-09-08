@@ -45,6 +45,9 @@ smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 smtpd_end_of_data_restrictions = check_policy_service inet:127.0.0.1:10031
 smtpd_policy_service_default_action = DUNNO
 mynetworks = 127.0.0.0/8 [::1]/128
+smtpd_milters = inet:127.0.0.1:11332
+non_smtpd_milters = inet:127.0.0.1:11332
+milter_default_action = accept
 EOF
 
 sudo tee /etc/dovecot/dovecot.conf >/dev/null <<'EOF'

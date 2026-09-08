@@ -52,6 +52,9 @@ func ValidateManagedPath(p string) (string, error) {
 	if strings.HasPrefix(clean, "/etc/nginx/conf.d/panel-") {
 		ok = true
 	}
+	if strings.HasPrefix(clean, "/etc/rspamd/local.d/") {
+		ok = true
+	}
 	if !ok {
 		return "", fmt.Errorf("path outside approved prefixes")
 	}

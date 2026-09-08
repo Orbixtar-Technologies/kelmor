@@ -36,6 +36,10 @@ func ZoneFile(zone store.DNSZone, records []store.DNSRecord, serial int64) strin
 			if content != "" && !strings.HasSuffix(content, ".") && !strings.Contains(content, ":") {
 				content += "."
 			}
+		case "TXT":
+			if content != "" && !strings.HasPrefix(content, `"`) {
+				content = `"` + strings.ReplaceAll(content, `"`, `\"`) + `"`
+			}
 		}
 		fmt.Fprintf(&b, "%s %d IN %s %s%s\n", name, r.TTL, r.Type, prio, content)
 	}

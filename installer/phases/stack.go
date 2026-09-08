@@ -76,6 +76,9 @@ smtpd_tls_security_level = may
 smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 smtpd_end_of_data_restrictions = check_policy_service inet:127.0.0.1:10031
 smtpd_policy_service_default_action = DUNNO
+smtpd_milters = inet:127.0.0.1:11332
+non_smtpd_milters = inet:127.0.0.1:11332
+milter_default_action = accept
 `
 	if err := writeUnlessExists(root(c, "etc/postfix/main.cf"), []byte(main), 0o644); err != nil {
 		return err

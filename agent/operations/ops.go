@@ -277,6 +277,18 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits)
+	case "EnsureDKIM":
+		var p struct {
+			Domain string `json:"domain"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.ensureDKIM(p.Domain)
+	case "ApplyDKIMSigning":
+		var p struct {
+			Domains []string `json:"domains"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applyDKIMSigning(p.Domains)
 	case "ListDirectory":
 		var p struct {
 			Path string `json:"path"`

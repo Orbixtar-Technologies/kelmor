@@ -46,6 +46,7 @@ func (h *Host) retireAccount(username string, websiteIDs, domains []string) (Res
 		h.removeManaged("/var/lib/panel/certs/" + ascii + ".key")
 		h.removeManaged("/var/lib/panel/dns/zones/" + ascii + ".zone")
 		h.removeMailboxTree(ascii)
+		h.clearDKIM(ascii)
 		h.dropNamedZone(ascii)
 		if h.live() {
 			_, _ = runFixed("/usr/bin/pdnsutil", "delete-zone", ascii)

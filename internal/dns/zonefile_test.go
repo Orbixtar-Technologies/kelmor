@@ -20,3 +20,12 @@ func TestZoneFileAbsoluteMX(t *testing.T) {
 		t.Fatal(body)
 	}
 }
+
+func TestZoneFileQuotesTXT(t *testing.T) {
+	body := ZoneFile(store.DNSZone{Name: "acme.test"}, []store.DNSRecord{
+		{Name: "default._domainkey", Type: "TXT", Content: "v=DKIM1; k=rsa; p=abc", TTL: 3600},
+	}, 1)
+	if !strings.Contains(body, `"v=DKIM1; k=rsa; p=abc"`) {
+		t.Fatal(body)
+	}
+}
