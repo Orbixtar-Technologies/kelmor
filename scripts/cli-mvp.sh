@@ -40,6 +40,14 @@ if [[ -z "$rdid" ]]; then
   [[ -n "$dop" ]] && $CLI job wait "$dop"
 fi
 rwid=$(curl -sS "$PANEL_API/api/v1/accounts/$aid/websites" -H "Authorization: Bearer $PANEL_TOKEN" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((i['id'] for i in items if 'gone.climvp.test' in (i.get('document_root') or '')), ''))")
+if [[ -z "$rwid" ]]; then
+  rdid=$(curl -sS "$PANEL_API/api/v1/accounts/$aid/domains" -H "Authorization: Bearer $PANEL_TOKEN" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((i['id'] for i in items if i.get('ascii_fqdn')=='gone.climvp.test'), ''))")
+  [[ -n "$rdid" ]]
+  wcreated=$($CLI website create "$aid" "$rdid" php)
+  wcop=$(echo "$wcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  [[ -n "$wcop" ]] && $CLI job wait "$wcop"
+  rwid=$(echo "$wcreated" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("website") or {}).get("id",""))')
+fi
 [[ -n "$rwid" ]]
 wdel=$($CLI website delete "$aid" "$rwid")
 wop=$(echo "$wdel" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')

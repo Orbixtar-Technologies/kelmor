@@ -111,6 +111,17 @@ fi
 rwid=$(curl -sS "$BASE/api/v1/accounts/$aid/websites" -H "$AUTH" | python3 -c "import json,sys
 d=json.load(sys.stdin); items=d.get('items') or []
 print(next((i['id'] for i in items if '$RDOM' in (i.get('document_root') or '')), ''))")
+if [[ -z "$rwid" ]]; then
+  rdid=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
+print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$RDOM'), ''))")
+  [[ -n "$rdid" ]] || { echo "retire domain missing for $RDOM" >&2; exit 1; }
+  sitej=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/websites" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"domain_id\":\"$rdid\",\"runtime\":\"php\"}")
+  echo "$sitej"
+  sop=$(echo "$sitej" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  wait_job "$sop" retire-website-apply
+  rwid=$(echo "$sitej" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("website") or {}).get("id",""))')
+fi
 [[ -n "$rwid" ]] || { echo "retire website missing for $RDOM" >&2; exit 1; }
 rcode=""
 for _ in $(seq 1 20); do
