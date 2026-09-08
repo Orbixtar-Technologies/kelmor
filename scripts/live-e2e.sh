@@ -143,7 +143,13 @@ sys.exit(1)
 PY
 [[ "$imap_ok" == "1" ]] || { echo "doveadm auth failed" >&2; exit 1; }
 sudo test -s /var/lib/panel/dkim/$DOMAIN/default.key || { echo "dkim private key missing" >&2; exit 1; }
-dkim=$(dig +short TXT default._domainkey.$DOMAIN @127.0.0.1 | tr -d '"')
+dkim=""
+for _ in $(seq 1 20); do
+  dkim=$(dig +short TXT default._domainkey.$DOMAIN @127.0.0.1 | tr -d '" \n')
+  echo "$dkim" | grep -q 'v=DKIM1' && break
+  sudo pdns_control bind-reload-now "$DOMAIN" >/dev/null 2>&1 || true
+  sleep 0.2
+done
 echo "dkim $dkim"
 echo "$dkim" | grep -q 'v=DKIM1' || { echo "DKIM TXT missing in PowerDNS" >&2; cat /var/lib/panel/dns/zones/$DOMAIN.zone >&2; exit 1; }
 sudo grep -q "$DOMAIN" /etc/rspamd/local.d/dkim_signing.conf || { echo "rspamd dkim_signing missing domain" >&2; exit 1; }

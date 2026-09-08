@@ -281,6 +281,7 @@ func (h *Host) applyDNSZone(name, body string) (Result, error) {
 	}
 	if h.live() {
 		_, _ = runFixed("/usr/bin/pdns_control", "rediscover")
+		_, _ = runFixed("/usr/bin/pdns_control", "bind-reload-now", name)
 	}
 	return Result{OK: true, Message: "zone written", ObservedState: "applied"}, nil
 }
