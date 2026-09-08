@@ -55,6 +55,13 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(unit), "PANEL_STATE_DIR=/var/lib/panel") {
 		t.Fatalf("api unit missing state dir: %s", unit)
 	}
+	acme, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/nginx/panel-sites/00-acme.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(acme), "return 404") {
+		t.Fatalf("default vhost must 404 unknown hosts: %s", acme)
+	}
 }
 
 func contains(s, sub string) bool {

@@ -277,9 +277,10 @@ func applyTLS(c Config) error {
         root /var/lib/panel/acme-www;
         default_type text/plain;
     }
+    location / { default_type text/plain; return 404 'no such site\n'; }
 }
 `
-	if err := writeUnlessExists(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644); err != nil {
+	if err := os.WriteFile(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644); err != nil {
 		return err
 	}
 	return startLocalACME(c)

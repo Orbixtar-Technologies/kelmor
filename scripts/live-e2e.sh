@@ -246,7 +246,11 @@ if getent passwd "$TUSER" >/dev/null; then
   exit 1
 fi
 gone=$(curl -sS -o /tmp/term-gone.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
-[[ "$gone" != "200" ]] || { echo "terminated vhost still served 200" >&2; exit 1; }
+[[ "$gone" == "404" ]] || { echo "terminated host should 404, got $gone" >&2; cat /tmp/term-gone.html >&2; exit 1; }
+if grep -q "$TDOM" /tmp/term-gone.html; then
+  echo "terminated host still rendered tenant content" >&2
+  exit 1
+fi
 if grep -q "$TDOM" /var/lib/panel/mail/virtual 2>/dev/null; then
   echo "mail map still lists $TDOM" >&2
   exit 1
