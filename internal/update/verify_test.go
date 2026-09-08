@@ -3,7 +3,6 @@ package update
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,11 +21,9 @@ func TestVerifyRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &Manifest{Release: "1.0.0", Channel: "stable", Files: map[string]string{"panel-api": "abc"}}
-	body, err := canonical(m)
-	if err != nil {
+	if err := Sign(m, priv); err != nil {
 		t.Fatal(err)
 	}
-	m.Signature = hex.EncodeToString(ed25519.Sign(priv, body))
 	if err := Verify(m, pub); err != nil {
 		t.Fatal(err)
 	}

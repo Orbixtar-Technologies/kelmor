@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -116,12 +117,21 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.CreateDirectoryTree(p.Path, p.Mode)
 	case "ApplyFile":
 		var p struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
-			Mode    uint32 `json:"mode"`
+			Path       string `json:"path"`
+			Content    string `json:"content"`
+			ContentB64 string `json:"content_b64"`
+			Mode       uint32 `json:"mode"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.ApplyFile(p.Path, []byte(p.Content), p.Mode)
+		body := []byte(p.Content)
+		if p.ContentB64 != "" {
+			dec, err := base64.StdEncoding.DecodeString(p.ContentB64)
+			if err != nil {
+				return nil, err
+			}
+			body = dec
+		}
+		return h.ApplyFile(p.Path, body, p.Mode)
 	case "ApplyWebsite":
 		var p struct {
 			WebsiteID     string `json:"website_id"`
@@ -395,7 +405,7 @@ func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, erro
 	if h.Sock != "" {
 		_, err := CallUnix(context.Background(), h.Sock, Request{
 			Method: "ApplyFile",
-			Params: mustRaw(map[string]any{"path": path, "content": string(content), "mode": mode}),
+			Params: mustRaw(map[string]any{"path": path, "content_b64": base64.StdEncoding.EncodeToString(content), "mode": mode}),
 		})
 		if err != nil {
 			return Result{}, err

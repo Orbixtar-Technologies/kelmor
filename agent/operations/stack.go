@@ -98,7 +98,7 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 		_, _ = h.ApplyFile(workDir+"/server.js", []byte(stub), 0o644)
 		command = "/usr/bin/node server.js"
 	case "python":
-		stub := fmt.Sprintf("import os, socket\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\nclass S(ThreadingHTTPServer):\n    address_family = socket.AF_UNIX\nclass H(BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'python %s\\n')\nsock = %q\ntry: os.unlink(sock)\nexcept FileNotFoundError: pass\nhttpd = S(sock, H)\nos.chmod(sock, 0o666)\nhttpd.serve_forever()\n", websiteID, sock)
+		stub := fmt.Sprintf("import os, socket\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\nclass S(ThreadingHTTPServer):\n    address_family = socket.AF_UNIX\nclass H(BaseHTTPRequestHandler):\n    def address_string(self):\n        return 'unix'\n    def log_message(self, fmt, *args):\n        pass\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'python %s\\n')\nsock = %q\ntry: os.unlink(sock)\nexcept FileNotFoundError: pass\nhttpd = S(sock, H)\nos.chmod(sock, 0o666)\nhttpd.serve_forever()\n", websiteID, sock)
 		_, _ = h.ApplyFile(workDir+"/app.py", []byte(stub), 0o644)
 		command = "/usr/bin/python3 app.py"
 	}

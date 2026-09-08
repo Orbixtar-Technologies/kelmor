@@ -129,9 +129,14 @@ fi
 if [[ -x /usr/sbin/clamd ]] && ! pgrep -x clamd >/dev/null; then
   sudo /usr/sbin/clamd || true
 fi
-if [[ -x /usr/sbin/sshd ]] && ! pgrep -x sshd >/dev/null; then
-  sudo mkdir -p /run/sshd /var/run/sshd
-  sudo /usr/sbin/sshd || true
+if [[ -x /usr/sbin/sshd ]]; then
+  sudo mkdir -p /run/sshd /var/run/sshd /etc/ssh/sshd_config.d
+  echo 'PasswordAuthentication yes' | sudo tee /etc/ssh/sshd_config.d/panel-password.conf >/dev/null
+  if ! pgrep -x sshd >/dev/null; then
+    sudo /usr/sbin/sshd || true
+  else
+    sudo kill -HUP "$(pgrep -x sshd | head -1)" || true
+  fi
 fi
 
 if [[ -x "$ROOT/dist/bin/panel-agent" ]]; then

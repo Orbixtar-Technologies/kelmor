@@ -61,7 +61,11 @@ func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell str
 	}
 	if out, err := runFixed("/usr/sbin/groupadd", "-g", strconv.Itoa(gid), username); err != nil {
 		if _, lookupErr := user.LookupGroup(username); lookupErr != nil {
-			return Result{}, fmt.Errorf("groupadd: %s", strings.TrimSpace(string(out)))
+			if out2, err2 := runFixed("/usr/sbin/groupadd", username); err2 != nil {
+				if _, l2 := user.LookupGroup(username); l2 != nil {
+					return Result{}, fmt.Errorf("groupadd: %s / %s", strings.TrimSpace(string(out)), strings.TrimSpace(string(out2)))
+				}
+			}
 		}
 	}
 	args := []string{"-u", strconv.Itoa(uid), "-g", username, "-d", home, "-s", shell, "-m", "-G", "panel-sftp", username}

@@ -3,6 +3,7 @@ package operations
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hosting-panel/panel/internal/configuration"
@@ -40,6 +41,7 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
 		return Result{}, err
 	}
+	h.retireOtherSites(domain, path)
 	if err := h.testNginx(); err != nil {
 		return Result{}, err
 	}
@@ -69,6 +71,38 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 		}
 	}
 	return Result{OK: true, Message: "website applied", ObservedState: "active"}, nil
+}
+
+func (h *Host) retireOtherSites(domain, keep string) {
+	if domain == "" {
+		return
+	}
+	dir := "/etc/nginx/panel-sites"
+	if abs, err := h.resolve(dir); err == nil {
+		dir = abs
+	}
+	keepAbs := keep
+	if p, err := h.resolve(keep); err == nil {
+		keepAbs = p
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	needle := "server_name " + domain + ";"
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		if p == keepAbs {
+			continue
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(b), needle) {
+			_ = os.Remove(p)
+		}
+	}
 }
 
 func (h *Host) testNginx() error {

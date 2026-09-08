@@ -37,6 +37,15 @@ func (m *Manifest) UnsignedPayload() ([]byte, error) {
 	return json.Marshal(cp)
 }
 
+func Sign(m *Manifest, priv ed25519.PrivateKey) error {
+	body, err := canonical(m)
+	if err != nil {
+		return err
+	}
+	m.Signature = hex.EncodeToString(ed25519.Sign(priv, body))
+	return nil
+}
+
 func Verify(m *Manifest, pub ed25519.PublicKey) error {
 	if m.Release == "" || m.Channel == "" {
 		return fmt.Errorf("manifest missing release metadata")
