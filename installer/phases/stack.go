@@ -74,6 +74,8 @@ virtual_uid_maps = hash:/var/lib/panel/mail/uids
 virtual_gid_maps = hash:/var/lib/panel/mail/gids
 smtpd_tls_security_level = may
 smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_end_of_data_restrictions = check_policy_service inet:127.0.0.1:10031
+smtpd_policy_service_default_action = DUNNO
 `
 	if err := writeUnlessExists(root(c, "etc/postfix/main.cf"), []byte(main), 0o644); err != nil {
 		return err
@@ -383,7 +385,7 @@ func writeUnlessExists(path string, body []byte, mode os.FileMode) error {
 }
 
 func verifySystemd(c Config) error {
-	for _, n := range []string{"panel-api.service", "panel-worker.service", "panel-agent.service"} {
+	for _, n := range []string{"panel-api.service", "panel-worker.service", "panel-agent.service", "panel-smtp-policy.service"} {
 		if _, err := os.Stat(root(c, "etc/systemd/system/"+n)); err != nil {
 			return err
 		}
@@ -433,6 +435,20 @@ User=root
 Group=root
 Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 ExecStart=/usr/local/panel/bin/panel-agent
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+`,
+		"panel-smtp-policy.service": `[Unit]
+Description=Hosting Panel SMTP send-limit policy
+After=network-online.target
+[Service]
+User=panel
+Group=panel
+Environment=PANEL_SMTP_POLICY_ADDR=127.0.0.1:10031
+Environment=PANEL_SMTP_LIMITS=/var/lib/panel/mail/send-limits
+Environment=PANEL_SMTP_COUNTS=/var/lib/panel/mail/send-counts
+ExecStart=/usr/local/panel/bin/panel-smtp-policy
 Restart=on-failure
 [Install]
 WantedBy=multi-user.target

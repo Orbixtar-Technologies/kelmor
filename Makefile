@@ -39,6 +39,7 @@ build:
 	$(GO) build -o dist/bin/panel-backup ./cmd/panel-backup
 	$(GO) build -o dist/bin/panel-install ./cmd/panel-install
 	$(GO) build -o dist/bin/panel-dev ./cmd/panel-dev
+	$(GO) build -o dist/bin/panel-smtp-policy ./cmd/panel-smtp-policy
 
 package: build
 	bash packaging/debian/build.sh

@@ -45,6 +45,7 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/nginx/panel-sites/00-acme.conf",
 		"var/panel/host/var/lib/panel/acme-www/.well-known/acme-challenge",
 		"var/panel/host/etc/systemd/system/panel-agent.service",
+		"var/panel/host/etc/systemd/system/panel-smtp-policy.service",
 		"var/panel/host/var/lib/panel/health-report.txt",
 	}
 	for _, rel := range need {

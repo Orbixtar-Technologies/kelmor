@@ -505,11 +505,12 @@ func (w *Worker) applyMailStack(accountID string) error {
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyMailMaps",
 		Params: mustJSON(map[string]any{
-			"virtual": mail.Virtual(recs),
-			"domains": mail.Domains(recs),
-			"passwd":  mail.PasswdFile(recs),
-			"uids":    mail.UIDMap(recs),
-			"gids":    mail.GIDMap(recs),
+			"virtual":     mail.Virtual(recs),
+			"domains":     mail.Domains(recs),
+			"passwd":      mail.PasswdFile(recs),
+			"uids":        mail.UIDMap(recs),
+			"gids":        mail.GIDMap(recs),
+			"send_limits": mail.SendLimits(recs),
 		}),
 	})
 	return err

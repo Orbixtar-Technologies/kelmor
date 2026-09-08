@@ -257,11 +257,11 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		_ = json.Unmarshal(req.Params, &p)
 		return h.dropHostedDatabase(p.Engine, p.Name, p.Username)
 	case "ApplyMailMaps":
-		virtual, domains, passwd, uids, gids, err := decodeMaps(req.Params)
+		virtual, domains, passwd, uids, gids, sendLimits, err := decodeMaps(req.Params)
 		if err != nil {
 			return nil, err
 		}
-		return h.applyMailMaps(virtual, domains, passwd, uids, gids)
+		return h.applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits)
 	case "ListDirectory":
 		var p struct {
 			Path string `json:"path"`

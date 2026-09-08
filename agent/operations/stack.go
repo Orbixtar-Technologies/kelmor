@@ -14,7 +14,7 @@ import (
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
 
-func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids string) (Result, error) {
+func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits string) (Result, error) {
 	if _, err := h.ApplyFile("/var/lib/panel/mail/virtual", []byte(virtual), 0o640); err != nil {
 		return Result{}, err
 	}
@@ -31,6 +31,11 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids string) (Resul
 	}
 	if gids != "" {
 		if _, err := h.ApplyFile("/var/lib/panel/mail/gids", []byte(gids), 0o640); err != nil {
+			return Result{}, err
+		}
+	}
+	if sendLimits != "" {
+		if _, err := h.ApplyFile("/var/lib/panel/mail/send-limits", []byte(sendLimits), 0o644); err != nil {
 			return Result{}, err
 		}
 	}
@@ -51,6 +56,8 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids string) (Resul
 		if p, err := h.resolve("/var/lib/panel/mail/passwd"); err == nil {
 			_ = os.Chmod(p, 0o644)
 		}
+		_ = os.MkdirAll("/var/lib/panel/mail/send-counts", 0o775)
+		_ = os.Chmod("/var/lib/panel/mail/send-counts", 0o775)
 		_, _ = runFixed("/usr/sbin/postfix", "reload")
 		_, _ = runFixed("/usr/bin/doveadm", "reload")
 		sighupPidFile("/run/dovecot/master.pid")
@@ -370,19 +377,20 @@ func sighupPidFile(path string) {
 	_ = syscall.Kill(pid, syscall.SIGHUP)
 }
 
-func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids string, err error) {
+func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids, sendLimits string, err error) {
 	var p struct {
-		Virtual string `json:"virtual"`
-		Domains string `json:"domains"`
-		Passwd  string `json:"passwd"`
-		UIDs    string `json:"uids"`
-		GIDs    string `json:"gids"`
+		Virtual    string `json:"virtual"`
+		Domains    string `json:"domains"`
+		Passwd     string `json:"passwd"`
+		UIDs       string `json:"uids"`
+		GIDs       string `json:"gids"`
+		SendLimits string `json:"send_limits"`
 	}
 	if err = json.Unmarshal(raw, &p); err != nil {
-		return "", "", "", "", "", err
+		return "", "", "", "", "", "", err
 	}
 	if strings.ContainsAny(p.Virtual, "\x00") {
-		return "", "", "", "", "", fmt.Errorf("NUL in mail map")
+		return "", "", "", "", "", "", fmt.Errorf("NUL in mail map")
 	}
-	return p.Virtual, p.Domains, p.Passwd, p.UIDs, p.GIDs, nil
+	return p.Virtual, p.Domains, p.Passwd, p.UIDs, p.GIDs, p.SendLimits, nil
 }

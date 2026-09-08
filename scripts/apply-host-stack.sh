@@ -42,6 +42,8 @@ virtual_uid_maps = hash:/var/lib/panel/mail/uids
 virtual_gid_maps = hash:/var/lib/panel/mail/gids
 smtpd_tls_security_level = may
 smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_end_of_data_restrictions = check_policy_service inet:127.0.0.1:10031
+smtpd_policy_service_default_action = DUNNO
 mynetworks = 127.0.0.0/8 [::1]/128
 EOF
 
@@ -218,6 +220,16 @@ EOF
   else
     sudo kill -HUP "$(pgrep -x sshd | head -1)" || true
   fi
+fi
+
+if [[ -x "$ROOT/dist/bin/panel-smtp-policy" ]] && ! pgrep -x panel-smtp-policy >/dev/null; then
+  sudo mkdir -p /var/lib/panel/mail/send-counts
+  sudo chown panel:panel /var/lib/panel/mail/send-counts || true
+  sudo chmod 0775 /var/lib/panel/mail/send-counts || true
+  sudo -u panel -g panel env PANEL_SMTP_POLICY_ADDR=127.0.0.1:10031 \
+    PANEL_SMTP_LIMITS=/var/lib/panel/mail/send-limits \
+    PANEL_SMTP_COUNTS=/var/lib/panel/mail/send-counts \
+    "$ROOT/dist/bin/panel-smtp-policy" >/tmp/panel-smtp-policy.log 2>&1 &
 fi
 
 if [[ -x "$ROOT/dist/bin/panel-agent" ]]; then

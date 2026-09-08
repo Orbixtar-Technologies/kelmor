@@ -9,14 +9,16 @@ import (
 )
 
 type Recipient struct {
-	Address   string
-	Domain    string
-	LocalPart string
-	Home      string
-	UID       int
-	GID       int
-	Quota     int64
-	Hash      string
+	Address    string
+	Domain     string
+	LocalPart  string
+	Home       string
+	UID        int
+	GID        int
+	Quota      int64
+	Hash       string
+	Account    string
+	DailyLimit int
 }
 
 func Recipients(st store.Store, accountID string) []Recipient {
@@ -32,22 +34,30 @@ func Recipients(st store.Store, accountID string) []Recipient {
 		}
 		acc := st.GetAccount(mb.AccountID)
 		uid, gid := 20000, 20000
+		account := ""
+		daily := 0
 		if acc != nil {
 			uid, gid = acc.LinuxUID, acc.LinuxGID
+			account = acc.Username
+			if pkg := st.GetPackage(acc.PackageID); pkg != nil {
+				daily = pkg.EmailDailyLimit
+			}
 		}
 		hash := mb.PasswordHash
 		if hash == "" {
 			hash = "!"
 		}
 		out = append(out, Recipient{
-			Address:   mb.LocalPart + "@" + d.ASCII,
-			Domain:    d.ASCII,
-			LocalPart: mb.LocalPart,
-			Home:      "/var/vmail/" + d.ASCII + "/" + mb.LocalPart,
-			UID:       uid,
-			GID:       gid,
-			Quota:     mb.QuotaBytes,
-			Hash:      hash,
+			Address:    mb.LocalPart + "@" + d.ASCII,
+			Domain:     d.ASCII,
+			LocalPart:  mb.LocalPart,
+			Home:       "/var/vmail/" + d.ASCII + "/" + mb.LocalPart,
+			UID:        uid,
+			GID:        gid,
+			Quota:      mb.QuotaBytes,
+			Hash:       hash,
+			Account:    account,
+			DailyLimit: daily,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
@@ -129,6 +139,18 @@ func PasswdFile(recs []Recipient) string {
 		}
 		fmt.Fprintf(&b, "%s:%s:%d:%d::%s::userdb_quota_rule=*:storage=%dB\n",
 			r.Address, hash, r.UID, r.GID, r.Home, r.Quota)
+	}
+	return b.String()
+}
+
+func SendLimits(recs []Recipient) string {
+	var b strings.Builder
+	b.WriteString("# sender account daily_limit — generated, do not edit\n")
+	for _, r := range recs {
+		if r.Account == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "%s %s %d\n", r.Address, r.Account, r.DailyLimit)
 	}
 	return b.String()
 }

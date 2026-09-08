@@ -36,6 +36,7 @@ func applyHostRuntime(c Config) error {
 		_ = cmd.Start()
 	}
 	startControlPlane()
+	startSMTPPolicy()
 	startAccountApps()
 	if _, err := os.Stat("/etc/panel/nftables-panel.nft"); err == nil {
 		_ = applyLiveNFT("/etc/panel/nftables-panel.nft")
@@ -109,6 +110,22 @@ func startAccountApps() {
 			}
 		}
 	}
+}
+
+func startSMTPPolicy() {
+	if _, err := os.Stat("/usr/local/panel/bin/panel-smtp-policy"); err != nil {
+		return
+	}
+	if exec.Command("/usr/bin/pgrep", "-x", "panel-smtp-policy").Run() == nil {
+		return
+	}
+	_ = os.MkdirAll("/var/lib/panel/mail/send-counts", 0o775)
+	cmd := exec.Command("/usr/bin/sudo", "-u", "panel", "-g", "panel", "env",
+		"PANEL_SMTP_POLICY_ADDR=127.0.0.1:10031",
+		"PANEL_SMTP_LIMITS=/var/lib/panel/mail/send-limits",
+		"PANEL_SMTP_COUNTS=/var/lib/panel/mail/send-counts",
+		"/usr/local/panel/bin/panel-smtp-policy")
+	_ = cmd.Start()
 }
 
 func startControlPlane() {

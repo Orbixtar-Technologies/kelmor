@@ -9,7 +9,8 @@ import (
 
 func TestVirtualMaps(t *testing.T) {
 	st := store.NewMemory()
-	st.PutAccount(&store.Account{ID: "a", Username: "acme42", LinuxUID: 20010, LinuxGID: 20010})
+	st.PutPackage(&store.Package{ID: "p", EmailDailyLimit: 40})
+	st.PutAccount(&store.Account{ID: "a", Username: "acme42", LinuxUID: 20010, LinuxGID: 20010, PackageID: "p"})
 	st.PutDomain(&store.Domain{ID: "d", AccountID: "a", ASCII: "acme.test"})
 	st.PutMailDomain(&store.MailDomain{ID: "md", AccountID: "a", DomainID: "d"})
 	st.PutMailbox(&store.Mailbox{ID: "m", AccountID: "a", DomainID: "md", LocalPart: "info", PasswordHash: "$argon2id$v=19$m=1,t=1,p=1$aa$bb", QuotaBytes: 100})
@@ -27,6 +28,10 @@ func TestVirtualMaps(t *testing.T) {
 	p := PasswdFile(recs)
 	if !strings.Contains(p, "$argon2id$") && !strings.Contains(p, "{ARGON2ID}") {
 		t.Fatal(p)
+	}
+	sl := SendLimits(recs)
+	if !strings.Contains(sl, "info@acme.test acme42 40") {
+		t.Fatal(sl)
 	}
 }
 

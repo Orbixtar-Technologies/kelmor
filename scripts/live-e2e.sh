@@ -100,6 +100,18 @@ with smtplib.SMTP("127.0.0.1", 25, timeout=10) as s:
     s.sendmail(msg["From"], [msg["To"]], msg.as_string())
 print("smtp accepted")
 PY
+if sudo test -f /var/lib/panel/mail/send-limits; then
+  sudo grep -q "info@$DOMAIN" /var/lib/panel/mail/send-limits || { echo "send-limits missing info@$DOMAIN" >&2; exit 1; }
+fi
+if ss -lnt | grep -q ':10031 '; then
+  python3 - <<'PY'
+import socket
+s = socket.create_connection(("127.0.0.1", 10031), 2)
+s.sendall(b"request=smtpd_access_policy\nsender=probe@localhost\n\n")
+print("smtp-policy", s.recv(256).decode().strip())
+s.close()
+PY
+fi
 sleep 1
 sudo ls /var/vmail/$DOMAIN/info/Maildir/new 2>/dev/null | head || true
 sudo doveadm reload >/dev/null 2>&1 || true
