@@ -651,6 +651,30 @@ func (m *Memory) ListFTP(accountID string) []FTPAccount {
 	}
 	return out
 }
+func (m *Memory) ListAllFTP() []FTPAccount {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []FTPAccount{}
+	for _, f := range m.FTPs {
+		out = append(out, *f)
+	}
+	return out
+}
+func (m *Memory) FTPUsernameTaken(username, exceptID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, f := range m.FTPs {
+		if f.Username == username && f.ID != exceptID {
+			return true
+		}
+	}
+	return false
+}
+func (m *Memory) DeleteFTP(id string) {
+	m.mu.Lock()
+	delete(m.FTPs, id)
+	m.mu.Unlock()
+}
 
 func (m *Memory) PutUsage(u *Usage) { m.mu.Lock(); m.Usage[u.AccountID] = u; m.mu.Unlock() }
 func (m *Memory) GetUsage(accountID string) *Usage {

@@ -359,10 +359,13 @@ function Databases ({ accountId }: { accountId: string }) {
 
 function Files ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
+	const [ftpUsers, setFtpUsers] = useState<any[]>([])
 	const [path, setPath] = useState('/')
+	const loadFTP = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/ftp`).then((r) => setFtpUsers(asList(r)))
 	useEffect(() => {
 		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/files?path=${encodeURIComponent(path)}`).then((r) => setItems(asList(r)))
 	}, [accountId, path])
+	useEffect(() => { loadFTP() }, [accountId])
 	return (
 		<>
 			<h1>Files</h1>
@@ -381,6 +384,33 @@ function Files ({ accountId }: { accountId: string }) {
 				</label>
 				<button type="submit">Set SFTP password</button>
 			</form>
+			<h2>FTP users</h2>
+			<p>Virtual FTP logins map to this account and chroot to public_html (port 21).</p>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${accountId}/ftp`, {
+					method: 'POST',
+					body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }),
+				})
+				e.currentTarget.reset()
+				await loadFTP()
+			}}>
+				<input name="username" placeholder="siteftp" required />
+				<input name="password" type="password" minLength={8} required />
+				<button type="submit">Create FTP user</button>
+			</form>
+			<ul>
+				{ftpUsers.map((f) => (
+					<li key={f.id}>
+						{f.username} — {f.home_path}
+						<button type="button" className="link" onClick={async () => {
+							await api(`/api/v1/accounts/${accountId}/ftp/${f.id}`, { method: 'DELETE' })
+							await loadFTP()
+						}}>Remove</button>
+					</li>
+				))}
+			</ul>
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)

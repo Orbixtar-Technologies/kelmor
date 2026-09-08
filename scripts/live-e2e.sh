@@ -134,6 +134,25 @@ curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type:
   -d '{"path":"/public_html/note.txt","content":"live-hosted"}' >/dev/null
 sudo grep -q live-hosted /home/$UNAME/public_html/note.txt
 
+ftp=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/ftp" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"username":"liveftp","password":"FtpPass!2026"}')
+echo "$ftp"
+ftpjob=$(echo "$ftp" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$ftpjob" ftp
+if [[ -f /var/lib/panel/ftp/passwd ]]; then
+  grep -q '^liveftp:' /var/lib/panel/ftp/passwd || { echo "ftp passwd missing liveftp" >&2; exit 1; }
+fi
+if ss -lnt | grep -q ':21 '; then
+  python3 - <<'PY'
+from ftplib import FTP
+f = FTP()
+f.connect("127.0.0.1", 21, timeout=8)
+f.login("liveftp", "FtpPass!2026")
+print("ftp", f.nlst()[:8])
+f.quit()
+PY
+fi
+
 # python runtime addon (idempotent)
 domains=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH")
 has_py=$(echo "$domains" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('ascii_fqdn')=='python.livehost.test' for i in items))")

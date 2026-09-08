@@ -29,6 +29,9 @@ func main() {
   account import <export.json> [username] [domain]
   account migrate <id> <newuser> <newdomain>
   account sftp-password <id> <password>
+  ftp list <account_id>
+  ftp create <account_id> <username> <password>
+  ftp delete <account_id> <ftp_id>
   mailbox create <account_id> <mail_domain_id> <local> <password>
   db create <account_id> <name> <engine>
   website create <account_id> <domain_id> <runtime>
@@ -70,6 +73,12 @@ func main() {
 		migrateAccount(base, token, args[2], args[3], args[4])
 	case args[0] == "account" && len(args) == 4 && args[1] == "sftp-password":
 		post(base+"/api/v1/accounts/"+args[2]+"/sftp-password", token, map[string]any{"password": args[3]})
+	case args[0] == "ftp" && args[1] == "list" && len(args) == 3:
+		get(base+"/api/v1/accounts/"+args[2]+"/ftp", token)
+	case args[0] == "ftp" && args[1] == "create" && len(args) == 5:
+		post(base+"/api/v1/accounts/"+args[2]+"/ftp", token, map[string]any{"username": args[3], "password": args[4]})
+	case args[0] == "ftp" && args[1] == "delete" && len(args) == 4:
+		do(http.MethodDelete, base+"/api/v1/accounts/"+args[2]+"/ftp/"+args[3], token, nil, true)
 	case args[0] == "account" && len(args) >= 3 && args[1] == "import":
 		raw, err := os.ReadFile(args[2])
 		if err != nil {

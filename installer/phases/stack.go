@@ -236,6 +236,8 @@ enabled = true
 port = 8443,8444,18080
 filter = panel-auth
 logpath = /var/lib/panel/logs/api.jsonl
+[vsftpd]
+enabled = true
 `
 	if err := os.WriteFile(root(c, "etc/fail2ban/jail.d/panel.conf"), []byte(jail), 0o644); err != nil {
 		return err
@@ -253,6 +255,9 @@ ignoreregex =
 	if err := os.MkdirAll(root(c, "var/lib/panel/quotas"), 0o755); err != nil {
 		return err
 	}
+	if err := applyFTPStack(c); err != nil {
+		return err
+	}
 	sftp := `# Chrooted tenant SFTP. Over-quota users get internal-sftp -R
 # from /etc/ssh/sshd_config.d/zz-panel-sftp-quota.conf (agent-managed).
 Match Group panel-sftp
@@ -262,6 +267,67 @@ Match Group panel-sftp
     X11Forwarding no
 `
 	return os.WriteFile(root(c, "etc/ssh/sshd_config.d/panel-sftp.conf"), []byte(sftp), 0o644)
+}
+
+func applyFTPStack(c Config) error {
+	if err := os.MkdirAll(root(c, "var/lib/panel/ftp/user_conf"), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root(c, "var/run/vsftpd/empty"), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root(c, "etc/pam.d"), 0o755); err != nil {
+		return err
+	}
+	conf := `listen=YES
+listen_ipv6=NO
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+dirmessage_enable=YES
+use_localtime=YES
+xferlog_enable=YES
+connect_from_port_20=YES
+chroot_local_user=YES
+allow_writeable_chroot=YES
+secure_chroot_dir=/var/run/vsftpd/empty
+pam_service_name=vsftpd
+guest_enable=YES
+guest_username=nobody
+virtual_use_local_privs=YES
+user_config_dir=/var/lib/panel/ftp/user_conf
+hide_ids=YES
+pasv_min_port=40000
+pasv_max_port=40100
+pasv_address=127.0.0.1
+`
+	if err := os.WriteFile(root(c, "etc/vsftpd.conf"), []byte(conf), 0o644); err != nil {
+		return err
+	}
+	pam := `auth required pam_pwdfile.so pwdfile=/var/lib/panel/ftp/passwd
+account required pam_permit.so
+`
+	if err := os.WriteFile(root(c, "etc/pam.d/vsftpd"), []byte(pam), 0o644); err != nil {
+		return err
+	}
+	passwd := root(c, "var/lib/panel/ftp/passwd")
+	if _, err := os.Stat(passwd); os.IsNotExist(err) {
+		if err := os.WriteFile(passwd, []byte(""), 0o640); err != nil {
+			return err
+		}
+	}
+	if c.Dev {
+		return nil
+	}
+	if _, err := os.Stat("/usr/sbin/vsftpd"); err != nil {
+		return nil
+	}
+	if exec.Command("/usr/bin/pgrep", "-x", "vsftpd").Run() == nil {
+		return nil
+	}
+	cmd := exec.Command("/usr/sbin/vsftpd", "/etc/vsftpd.conf")
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin"}
+	return cmd.Start()
 }
 
 func applyTLS(c Config) error {
@@ -444,6 +510,9 @@ func verifySecurity(c Config) error {
 		"etc/fail2ban/filter.d/panel-auth.conf",
 		"etc/ssh/sshd_config.d/panel-sftp.conf",
 		"var/lib/panel/quotas",
+		"etc/vsftpd.conf",
+		"etc/pam.d/vsftpd",
+		"var/lib/panel/ftp/user_conf",
 	} {
 		if _, err := os.Stat(root(c, p)); err != nil {
 			return err

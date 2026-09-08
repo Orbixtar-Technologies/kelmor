@@ -952,23 +952,57 @@ func (p *PG) ListSSH(accountID string) []SSHKey {
 }
 
 func (p *PG) PutFTP(f *FTPAccount) {
-	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO ftp_accounts (id, account_id, username, home_path, password_hash, status) VALUES ($1,$2,$3,$4,'!',$5) ON CONFLICT (id) DO NOTHING`,
-		f.ID, f.AccountID, f.Username, f.HomePath, f.Status)
+	hash := f.PasswordHash
+	if hash == "" {
+		hash = "!"
+	}
+	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO ftp_accounts (id, account_id, username, home_path, password_hash, status)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username, home_path=EXCLUDED.home_path,
+			password_hash=EXCLUDED.password_hash, status=EXCLUDED.status`,
+		f.ID, f.AccountID, f.Username, f.HomePath, hash, f.Status)
+}
+
+func (p *PG) scanFTP(rows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) []FTPAccount {
+	var out []FTPAccount
+	for rows.Next() {
+		var f FTPAccount
+		_ = rows.Scan(&f.ID, &f.AccountID, &f.Username, &f.HomePath, &f.PasswordHash, &f.Status)
+		out = append(out, f)
+	}
+	return out
 }
 
 func (p *PG) ListFTP(accountID string) []FTPAccount {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, username, home_path, status FROM ftp_accounts WHERE account_id=$1`, accountID)
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, username, home_path, password_hash, status FROM ftp_accounts WHERE account_id=$1`, accountID)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	var out []FTPAccount
-	for rows.Next() {
-		var f FTPAccount
-		_ = rows.Scan(&f.ID, &f.AccountID, &f.Username, &f.HomePath, &f.Status)
-		out = append(out, f)
+	return p.scanFTP(rows)
+}
+
+func (p *PG) ListAllFTP() []FTPAccount {
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, username, home_path, password_hash, status FROM ftp_accounts`)
+	if err != nil {
+		return nil
 	}
-	return out
+	defer rows.Close()
+	return p.scanFTP(rows)
+}
+
+func (p *PG) FTPUsernameTaken(username, exceptID string) bool {
+	var n int
+	err := p.pool.QueryRow(p.ctx(), `SELECT COUNT(1) FROM ftp_accounts WHERE username=$1 AND id<>COALESCE(NULLIF($2,'')::uuid, '00000000-0000-0000-0000-000000000000')`, username, exceptID).Scan(&n)
+	return err == nil && n > 0
+}
+
+func (p *PG) DeleteFTP(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM ftp_accounts WHERE id=$1`, id)
 }
 
 func (p *PG) PutUsage(u *Usage) {

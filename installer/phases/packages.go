@@ -17,6 +17,7 @@ var allowedPackages = map[string]bool{
 	"fail2ban": true, "quota": true, "libnginx-mod-http-modsecurity": true,
 	"nodejs": true, "python3": true, "openssh-server": true,
 	"nftables": true, "acl": true,
+	"vsftpd": true, "libpam-pwdfile": true,
 }
 
 func InstallPackages(names []string) error {
@@ -48,7 +49,7 @@ func applySystemPackages(c Config) error {
 		"postfix", "dovecot-core", "dovecot-imapd", "dovecot-lmtpd",
 		"redis-server", "rspamd", "clamav-daemon", "fail2ban", "quota",
 		"libnginx-mod-http-modsecurity", "nodejs", "python3", "openssh-server",
-		"nftables", "acl",
+		"nftables", "acl", "vsftpd", "libpam-pwdfile",
 	})
 }
 
@@ -99,7 +100,7 @@ func verifySystemPackages(c Config) error {
 	if c.Dev {
 		return nil
 	}
-	for _, n := range []string{"nginx", "postfix", "dovecot-core", "postgresql"} {
+	for _, n := range []string{"nginx", "postfix", "dovecot-core", "postgresql", "vsftpd"} {
 		cmd := exec.Command("/usr/bin/dpkg-query", "-W", "-f=${Status}", n)
 		out, err := cmd.CombinedOutput()
 		if err != nil || !strings.Contains(string(out), "ok installed") {

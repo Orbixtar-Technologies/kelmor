@@ -160,6 +160,47 @@ server {
 }
 EOF
 fi
+if [[ -x /usr/bin/apt-get ]]; then
+  if [[ ! -x /usr/sbin/vsftpd ]] || [[ ! -e /usr/lib/x86_64-linux-gnu/security/pam_pwdfile.so && ! -e /lib/x86_64-linux-gnu/security/pam_pwdfile.so ]]; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y vsftpd libpam-pwdfile >/tmp/panel-vsftpd.apt.log 2>&1 || true
+  fi
+fi
+sudo mkdir -p /var/lib/panel/ftp/user_conf /var/run/vsftpd/empty /etc/pam.d
+sudo tee /etc/vsftpd.conf >/dev/null <<'EOF'
+listen=YES
+listen_ipv6=NO
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+dirmessage_enable=YES
+use_localtime=YES
+xferlog_enable=YES
+connect_from_port_20=YES
+chroot_local_user=YES
+allow_writeable_chroot=YES
+secure_chroot_dir=/var/run/vsftpd/empty
+pam_service_name=vsftpd
+guest_enable=YES
+guest_username=nobody
+virtual_use_local_privs=YES
+user_config_dir=/var/lib/panel/ftp/user_conf
+hide_ids=YES
+pasv_min_port=40000
+pasv_max_port=40100
+pasv_address=127.0.0.1
+EOF
+sudo tee /etc/pam.d/vsftpd >/dev/null <<'EOF'
+auth required pam_pwdfile.so pwdfile=/var/lib/panel/ftp/passwd
+account required pam_permit.so
+EOF
+if [[ ! -f /var/lib/panel/ftp/passwd ]]; then
+  echo -n | sudo tee /var/lib/panel/ftp/passwd >/dev/null
+  sudo chmod 0640 /var/lib/panel/ftp/passwd
+fi
+if [[ -x /usr/sbin/vsftpd ]] && ! pgrep -x vsftpd >/dev/null; then
+  sudo /usr/sbin/vsftpd /etc/vsftpd.conf || true
+fi
+
 if [[ -x /usr/sbin/sshd ]]; then
   sudo mkdir -p /run/sshd /var/run/sshd /etc/ssh/sshd_config.d /var/lib/panel/quotas
   sudo tee /etc/ssh/sshd_config.d/panel-sftp.conf >/dev/null <<'EOF'

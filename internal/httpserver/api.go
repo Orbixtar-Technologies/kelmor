@@ -122,6 +122,7 @@ func (a *API) Handler() http.Handler {
 				r.Post("/ssh-keys", a.createSSH)
 				r.Get("/ftp", a.listFTP)
 				r.Post("/ftp", a.createFTP)
+				r.Delete("/ftp/{ftpID}", a.deleteFTP)
 				r.Get("/api-tokens", a.listTokens)
 				r.Post("/api-tokens", a.createToken)
 			})
@@ -1501,13 +1502,107 @@ func (a *API) createFTP(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.FilesWrite) {
 		return
 	}
-	var in store.FTPAccount
+	acc := a.Store.GetAccount(aid)
+	if acc == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "account missing", false)
+		return
+	}
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		HomePath string `json:"home_path"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
-	in.ID = id.New()
-	in.AccountID = aid
-	in.Status = "active"
-	a.Store.PutFTP(&in)
-	writeJSON(w, 201, in)
+	if err := validate.Username(in.Username); err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	if len(in.Password) < 8 {
+		a.fail(w, r, 400, "VALIDATION", "FTP password must be at least 8 characters", false)
+		return
+	}
+	home := strings.TrimSpace(in.HomePath)
+	if home == "" {
+		home = filepath.Join(acc.HomePath, "public_html")
+	} else if !filepath.IsAbs(home) {
+		home = filepath.Join(acc.HomePath, strings.TrimPrefix(home, "/"))
+	}
+	clean, err := policy.WithinAccount(acc.Username, filepath.Clean(home))
+	if err != nil {
+		a.fail(w, r, 400, "PATH_DENIED", err.Error(), false)
+		return
+	}
+	if other := a.Store.AccountByUsername(in.Username); other != nil && other.ID != aid {
+		a.fail(w, r, 409, "USERNAME_TAKEN", "FTP username conflicts with a hosting account", false)
+		return
+	}
+	if u := a.Store.UserByUsername(in.Username); u != nil && u.ID != acc.OwnerUserID {
+		a.fail(w, r, 409, "USERNAME_TAKEN", "FTP username conflicts with a portal login", false)
+		return
+	}
+	hash, err := auth.SHA512Crypt(in.Password)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", "Could not hash FTP password", false)
+		return
+	}
+	ftp := &store.FTPAccount{
+		ID: id.New(), AccountID: aid, Username: in.Username, HomePath: clean,
+		PasswordHash: hash, Status: "active",
+	}
+	updating := false
+	for _, existing := range a.Store.ListFTP(aid) {
+		if existing.Username == in.Username {
+			existing.HomePath = clean
+			existing.PasswordHash = hash
+			existing.Status = "active"
+			ftp = &existing
+			updating = true
+			break
+		}
+	}
+	if a.Store.FTPUsernameTaken(in.Username, ftp.ID) {
+		a.fail(w, r, 409, "USERNAME_TAKEN", "FTP username is already in use", false)
+		return
+	}
+	if !updating {
+		if err := a.enforceCountLimit(aid, "ftp_users", len(a.Store.ListFTP(aid)), func(p *store.Package) int { return p.FTPUsers }); err != nil {
+			a.rejectLimit(w, r, err)
+			return
+		}
+	}
+	a.Store.PutFTP(ftp)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "ftp.apply", ResourceType: "account", ResourceID: aid,
+		Payload: map[string]any{"account_id": aid}, State: "queued",
+	})
+	a.audit(r, "ftp.create", "ftp_account", ftp.ID, true, nil, map[string]any{"username": ftp.Username})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "ftp": ftp})
+}
+
+func (a *API) deleteFTP(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.FilesWrite) {
+		return
+	}
+	fid := chi.URLParam(r, "ftpID")
+	found := false
+	for _, f := range a.Store.ListFTP(aid) {
+		if f.ID == fid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		a.fail(w, r, 404, "NOT_FOUND", "FTP account missing", false)
+		return
+	}
+	a.Store.DeleteFTP(fid)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "ftp.apply", ResourceType: "account", ResourceID: aid,
+		Payload: map[string]any{"account_id": aid}, State: "queued",
+	})
+	a.audit(r, "ftp.delete", "ftp_account", fid, true, nil, nil)
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "deleted": fid})
 }
 
 func (a *API) listTokens(w http.ResponseWriter, r *http.Request) {

@@ -10,8 +10,11 @@ func TestRulesIncludesHostingAndExtra(t *testing.T) {
 	if !contains(body, "table inet panel") {
 		t.Fatal(body)
 	}
-	if !contains(body, "26054") || !contains(body, "443") {
+	if !contains(body, "26054") || !contains(body, "443") || !contains(body, "21") {
 		t.Fatal(body)
+	}
+	if !contains(body, "40000-40100") {
+		t.Fatal("passive FTP range")
 	}
 	if !contains(body, "policy drop") {
 		t.Fatal("must be a real drop policy")

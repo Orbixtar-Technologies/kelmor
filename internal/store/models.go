@@ -278,11 +278,12 @@ type SSHKey struct {
 }
 
 type FTPAccount struct {
-	ID        string `json:"id"`
-	AccountID string `json:"account_id"`
-	Username  string `json:"username"`
-	HomePath  string `json:"home_path"`
-	Status    string `json:"status"`
+	ID           string `json:"id"`
+	AccountID    string `json:"account_id"`
+	Username     string `json:"username"`
+	HomePath     string `json:"home_path"`
+	PasswordHash string `json:"-"`
+	Status       string `json:"status"`
 }
 
 type Usage struct {

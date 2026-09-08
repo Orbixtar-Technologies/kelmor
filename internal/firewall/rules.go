@@ -10,7 +10,10 @@ import (
 )
 
 // HostingTCP is the inbound TCP set for a dedicated hosting node.
-var HostingTCP = []int{22, 25, 53, 80, 443, 587, 993, 8443, 8444}
+var HostingTCP = []int{21, 22, 25, 53, 80, 443, 587, 993, 8443, 8444}
+
+// HostingPASV is the vsftpd passive-mode range (inclusive).
+var HostingPASV = [2]int{40000, 40100}
 
 // Rules returns an nft script for table inet panel. extraTCP ports are
 // merged so applying on a live lab node does not drop existing listeners
@@ -32,6 +35,11 @@ func Rules(extraTCP []int) string {
 		b.WriteString(strconv.Itoa(p))
 	}
 	b.WriteString(" } accept\n")
+	b.WriteString("    tcp dport ")
+	b.WriteString(strconv.Itoa(HostingPASV[0]))
+	b.WriteString("-")
+	b.WriteString(strconv.Itoa(HostingPASV[1]))
+	b.WriteString(" accept\n")
 	b.WriteString("    udp dport { 53 } accept\n")
 	b.WriteString("    icmp type echo-request accept\n")
 	b.WriteString("    ip6 nexthdr icmpv6 accept\n")

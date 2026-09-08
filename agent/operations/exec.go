@@ -46,6 +46,7 @@ var allowedBins = map[string]bool{
 	"/usr/bin/nodejs":       true,
 	"/exec-daemon/node":     true,
 	"/usr/bin/python3":      true,
+	"/usr/sbin/vsftpd":      true,
 }
 
 var allowedServices = map[string]bool{
@@ -53,6 +54,7 @@ var allowedServices = map[string]bool{
 	"postfix": true, "dovecot": true, "pdns": true, "mariadb": true, "mysql": true,
 	"postgresql": true, "redis-server": true, "rspamd": true, "clamav-daemon": true,
 	"panel-api": true, "panel-worker": true, "panel-agent": true,
+	"vsftpd": true,
 }
 
 func runFixed(bin string, args ...string) ([]byte, error) {
@@ -157,6 +159,8 @@ func probeService(name string) map[string]any {
 		running = fileExists("/run/panel/agent.sock")
 	case "panel-worker":
 		running = pidOf("panel-worker")
+	case "vsftpd":
+		running = listening("tcp", "127.0.0.1:21") || pidOf("vsftpd")
 	default:
 		running = pidOf(name)
 	}

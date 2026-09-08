@@ -176,7 +176,7 @@ func TestPackageLimitsAndDiskQuota(t *testing.T) {
 	pkg := post(t, srv.URL+"/api/v1/packages", token, map[string]any{
 		"name": "Tiny", "domains": 1, "subdomains": 0, "alias_domains": 0,
 		"databases": 1, "mailboxes": 1, "cron_jobs": 1, "application_instances": 1,
-		"disk_bytes": 8,
+		"ftp_users": 1, "disk_bytes": 8,
 	})
 	created := post(t, srv.URL+"/api/v1/accounts", token, map[string]string{
 		"username": "tiny1", "primary_domain": "tiny.test", "package_id": pkg["id"].(string),
@@ -205,6 +205,18 @@ func TestPackageLimitsAndDiskQuota(t *testing.T) {
 	})
 	if code != 403 {
 		t.Fatalf("disk quota: %d %v", code, body)
+	}
+	code, body = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/ftp", token, map[string]string{
+		"username": "tinyftp", "password": "FtpPass!2026",
+	})
+	if code >= 400 {
+		t.Fatalf("first ftp should succeed: %d %v", code, body)
+	}
+	code, body = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/ftp", token, map[string]string{
+		"username": "tinyftp2", "password": "FtpPass!2026",
+	})
+	if code != 403 {
+		t.Fatalf("second ftp: %d %v", code, body)
 	}
 }
 

@@ -358,6 +358,14 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return Result{OK: true, Message: "valid"}, nil
 	case "ApplyFirewall":
 		return h.applyFirewall()
+	case "ApplyFTPUsers":
+		var p struct {
+			Users []FTPUser `json:"users"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.applyFTPUsers(p.Users)
 	default:
 		return nil, fmt.Errorf("unknown operation %q", req.Method)
 	}

@@ -91,6 +91,9 @@ type Store interface {
 	ListSSH(accountID string) []SSHKey
 	PutFTP(*FTPAccount)
 	ListFTP(accountID string) []FTPAccount
+	ListAllFTP() []FTPAccount
+	FTPUsernameTaken(username, exceptID string) bool
+	DeleteFTP(id string)
 	PutUsage(*Usage)
 	GetUsage(accountID string) *Usage
 

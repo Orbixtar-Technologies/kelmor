@@ -136,6 +136,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.restoreBackup(j)
 	case "cron.apply":
 		return w.applyCron(j)
+	case "ftp.apply":
+		return w.syncFTPUsers()
 	case "account.copy_homedir":
 		return w.copyHomedir(j)
 	default:
@@ -213,6 +215,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
 	w.recordUsage(acc)
+	_ = w.syncFTPUsers()
 	j.Progress = 90
 	w.Store.UpdateJob(j)
 	return nil
@@ -256,6 +259,7 @@ func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
 	_ = w.applyMailStack(acc.ID)
+	_ = w.syncFTPUsers()
 	j.Progress = 90
 	w.Store.UpdateJob(j)
 	return nil
@@ -564,6 +568,37 @@ func (w *Worker) provisionCert(j *store.Job) error {
 		}
 	}
 	return nil
+}
+
+func (w *Worker) syncFTPUsers() error {
+	var users []operations.FTPUser
+	for _, f := range w.Store.ListAllFTP() {
+		acc := w.Store.GetAccount(f.AccountID)
+		if acc == nil {
+			continue
+		}
+		switch acc.Status {
+		case "terminating", "terminated", "suspended":
+			continue
+		default:
+		}
+		if f.Status != "active" || f.PasswordHash == "" || f.PasswordHash == "!" {
+			continue
+		}
+		root := f.HomePath
+		if root == "" {
+			root = filepath.Join(acc.HomePath, "public_html")
+		}
+		users = append(users, operations.FTPUser{
+			Username: f.Username, PasswordHash: f.PasswordHash,
+			GuestUser: acc.Username, LocalRoot: root,
+		})
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyFTPUsers",
+		Params: mustJSON(map[string]any{"users": users}),
+	})
+	return err
 }
 
 func (w *Worker) applyCron(j *store.Job) error {

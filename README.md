@@ -5,7 +5,7 @@ A desired-state hosting operating platform for **Ubuntu 24.04 LTS**. It exposes 
 - **Server Portal** — host, reseller and package administration
 - **Account Portal** — tenant websites, DNS, mail, files and backups
 
-The control plane is written in Go. Portals never write Nginx, `/etc/passwd`, or systemd units. They call the API, which records desired state and durable jobs. Workers call a typed privileged agent. Server and Account Portal navigation and write actions are hidden unless `/api/v1/me` lists that capability — the API still enforces the same checks. Package limits (domains, mailboxes, databases, cron, applications) are enforced on create. File writes and SFTP sessions honor `disk_bytes` even if the kernel has no usrquota: the agent persists the cap, rejects over-quota `ApplyFile`, and switches the tenant to `internal-sftp -R` plus write-locked home dirs. Encrypted HPM1 backups restore the home tree, MariaDB/PostgreSQL dumps, and mailbox Maildirs.
+The control plane is written in Go. Portals never write Nginx, `/etc/passwd`, or systemd units. They call the API, which records desired state and durable jobs. Workers call a typed privileged agent. Server and Account Portal navigation and write actions are hidden unless `/api/v1/me` lists that capability — the API still enforces the same checks. Package limits (domains, mailboxes, databases, cron, applications, FTP users) are enforced on create. File writes and SFTP sessions honor `disk_bytes` even if the kernel has no usrquota: the agent persists the cap, rejects over-quota `ApplyFile`, and switches the tenant to `internal-sftp -R` plus write-locked home dirs. Virtual FTP users (vsftpd + pam_pwdfile) map to the Linux account and chroot to `public_html`. Encrypted HPM1 backups restore the home tree, MariaDB/PostgreSQL dumps, and mailbox Maildirs.
 
 This repository is the first production slice of that architecture: schema, auth/RBAC/audit, job engine, agent operations, both portals, CLI, and a resumable installer. Full Ubuntu service installation (Postfix, PowerDNS, MariaDB, …) is orchestrated by installer phases and is intended to run on a clean 24.04 host, not inside a containerized control plane.
 
@@ -65,7 +65,7 @@ Encrypted account backups (HPM1) and native export/import are documented in `doc
 
 ## Ports
 
-22, 25, 53, 80, 443, 587, 993, **8443** (Server Portal), **8444** (Account Portal). Development preview uses 18443/18444/18080.
+21 (FTP) + 40000–40100 (PASV), 22, 25, 53, 80, 443, 587, 993, **8443** (Server Portal), **8444** (Account Portal). Development preview uses 18443/18444/18080.
 
 ## What is not in this first slice
 

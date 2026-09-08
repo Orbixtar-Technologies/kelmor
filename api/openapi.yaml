@@ -314,6 +314,48 @@ paths:
                 password: { type: string }
       responses:
         "200": { description: linux password set for chrooted SFTP }
+  /accounts/{accountID}/ftp:
+    get:
+      operationId: listFTP
+      x-capability: files.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: virtual FTP users }
+    post:
+      operationId: createFTP
+      x-capability: files.write
+      x-audit-action: ftp.create
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+                home_path: { type: string }
+      responses:
+        "202": { description: vsftpd maps queued }
+        "403": { description: package ftp_users exceeded }
+        "409": { description: username taken }
+  /accounts/{accountID}/ftp/{ftpID}:
+    delete:
+      operationId: deleteFTP
+      x-capability: files.write
+      x-audit-action: ftp.delete
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: ftpID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: user removed and maps queued }
   /accounts/{accountID}/restores:
     post:
       operationId: restoreBackup
