@@ -16,6 +16,8 @@ type hostService struct {
 
 func hostServices() []hostService {
 	return []hostService{
+		{Comm: "mysqld", Listen: "127.0.0.1:3306", Args: []string{"/usr/sbin/mysqld", "--user=mysql"}},
+		{Comm: "postgres", Listen: "127.0.0.1:5432", Args: []string{"/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/16/bin/postgres", "-D", "/var/lib/postgresql/16/main"}},
 		{Comm: "php-fpm8.3", Args: []string{"/usr/sbin/php-fpm8.3"}},
 		{Comm: "nginx", Listen: "127.0.0.1:80", Args: []string{"/usr/sbin/nginx"}},
 		{Comm: "master", Listen: "127.0.0.1:25", Args: []string{"/usr/sbin/postfix", "start"}},
@@ -84,6 +86,7 @@ func applyHostRuntime(c Config) error {
 	}
 	startControlPlane()
 	startSMTPPolicy()
+	_ = startLocalACME(c)
 	enablePanelUnits()
 	startAccountApps()
 	if _, err := os.Stat("/etc/panel/nftables-panel.nft"); err == nil {
@@ -237,6 +240,12 @@ func verifyHealth(c Config) error {
 		return nil
 	}
 	addrs := []string{"127.0.0.1:80", "127.0.0.1:25", "127.0.0.1:53"}
+	if _, err := os.Stat("/usr/sbin/mysqld"); err == nil {
+		addrs = append(addrs, "127.0.0.1:3306")
+	}
+	if _, err := os.Stat("/usr/lib/postgresql/16/bin/postgres"); err == nil {
+		addrs = append(addrs, "127.0.0.1:5432")
+	}
 	if _, err := os.Stat("/usr/local/panel/bin/panel-api"); err == nil {
 		addrs = append(addrs, "127.0.0.1:18080")
 	}
