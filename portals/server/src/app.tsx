@@ -55,6 +55,7 @@ export function App () {
 					<NavLink to="/import">Import</NavLink>
 					<NavLink to="/resellers">Resellers</NavLink>
 					<NavLink to="/packages">Packages</NavLink>
+					<NavLink to="/monitor">Usage</NavLink>
 					<NavLink to="/jobs">Jobs</NavLink>
 					<NavLink to="/audit">Audit</NavLink>
 				</nav>
@@ -68,6 +69,7 @@ export function App () {
 					<Route path="/import" element={<ImportAccount />} />
 					<Route path="/resellers" element={<Resellers />} />
 					<Route path="/packages" element={<Packages />} />
+					<Route path="/monitor" element={<Monitor />} />
 					<Route path="/jobs" element={<Jobs />} />
 					<Route path="/audit" element={<Audit />} />
 				</Routes>
@@ -416,6 +418,40 @@ function Resellers () {
 			{items.length === 0 ? <Empty title="No resellers yet" detail="Create one to delegate packages and customer accounts." /> : (
 				<table><thead><tr><th>Name</th><th>Status</th></tr></thead>
 					<tbody>{items.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.status}</td></tr>)}</tbody></table>
+			)}
+		</>
+	)
+}
+
+function Monitor () {
+	const [data, setData] = useState<any>(null)
+	const [err, setErr] = useState('')
+	useEffect(() => {
+		api('/api/v1/server/monitor').then(setData).catch((e) => setErr(e.message))
+	}, [])
+	if (err) return <Empty title="Usage collector failed" detail={err} />
+	if (!data) return <Empty title="Collecting account usage" detail="Walking each home directory through the control plane." />
+	const items = data.accounts || []
+	return (
+		<>
+			<header>
+				<h1>Account usage</h1>
+				<p>Disk and inode totals from live home directories. Failed jobs: {data.failed_jobs}. Certificates expiring within 14 days: {data.certs_expiring}.</p>
+			</header>
+			{items.length === 0 ? <Empty title="No account usage yet" detail="Provision an account, then reload this page." /> : (
+				<table>
+					<thead><tr><th>Account</th><th>Disk</th><th>Inodes</th><th>Collected</th></tr></thead>
+					<tbody>
+						{items.map((u: any) => (
+							<tr key={u.account_id}>
+								<td>{u.account_id}</td>
+								<td>{fmtBytes(u.disk_bytes)}</td>
+								<td>{u.inode_count}</td>
+								<td>{u.collected_at}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
 			)}
 		</>
 	)

@@ -155,6 +155,11 @@ func applyControlDB(c Config) error {
 	dsn := "postgres:///panel_control?host=/var/run/postgresql\n"
 	if !c.Dev {
 		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/createdb", "panel_control").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "postgres", "-c", "CREATE ROLE panel LOGIN").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "GRANT CONNECT ON DATABASE panel_control TO panel").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "GRANT ALL ON SCHEMA public TO panel").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "GRANT ALL ON ALL TABLES IN SCHEMA public TO panel").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO panel").Run()
 		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "SELECT 1").Run()
 	}
 	return os.WriteFile(filepath.Join(dir, "dsn"), []byte(dsn), 0o640)
@@ -199,6 +204,7 @@ func applyControlPlane(c Config) error {
 	if copied == 0 {
 		return fmt.Errorf("no panel-* binaries copied from %s", src)
 	}
+	_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", "/var/lib/panel").Run()
 	return nil
 }
 

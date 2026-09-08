@@ -37,6 +37,8 @@ func main() {
   jobs list
   jobs failed
   audit
+  monitor
+  import-cpanel <root> <username>
   config validate`)
 		os.Exit(2)
 	}
@@ -112,6 +114,10 @@ func main() {
 		get(base+"/api/v1/jobs?state=failed", token)
 	case args[0] == "audit":
 		get(base+"/api/v1/audit-events", token)
+	case args[0] == "monitor":
+		get(base+"/api/v1/server/monitor", token)
+	case args[0] == "import-cpanel" && len(args) == 3:
+		post(base+"/api/v1/accounts/import/cpanel", token, map[string]any{"root": args[1], "username": args[2]})
 	case join(args) == "config validate":
 		fmt.Println(`{"ok":true,"templates":"versioned","rule":"test-before-reload"}`)
 	default:

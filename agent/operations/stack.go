@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/hosting-panel/panel/internal/pkg/validate"
@@ -50,6 +52,7 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids string) (Resul
 		}
 		_, _ = runFixed("/usr/sbin/postfix", "reload")
 		_, _ = runFixed("/usr/bin/doveadm", "reload")
+		sighupPidFile("/run/dovecot/master.pid")
 	}
 	return Result{OK: true, Message: "mail maps written", ObservedState: "applied"}, nil
 }
@@ -248,6 +251,18 @@ func (h *Host) issueDevCertificate(hostname string, days int) (Result, error) {
 		return Result{}, err
 	}
 	return Result{OK: true, Message: "certificate written", ObservedState: "active"}, nil
+}
+
+func sighupPidFile(path string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 1 {
+		return
+	}
+	_ = syscall.Kill(pid, syscall.SIGHUP)
 }
 
 func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids string, err error) {

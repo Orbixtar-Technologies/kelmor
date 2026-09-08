@@ -25,6 +25,9 @@ type Runtime struct {
 }
 
 func Boot(ctx context.Context, service string) (*Runtime, error) {
+	if (service == "panel-api" || service == "panel-worker") && os.Geteuid() == 0 && os.Getenv("PANEL_ALLOW_ROOT") != "1" {
+		return nil, fmt.Errorf("%s must run as the unprivileged panel user, not root", service)
+	}
 	root := os.Getenv("PANEL_STATE_DIR")
 	if root == "" {
 		root = filepath.Join("var", "panel")
@@ -54,8 +57,9 @@ func Boot(ctx context.Context, service string) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	agent := &operations.Host{Root: filepath.Join(root, "host"), Sock: os.Getenv("PANEL_AGENT_SOCK")}
+	agent := &operations.Host{Sock: os.Getenv("PANEL_AGENT_SOCK")}
 	if agent.Sock == "" {
+		agent.Root = filepath.Join(root, "host")
 		_ = os.MkdirAll(agent.Root, 0o755)
 	}
 	api := httpserver.New(pg, log, agent)
