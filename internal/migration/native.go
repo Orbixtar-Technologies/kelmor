@@ -109,9 +109,22 @@ func ImportAs(st store.Store, raw []byte, username, domain, ownerUserID string) 
 	if ownerUserID != "" {
 		acc.OwnerUserID = ownerUserID
 	}
+	if acc.OwnerUserID == "" {
+		return nil, errMissing("owner")
+	}
+	if acc.PackageID == "" {
+		pkgs := st.ListPackages()
+		if len(pkgs) == 0 {
+			return nil, errMissing("package")
+		}
+		acc.PackageID = pkgs[0].ID
+	}
 	acc.Status = "provisioning"
 	acc.DesiredRevision = acc.ObservedRevision + 1
 	st.PutAccount(&acc)
+	if st.GetAccount(acc.ID) == nil {
+		return nil, errMissing("account persist")
+	}
 	for i := range exp.Domains {
 		st.PutDomain(&exp.Domains[i])
 	}

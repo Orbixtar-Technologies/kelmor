@@ -501,7 +501,7 @@ func (w *Worker) applyCron(j *store.Job) error {
 func (w *Worker) copyHomedir(j *store.Job) error {
 	acc := w.jobAccount(j)
 	if acc == nil {
-		return fmt.Errorf("account not ready")
+		return fmt.Errorf("account missing")
 	}
 	src := str(j.Payload["source"])
 	dest := str(j.Payload["dest"])

@@ -21,7 +21,11 @@ func TestExportImportRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := store.NewMemory()
-	got, err := Import(dst, raw)
+	if err := store.SeedDev(dst, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	owner := dst.UserByUsername("admin")
+	got, err := ImportAs(dst, raw, "", "", owner.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +51,10 @@ func TestImportAsRenames(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(exp)
-	got, err := ImportAs(src, raw, "moved42", "moved.test", "owner-1")
+	if err := store.SeedDev(src, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ImportAs(src, raw, "moved42", "moved.test", src.UserByUsername("admin").ID)
 	if err != nil {
 		t.Fatal(err)
 	}

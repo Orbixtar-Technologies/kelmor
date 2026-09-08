@@ -505,7 +505,7 @@ func (a *API) importCPanel(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "CPANEL_IMPORT", err.Error(), false)
 		return
 	}
-	acc, err := migration.Import(a.Store, raw)
+	acc, err := migration.ImportAs(a.Store, raw, "", "", actor(r).UserID)
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
