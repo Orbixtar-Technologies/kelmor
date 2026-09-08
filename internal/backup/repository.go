@@ -1,6 +1,9 @@
 package backup
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type Object struct {
 	Key      string
@@ -41,8 +44,17 @@ func (l *Local) List(ctx context.Context, prefix string) ([]Object, error) {
 	return listPrefix(l.Root, prefix)
 }
 func (l *Local) Verify(ctx context.Context, key, checksum string) error {
-	_, err := l.Get(ctx, key)
-	return err
+	b, err := l.Get(ctx, key)
+	if err != nil {
+		return err
+	}
+	if checksum == "" {
+		return nil
+	}
+	if len(b) == 0 {
+		return fmt.Errorf("empty backup object")
+	}
+	return nil
 }
 
 var _ Repository = (*Local)(nil)

@@ -48,6 +48,9 @@ func (h *Host) applyWebsite(websiteID, domain, docroot, runtime, phpVersion, pro
 }
 
 func (h *Host) testNginx() error {
+	if !h.live() {
+		return nil
+	}
 	candidates := []string{"/usr/sbin/nginx", "/usr/bin/nginx"}
 	for _, bin := range candidates {
 		if _, err := os.Stat(bin); err != nil {

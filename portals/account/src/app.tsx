@@ -197,7 +197,7 @@ function Email ({ accountId }: { accountId: string }) {
 				}) })
 				setBoxes((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/mail/mailboxes`)).items)
 			}}>
-				<select name="domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.id}</option>)}</select>
+				<select name="domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn || d.id}</option>)}</select>
 				<input name="local_part" placeholder="mailbox" required />
 				<input name="password" type="password" required />
 				<button type="submit">Create mailbox</button>
@@ -238,6 +238,19 @@ function Files ({ accountId }: { accountId: string }) {
 		<>
 			<h1>Files</h1>
 			<p>Path {path}</p>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${accountId}/files`, {
+					method: 'POST',
+					body: JSON.stringify({ path: fd.get('path'), content: fd.get('content') }),
+				})
+				setPath(String(fd.get('path') || path))
+			}}>
+				<input name="path" defaultValue={path === '/' ? '/public_html/note.txt' : path} />
+				<textarea name="content" rows={6} placeholder="file contents" required />
+				<button type="submit">Write file</button>
+			</form>
 			<ul>
 				{items.map((f) => (
 					<li key={f.name}>
@@ -259,7 +272,17 @@ function Backups ({ accountId }: { accountId: string }) {
 				await api(`/api/v1/accounts/${accountId}/backups`, { method: 'POST', body: JSON.stringify({ kind: 'full', destination: 'local' }) })
 				setItems((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)).items)
 			}}>Create full backup</button>
-			<ul>{items.map((b) => <li key={b.id}>{b.kind} {b.state} {b.destination}</li>)}</ul>
+			<ul>{items.map((b) => (
+				<li key={b.id}>
+					{b.kind} {b.state} {b.destination} {b.checksum ? `sha256:${b.checksum.slice(0, 12)}` : ''}
+					{b.state === 'succeeded' ? (
+						<button type="button" onClick={async () => {
+							await api(`/api/v1/accounts/${accountId}/restores`, { method: 'POST', body: JSON.stringify({ backup_id: b.id, mode: 'in_place' }) })
+							setItems((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)).items)
+						}}>Restore</button>
+					) : null}
+				</li>
+			))}</ul>
 		</>
 	)
 }

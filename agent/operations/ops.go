@@ -15,11 +15,11 @@ import (
 )
 
 type Envelope struct {
-	OperationID       string `json:"operation_id"`
-	RequestID         string `json:"request_id"`
-	ActorID           string `json:"actor_id"`
-	ResourceID        string `json:"resource_id"`
-	ExpectedRevision  int64  `json:"expected_revision"`
+	OperationID      string `json:"operation_id"`
+	RequestID        string `json:"request_id"`
+	ActorID          string `json:"actor_id"`
+	ResourceID       string `json:"resource_id"`
+	ExpectedRevision int64  `json:"expected_revision"`
 }
 
 type Result struct {
@@ -84,15 +84,21 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		return h.createUnixIdentity(p.Username, p.UID, p.GID, p.Home, p.Shell)
 	case "LockLinuxUser":
-		var p struct{ Username string `json:"username"` }
+		var p struct {
+			Username string `json:"username"`
+		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.lockUnixUser(p.Username)
 	case "UnlockLinuxUser":
-		var p struct{ Username string `json:"username"` }
+		var p struct {
+			Username string `json:"username"`
+		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.unlockUnixUser(p.Username)
 	case "DeleteLinuxUser":
-		var p struct{ Username string `json:"username"` }
+		var p struct {
+			Username string `json:"username"`
+		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.deleteUnixUser(p.Username)
 	case "CreateDirectoryTree":
@@ -152,8 +158,53 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.createHostedDatabase(p.Engine, p.Name, p.Username, p.Password)
+	case "ApplyMailMaps":
+		virtual, domains, passwd, err := decodeMaps(req.Params)
+		if err != nil {
+			return nil, err
+		}
+		return h.applyMailMaps(virtual, domains, passwd)
+	case "CreateMailboxHome":
+		var p struct {
+			Domain    string `json:"domain"`
+			LocalPart string `json:"local_part"`
+			UID       int    `json:"uid"`
+			GID       int    `json:"gid"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.createMailboxHome(p.Domain, p.LocalPart, p.UID, p.GID)
+	case "ApplyDNSZone":
+		var p struct {
+			Name string `json:"name"`
+			Body string `json:"body"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applyDNSZone(p.Name, p.Body)
+	case "ApplyAccountCron":
+		var p struct {
+			Username string `json:"username"`
+			Body     string `json:"body"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applyAccountCron(p.Username, p.Body)
+	case "ApplyAuthorizedKeys":
+		var p struct {
+			Username string `json:"username"`
+			Body     string `json:"body"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applyAuthorizedKeys(p.Username, p.Body)
+	case "IssueDevCertificate":
+		var p struct {
+			Hostname string `json:"hostname"`
+			Days     int    `json:"days"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.issueDevCertificate(p.Hostname, p.Days)
 	case "ReloadService":
-		var p struct{ Name string `json:"name"` }
+		var p struct {
+			Name string `json:"name"`
+		}
 		_ = json.Unmarshal(req.Params, &p)
 		if err := validateService(p.Name); err != nil {
 			return nil, err
@@ -165,7 +216,9 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		return Result{OK: true, Message: "reload requested for " + p.Name}, nil
 	case "GetServiceStatus":
-		var p struct{ Name string `json:"name"` }
+		var p struct {
+			Name string `json:"name"`
+		}
 		_ = json.Unmarshal(req.Params, &p)
 		return map[string]any{"name": p.Name, "health": "healthy", "running": true}, nil
 	case "ValidateConfiguration":

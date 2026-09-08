@@ -4,24 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"path/filepath"
+
 	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/backup"
 	"github.com/hosting-panel/panel/internal/dns"
+	"github.com/hosting-panel/panel/internal/mail"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
+	"github.com/hosting-panel/panel/internal/pkg/secret"
 	"github.com/hosting-panel/panel/internal/store"
 )
 
 type Worker struct {
-	Store  store.Store
-	Agent  *operations.Host
-	Log    *logging.Logger
-	Name   string
-	stop   chan struct{}
+	Store store.Store
+	Agent *operations.Host
+	Log   *logging.Logger
+	Box   *secret.Box
+	Name  string
+	stop  chan struct{}
 }
 
-func New(st store.Store, agent *operations.Host, log *logging.Logger, name string) *Worker {
-	return &Worker{Store: st, Agent: agent, Log: log, Name: name, stop: make(chan struct{})}
+func New(st store.Store, agent *operations.Host, log *logging.Logger, box *secret.Box, name string) *Worker {
+	return &Worker{Store: st, Agent: agent, Log: log, Box: box, Name: name, stop: make(chan struct{})}
+}
+
+func (w *Worker) Drain(ctx context.Context) {
+	for {
+		j := w.Store.ClaimJob(w.Name)
+		if j == nil {
+			return
+		}
+		w.execute(ctx, j)
+	}
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -116,6 +133,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.createBackup(j)
 	case "backup.restore":
 		return w.restoreBackup(j)
+	case "cron.apply":
+		return w.applyCron(j)
 	default:
 		return fmt.Errorf("unknown job type %s", j.Type)
 	}
@@ -203,10 +222,25 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account) error {
 	if w.Store.MailDomainByDomain(d.ID) == nil {
 		md := &store.MailDomain{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, CatchallPolicy: "reject", Status: "active"}
 		w.Store.PutMailDomain(md)
+		if len(w.Store.ListMailboxes(acc.ID)) == 0 {
+			w.Store.PutMailbox(&store.Mailbox{
+				ID: store.NewID(), AccountID: acc.ID, DomainID: md.ID,
+				LocalPart: "postmaster", QuotaBytes: 1 << 30, PasswordHash: "!", Status: "active",
+			})
+		}
+	}
+	_ = w.applyMailStack(acc.ID)
+	if z := w.Store.ZoneByDomain(d.ID); z != nil {
+		_ = w.writeZone(z)
 	}
 	if len(w.Store.ListCerts(acc.ID)) == 0 {
 		exp := time.Now().Add(90 * 24 * time.Hour)
-		w.Store.PutCert(&store.Certificate{ID: store.NewID(), AccountID: acc.ID, Hostname: d.ASCII, Kind: "domain", Status: "active", NotAfter: &exp, Issuer: "dev-acme"})
+		c := &store.Certificate{ID: store.NewID(), AccountID: acc.ID, Hostname: d.ASCII, Kind: "domain", Status: "active", NotAfter: &exp, Issuer: "panel-dev"}
+		w.Store.PutCert(c)
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "IssueDevCertificate",
+			Params: mustJSON(map[string]any{"hostname": d.ASCII, "days": 90}),
+		})
 	}
 	return nil
 }
@@ -272,6 +306,9 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	if z == nil {
 		return nil
 	}
+	if err := w.writeZone(z); err != nil {
+		return err
+	}
 	p := &dns.PowerDNS{}
 	if err := p.CreateZone(context.Background(), z.Name); err != nil {
 		return err
@@ -286,10 +323,48 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	return nil
 }
 
+func (w *Worker) writeZone(z *store.DNSZone) error {
+	body := dns.ZoneFile(*z, w.Store.ListRecords(z.ID), z.DesiredRevision)
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyDNSZone",
+		Params: mustJSON(map[string]any{"name": z.Name, "body": body}),
+	})
+	return err
+}
+
+func (w *Worker) applyMailStack(accountID string) error {
+	recs := mail.Recipients(w.Store, accountID)
+	acc := w.Store.GetAccount(accountID)
+	for _, r := range recs {
+		uid, gid := 20000, 20000
+		if acc != nil {
+			uid, gid = acc.LinuxUID, acc.LinuxGID
+		}
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "CreateMailboxHome",
+			Params: mustJSON(map[string]any{"domain": r.Domain, "local_part": r.LocalPart, "uid": uid, "gid": gid}),
+		}); err != nil {
+			return err
+		}
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyMailMaps",
+		Params: mustJSON(map[string]any{
+			"virtual": mail.Virtual(recs),
+			"domains": mail.Domains(recs),
+			"passwd":  mail.PasswdFile(recs),
+		}),
+	})
+	return err
+}
+
 func (w *Worker) provisionMailbox(j *store.Job) error {
 	mb := w.Store.GetMailbox(str(j.Payload["mailbox_id"]))
 	if mb == nil {
 		return fmt.Errorf("mailbox missing")
+	}
+	if err := w.applyMailStack(mb.AccountID); err != nil {
+		return err
 	}
 	mb.Status = "active"
 	w.Store.PutMailbox(mb)
@@ -301,12 +376,39 @@ func (w *Worker) provisionCert(j *store.Job) error {
 	if c == nil {
 		return fmt.Errorf("certificate missing")
 	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "IssueDevCertificate",
+		Params: mustJSON(map[string]any{"hostname": c.Hostname, "days": 90}),
+	})
+	if err != nil {
+		return err
+	}
 	exp := time.Now().Add(90 * 24 * time.Hour)
 	c.Status = "active"
 	c.NotAfter = &exp
-	c.Issuer = "Let's Encrypt (dev)"
+	c.Issuer = "panel-dev"
 	w.Store.PutCert(c)
 	return nil
+}
+
+func (w *Worker) applyCron(j *store.Job) error {
+	acc := w.Store.GetAccount(str(j.Payload["account_id"]))
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	var body strings.Builder
+	body.WriteString("# panel crontab — generated, do not edit\n")
+	for _, c := range w.Store.ListCrons(acc.ID) {
+		if !c.Enabled {
+			continue
+		}
+		fmt.Fprintf(&body, "%s %s\n", c.Schedule, c.Command)
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyAccountCron",
+		Params: mustJSON(map[string]any{"username": acc.Username, "body": body.String()}),
+	})
+	return err
 }
 
 func (w *Worker) createBackup(j *store.Job) error {
@@ -315,20 +417,26 @@ func (w *Worker) createBackup(j *store.Job) error {
 		return fmt.Errorf("backup missing")
 	}
 	acc := w.Store.GetAccount(b.AccountID)
+	if acc == nil || w.Box == nil {
+		return fmt.Errorf("backup prerequisites missing")
+	}
+	home := acc.HomePath
+	if w.Agent != nil && w.Agent.Root != "" {
+		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
+	}
+	repo := &backup.Local{Root: filepath.Join(filepath.Dir(home), "..", "backups")}
+	if w.Agent != nil && w.Agent.Root != "" {
+		repo.Root = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
+	}
+	man, key, err := backup.Build(context.Background(), w.Box, repo, acc, w.Store.ListDBs(acc.ID), w.Store.ListMailboxes(acc.ID), home)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	b.State = "succeeded"
 	b.FinishedAt = &now
-	b.Checksum = "sha256:dev"
-	b.Manifest = map[string]any{
-		"format_version": 1,
-		"account_id":     acc.ID,
-		"created_at":     now.Format(time.RFC3339),
-		"panel_version":  "0.1.0",
-		"files":          map[string]any{"home": acc.HomePath},
-		"databases":      w.Store.ListDBs(acc.ID),
-		"mailboxes":      w.Store.ListMailboxes(acc.ID),
-		"checksums":      map[string]any{"manifest": "sha256:dev"},
-	}
+	b.Checksum = man.Checksums["files.tar.gz"]
+	b.Manifest = map[string]any{"format_version": man.FormatVersion, "key": key, "account_id": man.AccountID, "checksums": man.Checksums}
 	w.Store.PutBackup(b)
 	return nil
 }
@@ -339,8 +447,26 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 		return fmt.Errorf("backup missing")
 	}
 	acc := w.Store.GetAccount(str(j.Payload["account_id"]))
-	if acc == nil {
-		return fmt.Errorf("account missing")
+	if acc == nil || w.Box == nil {
+		return fmt.Errorf("restore prerequisites missing")
+	}
+	key, _ := b.Manifest["key"].(string)
+	if key == "" {
+		return fmt.Errorf("backup object key missing")
+	}
+	home := acc.HomePath
+	repoRoot := "/var/lib/panel/backups"
+	if w.Agent != nil && w.Agent.Root != "" {
+		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
+		repoRoot = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
+	}
+	repo := &backup.Local{Root: repoRoot}
+	man, err := backup.Restore(context.Background(), w.Box, repo, key, home)
+	if err != nil {
+		return err
+	}
+	if err := backup.Preflight(man, acc); err != nil {
+		return err
 	}
 	acc.Status = "active"
 	acc.DesiredRevision++

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/hosting-panel/panel/agent/policy"
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
+	"github.com/hosting-panel/panel/internal/migration"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 	"github.com/hosting-panel/panel/internal/rbac"
@@ -78,6 +80,7 @@ func (a *API) Handler() http.Handler {
 			r.Get("/accounts/{accountID}/usage", a.accountUsage)
 			r.Post("/accounts/bulk/suspend", a.bulkSuspend)
 			r.Get("/accounts/export", a.exportAccounts)
+			r.Post("/accounts/import", a.importAccount)
 			r.Route("/accounts/{accountID}", func(r chi.Router) {
 				r.Get("/domains", a.listDomains)
 				r.Post("/domains", a.createDomain)
@@ -98,6 +101,7 @@ func (a *API) Handler() http.Handler {
 				r.Get("/backups", a.listBackups)
 				r.Post("/backups", a.createBackup)
 				r.Post("/restores", a.restoreBackup)
+				r.Get("/export", a.exportAccount)
 				r.Get("/files", a.listFiles)
 				r.Post("/files", a.writeFile)
 				r.Get("/cron", a.listCron)
@@ -276,8 +280,8 @@ func (a *API) actorFromUser(u *store.User) rbac.Actor {
 	}
 	return rbac.Actor{
 		UserID: u.ID, Username: u.Username, Roles: u.Roles,
-		Capabilities: rbac.Expand(u.Roles, nil),
-		AccountIDs:   a.Store.AccountsForUser(u.ID),
+		Capabilities:  rbac.Expand(u.Roles, nil),
+		AccountIDs:    a.Store.AccountsForUser(u.ID),
 		IsServerScope: server,
 	}
 }
@@ -430,6 +434,38 @@ func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": a.Store.ListAccounts(r.URL.Query().Get("q"), r.URL.Query().Get("status"))})
 }
 
+func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.require(w, r, rbac.AccountsRead) {
+		return
+	}
+	exp, err := migration.Export(a.Store, aid)
+	if err != nil {
+		a.fail(w, r, 404, "NOT_FOUND", err.Error(), false)
+		return
+	}
+	a.audit(r, "account.export", "account", aid, true, nil, map[string]any{"username": exp.Account.Username})
+	writeJSON(w, 200, exp)
+}
+
+func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.AccountsCreate) {
+		return
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		a.fail(w, r, 400, "INVALID_JSON", "invalid export", false)
+		return
+	}
+	acc, err := migration.Import(a.Store, raw)
+	if err != nil {
+		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
+		return
+	}
+	a.audit(r, "account.import", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
+	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc})
+}
+
 func (a *API) exportAccounts(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.AccountsRead) {
 		return
@@ -521,7 +557,7 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 	job, _ := a.Store.EnqueueJob(&store.Job{
 		Type: "account.provision", ResourceType: "account", ResourceID: acc.ID,
 		Payload: map[string]any{"account_id": acc.ID, "domain_id": dom.ID},
-		State: "queued", Priority: 10, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		State:   "queued", Priority: 10, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
 	})
 	a.audit(r, "account.create", "account", acc.ID, true, nil, map[string]any{"username": acc.Username, "domain": ascii})
@@ -605,7 +641,9 @@ func (a *API) impersonate(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "Account not found", false)
 		return
 	}
-	var in struct{ Reason string `json:"reason"` }
+	var in struct {
+		Reason string `json:"reason"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	if in.Reason == "" {
 		a.fail(w, r, 400, "VALIDATION", "Impersonation reason required", false)
@@ -638,7 +676,9 @@ func (a *API) bulkSuspend(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.AccountsSuspend) {
 		return
 	}
-	var in struct{ IDs []string `json:"ids"` }
+	var in struct {
+		IDs []string `json:"ids"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	ops := []string{}
 	for _, id := range in.IDs {
@@ -810,7 +850,18 @@ func (a *API) listMailDomains(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.MailRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListMailDomains(aid)})
+	items := []map[string]any{}
+	for _, md := range a.Store.ListMailDomains(aid) {
+		name := md.ID
+		if d := a.Store.GetDomain(md.DomainID); d != nil {
+			name = d.ASCII
+		}
+		items = append(items, map[string]any{
+			"id": md.ID, "domain_id": md.DomainID, "ascii_fqdn": name,
+			"catchall_policy": md.CatchallPolicy, "status": md.Status,
+		})
+	}
+	writeJSON(w, 200, map[string]any{"items": items})
 }
 
 func (a *API) listMailboxes(w http.ResponseWriter, r *http.Request) {
@@ -832,9 +883,25 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 		Password  string `json:"password"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
-	hash, _ := auth.HashPassword(in.Password)
-	_ = hash
-	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: in.DomainID, LocalPart: in.LocalPart, QuotaBytes: 1 << 30, Status: "provisioning"}
+	if err := validate.LocalPart(in.LocalPart); err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	md := resolveMailDomain(a.Store, aid, in.DomainID)
+	if md == nil {
+		a.fail(w, r, 400, "VALIDATION", "Mail domain is not provisioned yet", false)
+		return
+	}
+	if in.Password == "" {
+		a.fail(w, r, 400, "VALIDATION", "Mailbox password required", false)
+		return
+	}
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", "Could not hash mailbox password", false)
+		return
+	}
+	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: in.LocalPart, QuotaBytes: 1 << 30, PasswordHash: hash, Status: "provisioning"}
 	a.Store.PutMailbox(mb)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "mailbox.provision", ResourceType: "mailbox", ResourceID: mb.ID, Payload: map[string]any{"mailbox_id": mb.ID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mailbox": mb})
@@ -853,7 +920,9 @@ func (a *API) requestCert(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.WebsitesWrite) {
 		return
 	}
-	var in struct{ Hostname string `json:"hostname"` }
+	var in struct {
+		Hostname string `json:"hostname"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	c := &store.Certificate{ID: id.New(), AccountID: aid, Hostname: in.Hostname, Kind: "domain", Status: "requested"}
 	a.Store.PutCert(c)
@@ -915,7 +984,7 @@ func (a *API) listFiles(w http.ResponseWriter, r *http.Request) {
 	if rel == "" {
 		rel = "/"
 	}
-	abs := filepath.Join(acc.HomePath, rel)
+	abs := filepath.Join(acc.HomePath, strings.TrimPrefix(rel, "/"))
 	clean, err := policy.WithinAccount(acc.Username, filepath.Clean(abs))
 	if err != nil {
 		a.fail(w, r, 400, "PATH_DENIED", err.Error(), false)
@@ -954,7 +1023,7 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	acc := a.Store.GetAccount(aid)
-	abs := filepath.Join(acc.HomePath, in.Path)
+	abs := filepath.Join(acc.HomePath, strings.TrimPrefix(in.Path, "/"))
 	clean, err := policy.WithinAccount(acc.Username, filepath.Clean(abs))
 	if err != nil {
 		a.fail(w, r, 400, "PATH_DENIED", err.Error(), false)
@@ -986,7 +1055,8 @@ func (a *API) createCron(w http.ResponseWriter, r *http.Request) {
 	c.ID = id.New()
 	c.AccountID = aid
 	a.Store.PutCron(&c)
-	writeJSON(w, 201, c)
+	job, _ := a.Store.EnqueueJob(&store.Job{Type: "cron.apply", ResourceType: "account", ResourceID: aid, Payload: map[string]any{"account_id": aid}, State: "queued"})
+	writeJSON(w, 201, map[string]any{"cron": c, "operation_id": job.ID})
 }
 
 func (a *API) listSSH(w http.ResponseWriter, r *http.Request) {
@@ -1010,6 +1080,16 @@ func (a *API) createSSH(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256([]byte(in.PublicKey))
 	in.Fingerprint = hex.EncodeToString(sum[:])
 	a.Store.PutSSH(&in)
+	acc := a.Store.GetAccount(aid)
+	var keys strings.Builder
+	for _, k := range a.Store.ListSSH(aid) {
+		keys.WriteString(strings.TrimSpace(k.PublicKey))
+		keys.WriteByte('\n')
+	}
+	if acc != nil {
+		params, _ := json.Marshal(map[string]any{"username": acc.Username, "body": keys.String()})
+		_, _ = a.Agent.Dispatch(r.Context(), operations.Request{Method: "ApplyAuthorizedKeys", Params: params})
+	}
 	writeJSON(w, 201, in)
 }
 
@@ -1146,6 +1226,19 @@ func validateDNS(r store.DNSRecord) error {
 	default:
 		return fmt.Errorf("unsupported record type")
 	}
+}
+
+func resolveMailDomain(st store.Store, accountID, inID string) *store.MailDomain {
+	list := st.ListMailDomains(accountID)
+	for i := range list {
+		if list[i].ID == inID || list[i].DomainID == inID {
+			return &list[i]
+		}
+	}
+	if inID == "" && len(list) == 1 {
+		return &list[0]
+	}
+	return nil
 }
 
 func firstNonEmpty(a, b string) string {

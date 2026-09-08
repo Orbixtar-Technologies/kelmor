@@ -57,7 +57,7 @@ func Boot(ctx context.Context, service string) (*Runtime, error) {
 	agent := &operations.Host{Root: filepath.Join(root, "host")}
 	_ = os.MkdirAll(agent.Root, 0o755)
 	api := httpserver.New(pg, log, agent)
-	w := job.New(pg, agent, log, hostname())
+	w := job.New(pg, agent, log, box, hostname())
 	rt := &Runtime{Store: pg, API: api, Worker: w, Agent: agent, Log: log, Box: box, Root: root}
 	log.Info(ctx, "runtime.boot", map[string]any{"service": service, "key_fp": box.Fingerprint(), "state": root, "database": "postgresql"})
 	return rt, nil

@@ -52,7 +52,10 @@ See `cmd/`, `internal/`, `agent/`, `db/migrations/`, `portals/`, `installer/`, a
 make lint
 make test
 make test-security
+make test-provisioning
 ```
+
+Encrypted account backups (HPM1) and native export/import are documented in `docs/backup.md` and `docs/migration.md`.
 
 ## Ports
 

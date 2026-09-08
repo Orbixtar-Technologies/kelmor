@@ -52,6 +52,7 @@ export function App () {
 				<nav>
 					<NavLink to="/" end>Dashboard</NavLink>
 					<NavLink to="/accounts">Accounts</NavLink>
+					<NavLink to="/import">Import</NavLink>
 					<NavLink to="/resellers">Resellers</NavLink>
 					<NavLink to="/packages">Packages</NavLink>
 					<NavLink to="/jobs">Jobs</NavLink>
@@ -63,6 +64,8 @@ export function App () {
 				<Routes>
 					<Route path="/" element={<Dashboard />} />
 					<Route path="/accounts" element={<Accounts />} />
+					<Route path="/accounts/:id" element={<AccountDetail />} />
+					<Route path="/import" element={<ImportAccount />} />
 					<Route path="/resellers" element={<Resellers />} />
 					<Route path="/packages" element={<Packages />} />
 					<Route path="/jobs" element={<Jobs />} />
@@ -161,7 +164,7 @@ function Accounts () {
 					<tbody>
 						{items.map((a) => (
 							<tr key={a.id}>
-								<td>{a.username}</td><td>{a.primary_domain}</td><td>{a.status}</td><td>{a.linux_uid}</td>
+								<td><NavLink to={`/accounts/${a.id}`}>{a.username}</NavLink></td><td>{a.primary_domain}</td><td>{a.status}</td><td>{a.linux_uid}</td>
 								<td>
 									<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/suspend`, reload, setMsg)}>Suspend</button>
 									<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
@@ -171,6 +174,77 @@ function Accounts () {
 					</tbody>
 				</table>
 			)}
+		</>
+	)
+}
+
+function AccountDetail () {
+	const [acc, setAcc] = useState<any>(null)
+	const [jobs, setJobs] = useState<any[]>([])
+	const [msg, setMsg] = useState('')
+	const id = window.location.pathname.split('/').pop() || ''
+	async function reload () {
+		setAcc(await api(`/api/v1/accounts/${id}`))
+		const j = await api<{ items: any[] }>('/api/v1/jobs')
+		setJobs(j.items.filter((x) => x.resource_id === id))
+	}
+	useEffect(() => { reload().catch((e) => setMsg(e.message)) }, [id])
+	if (!acc) return <Empty title="Loading account" detail={msg || 'Reading desired and observed state.'} />
+	return (
+		<>
+			<header><h1>{acc.username}</h1><p>{acc.primary_domain} · UID {acc.linux_uid} · {acc.status}</p></header>
+			{msg ? <p className="notice">{msg}</p> : null}
+			<div className="row">
+				<button type="button" onClick={() => act(`/api/v1/accounts/${id}/suspend`, reload, setMsg)}>Suspend</button>
+				<button type="button" onClick={() => act(`/api/v1/accounts/${id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
+				<button type="button" onClick={async () => {
+					const exp = await api<any>(`/api/v1/accounts/${id}/export`)
+					const blob = new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' })
+					const url = URL.createObjectURL(blob)
+					const a = document.createElement('a')
+					a.href = url
+					a.download = `${acc.username}.hpm-account.json`
+					a.click()
+					URL.revokeObjectURL(url)
+				}}>Download native export</button>
+				<button type="button" onClick={async () => {
+					await api(`/api/v1/accounts/${id}/backups`, { method: 'POST', body: JSON.stringify({ kind: 'full', destination: 'local' }) })
+					setMsg('Backup queued')
+				}}>Queue encrypted backup</button>
+			</div>
+			<h2>Related jobs</h2>
+			{jobs.length === 0 ? <p>No jobs for this account.</p> : (
+				<table>
+					<thead><tr><th>Type</th><th>State</th><th>%</th></tr></thead>
+					<tbody>{jobs.map((j) => <tr key={j.id}><td>{j.type}</td><td>{j.state}</td><td>{j.progress}</td></tr>)}</tbody>
+				</table>
+			)}
+		</>
+	)
+}
+
+function ImportAccount () {
+	const [msg, setMsg] = useState('')
+	return (
+		<>
+			<header><h1>Native import</h1><p>Restore a hosting account export produced by this control plane. The importer refuses colliding usernames and domains, then queues reconcile.</p></header>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				const file = fd.get('export') as File
+				setMsg('')
+				try {
+					const raw = await file.text()
+					const r = await api<any>('/api/v1/accounts/import', { method: 'POST', body: raw, headers: { 'Content-Type': 'application/json' } })
+					setMsg(`Imported ${r.account?.username || r.resource_id}`)
+				} catch (err) {
+					setMsg(err instanceof Error ? err.message : 'import failed')
+				}
+			}}>
+				<input name="export" type="file" accept="application/json" required />
+				<button type="submit">Import account</button>
+			</form>
+			{msg ? <p className="notice">{msg}</p> : null}
 		</>
 	)
 }

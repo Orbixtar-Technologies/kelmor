@@ -16,15 +16,15 @@ type User struct {
 }
 
 type Session struct {
-	ID              string     `json:"id"`
-	UserID          string     `json:"user_id"`
-	TokenHash       []byte     `json:"-"`
-	ExpiresAt       time.Time  `json:"expires_at"`
-	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
-	SourceIP        string     `json:"source_ip"`
-	UserAgent       string     `json:"user_agent"`
-	ImpersonatorID  string     `json:"impersonator_id,omitempty"`
-	ImpersonationReason string `json:"impersonation_reason,omitempty"`
+	ID                  string     `json:"id"`
+	UserID              string     `json:"user_id"`
+	TokenHash           []byte     `json:"-"`
+	ExpiresAt           time.Time  `json:"expires_at"`
+	RevokedAt           *time.Time `json:"revoked_at,omitempty"`
+	SourceIP            string     `json:"source_ip"`
+	UserAgent           string     `json:"user_agent"`
+	ImpersonatorID      string     `json:"impersonator_id,omitempty"`
+	ImpersonationReason string     `json:"impersonation_reason,omitempty"`
 }
 
 type FeatureSet struct {
@@ -34,40 +34,40 @@ type FeatureSet struct {
 }
 
 type Package struct {
-	ID                     string `json:"id"`
-	ResellerID             string `json:"reseller_id,omitempty"`
-	Name                   string `json:"name"`
-	FeatureSetID           string `json:"feature_set_id"`
-	DiskBytes              int64  `json:"disk_bytes"`
-	BandwidthBytesMonthly  int64  `json:"bandwidth_bytes_monthly"`
-	Domains                int    `json:"domains"`
-	Subdomains             int    `json:"subdomains"`
-	AliasDomains           int    `json:"alias_domains"`
-	Databases              int    `json:"databases"`
-	DatabaseUsers          int    `json:"database_users"`
-	Mailboxes              int    `json:"mailboxes"`
-	MailboxStorageBytes    int64  `json:"mailbox_storage_bytes"`
-	FTPUsers               int    `json:"ftp_users"`
-	CronJobs               int    `json:"cron_jobs"`
-	ApplicationInstances   int    `json:"application_instances"`
-	BackupRetentionDays    int    `json:"backup_retention_days"`
-	CPUPercent             int    `json:"cpu_percent"`
-	MemoryBytes            int64  `json:"memory_bytes"`
-	ProcessLimit           int    `json:"process_limit"`
-	IOWeight               int    `json:"io_weight"`
-	IOPS                   int    `json:"iops"`
-	ConcurrentWebRequests  int    `json:"concurrent_web_requests"`
-	EmailDailyLimit        int    `json:"email_daily_limit"`
+	ID                    string `json:"id"`
+	ResellerID            string `json:"reseller_id,omitempty"`
+	Name                  string `json:"name"`
+	FeatureSetID          string `json:"feature_set_id"`
+	DiskBytes             int64  `json:"disk_bytes"`
+	BandwidthBytesMonthly int64  `json:"bandwidth_bytes_monthly"`
+	Domains               int    `json:"domains"`
+	Subdomains            int    `json:"subdomains"`
+	AliasDomains          int    `json:"alias_domains"`
+	Databases             int    `json:"databases"`
+	DatabaseUsers         int    `json:"database_users"`
+	Mailboxes             int    `json:"mailboxes"`
+	MailboxStorageBytes   int64  `json:"mailbox_storage_bytes"`
+	FTPUsers              int    `json:"ftp_users"`
+	CronJobs              int    `json:"cron_jobs"`
+	ApplicationInstances  int    `json:"application_instances"`
+	BackupRetentionDays   int    `json:"backup_retention_days"`
+	CPUPercent            int    `json:"cpu_percent"`
+	MemoryBytes           int64  `json:"memory_bytes"`
+	ProcessLimit          int    `json:"process_limit"`
+	IOWeight              int    `json:"io_weight"`
+	IOPS                  int    `json:"iops"`
+	ConcurrentWebRequests int    `json:"concurrent_web_requests"`
+	EmailDailyLimit       int    `json:"email_daily_limit"`
 }
 
 type Reseller struct {
-	ID             string   `json:"id"`
-	UserID         string   `json:"user_id"`
-	Name           string   `json:"name"`
-	BrandName      string   `json:"brand_name,omitempty"`
-	PrivilegeMask  []string `json:"privilege_mask"`
-	Nameservers    []string `json:"nameservers"`
-	Status         string   `json:"status"`
+	ID            string   `json:"id"`
+	UserID        string   `json:"user_id"`
+	Name          string   `json:"name"`
+	BrandName     string   `json:"brand_name,omitempty"`
+	PrivilegeMask []string `json:"privilege_mask"`
+	Nameservers   []string `json:"nameservers"`
+	Status        string   `json:"status"`
 }
 
 type Account struct {
@@ -171,22 +171,23 @@ type MailDomain struct {
 }
 
 type Mailbox struct {
-	ID         string `json:"id"`
-	AccountID  string `json:"account_id"`
-	DomainID   string `json:"domain_id"`
-	LocalPart  string `json:"local_part"`
-	QuotaBytes int64  `json:"quota_bytes"`
-	Status     string `json:"status"`
+	ID           string `json:"id"`
+	AccountID    string `json:"account_id"`
+	DomainID     string `json:"domain_id"`
+	LocalPart    string `json:"local_part"`
+	QuotaBytes   int64  `json:"quota_bytes"`
+	PasswordHash string `json:"-"`
+	Status       string `json:"status"`
 }
 
 type Certificate struct {
-	ID         string     `json:"id"`
-	AccountID  string     `json:"account_id,omitempty"`
-	Hostname   string     `json:"hostname"`
-	Kind       string     `json:"kind"`
-	Status     string     `json:"status"`
-	NotAfter   *time.Time `json:"not_after,omitempty"`
-	Issuer     string     `json:"issuer,omitempty"`
+	ID        string     `json:"id"`
+	AccountID string     `json:"account_id,omitempty"`
+	Hostname  string     `json:"hostname"`
+	Kind      string     `json:"kind"`
+	Status    string     `json:"status"`
+	NotAfter  *time.Time `json:"not_after,omitempty"`
+	Issuer    string     `json:"issuer,omitempty"`
 }
 
 type Job struct {
@@ -246,15 +247,15 @@ type APIToken struct {
 }
 
 type BackupRun struct {
-	ID          string     `json:"id"`
-	AccountID   string     `json:"account_id"`
-	Kind        string     `json:"kind"`
-	State       string     `json:"state"`
-	Destination string     `json:"destination"`
-	Checksum    string     `json:"checksum,omitempty"`
-	SizeBytes   int64      `json:"size_bytes"`
-	CreatedAt   time.Time  `json:"created_at"`
-	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	ID          string         `json:"id"`
+	AccountID   string         `json:"account_id"`
+	Kind        string         `json:"kind"`
+	State       string         `json:"state"`
+	Destination string         `json:"destination"`
+	Checksum    string         `json:"checksum,omitempty"`
+	SizeBytes   int64          `json:"size_bytes"`
+	CreatedAt   time.Time      `json:"created_at"`
+	FinishedAt  *time.Time     `json:"finished_at,omitempty"`
 	Manifest    map[string]any `json:"manifest,omitempty"`
 }
 

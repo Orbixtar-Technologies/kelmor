@@ -28,6 +28,22 @@ func NormalizeDomain(raw string) (ascii string, err error) {
 	return s, nil
 }
 
+func LocalPart(s string) error {
+	if len(s) < 1 || len(s) > 64 {
+		return fmt.Errorf("invalid mailbox local part")
+	}
+	for i, r := range s {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+		if !ok {
+			return fmt.Errorf("invalid mailbox local part")
+		}
+		if i == 0 && (r == '.' || r == '-' || r == '_') {
+			return fmt.Errorf("invalid mailbox local part")
+		}
+	}
+	return nil
+}
+
 func Username(s string) error {
 	if len(s) < 2 || len(s) > 32 {
 		return fmt.Errorf("username must be 2-32 characters")

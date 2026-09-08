@@ -592,24 +592,28 @@ func (p *PG) ListMailDomains(accountID string) []MailDomain {
 }
 
 func (p *PG) PutMailbox(mb *Mailbox) {
+	hash := mb.PasswordHash
+	if hash == "" {
+		hash = "!"
+	}
 	_, _ = p.pool.Exec(p.ctx(), `
 		INSERT INTO mailboxes (id, account_id, domain_id, local_part, quota_bytes, password_hash, status)
-		VALUES ($1,$2,$3,$4,$5,'!', $6)
-		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quota_bytes=EXCLUDED.quota_bytes`,
-		mb.ID, mb.AccountID, mb.DomainID, mb.LocalPart, mb.QuotaBytes, mb.Status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, quota_bytes=EXCLUDED.quota_bytes, password_hash=EXCLUDED.password_hash`,
+		mb.ID, mb.AccountID, mb.DomainID, mb.LocalPart, mb.QuotaBytes, hash, mb.Status)
 }
 
 func (p *PG) GetMailbox(mid string) *Mailbox {
 	mb := &Mailbox{}
-	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, local_part, quota_bytes, status FROM mailboxes WHERE id=$1`, mid).
-		Scan(&mb.ID, &mb.AccountID, &mb.DomainID, &mb.LocalPart, &mb.QuotaBytes, &mb.Status); err != nil {
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, local_part, quota_bytes, password_hash, status FROM mailboxes WHERE id=$1`, mid).
+		Scan(&mb.ID, &mb.AccountID, &mb.DomainID, &mb.LocalPart, &mb.QuotaBytes, &mb.PasswordHash, &mb.Status); err != nil {
 		return nil
 	}
 	return mb
 }
 
 func (p *PG) ListMailboxes(accountID string) []Mailbox {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, domain_id, local_part, quota_bytes, status FROM mailboxes WHERE $1='' OR account_id::text=$1`, accountID)
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, domain_id, local_part, quota_bytes, password_hash, status FROM mailboxes WHERE $1='' OR account_id::text=$1`, accountID)
 	if err != nil {
 		return nil
 	}
@@ -617,7 +621,7 @@ func (p *PG) ListMailboxes(accountID string) []Mailbox {
 	var out []Mailbox
 	for rows.Next() {
 		var mb Mailbox
-		_ = rows.Scan(&mb.ID, &mb.AccountID, &mb.DomainID, &mb.LocalPart, &mb.QuotaBytes, &mb.Status)
+		_ = rows.Scan(&mb.ID, &mb.AccountID, &mb.DomainID, &mb.LocalPart, &mb.QuotaBytes, &mb.PasswordHash, &mb.Status)
 		out = append(out, mb)
 	}
 	return out
