@@ -39,6 +39,7 @@ func main() {
   audit
   monitor
   import-cpanel <root> <username>
+  cron create <account_id> <schedule> <command>
   config validate`)
 		os.Exit(2)
 	}

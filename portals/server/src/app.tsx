@@ -116,6 +116,7 @@ function Dashboard () {
 function Accounts () {
 	const [items, setItems] = useState<any[]>([])
 	const [packages, setPackages] = useState<any[]>([])
+	const [resellers, setResellers] = useState<any[]>([])
 	const [q, setQ] = useState('')
 	const [msg, setMsg] = useState('')
 	const nav = useNavigate()
@@ -124,7 +125,10 @@ function Accounts () {
 		setItems(asList(r))
 	}
 	useEffect(() => { reload().catch((e) => setMsg(e.message)) }, [q])
-	useEffect(() => { api<{ items: any[] }>('/api/v1/packages').then((r) => setPackages(asList(r))) }, [])
+	useEffect(() => {
+		api<{ items: any[] }>('/api/v1/packages').then((r) => setPackages(asList(r)))
+		api<{ items: any[] }>('/api/v1/resellers').then((r) => setResellers(asList(r)))
+	}, [])
 	return (
 		<>
 			<header><h1>Hosting accounts</h1><p>Each account gets a dedicated Linux identity and a reconciliation job.</p></header>
@@ -140,6 +144,7 @@ function Accounts () {
 							username: fd.get('username'),
 							primary_domain: fd.get('domain'),
 							package_id: fd.get('package_id'),
+							reseller_id: fd.get('reseller_id') || undefined,
 							owner_email: fd.get('email'),
 							owner_password: fd.get('password'),
 						}),
@@ -156,6 +161,10 @@ function Accounts () {
 				<input name="email" placeholder="owner email" type="email" />
 				<input name="password" placeholder="owner password" type="password" required />
 				<select name="package_id">{packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+				<select name="reseller_id">
+					<option value="">Direct (no reseller)</option>
+					{resellers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+				</select>
 				<button type="submit">Provision account</button>
 			</form>
 			<input className="search" placeholder="Search username or domain" value={q} onChange={(e) => setQ(e.target.value)} />
