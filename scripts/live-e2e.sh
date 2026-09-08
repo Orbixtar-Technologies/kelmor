@@ -92,7 +92,8 @@ echo "alias-ok $ADOM"
 dig +short @"127.0.0.1" "$DOMAIN" A || true
 
 mds=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/domains" -H "$AUTH")
-mdid=$(echo "$mds" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or []; print(items[0]["id"] if items else "")')
+mdid=$(echo "$mds" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
+print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$DOMAIN'), items[0]['id'] if items else ''))")
 if [[ -n "$mdid" ]]; then
   curl -sS -X POST "$BASE/api/v1/accounts/$aid/mail/mailboxes" -H "$AUTH" -H 'content-type: application/json' \
     -d "{\"domain_id\":\"$mdid\",\"local_part\":\"info\",\"password\":\"MailboxPass!2026\"}" >/tmp/mbox.json
