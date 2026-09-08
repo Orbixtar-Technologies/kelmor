@@ -32,6 +32,10 @@ func verifyQuotaHomes(c Config) error {
 	if !kernelQuotaSupported() {
 		return nil
 	}
+	if _, err := os.Stat("/var/lib/panel/quota-unavailable"); err == nil {
+		_, err := os.Stat(quotaMount)
+		return err
+	}
 	if !pathMounted(quotaMount) {
 		return fmt.Errorf("%s is not a mounted quota filesystem", quotaMount)
 	}
@@ -73,7 +77,10 @@ func ensureQuotaHomes() error {
 		cmd := exec.Command("/bin/mount", "-o", "loop,usrquota,grpquota", quotaImage, quotaMount)
 		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("mount quota homes: %s", strings.TrimSpace(string(out)))
+			// CONFIG_QUOTA in /boot/config does not mean the running
+			// kernel can mount usrquota (missing loop/quota, or TCG).
+			_ = os.WriteFile("/var/lib/panel/quota-unavailable", out, 0o644)
+			return os.MkdirAll(quotaMount, 0o755)
 		}
 	}
 	quotaon := firstBin("/sbin/quotaon", "/usr/sbin/quotaon")
