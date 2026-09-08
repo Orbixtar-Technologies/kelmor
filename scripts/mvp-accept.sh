@@ -29,7 +29,15 @@ curl -sS http://127.0.0.1:18444/ | grep -q 'Account Portal'
 echo "== host probes =="
 dig +short @127.0.0.1 livehost.test A | grep -q 127.0.0.1
 curl -sS -o /dev/null -w '%{http_code}' -H 'Host: livehost.test' http://127.0.0.1/ | grep -q 200
-sudo doveadm auth test info@livehost.test 'MailboxPass!2026' | grep -q succeeded
+ok=0
+for _ in $(seq 1 20); do
+  if sudo doveadm auth test info@livehost.test 'MailboxPass!2026' 2>/dev/null | grep -q succeeded; then
+    ok=1
+    break
+  fi
+  sleep 0.3
+done
+[[ "$ok" == "1" ]] || { echo "imap auth failed" >&2; exit 1; }
 stat -c '%a' /var/lib/panel | grep -q 755
 
 echo MVP_ACCEPT_OK
