@@ -39,8 +39,13 @@ else
   exit 1
 fi
 
-# File-prefix install writes the packaged tree without replacing this host.
-PANEL_INSTALL_ROOT="$ROOT" "$ROOT/usr/local/panel/bin/panel-install" \
+# Run the host installer so it does not overwrite its own running binary
+# inside the target tree.
+INSTALLER=/usr/local/panel/bin/panel-install
+if [[ ! -x "$INSTALLER" ]]; then
+  INSTALLER="$SRC/dist/bin/panel-install"
+fi
+PANEL_INSTALL_ROOT="$ROOT" "$INSTALLER" \
   --non-interactive \
   --hostname "$HOST" \
   --admin-email "admin@$HOST" \
