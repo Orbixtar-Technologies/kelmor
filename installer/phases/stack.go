@@ -785,6 +785,15 @@ func verifySecurity(c Config) error {
 			return err
 		}
 	}
+	if pub := netaddr.PublicIPv4(); pub != "" && pub != "127.0.0.1" {
+		b, err := os.ReadFile(root(c, "etc/vsftpd.conf"))
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(b), "pasv_address="+pub) {
+			return fmt.Errorf("vsftpd PASV address is not %s", pub)
+		}
+	}
 	return nil
 }
 
