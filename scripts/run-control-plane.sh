@@ -33,4 +33,5 @@ exec sudo -u panel -g panel env \
   PANEL_DATABASE_URL="$DSN" \
   PANEL_PDNS_URL="$PDNS_URL" \
   PANEL_PDNS_API_KEY="$PDNS_KEY" \
+  PANEL_PUBLIC_IPV4="${PANEL_PUBLIC_IPV4:-}" \
   "$ROOT/bin/$1"
