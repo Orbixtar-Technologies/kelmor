@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -89,7 +90,100 @@ func (h *Host) installWordPress(p WordPressInstall) (Result, error) {
 	if h.live() {
 		h.hardenWebDocroot(p.Username, doc)
 	}
+	if err := h.finishWordPressTables(p, doc); err != nil {
+		return Result{}, err
+	}
 	return Result{OK: true, ObservedState: "installed", Message: "wordpress files written"}, nil
+}
+
+const wpCLIInstallPHP = `<?php
+if (PHP_SAPI !== 'cli') {
+	fwrite(STDERR, "cli only\n");
+	exit(1);
+}
+$path = $argv[1] ?? '';
+if ($path === '' || !is_readable($path)) {
+	fwrite(STDERR, "spec missing\n");
+	exit(1);
+}
+$cfg = json_decode((string) file_get_contents($path), true);
+if (!is_array($cfg)) {
+	fwrite(STDERR, "bad spec\n");
+	exit(1);
+}
+foreach (array('document_root', 'title', 'admin_user', 'admin_password', 'admin_email') as $k) {
+	if (empty($cfg[$k])) {
+		fwrite(STDERR, "missing field\n");
+		exit(1);
+	}
+}
+define('WP_INSTALLING', true);
+require $cfg['document_root'] . '/wp-load.php';
+require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+if (function_exists('is_blog_installed') && is_blog_installed()) {
+	fwrite(STDOUT, "already-installed\n");
+	exit(0);
+}
+wp_install($cfg['title'], $cfg['admin_user'], $cfg['admin_email'], true, '', $cfg['admin_password']);
+fwrite(STDOUT, "installed\n");
+`
+
+func (h *Host) finishWordPressTables(p WordPressInstall, doc string) error {
+	upgrade := filepath.Join(doc, "wp-admin", "includes", "upgrade.php")
+	realUpgrade, err := h.resolve(upgrade)
+	if err != nil {
+		return nil
+	}
+	if _, err := os.Stat(realUpgrade); err != nil {
+		return nil
+	}
+	if !h.live() {
+		return nil
+	}
+	php := wordpressPHPBin()
+	if php == "" {
+		return fmt.Errorf("php cli not installed")
+	}
+	specPath := "/var/lib/panel/tmp/wp-install-" + p.Username + ".json"
+	scriptPath := "/var/lib/panel/tmp/wp-cli-install.php"
+	spec, err := json.Marshal(map[string]string{
+		"document_root":  doc,
+		"title":          p.Title,
+		"admin_user":     p.AdminUser,
+		"admin_password": p.AdminPassword,
+		"admin_email":    p.AdminEmail,
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := h.CreateDirectoryTree("/var/lib/panel/tmp", 0o750); err != nil {
+		return err
+	}
+	if _, err := h.ApplyFile(scriptPath, []byte(wpCLIInstallPHP), 0o640); err != nil {
+		return err
+	}
+	if _, err := h.ApplyFile(specPath, spec, 0o600); err != nil {
+		return err
+	}
+	defer func() {
+		if rp, err := h.resolve(specPath); err == nil {
+			_ = os.Remove(rp)
+		}
+	}()
+	out, err := runFixed(php, scriptPath, specPath)
+	if err != nil {
+		return fmt.Errorf("wordpress tables: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func wordpressPHPBin() string {
+	for _, bin := range []string{"/usr/bin/php8.3", "/usr/bin/php8.4", "/usr/bin/php8.5", "/usr/bin/php"} {
+		if _, err := os.Stat(bin); err == nil {
+			return bin
+		}
+	}
+	return ""
 }
 
 func (h *Host) wordpressArchive() (string, error) {
@@ -249,8 +343,18 @@ func wpConfigFile(p WordPressInstall) string {
 		"define('NONCE_SALT', '" + randomSalt() + "');\n" +
 		"$table_prefix = 'wp_';\n" +
 		"define('WP_DEBUG', false);\n" +
+		wpHomeDefines(p.SiteURL) +
 		"if (!defined('ABSPATH')) define('ABSPATH', __DIR__ . '/');\n" +
 		"require_once ABSPATH . 'wp-settings.php';\n"
+}
+
+func wpHomeDefines(siteURL string) string {
+	siteURL = strings.TrimSpace(siteURL)
+	if siteURL == "" {
+		return ""
+	}
+	return "define('WP_HOME', '" + phpSingle(siteURL) + "');\n" +
+		"define('WP_SITEURL', '" + phpSingle(siteURL) + "');\n"
 }
 
 func phpSingle(s string) string {

@@ -463,12 +463,14 @@ function Databases ({ accountId }: { accountId: string }) {
 function Files ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
 	const [ftpUsers, setFtpUsers] = useState<any[]>([])
+	const [sshKeys, setSSHKeys] = useState<any[]>([])
 	const [path, setPath] = useState('/')
 	const loadFTP = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/ftp`).then((r) => setFtpUsers(asList(r)))
+	const loadSSH = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/ssh-keys`).then((r) => setSSHKeys(asList(r)))
 	useEffect(() => {
 		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/files?path=${encodeURIComponent(path)}`).then((r) => setItems(asList(r)))
 	}, [accountId, path])
-	useEffect(() => { loadFTP() }, [accountId])
+	useEffect(() => { loadFTP(); loadSSH() }, [accountId])
 	return (
 		<>
 			<h1>Files</h1>
@@ -487,6 +489,23 @@ function Files ({ accountId }: { accountId: string }) {
 				</label>
 				<button type="submit">Set SFTP password</button>
 			</form>
+			<h2>SSH public keys</h2>
+			<p>Keys are written to <code>~/.ssh/authorized_keys</code> through the privileged agent. Password SSH is not used for the hosting account.</p>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${accountId}/ssh-keys`, {
+					method: 'POST',
+					body: JSON.stringify({ public_key: fd.get('public_key'), label: fd.get('label') }),
+				})
+				e.currentTarget.reset()
+				await loadSSH()
+			}}>
+				<input name="public_key" placeholder="ssh-ed25519 AAAA…" required />
+				<input name="label" placeholder="laptop" />
+				<button type="submit">Add SSH key</button>
+			</form>
+			<ul>{sshKeys.map((k) => <li key={k.id}>{k.label || k.fingerprint}</li>)}</ul>
 			<h2>FTP users</h2>
 			<p>Virtual FTP logins map to this account and chroot to public_html (port 21).</p>
 			<form onSubmit={async (e) => {

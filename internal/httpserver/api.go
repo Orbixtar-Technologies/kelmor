@@ -1157,6 +1157,10 @@ func (a *API) installWordPress(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", "website_id required", false)
 		return
 	}
+	hostname := ""
+	if d := a.Store.GetDomain(site.DomainID); d != nil {
+		hostname = d.ASCII
+	}
 	app := &store.Application{
 		ID: id.New(), WebsiteID: site.ID, AccountID: aid,
 		Runtime: "wordpress", WorkingDirectory: site.DocumentRoot, Status: "provisioning",
@@ -1165,7 +1169,7 @@ func (a *API) installWordPress(w http.ResponseWriter, r *http.Request) {
 	job, _ := a.Store.EnqueueJob(&store.Job{
 		Type: "wordpress.install", ResourceType: "application", ResourceID: app.ID,
 		Payload: map[string]any{
-			"application_id": app.ID, "title": in.Title,
+			"application_id": app.ID, "title": in.Title, "hostname": hostname,
 			"admin_user": in.AdminUser, "admin_password": in.AdminPassword,
 			"admin_email": in.AdminEmail,
 		},
@@ -1688,14 +1692,32 @@ func (a *API) createSSH(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.FilesWrite) {
 		return
 	}
-	var in store.SSHKey
+	var in struct {
+		Label     string `json:"label"`
+		Comment   string `json:"comment"`
+		PublicKey string `json:"public_key"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
-	in.ID = id.New()
-	in.AccountID = aid
-	in.CreatedAt = time.Now().UTC()
-	sum := sha256.Sum256([]byte(in.PublicKey))
-	in.Fingerprint = hex.EncodeToString(sum[:])
-	a.Store.PutSSH(&in)
+	key := strings.TrimSpace(in.PublicKey)
+	if key == "" || strings.ContainsAny(key, "\n\r") {
+		a.fail(w, r, 400, "VALIDATION", "one-line SSH public key required", false)
+		return
+	}
+	if !strings.HasPrefix(key, "ssh-rsa ") && !strings.HasPrefix(key, "ssh-ed25519 ") && !strings.HasPrefix(key, "ecdsa-sha2-nistp256 ") {
+		a.fail(w, r, 400, "VALIDATION", "public key must be ssh-rsa, ssh-ed25519, or ecdsa-sha2-nistp256", false)
+		return
+	}
+	label := strings.TrimSpace(in.Label)
+	if label == "" {
+		label = strings.TrimSpace(in.Comment)
+	}
+	rec := store.SSHKey{
+		ID: id.New(), AccountID: aid, Label: label, PublicKey: key,
+		CreatedAt: time.Now().UTC(),
+	}
+	sum := sha256.Sum256([]byte(rec.PublicKey))
+	rec.Fingerprint = hex.EncodeToString(sum[:])
+	a.Store.PutSSH(&rec)
 	acc := a.Store.GetAccount(aid)
 	var keys strings.Builder
 	for _, k := range a.Store.ListSSH(aid) {
@@ -1706,7 +1728,7 @@ func (a *API) createSSH(w http.ResponseWriter, r *http.Request) {
 		params, _ := json.Marshal(map[string]any{"username": acc.Username, "body": keys.String()})
 		_, _ = a.Agent.Dispatch(r.Context(), operations.Request{Method: "ApplyAuthorizedKeys", Params: params})
 	}
-	writeJSON(w, 201, in)
+	writeJSON(w, 201, rec)
 }
 
 func (a *API) listFTP(w http.ResponseWriter, r *http.Request) {

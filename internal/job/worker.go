@@ -821,6 +821,8 @@ func (w *Worker) provisionCert(j *store.Job) error {
 				continue
 			}
 			s := site
+			s.HTTPSRedirect = true
+			w.Store.PutWebsite(&s)
 			if err := w.applyWebsiteDispatch(acc, &s, d); err != nil {
 				return err
 			}

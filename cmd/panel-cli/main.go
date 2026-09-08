@@ -43,6 +43,7 @@ func main() {
   domain create <account_id> <fqdn> [runtime] [type]
   file list <account_id> [path]
   file write <account_id> <path> <content>
+  ssh-key add <account_id> <public_key> [label]
   backup create <account_id>
   backup restore <account_id> <backup_id>
   jobs list
@@ -131,6 +132,12 @@ func main() {
 			path = args[3]
 		}
 		get(base+"/api/v1/accounts/"+args[2]+"/files?path="+path, token)
+	case args[0] == "ssh-key" && args[1] == "add" && len(args) >= 4:
+		body := map[string]any{"public_key": args[3]}
+		if len(args) >= 5 {
+			body["label"] = strings.Join(args[4:], " ")
+		}
+		post(base+"/api/v1/accounts/"+args[2]+"/ssh-keys", token, body)
 	case args[0] == "file" && args[1] == "write" && len(args) == 5:
 		post(base+"/api/v1/accounts/"+args[2]+"/files", token, map[string]any{"path": args[3], "content": args[4]})
 	case args[0] == "backup" && len(args) == 4 && args[1] == "restore":

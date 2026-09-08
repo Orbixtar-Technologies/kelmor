@@ -392,7 +392,7 @@ func (p *PG) PutWebsite(w *Website) {
 	_, _ = p.pool.Exec(p.ctx(), `
 		INSERT INTO websites (id, account_id, domain_id, runtime, runtime_version, document_root, https_redirect, www_redirect, proxy_target, enabled, desired_revision, observed_revision)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE(NULLIF($8,''),'none'),$9,$10,$11,$12)
-		ON CONFLICT (id) DO UPDATE SET runtime=EXCLUDED.runtime, enabled=EXCLUDED.enabled, desired_revision=EXCLUDED.desired_revision, observed_revision=EXCLUDED.observed_revision`,
+		ON CONFLICT (id) DO UPDATE SET runtime=EXCLUDED.runtime, enabled=EXCLUDED.enabled, https_redirect=EXCLUDED.https_redirect, document_root=EXCLUDED.document_root, desired_revision=EXCLUDED.desired_revision, observed_revision=EXCLUDED.observed_revision`,
 		w.ID, w.AccountID, w.DomainID, w.Runtime, w.RuntimeVersion, w.DocumentRoot, w.HTTPSRedirect, w.WWWRedirect, w.ProxyTarget, w.Enabled, w.DesiredRevision, w.ObservedRevision)
 }
 

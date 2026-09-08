@@ -337,6 +337,33 @@ func delStatus(t *testing.T, url, token string) (int, map[string]any) {
 	return res.StatusCode, out
 }
 
+func TestSSHKeyValidation(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "sshacct1", "primary_domain": "sshacc.test", "package_id": pkg,
+		"owner_email": "o@sshacc.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/ssh-keys", admin, map[string]any{"public_key": "not-a-key"}) != 400 {
+		t.Fatal("accepted junk key")
+	}
+	created := post(t, srv.URL+"/api/v1/accounts/"+aid+"/ssh-keys", admin, map[string]any{
+		"public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJustATestKeyNotRealAAAAAAAAAAA=",
+		"comment":    "laptop",
+	})
+	if created["label"] != "laptop" {
+		t.Fatalf("label from comment: %v", created)
+	}
+}
+
 func TestWordPressInstallAPI(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

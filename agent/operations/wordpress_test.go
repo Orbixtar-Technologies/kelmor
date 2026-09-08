@@ -35,6 +35,9 @@ func TestInstallWordPressSandbox(t *testing.T) {
 	if !strings.Contains(string(b), "acme42_wp") || !strings.Contains(string(b), "secret-db") {
 		t.Fatalf("%s", b)
 	}
+	if !strings.Contains(string(b), "WP_HOME") || !strings.Contains(string(b), "http://acme.test") {
+		t.Fatalf("site url: %s", b)
+	}
 	if _, err := os.Stat(filepath.Join(h.Root, "home/acme42/public_html/index.php")); err != nil {
 		t.Fatal(err)
 	}

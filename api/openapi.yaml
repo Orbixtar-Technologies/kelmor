@@ -531,6 +531,29 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: DS records for the parent zone }
+  /accounts/{accountID}/dns/zones/{zoneID}/records:
+    get:
+      operationId: listDNSRecords
+      x-capability: dns.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - in: path
+          name: zoneID
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: records }
+    post:
+      operationId: createDNSRecord
+      x-capability: dns.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - in: path
+          name: zoneID
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: record stored and zone sync queued }
   /accounts/{accountID}/dns/zones/{zoneID}/records/{recordID}:
     delete:
       operationId: deleteDNSRecord
@@ -579,6 +602,65 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/{accountID}/ssh-keys:
+    get:
+      operationId: listSSHKeys
+      x-capability: files.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: authorized SSH public keys }
+    post:
+      operationId: createSSHKey
+      x-capability: files.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [public_key]
+              properties:
+                public_key: { type: string }
+                label: { type: string }
+                comment: { type: string, description: "Alias for label" }
+      responses:
+        "201": { description: key stored and authorized_keys applied }
+  /accounts/{accountID}/api-tokens:
+    get:
+      operationId: listAPITokens
+      x-capability: api_tokens.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: tokens }
+    post:
+      operationId: createAPIToken
+      x-capability: api_tokens.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "201": { description: token issued once }
+  /server/processes:
+    get:
+      operationId: serverProcesses
+      x-capability: server.read
+      responses:
+        "200": { description: host process snapshot }
+  /accounts/bulk/suspend:
+    post:
+      operationId: bulkSuspend
+      x-capability: accounts.suspend
+      responses:
+        "202": { description: suspend jobs queued }
+  /accounts/export:
+    get:
+      operationId: exportAccounts
+      x-capability: accounts.read
+      responses:
+        "200": { description: account list export }
   /jobs/{jobID}:
     get:
       operationId: getJob
