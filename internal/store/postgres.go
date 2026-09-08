@@ -509,11 +509,22 @@ func (p *PG) DeleteDB(id string) {
 }
 
 func (p *PG) PutDBUser(u *DatabaseUser) {
-	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO database_users (id, account_id, username, engine, password_enc) VALUES ($1,$2,$3,$4,'') ON CONFLICT (id) DO NOTHING`, u.ID, u.AccountID, u.Username, u.Engine)
+	enc := u.PasswordEnc
+	if enc == nil {
+		enc = []byte{}
+	}
+	_, _ = p.pool.Exec(p.ctx(), `
+		INSERT INTO database_users (id, account_id, username, engine, password_enc)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (username) DO UPDATE SET
+			password_enc = CASE WHEN length(EXCLUDED.password_enc) = 0 THEN database_users.password_enc ELSE EXCLUDED.password_enc END,
+			engine = EXCLUDED.engine,
+			account_id = EXCLUDED.account_id`,
+		u.ID, u.AccountID, u.Username, u.Engine, enc)
 }
 
 func (p *PG) ListDBUsers(accountID string) []DatabaseUser {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, username, engine FROM database_users WHERE $1='' OR account_id::text=$1`, accountID)
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, username, engine, password_enc FROM database_users WHERE $1='' OR account_id::text=$1`, accountID)
 	if err != nil {
 		return nil
 	}
@@ -521,7 +532,7 @@ func (p *PG) ListDBUsers(accountID string) []DatabaseUser {
 	var out []DatabaseUser
 	for rows.Next() {
 		var u DatabaseUser
-		_ = rows.Scan(&u.ID, &u.AccountID, &u.Username, &u.Engine)
+		_ = rows.Scan(&u.ID, &u.AccountID, &u.Username, &u.Engine, &u.PasswordEnc)
 		out = append(out, u)
 	}
 	return out

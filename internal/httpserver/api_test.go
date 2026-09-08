@@ -574,6 +574,40 @@ func TestDeleteDatabaseAndCertOwnership(t *testing.T) {
 	}
 }
 
+func TestCreateWebsiteReusesDomainRow(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "onesite1", "primary_domain": "onesite.test", "package_id": pkg,
+		"owner_email": "o@onesite.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	d := &store.Domain{ID: id.New(), AccountID: aid, FQDN: "app.onesite.test", ASCII: "app.onesite.test", Type: "addon"}
+	st.PutDomain(d)
+	site := &store.Website{ID: id.New(), AccountID: aid, DomainID: d.ID, Runtime: "php", DocumentRoot: "/home/onesite1/app.onesite.test"}
+	st.PutWebsite(site)
+	out := post(t, srv.URL+"/api/v1/accounts/"+aid+"/websites", admin, map[string]any{
+		"domain_id": d.ID, "runtime": "node", "document_root": "/home/onesite1/app.onesite.test",
+	})
+	got := out["website"].(map[string]any)
+	if got["id"] != site.ID {
+		t.Fatalf("expected existing website, got %v", out)
+	}
+	if got["runtime"] != "node" {
+		t.Fatalf("runtime %v", got["runtime"])
+	}
+	if len(st.ListWebsites(aid)) != 1 {
+		t.Fatalf("duplicate websites: %d", len(st.ListWebsites(aid)))
+	}
+}
+
 func get(t *testing.T, url, token string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)

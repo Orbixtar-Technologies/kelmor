@@ -272,13 +272,14 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.applyPHPPool(p.Account, p.Version, p.MaxChildren)
 	case "CreateHostedDatabase":
 		var p struct {
-			Engine   string `json:"engine"`
-			Name     string `json:"name"`
-			Username string `json:"username"`
-			Password string `json:"password"`
+			Engine        string `json:"engine"`
+			Name          string `json:"name"`
+			Username      string `json:"username"`
+			Password      string `json:"password"`
+			ResetPassword bool   `json:"reset_password"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.createHostedDatabase(p.Engine, p.Name, p.Username, p.Password)
+		return h.createHostedDatabase(p.Engine, p.Name, p.Username, p.Password, p.ResetPassword)
 	case "DumpHostedDatabase":
 		var p struct {
 			Engine string `json:"engine"`

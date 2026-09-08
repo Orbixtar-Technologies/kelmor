@@ -376,6 +376,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 			site.Enabled = true
 		}
 		w.Store.PutWebsite(site)
+		w.collapseDomainWebsites(acc, d, site)
 	}
 	if w.Store.MailDomainByDomain(d.ID) == nil {
 		md := &store.MailDomain{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, CatchallPolicy: "reject", Status: "active"}
@@ -482,6 +483,7 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	}
 	site.ObservedRevision = site.DesiredRevision
 	w.Store.PutWebsite(site)
+	w.collapseDomainWebsites(acc, d, site)
 	return w.applySiteRuntime(site, acc)
 }
 
@@ -571,12 +573,11 @@ func (w *Worker) installWordPress(j *store.Job) error {
 		doc = acc.HomePath + "/public_html"
 	}
 	dbName := acc.Username + "_wp"
-	dbUser := acc.Username + "_u"
-	pw := fmt.Sprintf("db-%s", store.NewID())
+	dbUser, pw, reset := w.hostedDBCredentials(acc, "mariadb")
 	if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateHostedDatabase",
 		Params: mustJSON(map[string]any{
-			"engine": "mariadb", "name": dbName, "username": dbUser, "password": pw,
+			"engine": "mariadb", "name": dbName, "username": dbUser, "password": pw, "reset_password": reset,
 		}),
 	}); err != nil {
 		return err
@@ -647,11 +648,12 @@ func (w *Worker) provisionDB(j *store.Job) error {
 	if acc == nil {
 		return fmt.Errorf("account missing")
 	}
-	pw := fmt.Sprintf("db-%s", store.NewID())
-	dbUser := acc.Username + "_u"
+	dbUser, pw, reset := w.hostedDBCredentials(acc, d.Engine)
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateHostedDatabase",
-		Params: mustJSON(map[string]any{"engine": d.Engine, "name": d.Name, "username": dbUser, "password": pw}),
+		Params: mustJSON(map[string]any{
+			"engine": d.Engine, "name": d.Name, "username": dbUser, "password": pw, "reset_password": reset,
+		}),
 	})
 	if err != nil {
 		return err
@@ -1277,12 +1279,15 @@ func (w *Worker) ensureRestoredDB(acc *store.Account, engine, name string) {
 	if w.Agent == nil {
 		return
 	}
-	pw := fmt.Sprintf("db-%s", store.NewID())
-	dbUser := acc.Username + "_u"
+	dbUser, pw, reset := w.hostedDBCredentials(acc, engine)
 	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateHostedDatabase",
-		Params: mustJSON(map[string]any{"engine": engine, "name": name, "username": dbUser, "password": pw}),
+		Params: mustJSON(map[string]any{
+			"engine": engine, "name": name, "username": dbUser, "password": pw, "reset_password": reset,
+		}),
 	})
+	note := fmt.Sprintf("engine=%s\nname=%s\nusername=%s\npassword=%s\nhost=127.0.0.1\n", engine, name, dbUser, pw)
+	_, _ = w.Agent.ApplyFile("/home/"+acc.Username+"/.panel-database."+engine+"."+name, []byte(note), 0o600)
 	row.Status = "active"
 	w.Store.PutDB(row)
 }
@@ -1472,6 +1477,56 @@ func (w *Worker) recordUsage(acc *store.Account) {
 		return nil
 	})
 	w.Store.PutUsage(u)
+}
+
+func (w *Worker) hostedDBCredentials(acc *store.Account, engine string) (username, password string, reset bool) {
+	username = acc.Username + "_u"
+	var existing *store.DatabaseUser
+	for _, u := range w.Store.ListDBUsers(acc.ID) {
+		if u.Username == username && (u.Engine == engine || u.Engine == "") {
+			cp := u
+			existing = &cp
+			break
+		}
+	}
+	if existing != nil && len(existing.PasswordEnc) > 0 && w.Box != nil {
+		if plain, err := w.Box.Decrypt(existing.PasswordEnc); err == nil && len(plain) > 0 {
+			return username, string(plain), false
+		}
+	}
+	password = fmt.Sprintf("db-%s", store.NewID())
+	var enc []byte
+	if w.Box != nil {
+		enc, _ = w.Box.Encrypt([]byte(password))
+	}
+	if existing != nil {
+		existing.Engine = engine
+		existing.PasswordEnc = enc
+		w.Store.PutDBUser(existing)
+	} else {
+		w.Store.PutDBUser(&store.DatabaseUser{
+			ID: store.NewID(), AccountID: acc.ID, Username: username, Engine: engine, PasswordEnc: enc,
+		})
+	}
+	return username, password, true
+}
+
+func (w *Worker) collapseDomainWebsites(acc *store.Account, d *store.Domain, keep *store.Website) {
+	if acc == nil || d == nil || keep == nil {
+		return
+	}
+	for _, s := range w.Store.ListWebsites(acc.ID) {
+		if s.DomainID != d.ID || s.ID == keep.ID {
+			continue
+		}
+		if w.Agent != nil {
+			_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+				Method: "RetireWebsite",
+				Params: mustJSON(map[string]any{"website_id": s.ID, "account": acc.Username}),
+			})
+		}
+		w.Store.DeleteWebsite(s.ID)
+	}
 }
 
 func publicIPv4() string {

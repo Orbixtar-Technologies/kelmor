@@ -120,7 +120,7 @@ func (h *Host) setQuota(username string, bytes int64) (Result, error) {
 	return Result{OK: true, ObservedState: "applied"}, nil
 }
 
-func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Result, error) {
+func (h *Host) createHostedDatabase(engine, name, dbUser, password string, resetPassword bool) (Result, error) {
 	if !ident(name) || !ident(dbUser) {
 		return Result{}, fmt.Errorf("invalid database identifier")
 	}
@@ -132,13 +132,16 @@ func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Resu
 		if !h.live() {
 			return Result{OK: true, ObservedState: "recorded"}, nil
 		}
-		stmts := []string{
-			fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", name),
-			fmt.Sprintf("CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s'", dbUser, escapeSQL(password)),
-			fmt.Sprintf("ALTER USER '%s'@'localhost' IDENTIFIED BY '%s'", dbUser, escapeSQL(password)),
-			fmt.Sprintf("GRANT ALL ON %s.* TO '%s'@'localhost'", name, dbUser),
-			"FLUSH PRIVILEGES",
+		var stmts []string
+		stmts = append(stmts, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", name))
+		for _, host := range []string{"localhost", "127.0.0.1"} {
+			stmts = append(stmts, fmt.Sprintf("CREATE USER IF NOT EXISTS '%s'@'%s' IDENTIFIED BY '%s'", dbUser, host, escapeSQL(password)))
+			if resetPassword {
+				stmts = append(stmts, fmt.Sprintf("ALTER USER '%s'@'%s' IDENTIFIED BY '%s'", dbUser, host, escapeSQL(password)))
+			}
+			stmts = append(stmts, fmt.Sprintf("GRANT ALL ON %s.* TO '%s'@'%s'", name, dbUser, host))
 		}
+		stmts = append(stmts, "FLUSH PRIVILEGES")
 		for _, stmt := range stmts {
 			out, err := runFixed("/usr/bin/mariadb", "-e", stmt)
 			if err != nil {
@@ -150,7 +153,9 @@ func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Resu
 			return Result{OK: true, ObservedState: "recorded"}, nil
 		}
 		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'")
-		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "ALTER USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'")
+		if resetPassword {
+			_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "ALTER USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'")
+		}
 		if out, err := runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE "+name+" OWNER "+dbUser); err != nil {
 			if !strings.Contains(string(out), "already exists") {
 				return Result{}, fmt.Errorf("psql: %s", strings.TrimSpace(string(out)))

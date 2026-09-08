@@ -24,10 +24,10 @@ func TestDropHostedDatabaseRejectsIdent(t *testing.T) {
 
 func TestCreateHostedDatabaseRejectsIdent(t *testing.T) {
 	h := &Host{}
-	if _, err := h.createHostedDatabase("mariadb", "bad-name", "okuser", "pw"); err == nil {
+	if _, err := h.createHostedDatabase("mariadb", "bad-name", "okuser", "pw", false); err == nil {
 		t.Fatal("expected invalid identifier")
 	}
-	res, err := h.createHostedDatabase("mariadb", "okdb", "okuser", "pw")
+	res, err := h.createHostedDatabase("mariadb", "okdb", "okuser", "pw", true)
 	if err != nil {
 		t.Fatal(err)
 	}

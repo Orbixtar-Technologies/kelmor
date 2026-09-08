@@ -135,10 +135,11 @@ type HostedDatabase struct {
 }
 
 type DatabaseUser struct {
-	ID        string `json:"id"`
-	AccountID string `json:"account_id"`
-	Username  string `json:"username"`
-	Engine    string `json:"engine"`
+	ID          string `json:"id"`
+	AccountID   string `json:"account_id"`
+	Username    string `json:"username"`
+	Engine      string `json:"engine"`
+	PasswordEnc []byte `json:"-"`
 }
 
 type DNSZone struct {

@@ -1111,6 +1111,24 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 			in.DocumentRoot = d.DocumentRoot
 		}
 	}
+	if d := a.Store.GetDomain(in.DomainID); d != nil && d.AccountID == aid {
+		for _, existing := range a.Store.ListWebsites(aid) {
+			if existing.DomainID != in.DomainID {
+				continue
+			}
+			if in.Runtime != "" {
+				existing.Runtime = in.Runtime
+			}
+			if in.DocumentRoot != "" {
+				existing.DocumentRoot = in.DocumentRoot
+			}
+			existing.DesiredRevision++
+			a.Store.PutWebsite(&existing)
+			job, _ := a.Store.EnqueueJob(&store.Job{Type: "website.provision", ResourceType: "website", ResourceID: existing.ID, Payload: map[string]any{"website_id": existing.ID}, State: "queued"})
+			writeJSON(w, 202, map[string]any{"operation_id": job.ID, "website": existing})
+			return
+		}
+	}
 	if err := a.enforceCountLimit(aid, "websites", len(a.Store.ListWebsites(aid)), func(p *store.Package) int {
 		return p.Domains + p.Subdomains + p.AliasDomains
 	}); err != nil {

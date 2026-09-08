@@ -130,3 +130,46 @@ func TestReconcileKeepsLaterUnsuspend(t *testing.T) {
 		t.Fatalf("stale suspend payload overwrote status: %s", got.Status)
 	}
 }
+
+func TestHostedDatabaseReusesSharedPassword(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	acc := &store.Account{
+		ID: "acc-db", Username: "dbshare", PrimaryDomain: "dbshare.test",
+		PackageID: st.ListPackages()[0].ID, Status: "active", HomePath: "/home/dbshare",
+		LinuxUID: 20100, LinuxGID: 20100,
+	}
+	st.PutAccount(acc)
+	st.PutDB(&store.HostedDatabase{ID: "db-1", AccountID: acc.ID, Engine: "mariadb", Name: "dbshare_one", Status: "queued"})
+	st.PutDB(&store.HostedDatabase{ID: "db-2", AccountID: acc.ID, Engine: "mariadb", Name: "dbshare_two", Status: "queued"})
+	root := t.TempDir()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: root}, logging.New("test"), box, "tester")
+	if err := w.provisionDB(&store.Job{Payload: map[string]any{"database_id": "db-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.provisionDB(&store.Job{Payload: map[string]any{"database_id": "db-2"}}); err != nil {
+		t.Fatal(err)
+	}
+	users := st.ListDBUsers(acc.ID)
+	if len(users) != 1 || len(users[0].PasswordEnc) == 0 {
+		t.Fatalf("shared db user %+v", users)
+	}
+	one, err := os.ReadFile(filepath.Join(root, "home/dbshare/.panel-database.mariadb.dbshare_one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := os.ReadFile(filepath.Join(root, "home/dbshare/.panel-database.mariadb.dbshare_two"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass := bytes.SplitN(bytes.SplitN(one, []byte("password="), 2)[1], []byte("\n"), 2)[0]
+	if len(pass) == 0 || !bytes.Contains(two, pass) {
+		t.Fatalf("passwords diverged\n%s\n%s", one, two)
+	}
+}
