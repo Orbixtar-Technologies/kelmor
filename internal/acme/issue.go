@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -35,6 +36,14 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 		return err
 	}
 	cl := &acme.Client{Key: key, DirectoryURL: directory}
+	if insecureDirectory(directory) {
+		cl.HTTPClient = &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // pebble / lab CAs
+			},
+		}
+	}
 	acct := &acme.Account{Contact: []string{"mailto:" + contact}}
 	if _, err := cl.Register(ctx, acct, acme.AcceptTOS); err != nil && err != acme.ErrAccountAlreadyExists {
 		return fmt.Errorf("acme register: %w", err)
@@ -88,7 +97,10 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 	if err != nil {
 		return err
 	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der[0]})
+	var certPEM []byte
+	for _, c := range der {
+		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c})...)
+	}
 	kb, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
 		return err
@@ -145,7 +157,21 @@ func waitHTTP01(hostname, token, body string) error {
 }
 
 func Directory() string {
-	return os.Getenv("PANEL_ACME_DIRECTORY")
+	if v := os.Getenv("PANEL_ACME_DIRECTORY"); v != "" {
+		return v
+	}
+	b, err := os.ReadFile("/var/lib/panel/acme.directory")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func insecureDirectory(directory string) bool {
+	if os.Getenv("PANEL_ACME_INSECURE") == "1" {
+		return true
+	}
+	return strings.Contains(directory, "pebble") || strings.Contains(directory, "127.0.0.1") || strings.Contains(directory, "localhost")
 }
 
 func IssuerName(directory string) string {

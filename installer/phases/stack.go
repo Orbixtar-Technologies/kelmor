@@ -256,7 +256,15 @@ func applyTLS(c Config) error {
     }
 }
 `
-	return writeUnlessExists(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644)
+	if err := writeUnlessExists(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644); err != nil {
+		return err
+	}
+	return startLocalACME(c)
+}
+
+func verifyTLS(c Config) error {
+	_, err := os.Stat(root(c, "var/lib/panel/acme-www/.well-known/acme-challenge"))
+	return err
 }
 
 func writeUnlessExists(path string, body []byte, mode os.FileMode) error {

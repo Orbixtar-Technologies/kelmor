@@ -40,6 +40,8 @@ func main() {
   monitor
   import-cpanel <root> <username>
   cron create <account_id> <schedule> <command>
+  cert request <account_id> <hostname>
+  reseller create <name> <username> <password>
   config validate`)
 		os.Exit(2)
 	}
@@ -121,6 +123,10 @@ func main() {
 		post(base+"/api/v1/accounts/import/cpanel", token, map[string]any{"root": args[1], "username": args[2]})
 	case args[0] == "cron" && args[1] == "create" && len(args) >= 5:
 		post(base+"/api/v1/accounts/"+args[2]+"/cron", token, map[string]any{"schedule": args[3], "command": strings.Join(args[4:], " ")})
+	case args[0] == "cert" && args[1] == "request" && len(args) == 4:
+		post(base+"/api/v1/accounts/"+args[2]+"/certificates", token, map[string]any{"hostname": args[3]})
+	case args[0] == "reseller" && args[1] == "create" && len(args) == 5:
+		post(base+"/api/v1/resellers", token, map[string]any{"name": args[2], "username": args[3], "password": args[4]})
 	case join(args) == "config validate":
 		fmt.Println(`{"ok":true,"templates":"versioned","rule":"test-before-reload"}`)
 	default:

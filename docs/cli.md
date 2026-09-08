@@ -19,4 +19,6 @@ panel-cli file write <account-id> /public_html/index.php '<?php echo "ok";'
 panel-cli file list <account-id> /public_html
 panel-cli backup restore <account-id> <backup-id>
 panel-cli audit
+panel-cli cert request <account-id> livehost.test
+panel-cli reseller create 'Northwind' nwind 'ResellerPass!2026'
 ```

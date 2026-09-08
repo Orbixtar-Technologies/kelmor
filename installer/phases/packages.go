@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 var allowedPackages = map[string]bool{
@@ -70,7 +72,53 @@ func applyDatabaseStack(c Config) error {
 	if c.Dev {
 		return os.MkdirAll(root(c, "var/lib/panel/db"), 0o750)
 	}
+	if err := os.MkdirAll("/var/lib/panel/db", 0o750); err != nil {
+		return err
+	}
+	for _, args := range [][]string{
+		{"/usr/sbin/mysqld", "--user=mysql"},
+		{"/usr/lib/postgresql/16/bin/postgres", "-D", "/var/lib/postgresql/16/main"},
+	} {
+		if _, err := os.Stat(args[0]); err != nil {
+			continue
+		}
+		name := filepath.Base(args[0])
+		if exec.Command("/usr/bin/pgrep", "-x", name).Run() == nil {
+			continue
+		}
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin"}
+		_ = cmd.Start()
+	}
 	return nil
+}
+
+func verifySystemPackages(c Config) error {
+	if c.Dev {
+		return nil
+	}
+	for _, n := range []string{"nginx", "postfix", "dovecot-core", "postgresql"} {
+		cmd := exec.Command("/usr/bin/dpkg-query", "-W", "-f=${Status}", n)
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "ok installed") {
+			return fmt.Errorf("required package %s is not installed", n)
+		}
+	}
+	return nil
+}
+
+func verifyDatabaseStack(c Config) error {
+	if c.Dev {
+		_, err := os.Stat(root(c, "var/lib/panel/db"))
+		return err
+	}
+	if _, err := os.Stat("/var/run/mysqld/mysqld.sock"); err == nil {
+		return nil
+	}
+	if _, err := os.Stat("/var/run/postgresql"); err == nil {
+		return nil
+	}
+	return fmt.Errorf("neither MariaDB nor PostgreSQL is listening")
 }
 
 func verifyWeb(c Config) error {

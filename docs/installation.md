@@ -16,7 +16,7 @@ Development:
 ./panel-install --dev --non-interactive --hostname localhost
 ```
 
-Phases (resumable): preflight, repositories, system packages, panel users, control database, control plane, web stack, database stack, DNS (PowerDNS bind-files + loopback API), mail (Postfix virtual + Dovecot passwd-file), security (Fail2ban + SFTP chroot + ModSecurity/Rspamd/ClamAV files), firewall (`table inet panel`), runtime versions, templates, TLS (HTTP-01 webroot), systemd units, host runtime (start nginx/php-fpm/mail when systemd is blocked), administrator, health checks, installation report.
+Phases (resumable): preflight, repositories, system packages (apt allow-list; verify `dpkg`), panel users, control database, control plane, web stack, database stack (start MariaDB/PostgreSQL when present), DNS (PowerDNS bind-files + loopback API), mail (Postfix virtual + Dovecot passwd-file), security (Fail2ban + SFTP chroot + ModSecurity/Rspamd/ClamAV files), firewall (`table inet panel`), runtime versions, templates, TLS (HTTP-01 webroot plus optional local Pebble CA when `/usr/local/panel/bin/pebble` is installed), systemd units, host runtime (start nginx/php-fpm/mail and the control plane when systemd is blocked), administrator, health checks, installation report.
 
 On Ubuntu 24.04 the installer creates the `panel` system user and `panel_control` database, grants that role CONNECT/table rights, copies `panel-*` binaries into `/usr/local/panel/bin`, and writes `/var/lib/panel/install-state.json`. A phase marked complete is re-applied when its verify check fails (for example a missing `panel` user or `/usr/local/panel/bin`).
 
