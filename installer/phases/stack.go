@@ -263,8 +263,21 @@ func applyTLS(c Config) error {
 }
 
 func verifyTLS(c Config) error {
-	_, err := os.Stat(root(c, "var/lib/panel/acme-www/.well-known/acme-challenge"))
-	return err
+	if _, err := os.Stat(root(c, "var/lib/panel/acme-www/.well-known/acme-challenge")); err != nil {
+		return err
+	}
+	if c.Dev || pebbleBinary() == "" {
+		return nil
+	}
+	if _, err := os.Stat(root(c, "var/lib/panel/acme.directory")); err != nil {
+		return fmt.Errorf("local ACME directory missing")
+	}
+	con, err := net.DialTimeout("tcp", "127.0.0.1:14000", 400*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("pebble ACME not listening: %w", err)
+	}
+	_ = con.Close()
+	return nil
 }
 
 func writeUnlessExists(path string, body []byte, mode os.FileMode) error {
