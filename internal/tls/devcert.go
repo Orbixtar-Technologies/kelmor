@@ -9,13 +9,20 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 )
 
 func SelfSigned(hostname string, notAfter time.Time) (certPEM, keyPEM []byte, err error) {
-	if hostname == "" {
+	return SelfSignedNames([]string{hostname}, notAfter)
+}
+
+func SelfSignedNames(names []string, notAfter time.Time) (certPEM, keyPEM []byte, err error) {
+	names = uniqueHostnames(names)
+	if len(names) == 0 {
 		return nil, nil, fmt.Errorf("hostname required")
 	}
+	hostname := names[0]
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -29,7 +36,7 @@ func SelfSigned(hostname string, notAfter time.Time) (certPEM, keyPEM []byte, er
 		Subject:      pkix.Name{CommonName: hostname, Organization: []string{"Hosting Panel"}},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     notAfter,
-		DNSNames:     []string{hostname},
+		DNSNames:     names,
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
@@ -44,4 +51,18 @@ func SelfSigned(hostname string, notAfter time.Time) (certPEM, keyPEM []byte, er
 	}
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kb})
 	return certPEM, keyPEM, nil
+}
+
+func uniqueHostnames(names []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
 }

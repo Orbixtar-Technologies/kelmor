@@ -415,11 +415,12 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.applyAuthorizedKeys(p.Username, p.Body)
 	case "IssueDevCertificate":
 		var p struct {
-			Hostname string `json:"hostname"`
-			Days     int    `json:"days"`
+			Hostname string   `json:"hostname"`
+			Names    []string `json:"names"`
+			Days     int      `json:"days"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.issueDevCertificate(p.Hostname, p.Days)
+		return h.issueDevCertificate(p.Hostname, p.Names, p.Days)
 	case "ReloadService":
 		var p struct {
 			Name string `json:"name"`

@@ -1,6 +1,7 @@
 package acme
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"testing"
@@ -47,5 +48,19 @@ func TestIssueFallsBackToDevCert(t *testing.T) {
 	}
 	if _, err := Issue(context.Background(), h, "sandbox.test", "ops@acme.test", "https://127.0.0.1:14000/dir"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIssueNamesWritesAliasSAN(t *testing.T) {
+	h := &operations.Host{Root: t.TempDir()}
+	if _, err := IssueNames(context.Background(), h, []string{"site.test", "www.site.test"}, "ops@site.test", ""); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(h.Root + "/var/lib/panel/certs/site.test.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte("BEGIN CERTIFICATE")) {
+		t.Fatal(string(b))
 	}
 }

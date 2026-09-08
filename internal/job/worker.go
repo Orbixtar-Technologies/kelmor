@@ -346,6 +346,9 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 					return err
 				}
 			}
+			if err := w.renewCertificate(acc, primary.ASCII); err != nil {
+				return err
+			}
 		}
 	} else {
 		site := findSite(w.Store, d.ID)
@@ -917,6 +920,40 @@ func (w *Worker) liveACME() bool {
 	return acme.Directory() != "" && (w.Agent == nil || w.Agent.Root == "")
 }
 
+func (w *Worker) certificateNames(acc *store.Account, hostname string) []string {
+	names := []string{hostname}
+	if acc == nil || hostname == "" {
+		return names
+	}
+	if primary := w.primaryDomain(acc); primary != nil && primary.ASCII == hostname {
+		names = append(names, w.aliasesFor(acc, primary)...)
+	}
+	return names
+}
+
+func (w *Worker) renewCertificate(acc *store.Account, hostname string) error {
+	if acc == nil || hostname == "" {
+		return nil
+	}
+	var cert *store.Certificate
+	for _, c := range w.Store.ListCerts(acc.ID) {
+		if c.Hostname != hostname {
+			continue
+		}
+		cp := c
+		cert = &cp
+		break
+	}
+	if cert == nil {
+		cert = &store.Certificate{
+			ID: store.NewID(), AccountID: acc.ID, Hostname: hostname,
+			Kind: "domain", Status: "requested",
+		}
+		w.Store.PutCert(cert)
+	}
+	return w.issueStoredCertificate(cert)
+}
+
 func (w *Worker) ensureCertificate(acc *store.Account, hostname string) error {
 	if acc == nil || hostname == "" {
 		return nil
@@ -954,7 +991,11 @@ func (w *Worker) issueStoredCertificate(c *store.Certificate) error {
 		}
 	}
 	directory := acme.Directory()
-	exp, err := acme.Issue(context.Background(), w.Agent, c.Hostname, contact, directory)
+	names := []string{c.Hostname}
+	if acc := w.Store.GetAccount(c.AccountID); acc != nil {
+		names = w.certificateNames(acc, c.Hostname)
+	}
+	exp, err := acme.IssueNames(context.Background(), w.Agent, names, contact, directory)
 	if err != nil {
 		return err
 	}

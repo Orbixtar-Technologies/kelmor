@@ -354,14 +354,18 @@ func (h *Host) applyAuthorizedKeys(username, body string) (Result, error) {
 	return Result{OK: true, ObservedState: "applied"}, nil
 }
 
-func (h *Host) issueDevCertificate(hostname string, days int) (Result, error) {
+func (h *Host) issueDevCertificate(hostname string, names []string, days int) (Result, error) {
+	if hostname == "" && len(names) > 0 {
+		hostname = names[0]
+	}
 	if _, err := validate.NormalizeDomain(hostname); err != nil {
 		return Result{}, err
 	}
 	if days <= 0 {
 		days = 90
 	}
-	cert, key, err := paneltls.SelfSigned(hostname, time.Now().AddDate(0, 0, days))
+	sans := append([]string{hostname}, names...)
+	cert, key, err := paneltls.SelfSignedNames(sans, time.Now().AddDate(0, 0, days))
 	if err != nil {
 		return Result{}, err
 	}

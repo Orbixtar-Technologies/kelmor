@@ -24,10 +24,19 @@ import (
 )
 
 func Issue(ctx context.Context, agent *operations.Host, hostname, contact, directory string) (time.Time, error) {
+	return IssueNames(ctx, agent, []string{hostname}, contact, directory)
+}
+
+func IssueNames(ctx context.Context, agent *operations.Host, names []string, contact, directory string) (time.Time, error) {
+	names = uniqNames(names)
+	if len(names) == 0 {
+		return time.Time{}, fmt.Errorf("hostname required")
+	}
+	hostname := names[0]
 	if useDevCertificate(agent, directory) {
 		_, err := agent.Dispatch(ctx, operations.Request{
 			Method: "IssueDevCertificate",
-			Params: mustJSON(map[string]any{"hostname": hostname, "days": 90}),
+			Params: mustJSON(map[string]any{"hostname": hostname, "names": names, "days": 90}),
 		})
 		if err != nil {
 			return time.Time{}, err
@@ -55,7 +64,7 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 	if _, err := cl.Register(ctx, acct, acme.AcceptTOS); err != nil && err != acme.ErrAccountAlreadyExists {
 		return time.Time{}, fmt.Errorf("acme register: %w", err)
 	}
-	order, err := cl.AuthorizeOrder(ctx, acme.DomainIDs(hostname))
+	order, err := cl.AuthorizeOrder(ctx, acme.DomainIDs(names...))
 	if err != nil {
 		return time.Time{}, fmt.Errorf("acme order: %w", err)
 	}
@@ -96,7 +105,7 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 			return time.Time{}, err
 		}
 	}
-	csrDER, err := newCSR(hostname, certKey)
+	csrDER, err := newCSR(names, certKey)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -209,9 +218,26 @@ func IssuerName(directory string) string {
 	}
 }
 
-func newCSR(hostname string, key *ecdsa.PrivateKey) ([]byte, error) {
-	tpl := &x509.CertificateRequest{Subject: pkix.Name{CommonName: hostname}, DNSNames: []string{hostname}}
+func newCSR(names []string, key *ecdsa.PrivateKey) ([]byte, error) {
+	if len(names) == 0 {
+		return nil, fmt.Errorf("hostname required")
+	}
+	tpl := &x509.CertificateRequest{Subject: pkix.Name{CommonName: names[0]}, DNSNames: names}
 	return x509.CreateCertificateRequest(rand.Reader, tpl, key)
+}
+
+func uniqNames(names []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
 }
 
 func mustJSON(v any) []byte {
