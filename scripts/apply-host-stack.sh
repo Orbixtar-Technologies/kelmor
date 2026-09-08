@@ -198,7 +198,7 @@ if [[ ! -f /var/lib/panel/ftp/passwd ]]; then
   sudo chmod 0640 /var/lib/panel/ftp/passwd
 fi
 if [[ -x /usr/sbin/vsftpd ]] && ! pgrep -x vsftpd >/dev/null; then
-  sudo /usr/sbin/vsftpd /etc/vsftpd.conf || true
+  sudo sh -c 'nohup /usr/sbin/vsftpd /etc/vsftpd.conf >/tmp/vsftpd.log 2>&1 &'
 fi
 
 if [[ -x /usr/sbin/sshd ]]; then
