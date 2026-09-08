@@ -93,3 +93,36 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestReconcileKeepsLaterUnsuspend(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	pkgs := st.ListPackages()
+	acc := &store.Account{
+		ID: "acc-race", Username: "race42", PrimaryDomain: "race.test",
+		PackageID: pkgs[0].ID, Status: "active", HomePath: "/home/race42",
+		LinuxUID: 20011, LinuxGID: 20011, DesiredRevision: 3,
+	}
+	st.PutAccount(acc)
+	st.PutDomain(&store.Domain{
+		ID: "dom-race", AccountID: acc.ID, FQDN: "race.test", ASCII: "race.test",
+		Type: "primary", DocumentRoot: "/home/race42/public_html", Status: "active",
+	})
+	root := t.TempDir()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: root}, logging.New("test"), box, "tester")
+	if err := w.provisionAccount(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID, "status": "suspended"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.GetAccount(acc.ID); got.Status != "active" {
+		t.Fatalf("stale suspend payload overwrote status: %s", got.Status)
+	}
+}

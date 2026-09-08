@@ -122,8 +122,19 @@ try {
 		body: JSON.stringify({ username: ADMIN_USER, password: ADMIN_PASS }),
 	})
 	const { token } = await tokenRes.json()
-	const accs = await (await fetch(`${API}/api/v1/accounts`, { headers: { Authorization: `Bearer ${token}` } })).json()
-	const acc = (accs.items || []).find((a) => a.username === username)
+	async function accountByName (name) {
+		const accs = await (await fetch(`${API}/api/v1/accounts`, { headers: { Authorization: `Bearer ${token}` } })).json()
+		return (accs.items || []).find((a) => a.username === name)
+	}
+	async function waitAccountStatus (id, want, tries = 60) {
+		for (let i = 0; i < tries; i++) {
+			const row = await (await fetch(`${API}/api/v1/accounts/${id}`, { headers: { Authorization: `Bearer ${token}` } })).json()
+			if (row.status === want) return row
+			await delay(500)
+		}
+		throw new Error(`account ${id} never reached status ${want}`)
+	}
+	const acc = await accountByName(username)
 	if (!acc) throw new Error('UI-created account missing from API')
 	await page.goto(`${SERVER}/accounts/${acc.id}`, { waitUntil: 'networkidle0' })
 	await textIncludes(page, username)
@@ -132,10 +143,14 @@ try {
 		if (!b) throw new Error('suspend button missing')
 		b.click()
 	})
+	await waitAccountStatus(acc.id, 'suspended')
 	await waitHTTP(domain, 503)
 	await page.evaluate(() => {
-		[...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Unsuspend')?.click()
+		const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Unsuspend')
+		if (!b) throw new Error('unsuspend button missing')
+		b.click()
 	})
+	await waitAccountStatus(acc.id, 'active')
 	await waitHTTP(domain, 200)
 	const migUser = `mg${stamp}`
 	const migDom = `${migUser}.test`

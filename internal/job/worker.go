@@ -234,10 +234,19 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	for _, d := range w.Store.ListDomains(acc.ID) {
 		_ = w.ensureDomainStack(&d, acc, pubIP, "")
 	}
+	if latest := w.Store.GetAccount(acc.ID); latest != nil {
+		acc.Status = latest.Status
+		acc.DesiredRevision = latest.DesiredRevision
+		acc.PackageID = latest.PackageID
+	}
+	if acc.Status == "terminating" {
+		return w.retireAccount(acc, j)
+	}
 	switch acc.Status {
 	case "suspended":
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "LockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": true})})
+		w.reapplyAccountWebsites(acc)
 	default:
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "UnlockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": false})})
@@ -246,6 +255,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 			_ = w.applySiteRuntime(&s, acc)
 		}
 		acc.Status = "active"
+		w.reapplyAccountWebsites(acc)
 	}
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
