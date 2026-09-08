@@ -73,24 +73,24 @@ func (s *State) Save(path string) error {
 func All() []Phase {
 	return []Phase{
 		named{"preflight", checkPreflight, applyNoop, verifyNoop},
-		named{"repositories", checkNoop, applyNoop, verifyNoop},
+		named{"repositories", checkNoop, applyRepositories, verifyNoop},
 		named{"system_packages", checkNoop, applySystemPackages, verifyNoop},
 		named{"panel_users", checkNoop, applyUsers, verifyNoop},
 		named{"control_database", checkNoop, applyControlDB, verifyNoop},
 		named{"control_plane", checkNoop, applyControlPlane, verifyNoop},
 		named{"web_stack", checkNoop, applyWebStack, verifyWeb},
 		named{"database_stack", checkNoop, applyDatabaseStack, verifyNoop},
-		named{"dns", checkNoop, applyDNS, verifyNoop},
-		named{"mail", checkNoop, applyMail, verifyNoop},
-		named{"security", checkNoop, applyNoop, verifyNoop},
-		named{"firewall", checkNoop, applyFirewall, verifyNoop},
-		named{"runtime_versions", checkNoop, applyNoop, verifyNoop},
+		named{"dns", checkNoop, applyDNS, verifyDNS},
+		named{"mail", checkNoop, applyMail, verifyMail},
+		named{"security", checkNoop, applySecurity, verifyNoop},
+		named{"firewall", checkNoop, applyFirewall, verifySecurity},
+		named{"runtime_versions", checkNoop, applyRuntimeVersions, verifyNoop},
 		named{"templates", checkNoop, applyTemplates, verifyNoop},
-		named{"tls", checkNoop, applyNoop, verifyNoop},
-		named{"systemd", checkNoop, applyNoop, verifyNoop},
-		named{"administrator", checkNoop, applyNoop, verifyNoop},
-		named{"health_checks", checkNoop, applyNoop, verifyNoop},
-		named{"installation_report", checkNoop, applyNoop, verifyNoop},
+		named{"tls", checkNoop, applyTLS, verifyNoop},
+		named{"systemd", checkNoop, applySystemd, verifyNoop},
+		named{"administrator", checkNoop, applyAdministrator, verifyNoop},
+		named{"health_checks", checkNoop, applyHealth, verifyNoop},
+		named{"installation_report", checkNoop, applyReport, verifyNoop},
 	}
 }
 
@@ -101,10 +101,10 @@ type named struct {
 	verify func(Config) error
 }
 
-func (n named) Name() string                 { return n.name }
-func (n named) Check(c Config) error         { return n.check(c) }
-func (n named) Apply(c Config) error         { return n.apply(c) }
-func (n named) Verify(c Config) error        { return n.verify(c) }
+func (n named) Name() string          { return n.name }
+func (n named) Check(c Config) error  { return n.check(c) }
+func (n named) Apply(c Config) error  { return n.apply(c) }
+func (n named) Verify(c Config) error { return n.verify(c) }
 
 func checkPreflight(c Config) error {
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {

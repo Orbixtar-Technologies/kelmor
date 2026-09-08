@@ -38,8 +38,10 @@ func applySystemPackages(c Config) error {
 		return nil
 	}
 	return InstallPackages([]string{
-		"nginx", "php8.3-fpm", "php8.3-cli", "mariadb-server", "postgresql",
-		"pdns-server", "postfix", "dovecot-core", "redis-server", "quota",
+		"nginx", "php8.3-fpm", "php8.3-cli", "php8.3-mysql", "php8.3-xml",
+		"mariadb-server", "postgresql", "pdns-server", "pdns-backend-pgsql",
+		"postfix", "dovecot-core", "dovecot-imapd", "dovecot-lmtpd",
+		"redis-server", "rspamd", "fail2ban", "quota",
 	})
 }
 
@@ -59,19 +61,6 @@ func applyDatabaseStack(c Config) error {
 		return os.MkdirAll(root(c, "var/lib/panel/db"), 0o750)
 	}
 	return nil
-}
-
-func applyDNS(c Config) error {
-	return os.MkdirAll(root(c, "etc/powerdns"), 0o755)
-}
-
-func applyMail(c Config) error {
-	return os.MkdirAll(root(c, "var/vmail"), 0o750)
-}
-
-func applyFirewall(c Config) error {
-	rules := "table inet panel {\n  chain input { type filter hook input priority 0; }\n}\n"
-	return os.WriteFile(root(c, "etc/panel/nftables-panel.nft"), []byte(rules), 0o600)
 }
 
 func verifyWeb(c Config) error {

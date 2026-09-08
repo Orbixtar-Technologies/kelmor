@@ -9,7 +9,7 @@ import (
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
-func (h *Host) applyWebsite(websiteID, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect bool) (Result, error) {
+func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect bool) (Result, error) {
 	if _, err := validate.NormalizeDomain(domain); err != nil {
 		return Result{}, err
 	}
@@ -22,7 +22,7 @@ func (h *Host) applyWebsite(websiteID, domain, docroot, runtime, phpVersion, pro
 		return Result{}, err
 	}
 	body := configuration.NginxSite(configuration.WebsiteSpec{
-		WebsiteID: websiteID, Domain: domain, DocumentRoot: docroot,
+		WebsiteID: websiteID, Account: account, Domain: domain, DocumentRoot: docroot,
 		Runtime: runtime, PHPVersion: phpVersion, ProxyTarget: proxyTarget,
 		HTTPSRedirect: httpsRedirect, Revision: 1,
 	})

@@ -7,6 +7,7 @@ import (
 
 type WebsiteSpec struct {
 	WebsiteID     string
+	Account       string
 	Domain        string
 	DocumentRoot  string
 	Runtime       string
@@ -27,17 +28,18 @@ func NginxSite(s WebsiteSpec) string {
 	b.WriteString("    index index.php index.html;\n")
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
 	fmt.Fprintf(&b, "    error_log /var/log/nginx/%s.error.log;\n", s.WebsiteID)
+	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
 	if s.HTTPSRedirect {
 		b.WriteString("    if ($scheme = http) { return 301 https://$host$request_uri; }\n")
 	}
 	switch s.Runtime {
 	case "php":
-		ver := s.PHPVersion
-		if ver == "" {
-			ver = "8.3"
+		sock := s.Account
+		if sock == "" {
+			sock = s.WebsiteID
 		}
 		b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
-		fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", s.WebsiteID)
+		fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
 	case "node", "python":
 		fmt.Fprintf(&b, "    location / { proxy_pass http://unix:/run/panel/apps/%s.sock; proxy_set_header Host $host; }\n", s.WebsiteID)
 	case "proxy":

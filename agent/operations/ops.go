@@ -53,6 +53,7 @@ type SystemInfo struct {
 
 type Host struct {
 	Root string // sandbox root in PANEL_DEV
+	Sock string // unix agent socket; when set, Dispatch is forwarded
 }
 
 func (h *Host) resolve(p string) (string, error) {
@@ -68,6 +69,9 @@ func (h *Host) resolve(p string) (string, error) {
 }
 
 func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
+	if h.Sock != "" {
+		return CallUnix(ctx, h.Sock, req)
+	}
 	switch req.Method {
 	case "GetSystemInfo":
 		return h.GetSystemInfo()
@@ -119,12 +123,30 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 	case "ApplyWebsite":
 		var p struct {
 			WebsiteID    string `json:"website_id"`
+			Account      string `json:"account"`
 			Domain       string `json:"domain"`
 			DocumentRoot string `json:"document_root"`
 			Runtime      string `json:"runtime"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.applyWebsite(p.WebsiteID, p.Domain, p.DocumentRoot, p.Runtime, "", "", true)
+		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", true)
+	case "ApplyACMEChallenge":
+		var p struct {
+			Token string `json:"token"`
+			Body  string `json:"body"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applyACMEChallenge(p.Token, p.Body)
+	case "ApplyAppUnit":
+		var p struct {
+			WebsiteID string `json:"website_id"`
+			Account   string `json:"account"`
+			Runtime   string `json:"runtime"`
+			WorkDir   string `json:"working_directory"`
+			Command   string `json:"start_command"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applyAppUnit(p.WebsiteID, p.Account, p.Runtime, p.WorkDir, p.Command)
 	case "ApplySystemdSlice":
 		var p struct {
 			Username    string `json:"username"`
@@ -342,7 +364,7 @@ func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, erro
 }
 
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {
-	return h.applyWebsite(websiteID, domain, docroot, runtime, "", "", true)
+	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true)
 }
 
 type diskStat struct{ total, used, itotal, iused uint64 }

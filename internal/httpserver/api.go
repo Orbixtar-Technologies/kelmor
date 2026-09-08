@@ -82,6 +82,8 @@ func (a *API) Handler() http.Handler {
 			r.Get("/accounts/export", a.exportAccounts)
 			r.Post("/accounts/import", a.importAccount)
 			r.Route("/accounts/{accountID}", func(r chi.Router) {
+				r.Get("/", a.getAccount)
+				r.Patch("/", a.modifyAccount)
 				r.Get("/domains", a.listDomains)
 				r.Post("/domains", a.createDomain)
 				r.Get("/websites", a.listWebsites)

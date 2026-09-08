@@ -1,0 +1,44 @@
+package phases
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestDevInstallWritesHostStack(t *testing.T) {
+	dir := t.TempDir()
+	wd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	cfg := Config{Hostname: "panel.example.net", AdminEmail: "ops@example.net", Dev: true, Channel: "stable"}
+	for _, p := range All() {
+		if err := p.Check(cfg); err != nil {
+			t.Fatalf("check %s: %v", p.Name(), err)
+		}
+		if err := p.Apply(cfg); err != nil {
+			t.Fatalf("apply %s: %v", p.Name(), err)
+		}
+		if err := p.Verify(cfg); err != nil {
+			t.Fatalf("verify %s: %v", p.Name(), err)
+		}
+	}
+	need := []string{
+		"var/panel/host/etc/postfix/main.cf",
+		"var/panel/host/etc/dovecot/dovecot.conf",
+		"var/panel/host/etc/powerdns/pdns.conf",
+		"var/panel/host/etc/panel/nftables-panel.nft",
+		"var/panel/host/etc/fail2ban/jail.d/panel.conf",
+		"var/panel/host/etc/ssh/sshd_config.d/panel-sftp.conf",
+		"var/panel/host/etc/nginx/panel-sites/00-acme.conf",
+		"var/panel/host/etc/systemd/system/panel-agent.service",
+		"var/panel/host/var/lib/panel/health-report.txt",
+	}
+	for _, rel := range need {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("missing %s: %v", rel, err)
+		}
+	}
+}

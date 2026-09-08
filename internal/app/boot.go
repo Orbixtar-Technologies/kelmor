@@ -54,8 +54,10 @@ func Boot(ctx context.Context, service string) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	agent := &operations.Host{Root: filepath.Join(root, "host")}
-	_ = os.MkdirAll(agent.Root, 0o755)
+	agent := &operations.Host{Root: filepath.Join(root, "host"), Sock: os.Getenv("PANEL_AGENT_SOCK")}
+	if agent.Sock == "" {
+		_ = os.MkdirAll(agent.Root, 0o755)
+	}
 	api := httpserver.New(pg, log, agent)
 	w := job.New(pg, agent, log, box, hostname())
 	rt := &Runtime{Store: pg, API: api, Worker: w, Agent: agent, Log: log, Box: box, Root: root}

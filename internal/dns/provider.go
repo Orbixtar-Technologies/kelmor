@@ -1,6 +1,14 @@
 package dns
 
-import "context"
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+)
 
 type Record struct {
 	Name     string
@@ -67,10 +75,30 @@ func (p *PowerDNS) roundTrip(ctx context.Context, method, path string, body any)
 	if p.BaseURL == "" {
 		return nil
 	}
-	_ = ctx
-	_ = method
-	_ = path
-	_ = body
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, p.BaseURL+path, rdr)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-API-Key", p.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	c := &http.Client{Timeout: 10 * time.Second}
+	res, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("powerdns %s: %s", res.Status, string(b))
+	}
 	return nil
 }
 

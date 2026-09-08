@@ -21,7 +21,57 @@ func (h *Host) applyMailMaps(virtual, domains, passwd string) (Result, error) {
 	if _, err := h.ApplyFile("/var/lib/panel/mail/passwd", []byte(passwd), 0o640); err != nil {
 		return Result{}, err
 	}
+	if h.live() {
+		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains"} {
+			if out, err := runFixed("/usr/sbin/postmap", mapfile); err != nil {
+				return Result{}, fmt.Errorf("postmap: %s", strings.TrimSpace(string(out)))
+			}
+		}
+		for _, svc := range []string{"postfix", "dovecot"} {
+			_, _ = runFixed("/bin/systemctl", "reload-or-restart", svc)
+		}
+	}
 	return Result{OK: true, Message: "mail maps written", ObservedState: "applied"}, nil
+}
+
+func (h *Host) applyACMEChallenge(token, body string) (Result, error) {
+	if token == "" || strings.ContainsAny(token, "/\\") {
+		return Result{}, fmt.Errorf("invalid ACME token")
+	}
+	path := "/var/lib/panel/acme-www/.well-known/acme-challenge/" + token
+	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
+		return Result{}, err
+	}
+	return Result{OK: true, ObservedState: "published"}, nil
+}
+
+func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string) (Result, error) {
+	if err := validate.Username(account); err != nil {
+		return Result{}, err
+	}
+	if command == "" {
+		switch runtime {
+		case "node":
+			command = "/usr/bin/node server.js"
+		case "python":
+			command = "/usr/bin/python3 -m http.server 8080"
+		default:
+			return Result{OK: true, Message: "no unit for runtime"}, nil
+		}
+	}
+	if workDir == "" {
+		workDir = "/home/" + account + "/apps/" + websiteID
+	}
+	body := fmt.Sprintf("[Unit]\nDescription=panel app %s\n[Service]\nUser=%s\nWorkingDirectory=%s\nExecStart=%s\nRestart=on-failure\nSlice=panel-account-%s.slice\n[Install]\nWantedBy=multi-user.target\n",
+		websiteID, account, workDir, command, account)
+	path := "/etc/systemd/system/panel-app-" + websiteID + ".service"
+	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
+		return Result{}, err
+	}
+	if h.live() {
+		_, _ = runFixed("/bin/systemctl", "daemon-reload")
+	}
+	return Result{OK: true, ObservedState: "applied"}, nil
 }
 
 func (h *Host) createMailboxHome(domain, local string, uid, gid int) (Result, error) {

@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"path/filepath"
-
 	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/acme"
 	"github.com/hosting-panel/panel/internal/backup"
 	"github.com/hosting-panel/panel/internal/dns"
 	"github.com/hosting-panel/panel/internal/mail"
@@ -177,6 +178,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	}
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
+	w.recordUsage(acc)
 	j.Progress = 90
 	w.Store.UpdateJob(j)
 	return nil
@@ -198,7 +200,10 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account) error {
 		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: "php", RuntimeVersion: "8.5", DocumentRoot: d.DocumentRoot, HTTPSRedirect: true, Enabled: acc.Status != "suspended", DesiredRevision: 1}
 		w.Store.PutWebsite(site)
 	}
-	_, err := w.Agent.ApplyWebsite(site.ID, d.ASCII, site.DocumentRoot, site.Runtime)
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyWebsite",
+		Params: mustJSON(map[string]any{"website_id": site.ID, "account": acc.Username, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime}),
+	})
 	if err != nil {
 		return err
 	}
@@ -260,7 +265,15 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 		return fmt.Errorf("website missing")
 	}
 	d := w.Store.GetDomain(site.DomainID)
-	_, err := w.Agent.ApplyWebsite(site.ID, d.ASCII, site.DocumentRoot, site.Runtime)
+	acc := w.Store.GetAccount(site.AccountID)
+	account := ""
+	if acc != nil {
+		account = acc.Username
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyWebsite",
+		Params: mustJSON(map[string]any{"website_id": site.ID, "account": account, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime}),
+	})
 	if err != nil {
 		return err
 	}
@@ -273,6 +286,21 @@ func (w *Worker) deployApp(j *store.Job) error {
 	app := w.Store.GetApp(str(j.Payload["application_id"]))
 	if app == nil {
 		return fmt.Errorf("application missing")
+	}
+	acc := w.Store.GetAccount(app.AccountID)
+	account := ""
+	if acc != nil {
+		account = acc.Username
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyAppUnit",
+		Params: mustJSON(map[string]any{
+			"website_id": app.WebsiteID, "account": account, "runtime": app.Runtime,
+			"working_directory": app.WorkingDirectory, "start_command": app.StartCommand,
+		}),
+	})
+	if err != nil {
+		return err
 	}
 	app.Status = "running"
 	w.Store.PutApp(app)
@@ -309,7 +337,7 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	if err := w.writeZone(z); err != nil {
 		return err
 	}
-	p := &dns.PowerDNS{}
+	p := &dns.PowerDNS{BaseURL: os.Getenv("PANEL_PDNS_URL"), APIKey: os.Getenv("PANEL_PDNS_API_KEY")}
 	if err := p.CreateZone(context.Background(), z.Name); err != nil {
 		return err
 	}
@@ -376,11 +404,13 @@ func (w *Worker) provisionCert(j *store.Job) error {
 	if c == nil {
 		return fmt.Errorf("certificate missing")
 	}
-	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
-		Method: "IssueDevCertificate",
-		Params: mustJSON(map[string]any{"hostname": c.Hostname, "days": 90}),
-	})
-	if err != nil {
+	contact := "admin@localhost"
+	if acc := w.Store.GetAccount(c.AccountID); acc != nil {
+		if owner := w.Store.UserByID(acc.OwnerUserID); owner != nil && owner.Email != "" {
+			contact = owner.Email
+		}
+	}
+	if err := acme.Issue(context.Background(), w.Agent, c.Hostname, contact, acme.Directory()); err != nil {
 		return err
 	}
 	exp := time.Now().Add(90 * 24 * time.Hour)
@@ -486,6 +516,28 @@ func mustJSON(v any) []byte {
 }
 
 func intPtr(v int) *int { return &v }
+
+func (w *Worker) recordUsage(acc *store.Account) {
+	if acc == nil {
+		return
+	}
+	home := acc.HomePath
+	if w.Agent != nil && w.Agent.Root != "" {
+		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
+	}
+	var bytes, inodes int64
+	_ = filepath.Walk(home, func(_ string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+		inodes++
+		if info.Mode().IsRegular() {
+			bytes += info.Size()
+		}
+		return nil
+	})
+	w.Store.PutUsage(&store.Usage{AccountID: acc.ID, CollectedAt: time.Now().UTC(), DiskBytes: bytes, InodeCount: inodes})
+}
 
 func findSite(st store.Store, domainID string) *store.Website {
 	for _, w := range st.ListWebsites("") {

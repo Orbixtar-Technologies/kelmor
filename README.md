@@ -44,7 +44,7 @@ The installer writes `/var/lib/panel/install-state.json` and resumes failed phas
 
 ## Layout
 
-See `cmd/`, `internal/`, `agent/`, `db/migrations/`, `portals/`, `installer/`, and `api/openapi.yaml`.
+See `cmd/`, `internal/`, `agent/`, `db/migrations/`, `portals/`, `installer/`, `api/openapi.yaml`, and `docs/` (install, mail, DNS, CLI, backup, migration, security).
 
 ## Tests
 

@@ -185,6 +185,66 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/import:
+    post:
+      operationId: importAccount
+      x-capability: accounts.create
+      responses:
+        "202": { description: reconcile queued }
+  /accounts/{accountID}/export:
+    get:
+      operationId: exportAccount
+      x-capability: accounts.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: native hosting export }
+  /accounts/{accountID}/files:
+    get:
+      operationId: listFiles
+      x-capability: files.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: directory listing }
+    post:
+      operationId: writeFile
+      x-capability: files.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: written via agent }
+  /accounts/{accountID}/restores:
+    post:
+      operationId: restoreBackup
+      x-capability: backups.restore
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: restore queued }
+  /accounts/{accountID}/dns/zones:
+    get:
+      operationId: listDNSZones
+      x-capability: dns.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: zones }
+  /accounts/{accountID}/certificates:
+    get:
+      operationId: listCertificates
+      x-capability: websites.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: certificates }
+    post:
+      operationId: requestCertificate
+      x-capability: websites.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: ACME or dev certificate queued }
   /accounts/{accountID}/backups:
     get:
       operationId: listBackups
