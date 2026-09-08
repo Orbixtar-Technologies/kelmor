@@ -668,18 +668,39 @@ function Files ({ accountId }: { accountId: string }) {
 
 function Backups ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`).then((r) => setItems(asList(r))) }, [accountId])
+	const [notice, setNotice] = useState('')
+	useEffect(() => {
+		let stop = false
+		async function tick () {
+			try {
+				const r = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)
+				if (!stop) setItems(asList(r))
+			} catch {
+				// keep last list until the next poll
+			}
+		}
+		tick()
+		const timer = window.setInterval(tick, 1000)
+		return () => {
+			stop = true
+			window.clearInterval(timer)
+		}
+	}, [accountId])
 	return (
 		<>
 			<h1>Backups</h1>
+			<p>Encrypted HPM1 copies of home, databases, and mail. Local disk, offsite SFTP, and the loopback S3 store are live destinations on this host.</p>
+			{notice ? <p className="notice">{notice}</p> : null}
 			<Can cap="backups.create">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
+				const destination = String(fd.get('destination') || 'local')
 				await api(`/api/v1/accounts/${accountId}/backups`, {
 					method: 'POST',
-					body: JSON.stringify({ kind: 'full', destination: String(fd.get('destination') || 'local') }),
+					body: JSON.stringify({ kind: 'full', destination }),
 				})
+				setNotice(`Full backup queued to ${destination}`)
 				setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
 			}}>
 				<select name="destination">
@@ -690,19 +711,22 @@ function Backups ({ accountId }: { accountId: string }) {
 				<button type="submit">Create full backup</button>
 			</form>
 			</Can>
+			{items.length === 0 ? <p>No backup runs yet.</p> : (
 			<ul>{items.map((b) => (
-				<li key={b.id}>
+				<li key={b.id} data-backup-id={b.id} data-backup-state={b.state} data-backup-destination={b.destination}>
 					{b.kind} {b.state} {b.destination} {b.checksum ? `sha256:${b.checksum.slice(0, 12)}` : ''}
 					{b.state === 'succeeded' ? (
 						<Can cap="backups.restore">
-						<button type="button" onClick={async () => {
+						<button type="button" data-restore={b.id} onClick={async () => {
 							await api(`/api/v1/accounts/${accountId}/restores`, { method: 'POST', body: JSON.stringify({ backup_id: b.id, mode: 'in_place' }) })
+							setNotice(`Restore queued for ${b.destination} backup`)
 							setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
 						}}>Restore</button>
 						</Can>
 					) : null}
 				</li>
 			))}</ul>
+			)}
 		</>
 	)
 }

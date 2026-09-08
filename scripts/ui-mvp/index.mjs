@@ -36,36 +36,42 @@ async function textIncludes (page, needle) {
 	}
 }
 
-function httpHost (host) {
+function httpGet (host, path = '/') {
 	return new Promise((resolve, reject) => {
 		const req = http.request({
 			host: '127.0.0.1',
 			port: 80,
-			path: '/',
+			path,
 			headers: { Host: host },
 		}, (res) => {
-			res.resume()
 			if (res.statusCode === 301 || res.statusCode === 302) {
 				const tls = https.request({
 					host: '127.0.0.1',
 					port: 443,
-					path: '/',
+					path,
 					servername: host,
 					headers: { Host: host },
 					rejectUnauthorized: false,
 				}, (sec) => {
-					sec.resume()
-					resolve(sec.statusCode)
+					const chunks = []
+					sec.on('data', (c) => chunks.push(c))
+					sec.on('end', () => resolve({ code: sec.statusCode, body: Buffer.concat(chunks).toString() }))
 				})
 				tls.on('error', reject)
 				tls.end()
 				return
 			}
-			resolve(res.statusCode)
+			const chunks = []
+			res.on('data', (c) => chunks.push(c))
+			res.on('end', () => resolve({ code: res.statusCode, body: Buffer.concat(chunks).toString() }))
 		})
 		req.on('error', reject)
 		req.end()
 	})
+}
+
+function httpHost (host) {
+	return httpGet(host, '/').then((r) => r.code)
 }
 
 async function waitHTTP (host, want, tries = 60) {
@@ -78,6 +84,19 @@ async function waitHTTP (host, want, tries = 60) {
 		await delay(500)
 	}
 	throw new Error(`${host} never reached HTTP ${want}`)
+}
+
+async function waitSiteBody (host, path, needle, tries = 60) {
+	for (let i = 0; i < tries; i++) {
+		try {
+			const r = await httpGet(host, path)
+			if (r.code === 200 && r.body.includes(needle)) return
+		} catch {
+			// retry
+		}
+		await delay(500)
+	}
+	throw new Error(`${host}${path} never contained ${JSON.stringify(needle)}`)
 }
 
 const browser = await puppeteer.launch({
@@ -118,17 +137,44 @@ try {
 		const write = forms.find((f) => f.querySelector('textarea[name="content"]'))
 		write?.querySelector('button[type="submit"]')?.click()
 	})
-	await delay(800)
+	await waitSiteBody(domain, '/ui-mvp.txt', 'written-from-account-portal')
 	await page.click('a[href="/email"]')
 	await page.waitForSelector('input[name="local_part"]')
 	await page.type('input[name="local_part"]', 'ui')
 	await page.type('input[name="password"]', 'MailboxPass!2026')
 	await page.click('button[type="submit"]')
 	await page.click('a[href="/backups"]')
-	await page.waitForFunction(() => document.body.innerText.includes('Create full backup'))
+	await page.waitForSelector('select[name="destination"]')
+	await page.select('select[name="destination"]', 's3')
 	await page.evaluate(() => {
-		[...document.querySelectorAll('button')].find((b) => b.textContent.includes('Create full backup'))?.click()
+		const form = [...document.querySelectorAll('form')].find((f) => f.querySelector('select[name="destination"]'))
+		form?.querySelector('button[type="submit"]')?.click()
 	})
+	await page.waitForFunction(() => document.body.innerText.includes('Full backup queued to s3'))
+	await page.waitForFunction(() => {
+		return [...document.querySelectorAll('li[data-backup-destination="s3"][data-backup-state="succeeded"] button[data-restore]')].length > 0
+	}, { timeout: 90000 })
+	await page.click('a[href="/files"]')
+	await page.waitForSelector('textarea[name="content"]')
+	const afterPath = await page.$('input[name="path"]')
+	if (afterPath) {
+		await afterPath.click({ clickCount: 3 })
+		await afterPath.type('/public_html/ui-mvp.txt')
+	}
+	const afterBox = await page.$('textarea[name="content"]')
+	await afterBox.click({ clickCount: 3 })
+	await afterBox.type('after-s3-backup')
+	await page.evaluate(() => {
+		const forms = [...document.querySelectorAll('form')]
+		const write = forms.find((f) => f.querySelector('textarea[name="content"]'))
+		write?.querySelector('button[type="submit"]')?.click()
+	})
+	await waitSiteBody(domain, '/ui-mvp.txt', 'after-s3-backup')
+	await page.click('a[href="/backups"]')
+	await page.waitForSelector('button[data-restore]')
+	await page.click('button[data-restore]')
+	await page.waitForFunction(() => document.body.innerText.includes('Restore queued'))
+	await waitSiteBody(domain, '/ui-mvp.txt', 'written-from-account-portal', 90)
 	await page.click('a[href="/ssl"]')
 	await page.waitForSelector('input[name="hostname"]')
 	await textIncludes(page, 'Request certificate')
