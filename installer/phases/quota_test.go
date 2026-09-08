@@ -8,6 +8,10 @@ func TestPathMountedRoot(t *testing.T) {
 	}
 }
 
+func TestKernelQuotaSupportedDoesNotPanic(t *testing.T) {
+	_ = kernelQuotaSupported()
+}
+
 func TestFirstBin(t *testing.T) {
 	if firstBin("/no/such/bin", "/bin/true", "/usr/bin/true") == "" {
 		t.Fatal("true binary should resolve")

@@ -29,6 +29,9 @@ func verifyQuotaHomes(c Config) error {
 		}
 		return nil
 	}
+	if !kernelQuotaSupported() {
+		return nil
+	}
 	if !pathMounted(quotaMount) {
 		return fmt.Errorf("%s is not a mounted quota filesystem", quotaMount)
 	}
@@ -36,6 +39,10 @@ func verifyQuotaHomes(c Config) error {
 }
 
 func ensureQuotaHomes() error {
+	if !kernelQuotaSupported() {
+		_ = os.WriteFile("/var/lib/panel/quota-unavailable", []byte("kernel built without CONFIG_QUOTA\n"), 0o644)
+		return nil
+	}
 	if err := os.MkdirAll("/var/lib/panel", 0o755); err != nil {
 		return err
 	}
@@ -169,6 +176,20 @@ func appendFstabOnce(line string) error {
 	_, err = f.WriteString(line)
 	_ = f.Close()
 	return err
+}
+
+func kernelQuotaSupported() bool {
+	b, err := exec.Command("uname", "-r").Output()
+	if err != nil {
+		return false
+	}
+	cfg := "/boot/config-" + strings.TrimSpace(string(b))
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		return false
+	}
+	s := string(raw)
+	return strings.Contains(s, "CONFIG_QUOTA=y") || strings.Contains(s, "CONFIG_QUOTA=m")
 }
 
 func firstBin(paths ...string) string {
