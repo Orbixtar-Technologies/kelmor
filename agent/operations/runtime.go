@@ -3,6 +3,7 @@ package operations
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"strconv"
 	"strings"
 	"syscall"
@@ -36,15 +37,37 @@ func (h *Host) applyPHPPool(account, version string, maxChildren int) (Result, e
 	if version == "" {
 		version = "8.3"
 	}
+	if h.live() {
+		if _, err := user.Lookup(account); err != nil {
+			return Result{}, fmt.Errorf("unix user %s not ready", account)
+		}
+		if _, err := user.LookupGroup(account); err != nil {
+			return Result{}, fmt.Errorf("unix group %s not ready", account)
+		}
+	}
 	body := configuration.PHPPool(account, version, maxChildren)
 	path := fmt.Sprintf("/etc/php/%s/fpm/pool.d/panel-%s.conf", version, account)
 	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
 		return Result{}, err
 	}
 	if h.live() {
-		reloadFPM(version)
+		ensureFPM(version)
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
+}
+
+func ensureFPM(version string) {
+	pidFile := "/run/php/php" + version + "-fpm.pid"
+	if b, err := os.ReadFile(pidFile); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 1 {
+			if err := syscall.Kill(pid, 0); err == nil {
+				reloadFPM(version)
+				return
+			}
+		}
+	}
+	bin := "/usr/sbin/php-fpm" + version
+	_ = startDetached(bin, "/")
 }
 
 func (h *Host) applySlice(username string, cpu int, memory int64, tasks int) (Result, error) {
@@ -92,20 +115,24 @@ func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Resu
 		if !h.live() {
 			return Result{OK: true, ObservedState: "recorded"}, nil
 		}
-		stmt := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`; CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s'; GRANT ALL ON `%s`.* TO '%s'@'localhost'; FLUSH PRIVILEGES;", name, dbUser, escapeSQL(password), name, dbUser)
-		bin := "/usr/bin/mariadb"
-		out, err := runFixed(bin, "-e", stmt)
-		if err != nil {
-			return Result{}, fmt.Errorf("mariadb: %s", strings.TrimSpace(string(out)))
+		stmts := []string{
+			fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", name),
+			fmt.Sprintf("CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s'", dbUser, escapeSQL(password)),
+			fmt.Sprintf("GRANT ALL ON `%s`.* TO '%s'@'localhost'", name, dbUser),
+			"FLUSH PRIVILEGES",
+		}
+		for _, stmt := range stmts {
+			out, err := runFixed("/usr/bin/mariadb", "-e", stmt)
+			if err != nil {
+				return Result{}, fmt.Errorf("mariadb: %s", strings.TrimSpace(string(out)))
+			}
 		}
 	case "postgres":
 		if !h.live() {
 			return Result{OK: true, ObservedState: "recorded"}, nil
 		}
-		if _, err := runFixed("/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'"); err != nil {
-			// user may exist
-		}
-		if out, err := runFixed("/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE "+name+" OWNER "+dbUser); err != nil {
+		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'")
+		if out, err := runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE "+name+" OWNER "+dbUser); err != nil {
 			return Result{}, fmt.Errorf("psql: %s", strings.TrimSpace(string(out)))
 		}
 	default:

@@ -1082,7 +1082,11 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "PATH_DENIED", err.Error(), false)
 		return
 	}
-	_, err = a.Agent.ApplyFile(clean, []byte(in.Content), 0o640)
+	mode := uint32(0o640)
+	if strings.Contains(clean, "/public_html/") || strings.HasSuffix(clean, "/public_html") {
+		mode = 0o644
+	}
+	_, err = a.Agent.ApplyFile(clean, []byte(in.Content), mode)
 	if err != nil {
 		a.fail(w, r, 400, "FILE_ERROR", err.Error(), false)
 		return

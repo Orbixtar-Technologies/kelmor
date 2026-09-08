@@ -11,7 +11,8 @@ var allowedPackages = map[string]bool{
 	"php8.3-pgsql": true, "php8.3-xml": true, "php8.3-mbstring": true, "php8.3-curl": true,
 	"mariadb-server": true, "postgresql": true, "pdns-server": true, "pdns-backend-pgsql": true,
 	"postfix": true, "dovecot-core": true, "dovecot-imapd": true, "dovecot-lmtpd": true,
-	"redis-server": true, "rspamd": true, "clamav": true, "fail2ban": true, "quota": true,
+	"redis-server": true, "rspamd": true, "clamav": true, "clamav-daemon": true,
+	"fail2ban": true, "quota": true, "libnginx-mod-http-modsecurity": true,
 }
 
 func InstallPackages(names []string) error {
@@ -41,7 +42,8 @@ func applySystemPackages(c Config) error {
 		"nginx", "php8.3-fpm", "php8.3-cli", "php8.3-mysql", "php8.3-xml",
 		"mariadb-server", "postgresql", "pdns-server", "pdns-backend-pgsql",
 		"postfix", "dovecot-core", "dovecot-imapd", "dovecot-lmtpd",
-		"redis-server", "rspamd", "fail2ban", "quota",
+		"redis-server", "rspamd", "clamav-daemon", "fail2ban", "quota",
+		"libnginx-mod-http-modsecurity",
 	})
 }
 

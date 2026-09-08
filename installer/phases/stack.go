@@ -122,7 +122,42 @@ table inet panel {
 	return os.WriteFile(root(c, "etc/panel/nftables-panel.nft"), []byte(rules), 0o600)
 }
 
+func applyWAF(c Config) error {
+	if err := os.MkdirAll(root(c, "etc/nginx/modsec"), 0o755); err != nil {
+		return err
+	}
+	body := `# Managed by Hosting Panel — ModSecurity CRS include
+SecRuleEngine On
+SecRequestBodyAccess On
+Include /usr/share/modsecurity-crs/owasp-crs.conf
+`
+	return os.WriteFile(root(c, "etc/nginx/modsec/panel.conf"), []byte(body), 0o644)
+}
+
+func applyRspamd(c Config) error {
+	if err := os.MkdirAll(root(c, "etc/rspamd/local.d"), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(root(c, "etc/rspamd/local.d/panel.conf"), []byte("enabled = true;\nmilters = \"inet:127.0.0.1:11332\";\n"), 0o644)
+}
+
+func applyClamAV(c Config) error {
+	if err := os.MkdirAll(root(c, "etc/clamav"), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(root(c, "etc/clamav/panel.conf"), []byte("TCPSocket 3310\nTCPAddr 127.0.0.1\n"), 0o644)
+}
+
 func applySecurity(c Config) error {
+	if err := applyWAF(c); err != nil {
+		return err
+	}
+	if err := applyRspamd(c); err != nil {
+		return err
+	}
+	if err := applyClamAV(c); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(root(c, "etc/fail2ban/jail.d"), 0o755); err != nil {
 		return err
 	}

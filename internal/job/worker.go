@@ -295,12 +295,24 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	}
 	site.ObservedRevision = site.DesiredRevision
 	w.Store.PutWebsite(site)
+	if site.Runtime == "php" {
+		ver := site.RuntimeVersion
+		if ver == "" || ver == "8.5" {
+			ver = "8.3"
+		}
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "ApplyPhpPool",
+			Params: mustJSON(map[string]any{"account": account, "version": ver, "max_children": 8}),
+		}); err != nil {
+			return err
+		}
+	}
 	if site.Runtime == "node" || site.Runtime == "python" {
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "ApplyAppUnit",
 			Params: mustJSON(map[string]any{
 				"website_id": site.ID, "account": account, "runtime": site.Runtime,
-				"working_directory": filepath.Dir(site.DocumentRoot),
+				"working_directory": "/home/" + account + "/apps/" + site.ID,
 			}),
 		})
 	}
@@ -346,13 +358,17 @@ func (w *Worker) provisionDB(j *store.Job) error {
 		return fmt.Errorf("account missing")
 	}
 	pw := fmt.Sprintf("db-%s", store.NewID())
+	dbUser := acc.Username + "_u"
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateHostedDatabase",
-		Params: mustJSON(map[string]any{"engine": d.Engine, "name": d.Name, "username": acc.Username + "_u", "password": pw}),
+		Params: mustJSON(map[string]any{"engine": d.Engine, "name": d.Name, "username": dbUser, "password": pw}),
 	})
 	if err != nil {
 		return err
 	}
+	note := fmt.Sprintf("engine=%s\nname=%s\nusername=%s\npassword=%s\nhost=127.0.0.1\n", d.Engine, d.Name, dbUser, pw)
+	_, _ = w.Agent.ApplyFile("/home/"+acc.Username+"/.panel-database."+d.Engine+"."+d.Name, []byte(note), 0o600)
+	_, _ = w.Agent.ApplyFile("/home/"+acc.Username+"/.panel-database."+d.Engine, []byte(note), 0o600)
 	d.Status = "active"
 	w.Store.PutDB(d)
 	return nil

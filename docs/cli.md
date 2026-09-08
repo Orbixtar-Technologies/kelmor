@@ -10,5 +10,12 @@ panel-cli account create tenant1 tenant1.example <package-id> 'TenantPass!2026'
 panel-cli jobs list
 panel-cli backup create <account-id>
 panel-cli account export <account-id>
+panel-cli account import ./tenant.hpm-account.json moved moved.test
+panel-cli mailbox create <account-id> <mail-domain-id> info 'MailboxPass!2026'
+panel-cli db create <account-id> shop mariadb
+panel-cli website create <account-id> <domain-id> node
+panel-cli file write <account-id> /public_html/index.php '<?php echo "ok";'
+panel-cli file list <account-id> /public_html
+panel-cli backup restore <account-id> <backup-id>
 panel-cli audit
 ```

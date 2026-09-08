@@ -185,10 +185,30 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /jobs:
+    get:
+      operationId: listJobs
+      responses:
+        "200": { description: durable job queue }
+  /accounts/{accountID}/mail/domains:
+    get:
+      operationId: listMailDomains
+      x-capability: mail.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: mail domains }
   /accounts/import:
     post:
       operationId: importAccount
       x-capability: accounts.create
+      parameters:
+        - in: query
+          name: username
+          schema: { type: string }
+        - in: query
+          name: domain
+          schema: { type: string }
       responses:
         "202": { description: reconcile queued }
   /accounts/{accountID}/export:

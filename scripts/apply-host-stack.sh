@@ -8,7 +8,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PANEL_PUBLIC_IPV4="${PANEL_PUBLIC_IPV4:-127.0.0.1}"
 
 sudo mkdir -p /run/panel /var/lib/panel/{mail,dns/zones,certs,acme-www/.well-known/acme-challenge,backups/staging,cron,logs} \
-  /var/vmail /etc/nginx/panel-sites /etc/php/8.3/fpm/pool.d
+  /var/vmail /etc/nginx/panel-sites /etc/nginx/modsec /etc/rspamd/local.d /etc/clamav /etc/php/8.3/fpm/pool.d
+echo 'SecRuleEngine On' | sudo tee /etc/nginx/modsec/panel.conf >/dev/null
+echo 'enabled = true;' | sudo tee /etc/rspamd/local.d/panel.conf >/dev/null
+echo 'TCPSocket 3310' | sudo tee /etc/clamav/panel.conf >/dev/null
 sudo chmod 0755 /var/vmail
 
 sudo install -d -m 0755 /var/lib/panel /var/lib/panel/dns /var/lib/panel/dns/zones
@@ -110,6 +113,16 @@ if [[ -e /etc/nginx/sites-enabled/default ]]; then
   sudo rm -f /etc/nginx/sites-enabled/default
 fi
 sudo nginx -t && sudo nginx -s reload || true
+if [[ -x /usr/sbin/php-fpm8.3 ]] && ! pgrep -x php-fpm8.3 >/dev/null; then
+  sudo /usr/sbin/php-fpm8.3 || true
+fi
+if [[ -x /usr/bin/rspamd ]] && ! pgrep -x rspamd >/dev/null; then
+  sudo mkdir -p /run/rspamd
+  sudo /usr/bin/rspamd -u _rspamd -g _rspamd -c /etc/rspamd/rspamd.conf || true
+fi
+if [[ -x /usr/sbin/clamd ]] && ! pgrep -x clamd >/dev/null; then
+  sudo /usr/sbin/clamd || true
+fi
 
 if [[ -x "$ROOT/dist/bin/panel-agent" ]]; then
   if ! pgrep -f '/dist/bin/panel-agent' >/dev/null; then

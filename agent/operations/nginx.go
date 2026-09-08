@@ -51,7 +51,21 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	if err == nil {
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
 			_ = os.MkdirAll(strings.TrimSuffix(abs, "/index.html"), 0o750)
-			_ = os.WriteFile(abs, []byte("<!doctype html><html><body><h1>"+domain+"</h1></body></html>\n"), 0o644)
+			_, _ = h.ApplyFile(index, []byte("<!doctype html><html><body><h1>"+domain+"</h1></body></html>\n"), 0o644)
+		} else {
+			_ = os.Chmod(abs, 0o644)
+			h.chownAccountPath(abs)
+		}
+	}
+	if runtime == "php" {
+		php := strings.TrimSuffix(docroot, "/") + "/index.php"
+		if pabs, err := h.resolve(php); err == nil {
+			if _, err := os.Stat(pabs); os.IsNotExist(err) {
+				_, _ = h.ApplyFile(php, []byte("<?php header('content-type: text/plain'); echo 'php '.PHP_VERSION.' '.get_current_user().\"\\n\";\n"), 0o644)
+			} else {
+				_ = os.Chmod(pabs, 0o644)
+				h.chownAccountPath(pabs)
+			}
 		}
 	}
 	return Result{OK: true, Message: "website applied", ObservedState: "active"}, nil

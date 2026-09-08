@@ -12,33 +12,33 @@ import (
 )
 
 type Memory struct {
-	mu         sync.RWMutex
-	Users      map[string]*User
-	Sessions   map[string]*Session
-	Packages   map[string]*Package
-	Features   map[string]*FeatureSet
-	Resellers  map[string]*Reseller
-	Accounts   map[string]*Account
-	Members    map[string][]string // accountID -> userIDs
-	Domains    map[string]*Domain
-	Websites   map[string]*Website
-	Apps       map[string]*Application
-	DBs        map[string]*HostedDatabase
-	DBUsers    map[string]*DatabaseUser
-	Zones      map[string]*DNSZone
-	Records    map[string]*DNSRecord
-	MailDom    map[string]*MailDomain
-	Mailboxes  map[string]*Mailbox
-	Certs      map[string]*Certificate
-	Jobs       map[string]*Job
-	Audit      []*AuditEvent
-	Tokens     map[string]*APIToken
-	Backups    map[string]*BackupRun
-	Crons      map[string]*CronJob
-	SSHKeys    map[string]*SSHKey
-	FTPs       map[string]*FTPAccount
-	Usage      map[string]*Usage
-	NextUID    int
+	mu        sync.RWMutex
+	Users     map[string]*User
+	Sessions  map[string]*Session
+	Packages  map[string]*Package
+	Features  map[string]*FeatureSet
+	Resellers map[string]*Reseller
+	Accounts  map[string]*Account
+	Members   map[string][]string // accountID -> userIDs
+	Domains   map[string]*Domain
+	Websites  map[string]*Website
+	Apps      map[string]*Application
+	DBs       map[string]*HostedDatabase
+	DBUsers   map[string]*DatabaseUser
+	Zones     map[string]*DNSZone
+	Records   map[string]*DNSRecord
+	MailDom   map[string]*MailDomain
+	Mailboxes map[string]*Mailbox
+	Certs     map[string]*Certificate
+	Jobs      map[string]*Job
+	Audit     []*AuditEvent
+	Tokens    map[string]*APIToken
+	Backups   map[string]*BackupRun
+	Crons     map[string]*CronJob
+	SSHKeys   map[string]*SSHKey
+	FTPs      map[string]*FTPAccount
+	Usage     map[string]*Usage
+	NextUID   int
 }
 
 func NewMemory() *Memory {
@@ -122,7 +122,7 @@ func (m *Memory) ListFeatureSets() []FeatureSet {
 	}
 	return out
 }
-func (m *Memory) PutPackage(p *Package)    { m.mu.Lock(); m.Packages[p.ID] = p; m.mu.Unlock() }
+func (m *Memory) PutPackage(p *Package) { m.mu.Lock(); m.Packages[p.ID] = p; m.mu.Unlock() }
 func (m *Memory) GetPackage(id string) *Package {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
