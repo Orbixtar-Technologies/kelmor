@@ -475,6 +475,26 @@ func (w *Worker) provisionCert(j *store.Job) error {
 	c.NotAfter = &exp
 	c.Issuer = acme.IssuerName(acme.Directory())
 	w.Store.PutCert(c)
+	// Nginx only picks up a newly written certificate after ApplyWebsite.
+	if acc := w.Store.GetAccount(c.AccountID); acc != nil {
+		for _, site := range w.Store.ListWebsites(acc.ID) {
+			d := w.Store.GetDomain(site.DomainID)
+			if d == nil || d.ASCII != c.Hostname {
+				continue
+			}
+			_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+				Method: "ApplyWebsite",
+				Params: mustJSON(map[string]any{
+					"website_id": site.ID, "account": acc.Username, "domain": d.ASCII,
+					"document_root": site.DocumentRoot, "runtime": site.Runtime,
+					"https_redirect": site.HTTPSRedirect,
+				}),
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

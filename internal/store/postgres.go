@@ -226,6 +226,15 @@ func (p *PG) GetReseller(rid string) *Reseller {
 	return r
 }
 
+func (p *PG) ResellerByUser(userID string) *Reseller {
+	r := &Reseller{}
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, user_id, name, COALESCE(brand_name,''), privilege_mask, nameservers, status FROM resellers WHERE user_id=$1`, userID).
+		Scan(&r.ID, &r.UserID, &r.Name, &r.BrandName, &r.PrivilegeMask, &r.Nameservers, &r.Status); err != nil {
+		return nil
+	}
+	return r
+}
+
 func (p *PG) ListResellers() []Reseller {
 	rows, _ := p.pool.Query(p.ctx(), `SELECT id, user_id, name, COALESCE(brand_name,''), privilege_mask, nameservers, status FROM resellers`)
 	if rows == nil {

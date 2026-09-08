@@ -283,10 +283,26 @@ func (a *API) actorFromUser(u *store.User) rbac.Actor {
 			server = true
 		}
 	}
+	ids := a.Store.AccountsForUser(u.ID)
+	rid := ""
+	if rs := a.Store.ResellerByUser(u.ID); rs != nil {
+		rid = rs.ID
+		seen := map[string]bool{}
+		for _, id := range ids {
+			seen[id] = true
+		}
+		for _, acc := range a.Store.ListAccounts("", "") {
+			if acc.ResellerID == rid && !seen[acc.ID] {
+				ids = append(ids, acc.ID)
+				seen[acc.ID] = true
+			}
+		}
+	}
 	return rbac.Actor{
 		UserID: u.ID, Username: u.Username, Roles: u.Roles,
 		Capabilities:  rbac.Expand(u.Roles, nil),
-		AccountIDs:    a.Store.AccountsForUser(u.ID),
+		AccountIDs:    ids,
+		ResellerID:    rid,
 		IsServerScope: server,
 	}
 }
@@ -365,7 +381,25 @@ func (a *API) listJobs(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 403, "FORBIDDEN", "Missing capability", false)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListJobs(r.URL.Query().Get("state"), 100)})
+	jobs := a.Store.ListJobs(r.URL.Query().Get("state"), 100)
+	if !ac.IsServerScope {
+		visible := make([]store.Job, 0, len(jobs))
+		for _, j := range jobs {
+			aid := j.ResourceID
+			if j.ResourceType != "account" {
+				if v, ok := j.Payload["account_id"].(string); ok {
+					aid = v
+				} else {
+					continue
+				}
+			}
+			if ac.CanAccount(aid) {
+				visible = append(visible, j)
+			}
+		}
+		jobs = visible
+	}
+	writeJSON(w, 200, map[string]any{"items": jobs})
 }
 
 func (a *API) getJob(w http.ResponseWriter, r *http.Request) {
@@ -426,12 +460,46 @@ func (a *API) createReseller(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.ResellersCreate) {
 		return
 	}
-	var in store.Reseller
+	var in struct {
+		store.Reseller
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		a.fail(w, r, 400, "INVALID_JSON", "Invalid reseller", false)
 		return
 	}
+	if in.Name == "" {
+		a.fail(w, r, 400, "VALIDATION", "Name required", false)
+		return
+	}
 	in.ID = id.New()
+	if in.Username != "" {
+		if a.Store.UserByUsername(in.Username) != nil {
+			a.fail(w, r, 409, "USERNAME_TAKEN", "Username already exists", false)
+			return
+		}
+		if in.Password == "" {
+			a.fail(w, r, 400, "VALIDATION", "Reseller password required", false)
+			return
+		}
+		hash, err := auth.HashPassword(in.Password)
+		if err != nil {
+			a.fail(w, r, 400, "VALIDATION", "Invalid reseller password", false)
+			return
+		}
+		email := in.Email
+		if email == "" {
+			email = in.Username + "@localhost"
+		}
+		owner := &store.User{
+			ID: id.New(), Username: in.Username, Email: email, PasswordHash: hash,
+			DisplayName: in.Name, Status: "active", Roles: []string{"reseller"}, CreatedAt: time.Now().UTC(),
+		}
+		a.Store.PutUser(owner)
+		in.UserID = owner.ID
+	}
 	if in.UserID == "" || in.UserID == "pending" {
 		in.UserID = actor(r).UserID
 	}
@@ -444,16 +512,28 @@ func (a *API) createReseller(w http.ResponseWriter, r *http.Request) {
 	if in.PrivilegeMask == nil {
 		in.PrivilegeMask = []string{}
 	}
-	a.Store.PutReseller(&in)
-	a.audit(r, "reseller.create", "reseller", in.ID, true, nil, map[string]any{"name": in.Name})
-	writeJSON(w, 201, in)
+	rs := in.Reseller
+	a.Store.PutReseller(&rs)
+	a.audit(r, "reseller.create", "reseller", rs.ID, true, nil, map[string]any{"name": rs.Name})
+	writeJSON(w, 201, rs)
 }
 
 func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.AccountsRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListAccounts(r.URL.Query().Get("q"), r.URL.Query().Get("status"))})
+	ac := actor(r)
+	items := a.Store.ListAccounts(r.URL.Query().Get("q"), r.URL.Query().Get("status"))
+	if !ac.IsServerScope {
+		visible := make([]store.Account, 0, len(items))
+		for _, acc := range items {
+			if ac.CanAccount(acc.ID) {
+				visible = append(visible, acc)
+			}
+		}
+		items = visible
+	}
+	writeJSON(w, 200, map[string]any{"items": items})
 }
 
 func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
@@ -596,6 +676,14 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", "Unknown package", false)
 		return
 	}
+	who := actor(r)
+	if who.ResellerID != "" && !who.IsServerScope {
+		in.ResellerID = who.ResellerID
+	}
+	if in.ResellerID != "" && a.Store.GetReseller(in.ResellerID) == nil {
+		a.fail(w, r, 400, "VALIDATION", "Unknown reseller", false)
+		return
+	}
 	hash, err := auth.HashPassword(in.OwnerPassword)
 	if err != nil || in.OwnerPassword == "" {
 		a.fail(w, r, 400, "VALIDATION", "Owner password required", false)
@@ -618,6 +706,9 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	a.Store.PutAccount(acc)
 	a.Store.AddMember(acc.ID, owner.ID)
+	if who.ResellerID != "" && who.UserID != owner.ID {
+		a.Store.AddMember(acc.ID, who.UserID)
+	}
 	dom := &store.Domain{ID: id.New(), AccountID: acc.ID, FQDN: ascii, ASCII: ascii, Type: "primary", DocumentRoot: acc.HomePath + "/public_html", DNSManaged: true, Status: "provisioning"}
 	a.Store.PutDomain(dom)
 	job, _ := a.Store.EnqueueJob(&store.Job{

@@ -18,6 +18,7 @@ type Store interface {
 
 	PutReseller(*Reseller)
 	GetReseller(string) *Reseller
+	ResellerByUser(userID string) *Reseller
 	ListResellers() []Reseller
 
 	AllocUID() int

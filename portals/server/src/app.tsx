@@ -418,10 +418,21 @@ function Resellers () {
 			<form className="row" onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
-				await api('/api/v1/resellers', { method: 'POST', body: JSON.stringify({ name: fd.get('name'), user_id: 'pending' }) })
+				await api('/api/v1/resellers', {
+					method: 'POST',
+					body: JSON.stringify({
+						name: fd.get('name'),
+						username: fd.get('username'),
+						password: fd.get('password'),
+						email: fd.get('email'),
+					}),
+				})
 				setItems(asList(await api<{ items: any[] }>('/api/v1/resellers')))
 			}}>
-				<input name="name" placeholder="reseller name" required />
+				<input name="name" placeholder="reseller brand" required />
+				<input name="username" placeholder="login username" required />
+				<input name="email" type="email" placeholder="contact email" />
+				<input name="password" type="password" placeholder="login password" required />
 				<button type="submit">Create reseller</button>
 			</form>
 			{items.length === 0 ? <Empty title="No resellers yet" detail="Create one to delegate packages and customer accounts." /> : (

@@ -153,6 +153,18 @@ func (m *Memory) GetReseller(id string) *Reseller {
 	}
 	return nil
 }
+func (m *Memory) ResellerByUser(userID string) *Reseller {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, r := range m.Resellers {
+		if r.UserID == userID {
+			cp := *r
+			return &cp
+		}
+	}
+	return nil
+}
+
 func (m *Memory) ListResellers() []Reseller {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

@@ -80,6 +80,78 @@ func post(t *testing.T, url, token string, body any) map[string]any {
 	return out
 }
 
+func TestResellerCannotSeeForeignAccounts(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+
+	adminTok := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkgs := get(t, srv.URL+"/api/v1/packages", adminTok)
+	pkg := pkgs["items"].([]any)[0].(map[string]any)["id"].(string)
+	direct := post(t, srv.URL+"/api/v1/accounts", adminTok, map[string]string{
+		"username": "direct1", "primary_domain": "direct.test", "package_id": pkg,
+		"owner_email": "o@direct.test", "owner_password": "TenantPass!2026",
+	})
+	directID := direct["resource_id"].(string)
+
+	rs := post(t, srv.URL+"/api/v1/resellers", adminTok, map[string]string{
+		"name": "Northwind", "username": "northwind", "password": "ResellerPass!2026",
+	})
+	if rs["name"] != "Northwind" {
+		t.Fatalf("reseller: %v", rs)
+	}
+	rsTok := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "northwind", "password": "ResellerPass!2026"})["token"].(string)
+	listed := get(t, srv.URL+"/api/v1/accounts", rsTok)
+	if items := listed["items"].([]any); len(items) != 0 {
+		t.Fatalf("reseller saw foreign accounts: %v", items)
+	}
+	code := statusOf(t, http.MethodGet, srv.URL+"/api/v1/accounts/"+directID, rsTok, nil)
+	if code != 403 {
+		t.Fatalf("expected 403 for foreign account, got %d", code)
+	}
+	mine := post(t, srv.URL+"/api/v1/accounts", rsTok, map[string]string{
+		"username": "nwcust", "primary_domain": "nwcust.test", "package_id": pkg,
+		"owner_email": "ops@nwcust.test", "owner_password": "TenantPass!2026",
+	})
+	if mine["status"] != "provisioning" {
+		t.Fatalf("%v", mine)
+	}
+	listed = get(t, srv.URL+"/api/v1/accounts", rsTok)
+	items := listed["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["username"] != "nwcust" {
+		t.Fatalf("reseller list: %v", listed)
+	}
+	if items[0].(map[string]any)["reseller_id"] != rs["id"] {
+		t.Fatalf("account not attached to reseller: %v", items[0])
+	}
+}
+
+func statusOf(t *testing.T, method, url, token string, body any) int {
+	t.Helper()
+	var rdr *bytes.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rdr = bytes.NewReader(b)
+	} else {
+		rdr = bytes.NewReader(nil)
+	}
+	req, _ := http.NewRequest(method, url, rdr)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	return res.StatusCode
+}
+
 func get(t *testing.T, url, token string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
