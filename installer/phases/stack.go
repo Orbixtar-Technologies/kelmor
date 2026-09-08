@@ -309,10 +309,6 @@ func verifySystemd(c Config) error {
 	return nil
 }
 
-func verifyHostRuntime(c Config) error {
-	return verifyHealth(c)
-}
-
 func applySystemd(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/systemd/system"), 0o755); err != nil {
 		return err

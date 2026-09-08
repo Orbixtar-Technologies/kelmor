@@ -212,6 +212,8 @@ func applyControlPlane(c Config) error {
 	for _, d := range []string{"/var/lib/panel/secrets", "/var/lib/panel/control", "/var/lib/panel/jobs"} {
 		_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", d).Run()
 	}
+	_ = os.Chmod("/var/lib/panel", 0o755)
+	_ = os.Chmod("/var/lib/panel/mail", 0o755)
 	return nil
 }
 

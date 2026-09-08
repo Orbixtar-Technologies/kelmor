@@ -57,6 +57,7 @@ make lint
 make test
 make test-security
 make test-provisioning
+./scripts/mvp-accept.sh   # live host: installer → API → CLI → portals
 ```
 
 Encrypted account backups (HPM1) and native export/import are documented in `docs/backup.md` and `docs/migration.md`.

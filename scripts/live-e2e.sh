@@ -18,6 +18,27 @@ if [[ -z "$token" ]]; then
 fi
 AUTH="Authorization: Bearer $token"
 
+wait_job() {
+  local jid="$1" label="${2:-job}"
+  [[ -z "$jid" ]] && return 0
+  local st=""
+  for _ in $(seq 1 40); do
+    st=$(curl -sS "$BASE/api/v1/jobs/$jid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state",""))')
+    echo "$label job=$st"
+    if [[ "$st" == "succeeded" ]]; then
+      return 0
+    fi
+    if [[ "$st" == "failed" ]]; then
+      echo "$label failed" >&2
+      curl -sS "$BASE/api/v1/jobs/$jid" -H "$AUTH" >&2
+      return 1
+    fi
+    sleep 0.5
+  done
+  echo "$label timeout state=$st" >&2
+  return 1
+}
+
 pkgs=$(curl -sS "$BASE/api/v1/packages" -H "$AUTH")
 pkg=$(echo "$pkgs" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d; print(items[0]["id"])')
 
@@ -45,7 +66,7 @@ code=$(curl -sS -o /tmp/live-site.html -w '%{http_code}' -H "Host: $DOMAIN" http
 echo "http $code"
 php=$(curl -sS -H "Host: $DOMAIN" http://127.0.0.1/index.php || true)
 echo "php $php"
-[[ "$code" == "200" ]] || echo "warning: expected HTTP 200 for $DOMAIN"
+[[ "$code" == "200" ]] || { echo "expected HTTP 200 for $DOMAIN, got $code" >&2; exit 1; }
 dig +short @"127.0.0.1" "$DOMAIN" A || true
 
 mds=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/domains" -H "$AUTH")
@@ -146,15 +167,18 @@ curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type:
 bak=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/backups" -H "$AUTH" -H 'content-type: application/json' \
   -d '{"kind":"full","destination":"local"}')
 echo "$bak"
-bid=$(echo "$bak" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("backup") or {}).get("id") or d.get("resource_id") or "")')
-sleep 3
-if [[ -n "$bid" ]]; then
-  curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type: application/json' \
-    -d '{"path":"/public_html/restore-marker.txt","content":"after-backup"}' >/dev/null
-  curl -sS -X POST "$BASE/api/v1/accounts/$aid/restores" -H "$AUTH" -H 'content-type: application/json' \
-    -d "{\"backup_id\":\"$bid\",\"mode\":\"in_place\"}" || true
-  sleep 3
-fi
+bid=$(echo "$bak" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("backup") or {}).get("id") or "")')
+bop=$(echo "$bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+[[ -n "$bid" ]]
+wait_job "$bop" backup
+curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"path":"/public_html/restore-marker.txt","content":"after-backup"}' >/dev/null
+rst=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/restores" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"backup_id\":\"$bid\",\"mode\":\"in_place\"}")
+echo "$rst"
+rop=$(echo "$rst" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$rop" restore
+sudo grep -q before-backup /home/$UNAME/public_html/restore-marker.txt
 
 exp=$(curl -sS "$BASE/api/v1/accounts/$aid/export" -H "$AUTH")
 echo "$exp" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("export", d.get("account",{}).get("username"))'
@@ -162,15 +186,33 @@ echo "$exp" > /tmp/livehost.export.json
 mig=$(curl -sS "$BASE/api/v1/accounts" -H "$AUTH")
 mid=$(echo "$mig" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((i['id'] for i in items if i.get('username')=='e2emig'), ''))")
 if [[ -z "$mid" ]]; then
-  curl -sS -X POST "$BASE/api/v1/accounts/import?username=e2emig&domain=e2emig.test" -H "$AUTH" \
-    -H 'content-type: application/json' --data-binary @/tmp/livehost.export.json || true
-  sleep 4
+  imported=$(curl -sS -X POST "$BASE/api/v1/accounts/import?username=e2emig&domain=e2emig.test" -H "$AUTH" \
+    -H 'content-type: application/json' --data-binary @/tmp/livehost.export.json)
+  echo "$imported"
+  mid=$(echo "$imported" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+  hop=$(echo "$imported" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("homedir_job",""))')
+  [[ -n "$mid" ]]
+  wait_job "$hop" migrate-copy
 fi
+for i in $(seq 1 20); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$mid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  echo "e2emig status=$st"
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+migcode=$(curl -sS -o /tmp/e2emig.html -w '%{http_code}' -H 'Host: e2emig.test' http://127.0.0.1/)
+[[ "$migcode" == "200" ]] || { echo "e2emig HTTP $migcode" >&2; exit 1; }
 
 curl -sS -X POST "$BASE/api/v1/accounts/$aid/suspend" -H "$AUTH" >/dev/null
 sleep 1
 curl -sS -X POST "$BASE/api/v1/accounts/$aid/unsuspend" -H "$AUTH" >/dev/null
 audit=$(curl -sS "$BASE/api/v1/audit-events" -H "$AUTH")
-echo "$audit" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d; print("audit", len(items) if isinstance(items,list) else d)'
+echo "$audit" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
+assert isinstance(items, list) and len(items)>0
+acts={i.get("action") for i in items if isinstance(i, dict)}
+need={"account.export","account.suspend"}
+missing=need-acts
+assert not missing, missing
+print("audit", len(items), "actions_ok")'
 
 echo "LIVE_E2E_OK"

@@ -105,6 +105,24 @@ func startControlPlane() {
 	}
 }
 
+func verifyHostRuntime(c Config) error {
+	if err := verifyHealth(c); err != nil {
+		return err
+	}
+	if c.Dev {
+		return nil
+	}
+	for _, name := range []string{"panel-agent", "panel-api", "panel-worker"} {
+		if exec.Command("/usr/bin/pgrep", "-x", name).Run() != nil {
+			return fmt.Errorf("%s is not running", name)
+		}
+	}
+	if _, err := os.Stat("/run/panel/agent.sock"); err != nil {
+		return fmt.Errorf("agent socket missing")
+	}
+	return nil
+}
+
 func verifyHealth(c Config) error {
 	if c.Dev {
 		return nil
