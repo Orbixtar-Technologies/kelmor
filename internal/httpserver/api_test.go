@@ -3,6 +3,7 @@ package httpserver
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -616,6 +617,22 @@ func TestCreateWebsiteReusesDomainRow(t *testing.T) {
 	}
 	if len(st.ListWebsites(aid)) != 1 {
 		t.Fatalf("duplicate websites: %d", len(st.ListWebsites(aid)))
+	}
+}
+
+func TestOpenAPIServesYAML(t *testing.T) {
+	st := store.NewMemory()
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	res, err := http.Get(srv.URL + "/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 || !bytes.Contains(body, []byte("Hosting Panel Control API")) {
+		t.Fatalf("%d %s", res.StatusCode, body[:min(len(body), 200)])
 	}
 }
 

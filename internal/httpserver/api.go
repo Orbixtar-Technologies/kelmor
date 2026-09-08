@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/agent/policy"
+	openapi "github.com/hosting-panel/panel/api"
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/limits"
@@ -54,7 +55,9 @@ func (a *API) Handler() http.Handler {
 	r.Use(a.cors)
 	r.Get("/healthz", a.health)
 	r.Get("/readyz", a.ready)
+	r.Get("/openapi.yaml", a.openapi)
 	r.Get("/api/v1/version", a.version)
+	r.Get("/api/v1/openapi.yaml", a.openapi)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", a.login)
 		r.Post("/auth/logout", a.logout)
@@ -195,6 +198,12 @@ func (a *API) ready(w http.ResponseWriter, r *http.Request) {
 }
 func (a *API) version(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"version": a.Version, "api": "v1"})
+}
+
+func (a *API) openapi(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	w.WriteHeader(200)
+	_, _ = w.Write(openapi.YAML)
 }
 
 func (a *API) login(w http.ResponseWriter, r *http.Request) {

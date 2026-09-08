@@ -109,6 +109,11 @@ virtual_minimum_uid = 20000
 virtual_uid_maps = hash:/var/lib/panel/mail/uids
 virtual_gid_maps = hash:/var/lib/panel/mail/gids
 smtpd_tls_security_level = may
+smtpd_tls_cert_file = /var/lib/panel/certs/imap.panel.local.crt
+smtpd_tls_key_file = /var/lib/panel/certs/imap.panel.local.key
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = no
 smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 smtpd_end_of_data_restrictions = check_policy_service inet:127.0.0.1:10031
 smtpd_policy_service_default_action = DUNNO
@@ -117,6 +122,35 @@ non_smtpd_milters = inet:127.0.0.1:11332
 milter_default_action = accept
 `
 	if err := writeUnlessExists(root(c, "etc/postfix/main.cf"), []byte(main), 0o644); err != nil {
+		return err
+	}
+	maincf := root(c, "etc/postfix/main.cf")
+	for _, kv := range [][2]string{
+		{"smtpd_sasl_type", "smtpd_sasl_type = dovecot\n"},
+		{"smtpd_sasl_path", "smtpd_sasl_path = private/auth\n"},
+		{"smtpd_tls_cert_file", "smtpd_tls_cert_file = /var/lib/panel/certs/imap.panel.local.crt\n"},
+		{"smtpd_tls_key_file", "smtpd_tls_key_file = /var/lib/panel/certs/imap.panel.local.key\n"},
+	} {
+		if err := replaceConfigLine(maincf, kv[0], kv[1]); err != nil {
+			return err
+		}
+	}
+	if err := ensureSubmissionMaster(root(c, "etc/postfix/master.cf")); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root(c, "etc/dovecot/conf.d"), 0o755); err != nil {
+		return err
+	}
+	sasl := `auth_mechanisms = plain login
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+`
+	if err := os.WriteFile(root(c, "etc/dovecot/conf.d/99-panel-sasl.conf"), []byte(sasl), 0o644); err != nil {
 		return err
 	}
 	dovecot := `protocols = imap lmtp
@@ -147,7 +181,48 @@ mail_location = maildir:~/Maildir
 			}
 		}
 	}
+	reloadLiveMail(c)
 	return nil
+}
+
+const panelSubmissionBlock = `# panel-submission
+submission inet n       -       n       -       -       smtpd
+  -o syslog_name=postfix/submission
+  -o smtpd_tls_security_level=encrypt
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_sasl_type=dovecot
+  -o smtpd_sasl_path=private/auth
+  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+`
+
+func ensureSubmissionMaster(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return os.WriteFile(path, []byte("smtp      inet  n       -       y       -       -       smtpd\n"+panelSubmissionBlock), 0o644)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(b), "panel-submission") {
+		return nil
+	}
+	out := string(b)
+	if !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return os.WriteFile(path, []byte(out+panelSubmissionBlock), 0o644)
+}
+
+func reloadLiveMail(c Config) {
+	if c.Dev {
+		return
+	}
+	_, _ = exec.Command("/usr/bin/doveadm", "reload").CombinedOutput()
+	_, _ = exec.Command("/usr/sbin/postfix", "reload").CombinedOutput()
+	_ = waitListen("127.0.0.1:587", 3*time.Second)
 }
 
 func applyFirewall(c Config) error {
@@ -551,8 +626,26 @@ func applyReport(c Config) error {
 }
 
 func verifyMail(c Config) error {
-	_, err := os.Stat(root(c, "etc/postfix/main.cf"))
-	return err
+	if _, err := os.Stat(root(c, "etc/postfix/main.cf")); err != nil {
+		return err
+	}
+	b, err := os.ReadFile(root(c, "etc/postfix/master.cf"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(b), "panel-submission") {
+		return fmt.Errorf("postfix master.cf missing submission")
+	}
+	if _, err := os.Stat(root(c, "etc/dovecot/conf.d/99-panel-sasl.conf")); err != nil {
+		return err
+	}
+	if c.Dev {
+		return nil
+	}
+	if err := waitListen("127.0.0.1:587", 2*time.Second); err != nil {
+		return fmt.Errorf("submission is not listening: %w", err)
+	}
+	return nil
 }
 
 func verifyDNS(c Config) error {

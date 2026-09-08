@@ -206,6 +206,19 @@ with smtplib.SMTP("127.0.0.1", 25, timeout=10) as s:
     s.sendmail(msg["From"], [msg["To"]], msg.as_string())
 print("smtp accepted")
 PY
+python3 - <<PY
+import smtplib
+from email.mime.text import MIMEText
+msg = MIMEText("panel submission 587")
+msg["Subject"] = "panel submission"
+msg["From"] = "info@$DOMAIN"
+msg["To"] = "info@$DOMAIN"
+with smtplib.SMTP("127.0.0.1", 587, timeout=10) as s:
+    s.starttls()
+    s.login("info@$DOMAIN", "MailboxPass!2026")
+    s.sendmail(msg["From"], [msg["To"]], msg.as_string())
+print("submission accepted")
+PY
 have_sales=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/aliases" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
 print(next((i['id'] for i in items if i.get('address')=='sales'), ''))")
 if [[ -z "$have_sales" ]]; then

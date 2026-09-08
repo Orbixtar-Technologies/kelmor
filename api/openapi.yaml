@@ -6,6 +6,11 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /openapi.yaml:
+    get:
+      operationId: getOpenAPI
+      responses:
+        "200": { description: OpenAPI 3 document }
   /healthz:
     get:
       operationId: healthz

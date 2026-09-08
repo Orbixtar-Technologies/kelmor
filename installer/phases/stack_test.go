@@ -28,6 +28,8 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	}
 	need := []string{
 		"var/panel/host/etc/postfix/main.cf",
+		"var/panel/host/etc/postfix/master.cf",
+		"var/panel/host/etc/dovecot/conf.d/99-panel-sasl.conf",
 		"var/panel/host/etc/dovecot/dovecot.conf",
 		"var/panel/host/etc/powerdns/pdns.conf",
 		"var/panel/host/etc/panel/nftables-panel.nft",
@@ -109,6 +111,23 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	}
 	if !contains(string(maincf), "virtual_alias_maps = hash:/var/lib/panel/mail/aliases") {
 		t.Fatalf("postfix missing alias maps: %s", maincf)
+	}
+	if !contains(string(maincf), "smtpd_sasl_type = dovecot") {
+		t.Fatalf("postfix missing dovecot sasl: %s", maincf)
+	}
+	mastercf, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/postfix/master.cf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(mastercf), "panel-submission") || !contains(string(mastercf), "smtpd_sasl_auth_enable=yes") {
+		t.Fatalf("master.cf missing authenticated submission: %s", mastercf)
+	}
+	sasl, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/dovecot/conf.d/99-panel-sasl.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(sasl), "/var/spool/postfix/private/auth") {
+		t.Fatalf("dovecot sasl socket: %s", sasl)
 	}
 }
 
