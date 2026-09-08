@@ -3,6 +3,7 @@ package operations
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -150,6 +151,27 @@ func (h *Host) unlockUnixUser(username string) (Result, error) {
 		return Result{}, fmt.Errorf("usermod: %s", strings.TrimSpace(string(out)))
 	}
 	return Result{OK: true, ObservedState: "unlocked"}, nil
+}
+
+func (h *Host) setLinuxPassword(username, password string) (Result, error) {
+	if err := validate.Username(username); err != nil {
+		return Result{}, err
+	}
+	if len(password) < 8 || strings.ContainsAny(password, "\n\r:") {
+		return Result{}, fmt.Errorf("invalid linux password")
+	}
+	if !h.live() {
+		return Result{OK: true, Message: "password staged", ObservedState: "staged"}, nil
+	}
+	cmd := exec.Command("/usr/sbin/chpasswd")
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}
+	cmd.Stdin = strings.NewReader(username + ":" + password + "\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return Result{}, fmt.Errorf("chpasswd: %s", strings.TrimSpace(string(out)))
+	}
+	_, _ = runFixed("/usr/sbin/usermod", "-U", username)
+	return Result{OK: true, Message: "linux password set", ObservedState: "set"}, nil
 }
 
 func (h *Host) deleteUnixUser(username string) (Result, error) {

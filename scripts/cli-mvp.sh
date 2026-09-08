@@ -44,5 +44,24 @@ bop=$(echo "$bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(
 $CLI account suspend "$aid" >/dev/null
 sleep 1
 $CLI account unsuspend "$aid" >/dev/null
+$CLI account sftp-password "$aid" 'SftpPass!2026' >/dev/null
+$CLI firewall apply | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True or d.get("message"), d'
+miguser=climig
+accounts=$($CLI account list)
+mid=$(echo "$accounts" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((a['id'] for a in items if a.get('username')=='climig'), ''))")
+if [[ -z "$mid" ]]; then
+  imported=$($CLI account migrate "$aid" "$miguser" climig.test)
+  mid=$(echo "$imported" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+  hop=$(echo "$imported" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("homedir_job",""))')
+  [[ -n "$hop" ]] && $CLI job wait "$hop"
+fi
+for i in $(seq 1 20); do
+  st=$($CLI account get "$mid" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  echo "climig status=$st"
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+code=$(curl -sS -o /tmp/climig.html -w '%{http_code}' -H 'Host: climig.test' http://127.0.0.1/)
+[[ "$code" == "200" ]]
 $CLI audit | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; assert len(items)>0'
 echo CLI_MVP_OK

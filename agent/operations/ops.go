@@ -108,6 +108,15 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.deleteUnixUser(p.Username)
+	case "SetLinuxPassword":
+		var p struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.setLinuxPassword(p.Username, p.Password)
 	case "CreateDirectoryTree":
 		var p struct {
 			Path string `json:"path"`
@@ -287,7 +296,7 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 	case "ValidateConfiguration":
 		return Result{OK: true, Message: "valid"}, nil
 	case "ApplyFirewall":
-		return Result{OK: true, Message: "firewall table inet panel applied"}, nil
+		return h.applyFirewall()
 	default:
 		return nil, fmt.Errorf("unknown operation %q", req.Method)
 	}

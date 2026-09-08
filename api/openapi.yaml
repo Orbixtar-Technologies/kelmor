@@ -49,6 +49,19 @@ paths:
       x-capability: server.read
       responses:
         "200": { description: host metrics and service health }
+  /server/firewall:
+    get:
+      operationId: getFirewall
+      x-capability: server.firewall.read
+      responses:
+        "200": { description: nftables table inet panel metadata }
+  /server/firewall/apply:
+    post:
+      operationId: applyFirewall
+      x-capability: server.firewall.write
+      x-audit-action: server.firewall.apply
+      responses:
+        "200": { description: table inet panel applied }
   /packages:
     get:
       operationId: listPackages
@@ -251,6 +264,24 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "200": { description: written via agent }
+  /accounts/{accountID}/sftp-password:
+    post:
+      operationId: setSFTPPassword
+      x-capability: files.write
+      x-audit-action: account.sftp_password
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        "200": { description: linux password set for chrooted SFTP }
   /accounts/{accountID}/restores:
     post:
       operationId: restoreBackup

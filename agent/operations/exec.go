@@ -10,6 +10,7 @@ import (
 )
 
 var allowedBins = map[string]bool{
+	"/usr/sbin/nft":         true,
 	"/usr/sbin/useradd":     true,
 	"/usr/sbin/userdel":     true,
 	"/usr/sbin/usermod":     true,

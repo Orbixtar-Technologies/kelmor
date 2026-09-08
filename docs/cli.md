@@ -11,6 +11,9 @@ panel-cli jobs list
 panel-cli backup create <account-id>
 panel-cli account export <account-id>
 panel-cli account import ./tenant.hpm-account.json moved moved.test
+panel-cli account migrate <account-id> climig climig.test
+panel-cli account sftp-password <account-id> 'SftpPass!2026'
+panel-cli firewall apply
 panel-cli mailbox create <account-id> <mail-domain-id> info 'MailboxPass!2026'
 panel-cli db create <account-id> shop mariadb
 panel-cli domain create <account-id> python.example.test python

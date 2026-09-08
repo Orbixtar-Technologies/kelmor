@@ -35,6 +35,9 @@ func applyHostRuntime(c Config) error {
 	}
 	startControlPlane()
 	startAccountApps()
+	if _, err := os.Stat("/etc/panel/nftables-panel.nft"); err == nil {
+		_ = applyLiveNFT("/etc/panel/nftables-panel.nft")
+	}
 	return nil
 }
 

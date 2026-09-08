@@ -168,6 +168,17 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		w.Store.PutAccount(acc)
 		return err
 	}
+	if pw := str(j.Payload["linux_password"]); pw != "" {
+		_, err = w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "SetLinuxPassword",
+			Params: mustJSON(map[string]any{"username": acc.Username, "password": pw}),
+		})
+		delete(j.Payload, "linux_password")
+		w.Store.UpdateJob(j)
+		if err != nil {
+			return err
+		}
+	}
 	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplySystemdSlice",
 		Params: mustJSON(map[string]any{"username": acc.Username, "cpu_percent": pkg.CPUPercent, "memory_bytes": pkg.MemoryBytes}),
@@ -187,6 +198,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	case "suspended":
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "LockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
 	default:
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "UnlockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
 		acc.Status = "active"
 	}
 	acc.ObservedRevision = acc.DesiredRevision

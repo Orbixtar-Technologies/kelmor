@@ -5,7 +5,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
+
+	"github.com/hosting-panel/panel/internal/firewall"
 )
 
 func applyDNS(c Config) error {
@@ -110,18 +113,28 @@ func applyFirewall(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/panel"), 0o755); err != nil {
 		return err
 	}
-	rules := `#!/usr/sbin/nft -f
-table inet panel {
-  chain input {
-    type filter hook input priority 0; policy drop;
-    iif lo accept
-    ct state established,related accept
-    tcp dport { 22, 25, 53, 80, 443, 587, 993, 8443, 8444 } accept
-    udp dport { 53 } accept
-  }
+	rules := firewall.Rules(firewall.ExtraListeningTCP())
+	path := root(c, "etc/panel/nftables-panel.nft")
+	if err := os.WriteFile(path, []byte(rules), 0o600); err != nil {
+		return err
+	}
+	if c.Dev {
+		return nil
+	}
+	return applyLiveNFT(path)
 }
-`
-	return os.WriteFile(root(c, "etc/panel/nftables-panel.nft"), []byte(rules), 0o600)
+
+func applyLiveNFT(path string) error {
+	if _, err := os.Stat("/usr/sbin/nft"); err != nil {
+		return nil
+	}
+	_ = exec.Command("/usr/sbin/nft", "delete", "table", "inet", "panel").Run()
+	cmd := exec.Command("/usr/sbin/nft", "-f", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nft -f: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func applyWAF(c Config) error {
@@ -395,8 +408,19 @@ func verifyDNS(c Config) error {
 }
 
 func verifyFirewall(c Config) error {
-	_, err := os.Stat(root(c, "etc/panel/nftables-panel.nft"))
-	return err
+	if _, err := os.Stat(root(c, "etc/panel/nftables-panel.nft")); err != nil {
+		return err
+	}
+	if c.Dev {
+		return nil
+	}
+	if _, err := os.Stat("/usr/sbin/nft"); err != nil {
+		return nil
+	}
+	if err := exec.Command("/usr/sbin/nft", "list", "table", "inet", "panel").Run(); err != nil {
+		return fmt.Errorf("table inet panel is not loaded")
+	}
+	return nil
 }
 
 func verifySecurity(c Config) error {

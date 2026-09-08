@@ -100,6 +100,7 @@ function Dashboard () {
 				<Metric label="Accounts" value={String(data.stats.accounts)} />
 				<Metric label="Failed jobs" value={String(data.stats.failedJobs)} />
 			</section>
+			<FirewallPanel />
 			<h2>Services</h2>
 			<table>
 				<thead><tr><th>Service</th><th>Health</th><th>Running</th></tr></thead>
@@ -110,6 +111,26 @@ function Dashboard () {
 				</tbody>
 			</table>
 		</>
+	)
+}
+
+function FirewallPanel () {
+	const [msg, setMsg] = useState('')
+	return (
+		<section>
+			<h2>Host firewall</h2>
+			<p>Applies nftables <code>table inet panel</code> with a drop policy on inbound traffic, keeping loopback, established flows, and hosting plus already-bound management ports.</p>
+			<button type="button" onClick={async () => {
+				setMsg('')
+				try {
+					const r = await api<any>('/api/v1/server/firewall/apply', { method: 'POST', body: '{}' })
+					setMsg(r.message || 'table inet panel applied')
+				} catch (e) {
+					setMsg(e instanceof Error ? e.message : 'apply failed')
+				}
+			}}>Apply table inet panel</button>
+			{msg ? <p className="notice">{msg}</p> : null}
+		</section>
 	)
 }
 

@@ -26,6 +26,8 @@ func main() {
   account unsuspend <id>
   account export <id>
   account import <export.json> [username] [domain]
+  account migrate <id> <newuser> <newdomain>
+  account sftp-password <id> <password>
   mailbox create <account_id> <mail_domain_id> <local> <password>
   db create <account_id> <name> <engine>
   website create <account_id> <domain_id> <runtime>
@@ -43,6 +45,7 @@ func main() {
   cron create <account_id> <schedule> <command>
   cert request <account_id> <hostname>
   reseller create <name> <username> <password>
+  firewall apply
   config validate`)
 		os.Exit(2)
 	}
@@ -62,6 +65,10 @@ func main() {
 		get(base+"/api/v1/accounts", token)
 	case args[0] == "account" && len(args) == 3 && args[1] == "get":
 		get(base+"/api/v1/accounts/"+args[2], token)
+	case args[0] == "account" && len(args) == 5 && args[1] == "migrate":
+		migrateAccount(base, token, args[2], args[3], args[4])
+	case args[0] == "account" && len(args) == 4 && args[1] == "sftp-password":
+		post(base+"/api/v1/accounts/"+args[2]+"/sftp-password", token, map[string]any{"password": args[3]})
 	case args[0] == "account" && len(args) >= 3 && args[1] == "import":
 		raw, err := os.ReadFile(args[2])
 		if err != nil {
@@ -130,11 +137,29 @@ func main() {
 		post(base+"/api/v1/accounts/"+args[2]+"/certificates", token, map[string]any{"hostname": args[3]})
 	case args[0] == "reseller" && args[1] == "create" && len(args) == 5:
 		post(base+"/api/v1/resellers", token, map[string]any{"name": args[2], "username": args[3], "password": args[4]})
+	case join(args) == "firewall apply":
+		post(base+"/api/v1/server/firewall/apply", token, map[string]any{})
 	case join(args) == "config validate":
 		fmt.Println(`{"ok":true,"templates":"versioned","rule":"test-before-reload"}`)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", strings.Join(args, " "))
 		os.Exit(2)
+	}
+}
+
+func migrateAccount(base, token, id, user, domain string) {
+	exp := do(http.MethodGet, base+"/api/v1/accounts/"+id+"/export", token, nil, false)
+	raw, err := json.Marshal(exp)
+	if err != nil {
+		fatal(err.Error())
+	}
+	path := "/tmp/panel-migrate-" + user + ".json"
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		fatal(err.Error())
+	}
+	out := doBytes(http.MethodPost, base+"/api/v1/accounts/import?username="+user+"&domain="+domain, token, raw)
+	if op, _ := out["resource_id"].(string); op != "" {
+		fmt.Fprintf(os.Stderr, "imported %s from %s\n", user, path)
 	}
 }
 

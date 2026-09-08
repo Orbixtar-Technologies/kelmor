@@ -64,6 +64,8 @@ func (a *API) Handler() http.Handler {
 			r.Get("/server/services", a.serverServices)
 			r.Get("/server/processes", a.serverProcesses)
 			r.Post("/server/reboot", a.notImplemented("server.reboot"))
+			r.Post("/server/firewall/apply", a.applyFirewall)
+			r.Get("/server/firewall", a.getFirewall)
 			r.Get("/jobs", a.listJobs)
 			r.Get("/jobs/{jobID}", a.getJob)
 			r.Get("/audit-events", a.listAudit)
@@ -112,6 +114,7 @@ func (a *API) Handler() http.Handler {
 				r.Get("/cron", a.listCron)
 				r.Post("/cron", a.createCron)
 				r.Get("/ssh-keys", a.listSSH)
+				r.Post("/sftp-password", a.setSFTPPassword)
 				r.Post("/ssh-keys", a.createSSH)
 				r.Get("/ftp", a.listFTP)
 				r.Post("/ftp", a.createFTP)
@@ -366,6 +369,26 @@ func (a *API) serverServices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"services": defaultServices()})
 }
 
+func (a *API) applyFirewall(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ServerFirewallWrite) {
+		return
+	}
+	res, err := a.Agent.Dispatch(r.Context(), operations.Request{Method: "ApplyFirewall"})
+	if err != nil {
+		a.fail(w, r, 500, "AGENT_ERROR", err.Error(), false)
+		return
+	}
+	a.audit(r, "server.firewall.apply", "server", "", true, nil, map[string]any{"table": "inet panel"})
+	writeJSON(w, 200, res)
+}
+
+func (a *API) getFirewall(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ServerFirewallRead) {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"table": "inet panel", "file": "/etc/panel/nftables-panel.nft"})
+}
+
 func (a *API) serverProcesses(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.ServerRead) {
 		return
@@ -559,14 +582,28 @@ func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "INVALID_JSON", "invalid export", false)
 		return
 	}
+	var exp migration.HostingAccountExport
+	_ = json.Unmarshal(raw, &exp)
+	srcHome := exp.Account.HomePath
 	acc, err := migration.ImportAs(a.Store, raw, r.URL.Query().Get("username"), r.URL.Query().Get("domain"), actor(r).UserID)
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
 	a.Store.AddMember(acc.ID, actor(r).UserID)
+	copied := ""
+	if srcHome != "" && srcHome != acc.HomePath {
+		job, _ := a.Store.EnqueueJob(&store.Job{
+			Type: "account.copy_homedir", ResourceType: "account", ResourceID: acc.ID,
+			Payload: map[string]any{"account_id": acc.ID, "username": acc.Username, "source": srcHome, "dest": acc.HomePath},
+			State:   "queued",
+		})
+		if job != nil {
+			copied = job.ID
+		}
+	}
 	a.audit(r, "account.import", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
-	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc})
+	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "homedir_job": copied})
 }
 
 func (a *API) importCPanel(w http.ResponseWriter, r *http.Request) {
@@ -713,7 +750,7 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 	a.Store.PutDomain(dom)
 	job, _ := a.Store.EnqueueJob(&store.Job{
 		Type: "account.provision", ResourceType: "account", ResourceID: acc.ID,
-		Payload: map[string]any{"account_id": acc.ID, "domain_id": dom.ID},
+		Payload: map[string]any{"account_id": acc.ID, "domain_id": dom.ID, "linux_password": in.OwnerPassword},
 		State:   "queued", Priority: 10, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
 	})
@@ -1252,6 +1289,36 @@ func (a *API) listSSH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"items": a.Store.ListSSH(aid)})
+}
+
+func (a *API) setSFTPPassword(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.FilesWrite) {
+		return
+	}
+	var in struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || len(in.Password) < 8 {
+		a.fail(w, r, 400, "VALIDATION", "SFTP password required", false)
+		return
+	}
+	acc := a.Store.GetAccount(aid)
+	if acc == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "account missing", false)
+		return
+	}
+	params, _ := json.Marshal(map[string]any{"username": acc.Username, "password": in.Password})
+	_, err := a.Agent.Dispatch(r.Context(), operations.Request{
+		Method: "SetLinuxPassword",
+		Params: params,
+	})
+	if err != nil {
+		a.fail(w, r, 500, "AGENT_ERROR", err.Error(), false)
+		return
+	}
+	a.audit(r, "account.sftp_password", "account", aid, true, nil, map[string]any{"username": acc.Username})
+	writeJSON(w, 200, map[string]any{"ok": true, "username": acc.Username})
 }
 
 func (a *API) createSSH(w http.ResponseWriter, r *http.Request) {

@@ -288,6 +288,19 @@ function Files ({ accountId }: { accountId: string }) {
 			<form onSubmit={async (e) => {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${accountId}/sftp-password`, {
+					method: 'POST',
+					body: JSON.stringify({ password: fd.get('password') }),
+				})
+			}}>
+				<label>SFTP password (chrooted to your home)
+					<input name="password" type="password" minLength={8} required />
+				</label>
+				<button type="submit">Set SFTP password</button>
+			</form>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
 				await api(`/api/v1/accounts/${accountId}/files`, {
 					method: 'POST',
 					body: JSON.stringify({ path: fd.get('path'), content: fd.get('content') }),
