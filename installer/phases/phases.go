@@ -132,7 +132,7 @@ func applyNoop(Config) error  { return nil }
 func verifyNoop(Config) error { return nil }
 
 func applyUsers(c Config) error {
-	if err := os.MkdirAll(root(c, "var/lib/panel"), 0o750); err != nil {
+	if err := os.MkdirAll(root(c, "var/lib/panel"), 0o755); err != nil {
 		return err
 	}
 	if c.Dev {
@@ -204,7 +204,9 @@ func applyControlPlane(c Config) error {
 	if copied == 0 {
 		return fmt.Errorf("no panel-* binaries copied from %s", src)
 	}
-	_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", "/var/lib/panel").Run()
+	for _, d := range []string{"/var/lib/panel/secrets", "/var/lib/panel/control", "/var/lib/panel/jobs"} {
+		_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", d).Run()
+	}
 	return nil
 }
 
