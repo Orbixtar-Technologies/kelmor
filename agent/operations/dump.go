@@ -25,7 +25,7 @@ func (h *Host) dumpHostedDatabase(engine, name, dest string) (Result, error) {
 	}
 	if !h.live() {
 		body := []byte("-- panel sandbox dump " + engine + " " + name + "\n")
-		if err := os.WriteFile(out, body, 0o640); err != nil {
+		if err := os.WriteFile(out, body, 0o664); err != nil {
 			return Result{}, err
 		}
 		return Result{OK: true, ObservedState: "dumped"}, nil
@@ -46,9 +46,10 @@ func (h *Host) dumpHostedDatabase(engine, name, dest string) (Result, error) {
 	default:
 		return Result{}, fmt.Errorf("unsupported engine")
 	}
-	if err := os.WriteFile(out, raw, 0o640); err != nil {
+	if err := os.WriteFile(out, raw, 0o664); err != nil {
 		return Result{}, err
 	}
+	_ = os.Chmod(out, 0o664)
 	return Result{OK: true, ObservedState: "dumped"}, nil
 }
 
