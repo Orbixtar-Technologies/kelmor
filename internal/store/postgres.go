@@ -408,6 +408,12 @@ func (p *PG) GetWebsite(wid string) *Website {
 	return p.scanWebsite(p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, runtime, COALESCE(runtime_version,''), document_root, https_redirect, www_redirect, COALESCE(proxy_target,''), enabled, desired_revision, observed_revision FROM websites WHERE id=$1`, wid))
 }
 
+func (p *PG) DeleteWebsite(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM wordpress_installations WHERE website_id=$1`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM applications WHERE website_id=$1`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM websites WHERE id=$1`, id)
+}
+
 func (p *PG) ListWebsites(accountID string) []Website {
 	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, domain_id, runtime, COALESCE(runtime_version,''), document_root, https_redirect, www_redirect, COALESCE(proxy_target,''), enabled, desired_revision, observed_revision FROM websites WHERE $1='' OR account_id::text=$1`, accountID)
 	if err != nil {

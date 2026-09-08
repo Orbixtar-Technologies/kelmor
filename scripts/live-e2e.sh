@@ -89,6 +89,56 @@ done
 [[ "$acode" == "200" ]] || { echo "alias $ADOM HTTP $acode" >&2; exit 1; }
 sudo grep -q "$ADOM" /etc/nginx/panel-sites/*.conf || { echo "alias missing from nginx server_name" >&2; exit 1; }
 echo "alias-ok $ADOM"
+
+pwid=$(curl -sS "$BASE/api/v1/accounts/$aid/websites" -H "$AUTH" | python3 -c "import json,sys
+d=json.load(sys.stdin); items=d.get('items') or []
+print(next((i['id'] for i in items if i.get('document_root','').endswith('/public_html')), items[0]['id'] if items else ''))")
+[[ -n "$pwid" ]] || { echo "primary website missing" >&2; exit 1; }
+pdel=$(curl -sS -o /tmp/primary-web-del.json -w '%{http_code}' -X DELETE "$BASE/api/v1/accounts/$aid/websites/$pwid" -H "$AUTH")
+[[ "$pdel" == "409" ]] || { echo "expected 409 deleting primary website, got $pdel" >&2; cat /tmp/primary-web-del.json >&2; exit 1; }
+echo "primary-website-protected"
+
+RDOM="retire.$DOMAIN"
+existing_retire=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
+print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$RDOM'), ''))")
+if [[ -z "$existing_retire" ]]; then
+  retj=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"fqdn\":\"$RDOM\",\"type\":\"subdomain\"}")
+  echo "$retj"
+  rop=$(echo "$retj" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  wait_job "$rop" retire-domain
+fi
+rwid=$(curl -sS "$BASE/api/v1/accounts/$aid/websites" -H "$AUTH" | python3 -c "import json,sys
+d=json.load(sys.stdin); items=d.get('items') or []
+print(next((i['id'] for i in items if '$RDOM' in (i.get('document_root') or '')), ''))")
+[[ -n "$rwid" ]] || { echo "retire website missing for $RDOM" >&2; exit 1; }
+rcode=""
+for _ in $(seq 1 20); do
+  rcode=$(curl -sS -o /tmp/retire-ok.html -w '%{http_code}' -H "Host: $RDOM" http://127.0.0.1/)
+  [[ "$rcode" == "200" ]] && break
+  sleep 0.2
+done
+[[ "$rcode" == "200" ]] || { echo "retire $RDOM HTTP $rcode before delete" >&2; exit 1; }
+sudo test -f "/etc/nginx/panel-sites/${rwid}.conf" || { echo "expected vhost $rwid" >&2; exit 1; }
+rdel=$(curl -sS -X DELETE "$BASE/api/v1/accounts/$aid/websites/$rwid" -H "$AUTH")
+echo "$rdel"
+rdop=$(echo "$rdel" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$rdop" website-delete
+gone=""
+for _ in $(seq 1 20); do
+  gone=$(curl -sS "$BASE/api/v1/accounts/$aid/websites" -H "$AUTH" | python3 -c "import json,sys
+items=json.load(sys.stdin).get('items') or []
+print('gone' if not any(i.get('id')=='$rwid' for i in items) else 'remain')")
+  [[ "$gone" == "gone" ]] && break
+  sleep 0.2
+done
+[[ "$gone" == "gone" ]] || { echo "website $rwid still listed" >&2; exit 1; }
+sudo test ! -f "/etc/nginx/panel-sites/${rwid}.conf" || { echo "vhost $rwid remains" >&2; exit 1; }
+sudo test -d "/home/$UNAME" || { echo "home removed after website retire" >&2; exit 1; }
+sudo test -f "/etc/php/8.3/fpm/pool.d/panel-${UNAME}.conf" || { echo "php pool removed after website retire" >&2; exit 1; }
+pcode=$(curl -sS -o /tmp/live-site-after-retire.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+[[ "$pcode" == "200" ]] || { echo "primary $DOMAIN HTTP $pcode after addon retire" >&2; exit 1; }
+echo "website-retire-ok $RDOM"
 dig +short @"127.0.0.1" "$DOMAIN" A || true
 
 mds=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/domains" -H "$AUTH")
@@ -444,7 +494,7 @@ audit=$(curl -sS "$BASE/api/v1/audit-events" -H "$AUTH")
 echo "$audit" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
 assert isinstance(items, list) and len(items)>0
 acts={i.get("action") for i in items if isinstance(i, dict)}
-need={"account.export","account.suspend","account.terminate"}
+need={"account.export","account.suspend","account.terminate","website.delete"}
 missing=need-acts
 assert not missing, missing
 print("audit", len(items), "actions_ok")'

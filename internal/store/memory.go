@@ -270,6 +270,16 @@ func (m *Memory) ListWebsites(accountID string) []Website {
 	}
 	return out
 }
+func (m *Memory) DeleteWebsite(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for aid, app := range m.Apps {
+		if app != nil && app.WebsiteID == id {
+			delete(m.Apps, aid)
+		}
+	}
+	delete(m.Websites, id)
+}
 
 func (m *Memory) PutApp(a *Application) { m.mu.Lock(); m.Apps[a.ID] = a; m.mu.Unlock() }
 func (m *Memory) GetApp(id string) *Application {

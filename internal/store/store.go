@@ -38,6 +38,7 @@ type Store interface {
 	PutWebsite(*Website)
 	GetWebsite(string) *Website
 	ListWebsites(accountID string) []Website
+	DeleteWebsite(id string)
 
 	PutApp(*Application)
 	GetApp(string) *Application

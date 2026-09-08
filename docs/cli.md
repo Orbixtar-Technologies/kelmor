@@ -29,6 +29,7 @@ panel-cli db create <account-id> shop mariadb
 panel-cli db delete <account-id> <database-id>
 panel-cli domain create <account-id> python.example.test python
 panel-cli website create <account-id> <domain-id> node
+panel-cli website delete <account-id> <website-id>
 panel-cli wordpress install <account-id> <website-id> 'My site' wpadmin 'WpAdmin!2026' owner@example.test
 panel-cli file write <account-id> /public_html/index.php '<?php echo "ok";'
 panel-cli ssh-key add <account-id> 'ssh-ed25519 AAAA…' laptop

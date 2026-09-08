@@ -481,6 +481,40 @@ func TestMailAliasAndMailboxDelete(t *testing.T) {
 	}
 }
 
+func TestDeleteWebsitePrimaryConflict(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "weblab1", "primary_domain": "weblab.test", "package_id": pkg,
+		"owner_email": "o@weblab.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	primary := &store.Domain{ID: id.New(), AccountID: aid, ASCII: "weblab.test", Type: "primary"}
+	addon := &store.Domain{ID: id.New(), AccountID: aid, ASCII: "blog.weblab.test", Type: "subdomain"}
+	st.PutDomain(primary)
+	st.PutDomain(addon)
+	psite := &store.Website{ID: id.New(), AccountID: aid, DomainID: primary.ID, DocumentRoot: "/home/weblab1/public_html", Runtime: "php", Enabled: true}
+	asite := &store.Website{ID: id.New(), AccountID: aid, DomainID: addon.ID, DocumentRoot: "/home/weblab1/blog.weblab.test", Runtime: "php", Enabled: true}
+	st.PutWebsite(psite)
+	st.PutWebsite(asite)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/websites/"+psite.ID, admin, nil) != 409 {
+		t.Fatal("expected primary website delete conflict")
+	}
+	if st.GetWebsite(psite.ID) == nil {
+		t.Fatal("primary website removed")
+	}
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/websites/"+asite.ID, admin, nil) != 202 {
+		t.Fatal("addon website delete")
+	}
+}
+
 func TestDeleteDatabaseAndCertOwnership(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

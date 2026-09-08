@@ -87,6 +87,36 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	return Result{OK: true, Message: "website applied", ObservedState: "active"}, nil
 }
 
+func (h *Host) retireWebsite(websiteID, account string) (Result, error) {
+	websiteID = strings.TrimSpace(websiteID)
+	if websiteID == "" || strings.ContainsAny(websiteID, "/\\.;|&$`\n") {
+		return Result{}, fmt.Errorf("invalid website id")
+	}
+	if err := validate.Username(account); err != nil {
+		return Result{}, err
+	}
+	h.removeManaged("/etc/nginx/panel-sites/" + websiteID + ".conf")
+	h.removeManaged("/run/panel/apps/" + websiteID + ".sock")
+	h.removeManaged("/etc/systemd/system/panel-app-" + websiteID + ".service")
+	if h.live() {
+		_, _ = runFixed("/bin/systemctl", "stop", "panel-app-"+websiteID+".service")
+		_, _ = runFixed("/bin/systemctl", "disable", "panel-app-"+websiteID+".service")
+		_, _ = runFixed("/bin/systemctl", "daemon-reload")
+	}
+	if err := h.rewriteConnZone(); err != nil {
+		return Result{}, err
+	}
+	if err := h.testNginx(); err != nil {
+		return Result{}, err
+	}
+	if h.live() {
+		if out, err := runFixed("/usr/sbin/nginx", "-s", "reload"); err != nil {
+			return Result{}, fmt.Errorf("nginx reload: %s", strings.TrimSpace(string(out)))
+		}
+	}
+	return Result{OK: true, ObservedState: "absent", Message: "website retired"}, nil
+}
+
 func (h *Host) rewriteConnZone() error {
 	dir, err := h.resolve("/etc/nginx/panel-sites")
 	if err != nil {

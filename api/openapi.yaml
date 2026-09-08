@@ -277,6 +277,20 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/{accountID}/websites/{websiteID}:
+    delete:
+      operationId: deleteWebsite
+      x-capability: websites.write
+      x-audit-action: website.delete
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: websiteID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: retire queued }
+        "409": { description: primary domain website }
   /accounts/{accountID}/wordpress:
     post:
       operationId: installWordPress

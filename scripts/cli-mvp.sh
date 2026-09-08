@@ -32,6 +32,18 @@ code=$(curl -sS -o /tmp/climvp.html -w '%{http_code}' -H 'Host: climvp.test' htt
 $CLI file write "$aid" /public_html/cli.txt climvp-ok
 $CLI file list "$aid" /public_html | python3 -c 'import json,sys; names=[i["name"] for i in json.load(sys.stdin).get("items") or []];
 assert "cli.txt" in names, names'
+RDOM="gone.climvp.test"
+rdid=$(curl -sS "$PANEL_API/api/v1/accounts/$aid/domains" -H "Authorization: Bearer $PANEL_TOKEN" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$RDOM'), ''))")
+if [[ -z "$rdid" ]]; then
+  dcreated=$($CLI domain create "$aid" "$RDOM" php subdomain)
+  dop=$(echo "$dcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  [[ -n "$dop" ]] && $CLI job wait "$dop"
+fi
+rwid=$(curl -sS "$PANEL_API/api/v1/accounts/$aid/websites" -H "Authorization: Bearer $PANEL_TOKEN" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((i['id'] for i in items if 'gone.climvp.test' in (i.get('document_root') or '')), ''))")
+[[ -n "$rwid" ]]
+wdel=$($CLI website delete "$aid" "$rwid")
+wop=$(echo "$wdel" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+[[ -n "$wop" ]] && $CLI job wait "$wop"
 mds=$(curl -sS "$PANEL_API/api/v1/accounts/$aid/mail/domains" -H "Authorization: Bearer $PANEL_TOKEN")
 mdid=$(echo "$mds" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; print(items[0]["id"] if items else "")')
 if [[ -n "$mdid" ]]; then

@@ -181,10 +181,32 @@ function Websites ({ accountId }: { accountId: string }) {
 			{msg ? <p>{msg}</p> : null}
 			{items.length === 0 ? <p>No websites yet. Provisioning creates one after the account job finishes.</p> : (
 				<table>
-					<thead><tr><th>Runtime</th><th>Document root</th><th>State</th></tr></thead>
-					<tbody>{items.map((it) => (
-						<tr key={it.id}><td>{it.runtime} {it.runtime_version}</td><td>{it.document_root}</td><td>{it.enabled === false ? 'disabled' : 'ready'}</td></tr>
-					))}</tbody>
+					<thead><tr><th>Hostname</th><th>Runtime</th><th>Document root</th><th>State</th><th></th></tr></thead>
+					<tbody>{items.map((it) => {
+						const domain = domains.find((d) => d.id === it.domain_id)
+						const isPrimary = domain?.type === 'primary'
+						return (
+							<tr key={it.id}>
+								<td>{domain?.ascii_fqdn || it.domain_id}</td>
+								<td>{it.runtime} {it.runtime_version}</td>
+								<td>{it.document_root}</td>
+								<td>{it.enabled === false ? 'disabled' : 'ready'}</td>
+								<td>
+									<Can cap="websites.write">
+										{isPrimary ? 'primary' : (
+											<button type="button" onClick={async () => {
+												try {
+													await api(`/api/v1/accounts/${accountId}/websites/${it.id}`, { method: 'DELETE' })
+													setMsg('Website retire queued')
+													await load()
+												} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
+											}}>Remove</button>
+										)}
+									</Can>
+								</td>
+							</tr>
+						)
+					})}</tbody>
 				</table>
 			)}
 		</>

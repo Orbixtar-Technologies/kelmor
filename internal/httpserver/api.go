@@ -97,6 +97,7 @@ func (a *API) Handler() http.Handler {
 				r.Post("/domains", a.createDomain)
 				r.Get("/websites", a.listWebsites)
 				r.Post("/websites", a.createWebsite)
+				r.Delete("/websites/{websiteID}", a.deleteWebsite)
 				r.Get("/applications", a.listApps)
 				r.Post("/applications", a.createApp)
 				r.Post("/wordpress", a.installWordPress)
@@ -1095,6 +1096,29 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 	a.Store.PutWebsite(&in)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "website.provision", ResourceType: "website", ResourceID: in.ID, Payload: map[string]any{"website_id": in.ID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "website": in})
+}
+
+func (a *API) deleteWebsite(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.WebsitesWrite) {
+		return
+	}
+	site := a.Store.GetWebsite(chi.URLParam(r, "websiteID"))
+	if site == nil || site.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "website missing", false)
+		return
+	}
+	if d := a.Store.GetDomain(site.DomainID); d != nil && d.Type == "primary" {
+		a.fail(w, r, 409, "IN_USE", "primary domain website cannot be deleted", false)
+		return
+	}
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "website.delete", ResourceType: "website", ResourceID: site.ID,
+		Payload: map[string]any{"website_id": site.ID},
+		State:   "queued",
+	})
+	a.audit(r, "website.delete", "website", site.ID, true, map[string]any{"domain_id": site.DomainID}, nil)
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
 func (a *API) listApps(w http.ResponseWriter, r *http.Request) {

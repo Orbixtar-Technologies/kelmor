@@ -138,6 +138,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.provisionDomain(j)
 	case "website.provision":
 		return w.provisionWebsite(j)
+	case "website.delete":
+		return w.deleteWebsite(j)
 	case "application.deploy":
 		return w.deployApp(j)
 	case "wordpress.install":
@@ -386,6 +388,29 @@ func (w *Worker) provisionDomain(j *store.Job) error {
 		return fmt.Errorf("missing domain or account")
 	}
 	return w.ensureDomainStack(d, acc, publicIPv4(), str(j.Payload["runtime"]))
+}
+
+func (w *Worker) deleteWebsite(j *store.Job) error {
+	site := w.Store.GetWebsite(str(j.Payload["website_id"]))
+	if site == nil {
+		return nil
+	}
+	acc := w.Store.GetAccount(site.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	if d := w.Store.GetDomain(site.DomainID); d != nil && d.Type == "primary" {
+		return fmt.Errorf("primary domain website cannot be deleted")
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "RetireWebsite",
+		Params: mustJSON(map[string]any{"website_id": site.ID, "account": acc.Username}),
+	})
+	if err != nil {
+		return err
+	}
+	w.Store.DeleteWebsite(site.ID)
+	return nil
 }
 
 func (w *Worker) provisionWebsite(j *store.Job) error {

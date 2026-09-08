@@ -43,6 +43,7 @@ func main() {
   db create <account_id> <name> <engine>
   db delete <account_id> <database_id>
   website create <account_id> <domain_id> <runtime>
+  website delete <account_id> <website_id>
   wordpress install <account_id> <website_id> <title> <admin> <password> <email>
   domain create <account_id> <fqdn> [runtime] [type]
   file list <account_id> [path]
@@ -141,6 +142,8 @@ func main() {
 		})
 	case args[0] == "website" && len(args) == 5 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/websites", token, map[string]any{"domain_id": args[3], "runtime": args[4]})
+	case args[0] == "website" && args[1] == "delete" && len(args) == 4:
+		do(http.MethodDelete, base+"/api/v1/accounts/"+args[2]+"/websites/"+args[3], token, nil, true)
 	case args[0] == "file" && args[1] == "list" && len(args) >= 3:
 		path := "/"
 		if len(args) >= 4 {

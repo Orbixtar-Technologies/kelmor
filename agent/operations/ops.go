@@ -182,6 +182,13 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			hold = *p.BandwidthHold
 		}
 		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect, enabled, hold, p.ConcurrentWebRequests, p.Aliases)
+	case "RetireWebsite":
+		var p struct {
+			WebsiteID string `json:"website_id"`
+			Account   string `json:"account"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.retireWebsite(p.WebsiteID, p.Account)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`
