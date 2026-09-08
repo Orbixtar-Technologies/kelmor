@@ -116,7 +116,7 @@ func startSMTPPolicy() {
 	if _, err := os.Stat("/usr/local/panel/bin/panel-smtp-policy"); err != nil {
 		return
 	}
-	if exec.Command("/usr/bin/pgrep", "-x", "panel-smtp-policy").Run() == nil {
+	if exec.Command("/usr/bin/pgrep", "-f", "/panel-smtp-policy").Run() == nil {
 		return
 	}
 	_ = os.MkdirAll("/var/lib/panel/mail/send-counts", 0o775)

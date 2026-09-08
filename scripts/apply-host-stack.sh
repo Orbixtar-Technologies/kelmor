@@ -222,7 +222,7 @@ EOF
   fi
 fi
 
-if [[ -x "$ROOT/dist/bin/panel-smtp-policy" ]] && ! pgrep -x panel-smtp-policy >/dev/null; then
+if [[ -x "$ROOT/dist/bin/panel-smtp-policy" ]] && ! pgrep -f '/panel-smtp-policy' >/dev/null; then
   sudo mkdir -p /var/lib/panel/mail/send-counts
   sudo chown panel:panel /var/lib/panel/mail/send-counts || true
   sudo chmod 0775 /var/lib/panel/mail/send-counts || true
