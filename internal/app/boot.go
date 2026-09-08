@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -14,7 +15,7 @@ import (
 )
 
 type Runtime struct {
-	Store  *store.Memory
+	Store  store.Store
 	API    *httpserver.API
 	Worker *job.Worker
 	Agent  *operations.Host
@@ -36,21 +37,29 @@ func Boot(ctx context.Context, service string) (*Runtime, error) {
 		return nil, err
 	}
 	log := logging.New(service)
-	st := store.NewMemory()
+	dsn := os.Getenv("PANEL_DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres:///panel_control?host=/var/run/postgresql"
+	}
+	pg, err := store.OpenPostgres(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("control database: %w", err)
+	}
+	pg.SeedDatabaseServers()
 	if os.Getenv("PANEL_SKIP_SEED") != "1" {
 		admin := env("PANEL_ADMIN_USER", "admin")
 		pass := env("PANEL_ADMIN_PASSWORD", "ChangeMeOnce!2026")
 		email := env("PANEL_ADMIN_EMAIL", "admin@localhost")
-		if err := store.SeedDev(st, admin, pass, email); err != nil {
+		if err := store.SeedDev(pg, admin, pass, email); err != nil {
 			return nil, err
 		}
 	}
 	agent := &operations.Host{Root: filepath.Join(root, "host")}
 	_ = os.MkdirAll(agent.Root, 0o755)
-	api := httpserver.New(st, log, agent)
-	w := job.New(st, agent, log, hostname())
-	rt := &Runtime{Store: st, API: api, Worker: w, Agent: agent, Log: log, Box: box, Root: root}
-	log.Info(ctx, "runtime.boot", map[string]any{"service": service, "key_fp": box.Fingerprint(), "state": root})
+	api := httpserver.New(pg, log, agent)
+	w := job.New(pg, agent, log, hostname())
+	rt := &Runtime{Store: pg, API: api, Worker: w, Agent: agent, Log: log, Box: box, Root: root}
+	log.Info(ctx, "runtime.boot", map[string]any{"service": service, "key_fp": box.Fingerprint(), "state": root, "database": "postgresql"})
 	return rt, nil
 }
 

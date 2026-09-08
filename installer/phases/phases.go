@@ -134,7 +134,13 @@ func applyUsers(c Config) error {
 
 func applyControlDB(c Config) error {
 	dir := root(c, "var/lib/panel/control")
-	return os.MkdirAll(dir, 0o750)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	if !c.Dev {
+		return nil
+	}
+	return os.WriteFile(filepath.Join(dir, "dsn"), []byte("postgres:///panel_control?host=/var/run/postgresql\n"), 0o640)
 }
 
 func applyControlPlane(c Config) error {

@@ -27,7 +27,7 @@ import (
 )
 
 type API struct {
-	Store   *store.Memory
+	Store   store.Store
 	Log     *logging.Logger
 	Agent   *operations.Host
 	Version string
@@ -36,7 +36,7 @@ type API struct {
 
 type ctxActor struct{}
 
-func New(st *store.Memory, log *logging.Logger, agent *operations.Host) *API {
+func New(st store.Store, log *logging.Logger, agent *operations.Host) *API {
 	return &API{Store: st, Log: log, Agent: agent, Version: "0.1.0", limiter: newLimiter()}
 }
 
@@ -386,9 +386,8 @@ func (a *API) createPackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.FeatureSetID == "" {
-		for _, f := range a.Store.Features {
-			p.FeatureSetID = f.ID
-			break
+		if sets := a.Store.ListFeatureSets(); len(sets) > 0 {
+			p.FeatureSetID = sets[0].ID
 		}
 	}
 	a.Store.PutPackage(&p)
@@ -413,6 +412,9 @@ func (a *API) createReseller(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id.New()
+	if in.UserID == "" || in.UserID == "pending" {
+		in.UserID = actor(r).UserID
+	}
 	if in.Status == "" {
 		in.Status = "active"
 	}

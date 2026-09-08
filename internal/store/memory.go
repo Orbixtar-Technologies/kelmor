@@ -113,6 +113,15 @@ func (m *Memory) RevokeSession(id string) {
 }
 
 func (m *Memory) PutFeature(f *FeatureSet) { m.mu.Lock(); m.Features[f.ID] = f; m.mu.Unlock() }
+func (m *Memory) ListFeatureSets() []FeatureSet {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]FeatureSet, 0, len(m.Features))
+	for _, f := range m.Features {
+		out = append(out, *f)
+	}
+	return out
+}
 func (m *Memory) PutPackage(p *Package)    { m.mu.Lock(); m.Packages[p.ID] = p; m.mu.Unlock() }
 func (m *Memory) GetPackage(id string) *Package {
 	m.mu.RLock()
@@ -249,6 +258,15 @@ func (m *Memory) ListWebsites(accountID string) []Website {
 }
 
 func (m *Memory) PutApp(a *Application) { m.mu.Lock(); m.Apps[a.ID] = a; m.mu.Unlock() }
+func (m *Memory) GetApp(id string) *Application {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if a := m.Apps[id]; a != nil {
+		cp := *a
+		return &cp
+	}
+	return nil
+}
 func (m *Memory) ListApps(accountID string) []Application {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -262,6 +280,15 @@ func (m *Memory) ListApps(accountID string) []Application {
 }
 
 func (m *Memory) PutDB(d *HostedDatabase) { m.mu.Lock(); m.DBs[d.ID] = d; m.mu.Unlock() }
+func (m *Memory) GetDB(id string) *HostedDatabase {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if d := m.DBs[id]; d != nil {
+		cp := *d
+		return &cp
+	}
+	return nil
+}
 func (m *Memory) ListDBs(accountID string) []HostedDatabase {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -287,6 +314,15 @@ func (m *Memory) ListDBUsers(accountID string) []DatabaseUser {
 }
 
 func (m *Memory) PutZone(z *DNSZone) { m.mu.Lock(); m.Zones[z.ID] = z; m.mu.Unlock() }
+func (m *Memory) GetZone(id string) *DNSZone {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if z := m.Zones[id]; z != nil {
+		cp := *z
+		return &cp
+	}
+	return nil
+}
 func (m *Memory) ZoneByDomain(domainID string) *DNSZone {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -347,6 +383,15 @@ func (m *Memory) ListMailDomains(accountID string) []MailDomain {
 	return out
 }
 func (m *Memory) PutMailbox(mb *Mailbox) { m.mu.Lock(); m.Mailboxes[mb.ID] = mb; m.mu.Unlock() }
+func (m *Memory) GetMailbox(id string) *Mailbox {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if mb := m.Mailboxes[id]; mb != nil {
+		cp := *mb
+		return &cp
+	}
+	return nil
+}
 func (m *Memory) ListMailboxes(accountID string) []Mailbox {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -360,6 +405,15 @@ func (m *Memory) ListMailboxes(accountID string) []Mailbox {
 }
 
 func (m *Memory) PutCert(c *Certificate) { m.mu.Lock(); m.Certs[c.ID] = c; m.mu.Unlock() }
+func (m *Memory) GetCert(id string) *Certificate {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if c := m.Certs[id]; c != nil {
+		cp := *c
+		return &cp
+	}
+	return nil
+}
 func (m *Memory) ListCerts(accountID string) []Certificate {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -680,3 +734,5 @@ func Require(cond bool, msg string) error {
 	}
 	return nil
 }
+
+var _ Store = (*Memory)(nil)

@@ -11,9 +11,17 @@ This repository is the first production slice of that architecture: schema, auth
 
 ## Local preview (this environment)
 
+The control plane requires PostgreSQL (`panel_control`). Local peer auth:
+
+```bash
+sudo pg_ctlcluster 16 main start   # if the cluster is not running
+createdb panel_control             # once
+```
+
 ```bash
 make build
-PANEL_DEV=1 PANEL_STATE_DIR=$PWD/var/panel go run ./cmd/panel-dev
+PANEL_DEV=1 PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql \
+  PANEL_STATE_DIR=$PWD/var/panel go run ./cmd/panel-dev
 # other terminals
 cd portals/server && npm install && npm run dev
 cd portals/account && npm install && npm run dev

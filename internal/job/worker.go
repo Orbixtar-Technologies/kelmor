@@ -12,14 +12,14 @@ import (
 )
 
 type Worker struct {
-	Store  *store.Memory
+	Store  store.Store
 	Agent  *operations.Host
 	Log    *logging.Logger
 	Name   string
 	stop   chan struct{}
 }
 
-func New(st *store.Memory, agent *operations.Host, log *logging.Logger, name string) *Worker {
+func New(st store.Store, agent *operations.Host, log *logging.Logger, name string) *Worker {
 	return &Worker{Store: st, Agent: agent, Log: log, Name: name, stop: make(chan struct{})}
 }
 
@@ -225,29 +225,27 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 }
 
 func (w *Worker) deployApp(j *store.Job) error {
-	for _, app := range w.Store.ListApps("") {
-		if app.ID == str(j.Payload["application_id"]) {
-			app.Status = "running"
-			w.Store.PutApp(&app)
-			return nil
-		}
+	app := w.Store.GetApp(str(j.Payload["application_id"]))
+	if app == nil {
+		return fmt.Errorf("application missing")
 	}
-	return fmt.Errorf("application missing")
+	app.Status = "running"
+	w.Store.PutApp(app)
+	return nil
 }
 
 func (w *Worker) provisionDB(j *store.Job) error {
-	for _, d := range w.Store.ListDBs("") {
-		if d.ID == str(j.Payload["database_id"]) {
-			d.Status = "active"
-			w.Store.PutDB(&d)
-			return nil
-		}
+	d := w.Store.GetDB(str(j.Payload["database_id"]))
+	if d == nil {
+		return fmt.Errorf("database missing")
 	}
-	return fmt.Errorf("database missing")
+	d.Status = "active"
+	w.Store.PutDB(d)
+	return nil
 }
 
 func (w *Worker) syncDNS(j *store.Job) error {
-	z := w.Store.Zones[str(j.Payload["zone_id"])]
+	z := w.Store.GetZone(str(j.Payload["zone_id"]))
 	if z == nil {
 		return nil
 	}
@@ -257,28 +255,26 @@ func (w *Worker) syncDNS(j *store.Job) error {
 }
 
 func (w *Worker) provisionMailbox(j *store.Job) error {
-	for _, mb := range w.Store.ListMailboxes("") {
-		if mb.ID == str(j.Payload["mailbox_id"]) {
-			mb.Status = "active"
-			w.Store.PutMailbox(&mb)
-			return nil
-		}
+	mb := w.Store.GetMailbox(str(j.Payload["mailbox_id"]))
+	if mb == nil {
+		return fmt.Errorf("mailbox missing")
 	}
-	return fmt.Errorf("mailbox missing")
+	mb.Status = "active"
+	w.Store.PutMailbox(mb)
+	return nil
 }
 
 func (w *Worker) provisionCert(j *store.Job) error {
-	for _, c := range w.Store.ListCerts("") {
-		if c.ID == str(j.Payload["certificate_id"]) {
-			exp := time.Now().Add(90 * 24 * time.Hour)
-			c.Status = "active"
-			c.NotAfter = &exp
-			c.Issuer = "Let's Encrypt (dev)"
-			w.Store.PutCert(&c)
-			return nil
-		}
+	c := w.Store.GetCert(str(j.Payload["certificate_id"]))
+	if c == nil {
+		return fmt.Errorf("certificate missing")
 	}
-	return fmt.Errorf("certificate missing")
+	exp := time.Now().Add(90 * 24 * time.Hour)
+	c.Status = "active"
+	c.NotAfter = &exp
+	c.Issuer = "Let's Encrypt (dev)"
+	w.Store.PutCert(c)
+	return nil
 }
 
 func (w *Worker) createBackup(j *store.Job) error {
@@ -333,7 +329,7 @@ func mustJSON(v any) []byte {
 
 func intPtr(v int) *int { return &v }
 
-func findSite(st *store.Memory, domainID string) *store.Website {
+func findSite(st store.Store, domainID string) *store.Website {
 	for _, w := range st.ListWebsites("") {
 		if w.DomainID == domainID {
 			cp := w
