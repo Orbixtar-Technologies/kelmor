@@ -30,6 +30,9 @@ var allowedBins = map[string]bool{
 	"/usr/sbin/setquota":    true,
 	"/usr/bin/mysql":        true,
 	"/usr/bin/mariadb":      true,
+	"/usr/bin/mariadb-dump": true,
+	"/usr/bin/mysqldump":    true,
+	"/usr/bin/pg_dump":      true,
 	"/usr/bin/psql":         true,
 	"/usr/sbin/runuser":     true,
 	"/usr/bin/pdnsutil":     true,
@@ -53,6 +56,10 @@ var allowedServices = map[string]bool{
 }
 
 func runFixed(bin string, args ...string) ([]byte, error) {
+	return runFixedIO(bin, nil, args...)
+}
+
+func runFixedIO(bin string, stdin []byte, args ...string) ([]byte, error) {
 	bin = filepath.Clean(bin)
 	if !allowedBins[bin] {
 		return nil, fmt.Errorf("executable not allow-listed")
@@ -64,7 +71,31 @@ func runFixed(bin string, args ...string) ([]byte, error) {
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}
+	if stdin != nil {
+		cmd.Stdin = strings.NewReader(string(stdin))
+	}
 	return cmd.CombinedOutput()
+}
+
+func runFixedStdout(bin string, args ...string) ([]byte, error) {
+	bin = filepath.Clean(bin)
+	if !allowedBins[bin] {
+		return nil, fmt.Errorf("executable not allow-listed")
+	}
+	for _, a := range args {
+		if strings.ContainsAny(a, ";|&$`\n") {
+			return nil, fmt.Errorf("illegal argument")
+		}
+	}
+	cmd := exec.Command(bin, args...)
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("%s", strings.TrimSpace(stderr.String()+" "+err.Error()))
+	}
+	return []byte(stdout.String()), nil
 }
 
 func startDetached(bin, dir string, args ...string) (int, error) {

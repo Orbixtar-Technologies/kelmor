@@ -232,6 +232,22 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.createHostedDatabase(p.Engine, p.Name, p.Username, p.Password)
+	case "DumpHostedDatabase":
+		var p struct {
+			Engine string `json:"engine"`
+			Name   string `json:"name"`
+			Dest   string `json:"dest"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.dumpHostedDatabase(p.Engine, p.Name, p.Dest)
+	case "RestoreHostedDatabase":
+		var p struct {
+			Engine string `json:"engine"`
+			Name   string `json:"name"`
+			Source string `json:"source"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.restoreHostedDatabase(p.Engine, p.Name, p.Source)
 	case "DropHostedDatabase":
 		var p struct {
 			Engine   string `json:"engine"`

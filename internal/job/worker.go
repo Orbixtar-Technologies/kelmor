@@ -622,39 +622,15 @@ func (w *Worker) createBackup(j *store.Job) error {
 		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
 		localRoot = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
 	}
-	if w.Agent != nil && w.Agent.Sock != "" {
-		staging := "/var/lib/panel/backups/staging/" + b.ID + ".tar.gz"
-		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
-			Method: "PackDirectory",
-			Params: mustJSON(map[string]any{"source": acc.HomePath, "dest": staging}),
-		}); err != nil {
-			return err
-		}
-		raw, err := os.ReadFile(staging)
-		if err != nil {
-			return err
-		}
-		repo, err := backup.Open(b.Destination, localRoot)
-		if err != nil {
-			return err
-		}
-		man, key, err := backup.BuildArchive(context.Background(), w.Box, repo, acc, w.Store.ListDBs(acc.ID), w.Store.ListMailboxes(acc.ID), raw)
-		if err != nil {
-			return err
-		}
-		now := time.Now().UTC()
-		b.State = "succeeded"
-		b.FinishedAt = &now
-		b.Checksum = man.Checksums["files.tar.gz"]
-		b.Manifest = map[string]any{"format_version": man.FormatVersion, "key": key, "account_id": man.AccountID, "checksums": man.Checksums}
-		w.Store.PutBackup(b)
-		return nil
+	homeTar, dumps, mailTrees, err := w.collectBackupParts(acc, b.ID, home)
+	if err != nil {
+		return err
 	}
 	repo, err := backup.Open(b.Destination, localRoot)
 	if err != nil {
 		return err
 	}
-	man, key, err := backup.Build(context.Background(), w.Box, repo, acc, w.Store.ListDBs(acc.ID), w.Store.ListMailboxes(acc.ID), home)
+	man, key, err := backup.BuildFull(context.Background(), w.Box, repo, acc, w.Store.ListDBs(acc.ID), w.Store.ListMailboxes(acc.ID), homeTar, dumps, mailTrees)
 	if err != nil {
 		return err
 	}
@@ -662,7 +638,10 @@ func (w *Worker) createBackup(j *store.Job) error {
 	b.State = "succeeded"
 	b.FinishedAt = &now
 	b.Checksum = man.Checksums["files.tar.gz"]
-	b.Manifest = map[string]any{"format_version": man.FormatVersion, "key": key, "account_id": man.AccountID, "checksums": man.Checksums}
+	b.Manifest = map[string]any{
+		"format_version": man.FormatVersion, "key": key, "account_id": man.AccountID,
+		"checksums": man.Checksums, "databases": man.Databases, "mailboxes": man.Mailboxes,
+	}
 	w.Store.PutBackup(b)
 	return nil
 }
@@ -694,41 +673,183 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 	if err != nil {
 		return err
 	}
-	if w.Agent != nil && w.Agent.Sock != "" {
-		man, raw, err := backup.OpenArchive(context.Background(), w.Box, repo, key)
-		if err != nil {
-			return err
-		}
-		if err := backup.Preflight(man, acc); err != nil {
-			return err
-		}
-		staging := "/var/lib/panel/backups/staging/restore-" + b.ID + ".tar.gz"
-		if _, err := w.Agent.ApplyFile(staging, raw, 0o640); err != nil {
-			return err
-		}
-		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
-			Method: "UnpackDirectory",
-			Params: mustJSON(map[string]any{"archive": staging, "dest": acc.HomePath}),
-		}); err != nil {
-			return err
-		}
-		acc.Status = "active"
-		acc.DesiredRevision++
-		acc.ObservedRevision = acc.DesiredRevision
-		w.Store.PutAccount(acc)
-		return nil
-	}
-	man, err := backup.Restore(context.Background(), w.Box, repo, key, home)
+	man, raw, err := backup.OpenArchive(context.Background(), w.Box, repo, key)
 	if err != nil {
 		return err
 	}
 	if err := backup.Preflight(man, acc); err != nil {
 		return err
 	}
+	homeTar := raw
+	var dumps []backup.DBDump
+	var mailTrees []backup.MailDump
+	if man.FormatVersion == 2 {
+		homeTar, dumps, mailTrees, err = backup.SplitV2(raw)
+		if err != nil {
+			return err
+		}
+	}
+	if err := w.restoreHomeTar(acc, b.ID, home, homeTar); err != nil {
+		return err
+	}
+	if err := w.restoreDatabaseDumps(acc, b.ID, dumps); err != nil {
+		return err
+	}
+	if err := w.restoreMailboxTrees(acc, b.ID, mailTrees); err != nil {
+		return err
+	}
+	_ = w.applyMailStack(acc.ID)
 	acc.Status = "active"
 	acc.DesiredRevision++
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
+	return nil
+}
+
+func (w *Worker) hostPath(p string) string {
+	if w.Agent != nil && w.Agent.Sock == "" && w.Agent.Root != "" {
+		return filepath.Join(w.Agent.Root, strings.TrimPrefix(p, "/"))
+	}
+	return p
+}
+
+func (w *Worker) collectBackupParts(acc *store.Account, backupID, home string) ([]byte, []backup.DBDump, []backup.MailDump, error) {
+	stagingHome := "/var/lib/panel/backups/staging/" + backupID + "-home.tar.gz"
+	var homeTar []byte
+	if w.Agent != nil {
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "PackDirectory",
+			Params: mustJSON(map[string]any{"source": acc.HomePath, "dest": stagingHome}),
+		}); err != nil {
+			return nil, nil, nil, err
+		}
+		b, err := os.ReadFile(w.hostPath(stagingHome))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		homeTar = b
+	} else {
+		packed, err := backup.PackHome(home)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		homeTar = packed
+	}
+	var dumps []backup.DBDump
+	for _, d := range w.Store.ListDBs(acc.ID) {
+		if d.Name == "" {
+			continue
+		}
+		dest := "/var/lib/panel/backups/staging/" + backupID + "-" + d.Engine + "-" + d.Name + ".sql"
+		if w.Agent == nil {
+			continue
+		}
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "DumpHostedDatabase",
+			Params: mustJSON(map[string]any{"engine": d.Engine, "name": d.Name, "dest": dest}),
+		}); err != nil {
+			return nil, nil, nil, err
+		}
+		sql, err := os.ReadFile(w.hostPath(dest))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		dumps = append(dumps, backup.DBDump{Engine: d.Engine, Name: d.Name, SQL: sql})
+	}
+	var mailTrees []backup.MailDump
+	if w.Agent == nil {
+		return homeTar, dumps, mailTrees, nil
+	}
+	for _, rec := range mail.Recipients(w.Store, acc.ID) {
+		dest := "/var/lib/panel/backups/staging/" + backupID + "-mail-" + rec.Domain + "-" + rec.LocalPart + ".tar.gz"
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "PackDirectory",
+			Params: mustJSON(map[string]any{"source": rec.Home, "dest": dest}),
+		}); err != nil {
+			continue
+		}
+		raw, err := os.ReadFile(w.hostPath(dest))
+		if err != nil {
+			continue
+		}
+		mailTrees = append(mailTrees, backup.MailDump{Domain: rec.Domain, Local: rec.LocalPart, TarGz: raw})
+	}
+	return homeTar, dumps, mailTrees, nil
+}
+
+func (w *Worker) restoreHomeTar(acc *store.Account, backupID, destHome string, homeTar []byte) error {
+	if w.Agent != nil {
+		staging := "/var/lib/panel/backups/staging/restore-" + backupID + "-home.tar.gz"
+		if _, err := w.Agent.ApplyFile(staging, homeTar, 0o640); err != nil {
+			return err
+		}
+		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "UnpackDirectory",
+			Params: mustJSON(map[string]any{"archive": staging, "dest": acc.HomePath}),
+		})
+		return err
+	}
+	return backup.UnpackHomeBytes(homeTar, destHome)
+}
+
+func (w *Worker) restoreDatabaseDumps(acc *store.Account, backupID string, dumps []backup.DBDump) error {
+	for _, d := range dumps {
+		w.ensureRestoredDB(acc, d.Engine, d.Name)
+		if w.Agent == nil {
+			continue
+		}
+		src := "/var/lib/panel/backups/staging/restore-" + backupID + "-" + d.Engine + "-" + d.Name + ".sql"
+		if _, err := w.Agent.ApplyFile(src, d.SQL, 0o640); err != nil {
+			return err
+		}
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "RestoreHostedDatabase",
+			Params: mustJSON(map[string]any{"engine": d.Engine, "name": d.Name, "source": src}),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Worker) ensureRestoredDB(acc *store.Account, engine, name string) {
+	for _, existing := range w.Store.ListDBs(acc.ID) {
+		if existing.Name == name {
+			return
+		}
+	}
+	row := &store.HostedDatabase{ID: store.NewID(), AccountID: acc.ID, Engine: engine, Name: name, Status: "provisioning"}
+	w.Store.PutDB(row)
+	if w.Agent == nil {
+		return
+	}
+	pw := fmt.Sprintf("db-%s", store.NewID())
+	dbUser := acc.Username + "_u"
+	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "CreateHostedDatabase",
+		Params: mustJSON(map[string]any{"engine": engine, "name": name, "username": dbUser, "password": pw}),
+	})
+	row.Status = "active"
+	w.Store.PutDB(row)
+}
+
+func (w *Worker) restoreMailboxTrees(acc *store.Account, backupID string, trees []backup.MailDump) error {
+	if w.Agent == nil {
+		return nil
+	}
+	for _, m := range trees {
+		staging := "/var/lib/panel/backups/staging/restore-" + backupID + "-mail-" + m.Domain + "-" + m.Local + ".tar.gz"
+		if _, err := w.Agent.ApplyFile(staging, m.TarGz, 0o640); err != nil {
+			return err
+		}
+		dest := "/var/vmail/" + m.Domain + "/" + m.Local
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "UnpackDirectory",
+			Params: mustJSON(map[string]any{"archive": staging, "dest": dest}),
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

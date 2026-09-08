@@ -161,6 +161,9 @@ if [[ "$hasdb" != "True" ]]; then
   sleep 3
 fi
 curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; print("databases", [(i.get("name"), i.get("status"), i.get("engine")) for i in items])'
+DBNAME="${UNAME}_e2e"
+sudo mariadb "$DBNAME" -e "CREATE TABLE IF NOT EXISTS panel_restore(k varchar(32)); DELETE FROM panel_restore; INSERT INTO panel_restore VALUES ('before-backup');"
+echo before-backup | sudo tee "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker" >/dev/null
 
 curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type: application/json' \
   -d '{"path":"/public_html/restore-marker.txt","content":"before-backup"}' >/dev/null
@@ -171,6 +174,8 @@ bid=$(echo "$bak" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((
 bop=$(echo "$bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$bid" ]]
 wait_job "$bop" backup
+sudo mariadb "$DBNAME" -e "DELETE FROM panel_restore;"
+sudo rm -f "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker"
 curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type: application/json' \
   -d '{"path":"/public_html/restore-marker.txt","content":"after-backup"}' >/dev/null
 rst=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/restores" -H "$AUTH" -H 'content-type: application/json' \
@@ -179,6 +184,8 @@ echo "$rst"
 rop=$(echo "$rst" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$rop" restore
 sudo grep -q before-backup /home/$UNAME/public_html/restore-marker.txt
+sudo mariadb -N "$DBNAME" -e "SELECT k FROM panel_restore LIMIT 1;" | grep -q before-backup
+sudo grep -q before-backup "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker"
 
 exp=$(curl -sS "$BASE/api/v1/accounts/$aid/export" -H "$AUTH")
 echo "$exp" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("export", d.get("account",{}).get("username"))'

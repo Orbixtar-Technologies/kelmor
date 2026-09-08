@@ -37,12 +37,24 @@ func Build(ctx context.Context, box *secret.Box, repo Repository, acc *store.Acc
 	if err != nil {
 		return Manifest{}, "", err
 	}
-	return BuildArchive(ctx, box, repo, acc, dbs, mail, raw)
+	return BuildFull(ctx, box, repo, acc, dbs, mail, raw, nil, nil)
 }
 
 func BuildArchive(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, raw []byte) (Manifest, string, error) {
+	return sealArchive(ctx, box, repo, acc, dbs, mail, raw, 1)
+}
+
+func BuildFull(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, homeTar []byte, dumps []DBDump, mailTrees []MailDump) (Manifest, string, error) {
+	payload, err := PackV2(homeTar, dumps, mailTrees)
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	return sealArchive(ctx, box, repo, acc, dbs, mail, payload, 2)
+}
+
+func sealArchive(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, raw []byte, version int) (Manifest, string, error) {
 	man := Manifest{
-		FormatVersion: 1,
+		FormatVersion: version,
 		AccountID:     acc.ID,
 		Username:      acc.Username,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
@@ -99,7 +111,7 @@ func OpenArchive(ctx context.Context, box *secret.Box, repo Repository, key stri
 	if err := json.Unmarshal(rest[:i], &man); err != nil {
 		return Manifest{}, nil, err
 	}
-	if man.FormatVersion != 1 {
+	if man.FormatVersion != 1 && man.FormatVersion != 2 {
 		return Manifest{}, nil, fmt.Errorf("unsupported backup format %d", man.FormatVersion)
 	}
 	raw := rest[i+1:]
@@ -115,7 +127,15 @@ func Restore(ctx context.Context, box *secret.Box, repo Repository, key, destHom
 	if err != nil {
 		return Manifest{}, err
 	}
-	if err := unpackHome(raw, destHome); err != nil {
+	home := raw
+	if man.FormatVersion == 2 {
+		split, _, _, err := SplitV2(raw)
+		if err != nil {
+			return man, err
+		}
+		home = split
+	}
+	if err := unpackHome(home, destHome); err != nil {
 		return man, err
 	}
 	return man, nil
@@ -127,6 +147,10 @@ func Preflight(man Manifest, dest *store.Account) error {
 	}
 	return nil
 }
+
+func PackHome(home string) ([]byte, error) { return packHome(home) }
+
+func UnpackHomeBytes(raw []byte, dest string) error { return unpackHome(raw, dest) }
 
 func packHome(home string) ([]byte, error) {
 	var buf bytes.Buffer
