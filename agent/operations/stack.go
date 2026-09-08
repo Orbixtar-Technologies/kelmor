@@ -214,11 +214,48 @@ func (h *Host) applyAccountCron(username, body string) (Result, error) {
 	if err := validate.Username(username); err != nil {
 		return Result{}, err
 	}
-	path := "/var/lib/panel/cron/" + username
-	if _, err := h.ApplyFile(path, []byte(body), 0o600); err != nil {
+	rendered, err := renderSystemCron(username, body)
+	if err != nil {
+		return Result{}, err
+	}
+	if _, err := h.ApplyFile("/var/lib/panel/cron/"+username, []byte(rendered), 0o644); err != nil {
+		return Result{}, err
+	}
+	if _, err := h.ApplyFile("/etc/cron.d/panel-"+username, []byte(rendered), 0o644); err != nil {
 		return Result{}, err
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
+}
+
+func renderSystemCron(username, body string) (string, error) {
+	var out strings.Builder
+	out.WriteString("# Managed by Hosting Panel — do not edit\n")
+	out.WriteString("SHELL=/bin/sh\nPATH=/usr/bin:/bin\n")
+	wrote := 0
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			return "", fmt.Errorf("invalid cron line")
+		}
+		sched := strings.Join(fields[:5], " ")
+		cmd := strings.Join(fields[5:], " ")
+		if err := validate.CronSchedule(sched); err != nil {
+			return "", err
+		}
+		if err := validate.CronCommand(cmd); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&out, "%s %s %s\n", sched, username, cmd)
+		wrote++
+	}
+	if wrote == 0 {
+		out.WriteString("# no enabled jobs\n")
+	}
+	return out.String(), nil
 }
 
 func (h *Host) applyAuthorizedKeys(username, body string) (Result, error) {

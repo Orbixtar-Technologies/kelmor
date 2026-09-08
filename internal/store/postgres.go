@@ -204,6 +204,12 @@ func (p *PG) ListPackages() []Package {
 }
 
 func (p *PG) PutReseller(r *Reseller) {
+	if r.PrivilegeMask == nil {
+		r.PrivilegeMask = []string{}
+	}
+	if r.Nameservers == nil {
+		r.Nameservers = []string{}
+	}
 	_, _ = p.pool.Exec(p.ctx(), `
 		INSERT INTO resellers (id, user_id, name, brand_name, privilege_mask, nameservers, status)
 		VALUES ($1,$2,$3,$4,$5,$6,COALESCE(NULLIF($7,''),'active'))

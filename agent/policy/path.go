@@ -44,6 +44,9 @@ func ValidateManagedPath(p string) (string, error) {
 			break
 		}
 	}
+	if strings.HasPrefix(clean, "/etc/cron.d/panel-") {
+		ok = true
+	}
 	if !ok {
 		return "", fmt.Errorf("path outside approved prefixes")
 	}

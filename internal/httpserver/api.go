@@ -438,6 +438,12 @@ func (a *API) createReseller(w http.ResponseWriter, r *http.Request) {
 	if in.Status == "" {
 		in.Status = "active"
 	}
+	if len(in.Nameservers) == 0 {
+		in.Nameservers = []string{"ns1.localhost", "ns2.localhost"}
+	}
+	if in.PrivilegeMask == nil {
+		in.PrivilegeMask = []string{}
+	}
 	a.Store.PutReseller(&in)
 	a.audit(r, "reseller.create", "reseller", in.ID, true, nil, map[string]any{"name": in.Name})
 	writeJSON(w, 201, in)
@@ -1122,8 +1128,20 @@ func (a *API) createCron(w http.ResponseWriter, r *http.Request) {
 	}
 	var c store.CronJob
 	_ = json.NewDecoder(r.Body).Decode(&c)
+	if err := validate.CronSchedule(c.Schedule); err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	if err := validate.CronCommand(c.Command); err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	if acc := a.Store.GetAccount(aid); acc != nil && c.WorkingDirectory == "" {
+		c.WorkingDirectory = acc.HomePath
+	}
 	c.ID = id.New()
 	c.AccountID = aid
+	c.Enabled = true
 	a.Store.PutCron(&c)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "cron.apply", ResourceType: "account", ResourceID: aid, Payload: map[string]any{"account_id": aid}, State: "queued"})
 	writeJSON(w, 201, map[string]any{"cron": c, "operation_id": job.ID})
@@ -1285,8 +1303,11 @@ func defaultServices() []map[string]any {
 	out := []map[string]any{}
 	for _, p := range probes {
 		running := false
-		if b, err := os.ReadFile(p.pid); err == nil && len(bytesTrim(b)) > 0 {
-			running = true
+		for _, pidPath := range []string{p.pid, strings.TrimSuffix(p.pid, ".pid") + "/pdns.pid"} {
+			if b, err := os.ReadFile(pidPath); err == nil && len(bytesTrim(b)) > 0 {
+				running = true
+				break
+			}
 		}
 		if !running && p.addr != "" {
 			network, addr := "tcp", p.addr

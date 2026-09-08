@@ -18,6 +18,7 @@ func applyHostRuntime(c Config) error {
 		{"/usr/sbin/nginx"},
 		{"/usr/sbin/postfix", "start"},
 		{"/usr/sbin/dovecot"},
+		{"/usr/sbin/pdns_server", "--daemon"},
 		{"/usr/sbin/clamd"},
 		{"/usr/bin/freshclam", "--daemon"},
 	}

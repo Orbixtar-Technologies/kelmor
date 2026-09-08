@@ -86,6 +86,36 @@ func IPv4(s string) error {
 	return nil
 }
 
+func CronSchedule(s string) error {
+	fields := strings.Fields(s)
+	if len(fields) != 5 {
+		return fmt.Errorf("cron schedule must have 5 fields")
+	}
+	for _, f := range fields {
+		if f == "" || strings.ContainsAny(f, ";|&$`\n") {
+			return fmt.Errorf("invalid cron schedule")
+		}
+		for _, r := range f {
+			ok := (r >= '0' && r <= '9') || r == '*' || r == '/' || r == '-' || r == ','
+			if !ok {
+				return fmt.Errorf("invalid cron schedule")
+			}
+		}
+	}
+	return nil
+}
+
+func CronCommand(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 256 {
+		return fmt.Errorf("invalid cron command")
+	}
+	if strings.ContainsAny(s, ";|&$`\n") {
+		return fmt.Errorf("cron command contains shell metacharacters")
+	}
+	return nil
+}
+
 func IPv6(s string) error {
 	ip := net.ParseIP(s)
 	if ip == nil || ip.To4() != nil {

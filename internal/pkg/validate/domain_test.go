@@ -15,6 +15,21 @@ func TestNormalizeDomain(t *testing.T) {
 	}
 }
 
+func TestCronScheduleAndCommand(t *testing.T) {
+	if err := CronSchedule("0 * * * *"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CronSchedule("hourly"); err == nil {
+		t.Fatal("need 5 fields")
+	}
+	if err := CronCommand("php cron.php"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CronCommand("php cron.php; rm -rf /"); err == nil {
+		t.Fatal("metachar")
+	}
+}
+
 func TestUsername(t *testing.T) {
 	if err := Username("acme42"); err != nil {
 		t.Fatal(err)
