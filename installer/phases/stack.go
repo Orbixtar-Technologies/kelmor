@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hosting-panel/panel/internal/firewall"
+	"github.com/hosting-panel/panel/internal/netaddr"
 )
 
 //go:embed units/*.service
@@ -22,12 +23,13 @@ func applyDNS(c Config) error {
 	if err := os.MkdirAll(root(c, "var/lib/panel/dns/zones"), 0o755); err != nil {
 		return err
 	}
+	listen := strings.Join(netaddr.DNSListenIPv4(), ",")
 	body := `setuid=pdns
 setgid=pdns
 launch=bind
 bind-config=/etc/powerdns/named.conf
 bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3
-local-address=127.0.0.1
+local-address=` + listen + `
 local-port=53
 webserver=yes
 webserver-address=127.0.0.1
@@ -42,6 +44,12 @@ api-key=panel-loopback
 	if err := ensureFileContains(pdnsConf, "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3\n"); err != nil {
 		return err
 	}
+	if err := replaceConfigLine(pdnsConf, "local-address=", "local-address="+listen+"\n"); err != nil {
+		return err
+	}
+	if err := writePublicEnv(c); err != nil {
+		return err
+	}
 	named := `options {
     directory "/var/lib/panel/dns/zones";
 };
@@ -51,9 +59,27 @@ include "/var/lib/panel/dns/named-zones.conf";
 		return err
 	}
 	if _, err := os.Stat(root(c, "var/lib/panel/dns/named-zones.conf")); os.IsNotExist(err) {
-		return os.WriteFile(root(c, "var/lib/panel/dns/named-zones.conf"), []byte(""), 0o644)
+		if err := os.WriteFile(root(c, "var/lib/panel/dns/named-zones.conf"), []byte(""), 0o644); err != nil {
+			return err
+		}
 	}
+	reloadLivePowerDNS(c)
 	return nil
+}
+
+func reloadLivePowerDNS(c Config) {
+	if c.Dev {
+		return
+	}
+	if _, err := os.Stat("/usr/sbin/pdns_server"); err != nil {
+		return
+	}
+	_ = exec.Command("/usr/bin/pkill", "-x", "pdns_server").Run()
+	time.Sleep(200 * time.Millisecond)
+	cmd := exec.Command("/usr/sbin/pdns_server", "--daemon=yes", "--guardian=no", "--config-dir=/etc/powerdns")
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin"}
+	_ = cmd.Start()
+	_ = waitListen("127.0.0.1:53", 3*time.Second)
 }
 
 func applyMail(c Config) error {
@@ -401,6 +427,38 @@ func writeUnlessExists(path string, body []byte, mode os.FileMode) error {
 	return os.WriteFile(path, body, mode)
 }
 
+func writePublicEnv(c Config) error {
+	pub := netaddr.PublicIPv4()
+	body := "PANEL_PUBLIC_IPV4=" + pub + "\n"
+	return os.WriteFile(root(c, "var/lib/panel/public.env"), []byte(body), 0o640)
+}
+
+func replaceConfigLine(path, prefix, line string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(b), "\n")
+	found := false
+	for i, l := range lines {
+		if strings.HasPrefix(l, prefix) {
+			lines[i] = strings.TrimSuffix(line, "\n")
+			found = true
+		}
+	}
+	if !found {
+		if !strings.HasSuffix(string(b), "\n") && len(b) > 0 {
+			b = append(b, '\n')
+		}
+		return os.WriteFile(path, append(b, []byte(line)...), 0o640)
+	}
+	out := strings.Join(lines, "\n")
+	if !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return os.WriteFile(path, []byte(out), 0o640)
+}
+
 func ensureFileContains(path, line string) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -503,6 +561,11 @@ func verifyDNS(c Config) error {
 	}
 	if err := waitListen("127.0.0.1:53", 2*time.Second); err != nil {
 		return fmt.Errorf("powerdns is not listening: %w", err)
+	}
+	if pub := netaddr.PublicIPv4(); pub != "127.0.0.1" {
+		if err := waitListen(net.JoinHostPort(pub, "53"), 2*time.Second); err != nil {
+			return fmt.Errorf("powerdns is not listening on public %s: %w", pub, err)
+		}
 	}
 	return nil
 }

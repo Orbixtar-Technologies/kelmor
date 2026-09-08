@@ -32,7 +32,7 @@ echo "== UI live path =="
 bash "$ROOT/scripts/ui-mvp.sh"
 
 echo "== host probes =="
-dig +short @127.0.0.1 livehost.test A | grep -q 127.0.0.1
+dig +short @127.0.0.1 livehost.test A | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
 code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: livehost.test' http://127.0.0.1/)
 if [[ "$code" == "301" || "$code" == "302" ]]; then
   code=$(curl -sk -o /dev/null -w '%{http_code}' --resolve livehost.test:443:127.0.0.1 https://livehost.test/)

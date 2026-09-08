@@ -27,7 +27,16 @@ for i in $(seq 1 20); do
   [[ "$st" == "active" ]] && break
   sleep 1
 done
-code=$(curl -sS -o /tmp/climvp.html -w '%{http_code}' -H 'Host: climvp.test' http://127.0.0.1/)
+host_fetch() {
+  local host="$1" out="${2:-/tmp/cli-host.body}"
+  local code
+  code=$(curl -sS -o "$out" -w '%{http_code}' -H "Host: $host" http://127.0.0.1/ || true)
+  if [[ "$code" == "301" || "$code" == "302" ]]; then
+    code=$(curl -sk -o "$out" -w '%{http_code}' --resolve "$host:443:127.0.0.1" "https://$host/" || true)
+  fi
+  printf '%s' "$code"
+}
+code=$(host_fetch climvp.test /tmp/climvp.html)
 [[ "$code" == "200" ]]
 $CLI file write "$aid" /public_html/cli.txt climvp-ok
 $CLI file list "$aid" /public_html | python3 -c 'import json,sys; names=[i["name"] for i in json.load(sys.stdin).get("items") or []];
@@ -74,7 +83,7 @@ sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(
 [[ -n "$sop" ]] && $CLI job wait "$sop"
 code=""
 for _ in $(seq 1 20); do
-  code=$(curl -sS -o /tmp/climvp-sus.html -w '%{http_code}' -H 'Host: climvp.test' http://127.0.0.1/)
+  code=$(host_fetch climvp.test /tmp/climvp-sus.html)
   [[ "$code" == "503" ]] && break
   sleep 0.2
 done
@@ -84,7 +93,7 @@ uop=$(echo "$uns" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(
 [[ -n "$uop" ]] && $CLI job wait "$uop"
 code=""
 for _ in $(seq 1 20); do
-  code=$(curl -sS -o /tmp/climvp.html -w '%{http_code}' -H 'Host: climvp.test' http://127.0.0.1/)
+  code=$(host_fetch climvp.test /tmp/climvp.html)
   [[ "$code" == "200" ]] && break
   sleep 0.2
 done
@@ -106,7 +115,7 @@ for i in $(seq 1 20); do
   [[ "$st" == "active" ]] && break
   sleep 1
 done
-code=$(curl -sS -o /tmp/climig.html -w '%{http_code}' -H 'Host: climig.test' http://127.0.0.1/)
+code=$(host_fetch climig.test /tmp/climig.html)
 [[ "$code" == "200" ]]
 $CLI audit | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; assert len(items)>0'
 echo CLI_MVP_OK

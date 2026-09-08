@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Drive Server Portal + Account Portal through the MVP surfaces in Chrome.
 import http from 'node:http'
+import https from 'node:https'
 import puppeteer from 'puppeteer-core'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -44,6 +45,22 @@ function httpHost (host) {
 			headers: { Host: host },
 		}, (res) => {
 			res.resume()
+			if (res.statusCode === 301 || res.statusCode === 302) {
+				const tls = https.request({
+					host: '127.0.0.1',
+					port: 443,
+					path: '/',
+					servername: host,
+					headers: { Host: host },
+					rejectUnauthorized: false,
+				}, (sec) => {
+					sec.resume()
+					resolve(sec.statusCode)
+				})
+				tls.on('error', reject)
+				tls.end()
+				return
+			}
 			resolve(res.statusCode)
 		})
 		req.on('error', reject)

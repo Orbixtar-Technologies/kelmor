@@ -14,6 +14,7 @@ import (
 	"github.com/hosting-panel/panel/internal/backup"
 	"github.com/hosting-panel/panel/internal/dns"
 	"github.com/hosting-panel/panel/internal/mail"
+	"github.com/hosting-panel/panel/internal/netaddr"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/secret"
 	"github.com/hosting-panel/panel/internal/store"
@@ -1684,10 +1685,7 @@ func (w *Worker) collapseDomainWebsites(acc *store.Account, d *store.Domain, kee
 }
 
 func publicIPv4() string {
-	if v := os.Getenv("PANEL_PUBLIC_IPV4"); v != "" {
-		return v
-	}
-	return "127.0.0.1"
+	return netaddr.PublicIPv4()
 }
 
 func gone(err error) bool {

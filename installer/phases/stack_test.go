@@ -7,6 +7,7 @@ import (
 )
 
 func TestDevInstallWritesHostStack(t *testing.T) {
+	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.10")
 	dir := t.TempDir()
 	wd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -51,6 +52,7 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/systemd/system/panel-agent.service",
 		"var/panel/host/etc/systemd/system/panel-smtp-policy.service",
 		"var/panel/host/var/lib/panel/health-report.txt",
+		"var/panel/host/var/lib/panel/public.env",
 	}
 	for _, rel := range need {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
@@ -74,12 +76,25 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/acme.env") {
 		t.Fatalf("worker unit missing ACME env file: %s", worker)
 	}
+	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/public.env") {
+		t.Fatalf("worker unit missing public IPv4 env file: %s", worker)
+	}
 	pdns, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !contains(string(pdns), "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3") {
 		t.Fatalf("pdns.conf missing DNSSEC db: %s", pdns)
+	}
+	if !contains(string(pdns), "local-address=127.0.0.1,203.0.113.10") {
+		t.Fatalf("pdns.conf missing public listen: %s", pdns)
+	}
+	pubenv, err := os.ReadFile(filepath.Join(dir, "var/panel/host/var/lib/panel/public.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(pubenv), "PANEL_PUBLIC_IPV4=203.0.113.10") {
+		t.Fatalf("public.env: %s", pubenv)
 	}
 	acme, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/nginx/panel-sites/00-acme.conf"))
 	if err != nil {
