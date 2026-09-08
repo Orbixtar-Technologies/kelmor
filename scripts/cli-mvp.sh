@@ -78,6 +78,13 @@ fi
 bak=$($CLI backup create "$aid")
 bop=$(echo "$bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$bop" ]] && $CLI job wait "$bop"
+if [[ -f /var/lib/panel/secrets/backup-sftp.env ]]; then
+  sbak=$($CLI backup create "$aid" sftp)
+  sbop=$(echo "$sbak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  [[ -n "$sbop" ]] && $CLI job wait "$sbop"
+  echo "$sbak" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert (d.get("backup") or {}).get("destination")=="sftp", d'
+  echo "cli-sftp-backup ok"
+fi
 sus=$($CLI account suspend "$aid")
 sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$sop" ]] && $CLI job wait "$sop"

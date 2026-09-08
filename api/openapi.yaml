@@ -583,6 +583,16 @@ paths:
       x-capability: backups.restore
       parameters:
         - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [backup_id]
+              properties:
+                backup_id: { type: string }
+                mode: { type: string, enum: [in_place] }
       responses:
         "202": { description: restore queued }
   /accounts/{accountID}/dns/zones:
@@ -696,6 +706,14 @@ paths:
       x-capability: backups.create
       parameters:
         - $ref: "#/components/parameters/accountID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind: { type: string, enum: [full] }
+                destination: { type: string, enum: [local, sftp, s3] }
       responses:
         "202": { description: queued }
   /accounts/{accountID}/ssh-keys:

@@ -51,7 +51,7 @@ func main() {
   file write <account_id> <path> <content>
   ssh-key add <account_id> <public_key> [label]
   ssh-key delete <account_id> <key_id>
-  backup create <account_id>
+  backup create <account_id> [local|sftp|s3]
   backup restore <account_id> <backup_id>
   jobs list
   jobs failed
@@ -181,8 +181,12 @@ func main() {
 		post(base+"/api/v1/accounts/"+args[2]+"/terminate", token, map[string]any{})
 	case args[0] == "account" && len(args) == 3 && args[1] == "export":
 		get(base+"/api/v1/accounts/"+args[2]+"/export", token)
-	case args[0] == "backup" && len(args) == 3 && args[1] == "create":
-		post(base+"/api/v1/accounts/"+args[2]+"/backups", token, map[string]any{"kind": "full", "destination": "local"})
+	case args[0] == "backup" && args[1] == "create" && (len(args) == 3 || len(args) == 4):
+		dest := "local"
+		if len(args) == 4 {
+			dest = args[3]
+		}
+		post(base+"/api/v1/accounts/"+args[2]+"/backups", token, map[string]any{"kind": "full", "destination": dest})
 	case args[0] == "job" && args[1] == "wait" && len(args) == 3:
 		waitJob(base, token, args[2])
 	case join(args) == "jobs list":
@@ -218,7 +222,7 @@ func migrateAccount(base, token, id, user, domain string) {
 }
 
 func waitJob(base, token, id string) {
-	deadline := time.Now().Add(45 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		out := do(http.MethodGet, base+"/api/v1/jobs/"+id, token, nil, false)
 		st, _ := out["state"].(string)
