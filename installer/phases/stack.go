@@ -838,6 +838,12 @@ func verifySystemd(c Config) error {
 	if _, err := os.Stat(root(c, "etc/systemd/system/panel-object-store.service")); err != nil {
 		return fmt.Errorf("panel-object-store.service missing")
 	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/multi-user.target.wants/panel-agent.service")); err != nil {
+		return fmt.Errorf("panel-agent.service is not enabled for multi-user boot")
+	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/multi-user.target.wants/panel-worker.service")); err != nil {
+		return fmt.Errorf("panel-worker.service is not enabled for multi-user boot")
+	}
 	return nil
 }
 
@@ -861,6 +867,24 @@ func applySystemd(c Config) error {
 			return err
 		}
 		if err := os.WriteFile(root(c, "etc/systemd/system/"+e.Name()), body, 0o644); err != nil {
+			return err
+		}
+	}
+	return enableBootUnits(c)
+}
+
+func enableBootUnits(c Config) error {
+	wants := root(c, "etc/systemd/system/multi-user.target.wants")
+	if err := os.MkdirAll(wants, 0o755); err != nil {
+		return err
+	}
+	for _, name := range []string{
+		"panel-agent.service", "panel-api.service", "panel-worker.service",
+		"panel-smtp-policy.service", "panel-object-store.service",
+	} {
+		link := filepath.Join(wants, name)
+		_ = os.Remove(link)
+		if err := os.Symlink("../"+name, link); err != nil {
 			return err
 		}
 	}

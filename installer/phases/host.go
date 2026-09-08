@@ -245,14 +245,20 @@ func startControlPlane() {
 		if exec.Command("/usr/bin/pgrep", "-x", name).Run() == nil {
 			continue
 		}
-		cmd := exec.Command("/usr/bin/sudo", "-u", "panel", "-g", "panel", "env",
+		args := []string{"-u", "panel", "-g", "panel", "env",
 			"PANEL_STATE_DIR=/var/lib/panel",
 			"PANEL_AGENT_SOCK=/run/panel/agent.sock",
 			"PANEL_API_ADDR=127.0.0.1:18080",
 			"PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql",
 			"PANEL_PDNS_URL=http://127.0.0.1:8081",
 			"PANEL_PDNS_API_KEY=panel-loopback",
-			"/usr/local/panel/bin/"+name)
+		}
+		args = append(args, loadEnvPairs("/var/lib/panel/public.env")...)
+		args = append(args, loadEnvPairs("/var/lib/panel/acme.env")...)
+		args = append(args, loadEnvPairs("/var/lib/panel/secrets/backup-sftp.env")...)
+		args = append(args, loadEnvPairs("/var/lib/panel/secrets/backup-s3.env")...)
+		args = append(args, "/usr/local/panel/bin/"+name)
+		cmd := exec.Command("/usr/bin/sudo", args...)
 		_ = cmd.Start()
 	}
 }

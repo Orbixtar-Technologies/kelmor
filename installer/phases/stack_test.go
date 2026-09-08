@@ -57,6 +57,8 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/usr/local/panel/share/portals/account/index.html",
 		"var/panel/host/var/lib/panel/acme-www/.well-known/acme-challenge",
 		"var/panel/host/etc/systemd/system/panel-agent.service",
+		"var/panel/host/etc/systemd/system/multi-user.target.wants/panel-agent.service",
+		"var/panel/host/etc/systemd/system/multi-user.target.wants/panel-worker.service",
 		"var/panel/host/etc/systemd/system/panel-smtp-policy.service",
 		"var/panel/host/var/lib/panel/health-report.txt",
 		"var/panel/host/var/lib/panel/public.env",
