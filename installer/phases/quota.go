@@ -29,15 +29,8 @@ func verifyQuotaHomes(c Config) error {
 		}
 		return nil
 	}
-	if !kernelQuotaSupported() {
-		return nil
-	}
-	if _, err := os.Stat("/var/lib/panel/quota-unavailable"); err == nil {
-		_, err := os.Stat(quotaMount)
+	if _, err := os.Stat(quotaMount); err != nil {
 		return err
-	}
-	if !pathMounted(quotaMount) {
-		return fmt.Errorf("%s is not a mounted quota filesystem", quotaMount)
 	}
 	return nil
 }
