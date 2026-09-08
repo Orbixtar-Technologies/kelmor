@@ -1,6 +1,7 @@
 package phases
 
 import (
+	"embed"
 	"fmt"
 	"net"
 	"os"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/hosting-panel/panel/internal/firewall"
 )
+
+//go:embed units/*.service
+var systemdUnits embed.FS
 
 func applyDNS(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/powerdns"), 0o755); err != nil {
@@ -430,80 +434,22 @@ func applySystemd(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/systemd/system"), 0o755); err != nil {
 		return err
 	}
-	units := map[string]string{
-		"panel-api.service": `[Unit]
-Description=Hosting Panel Control API
-After=network-online.target postgresql.service panel-agent.service
-Wants=panel-agent.service
-[Service]
-Type=simple
-User=panel
-Group=panel
-Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql
-Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
-Environment=PANEL_STATE_DIR=/var/lib/panel
-Environment=PANEL_API_ADDR=127.0.0.1:18080
-ExecStart=/usr/local/panel/bin/panel-api
-Restart=on-failure
-RestartSec=2
-[Install]
-WantedBy=multi-user.target
-`,
-		"panel-worker.service": `[Unit]
-Description=Hosting Panel Desired-State Worker
-After=panel-api.service panel-agent.service postgresql.service
-Wants=panel-agent.service
-[Service]
-Type=simple
-User=panel
-Group=panel
-Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql
-Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
-Environment=PANEL_STATE_DIR=/var/lib/panel
-Environment=PANEL_PDNS_URL=http://127.0.0.1:8081
-Environment=PANEL_PDNS_API_KEY=panel-loopback
-EnvironmentFile=-/var/lib/panel/acme.env
-ExecStart=/usr/local/panel/bin/panel-worker
-Restart=on-failure
-RestartSec=2
-[Install]
-WantedBy=multi-user.target
-`,
-		"panel-agent.service": `[Unit]
-Description=Hosting Panel Privileged Agent
-After=network-online.target
-[Service]
-Type=simple
-User=root
-Group=root
-RuntimeDirectory=panel
-RuntimeDirectoryMode=0751
-Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
-ExecStart=/usr/local/panel/bin/panel-agent
-Restart=on-failure
-RestartSec=1
-[Install]
-WantedBy=multi-user.target
-`,
-		"panel-smtp-policy.service": `[Unit]
-Description=Hosting Panel SMTP send-limit policy
-After=network-online.target
-[Service]
-Type=simple
-User=panel
-Group=panel
-Environment=PANEL_SMTP_POLICY_ADDR=127.0.0.1:10031
-Environment=PANEL_SMTP_LIMITS=/var/lib/panel/mail/send-limits
-Environment=PANEL_SMTP_COUNTS=/var/lib/panel/mail/send-counts
-ExecStart=/usr/local/panel/bin/panel-smtp-policy
-Restart=on-failure
-RestartSec=2
-[Install]
-WantedBy=multi-user.target
-`,
+	entries, err := systemdUnits.ReadDir("units")
+	if err != nil {
+		return err
 	}
-	for name, body := range units {
-		if err := os.WriteFile(root(c, "etc/systemd/system/"+name), []byte(body), 0o644); err != nil {
+	if len(entries) == 0 {
+		return fmt.Errorf("embedded systemd units missing")
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".service") {
+			continue
+		}
+		body, err := systemdUnits.ReadFile("units/" + e.Name())
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(root(c, "etc/systemd/system/"+e.Name()), body, 0o644); err != nil {
 			return err
 		}
 	}

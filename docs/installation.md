@@ -5,7 +5,10 @@ Target: Ubuntu 24.04 LTS, amd64 or arm64, no container runtime required for the 
 Minimum production: 4 vCPU, 8 GB RAM, 100 GB SSD.
 
 ```bash
-sudo ./panel-install --hostname panel.example.net --admin-email ops@example.net --non-interactive --channel stable
+# from this tree:
+make package   # dist/deb/hosting-panel_*.deb (binaries, portals, systemd units)
+sudo dpkg -i dist/deb/hosting-panel_*.deb
+sudo panel-install --hostname panel.example.net --admin-email ops@example.net --non-interactive --channel stable
 ```
 
 Resume is automatic via `/var/lib/panel/install-state.json`. Structured logs are appended as JSON lines.

@@ -4,7 +4,7 @@ Section: admin
 Priority: optional
 Architecture: amd64
 Maintainer: Hosting Panel <ops@localhost>
-Depends: nginx, php8.3-fpm, postfix, dovecot-core, postgresql, mariadb-server
-Description: Ubuntu 24.04 hosting control plane
- Desired-state API, worker, privileged agent, and CLI for isolated
- hosting accounts. Portals are served separately.
+Depends: nginx, php8.3-fpm, php8.3-cli, php8.3-mysql, php8.3-xml, postfix, dovecot-core, dovecot-imapd, dovecot-lmtpd, postgresql, mariadb-server, pdns-server, vsftpd, libpam-pwdfile, nftables, acl, nodejs, python3, openssh-server
+Description: Ubuntu 24.04 hosting operating platform
+ Desired-state API, worker, privileged agent, CLI, and nginx-served
+ Server/Account portals (8443/8444). Run panel-install after install.

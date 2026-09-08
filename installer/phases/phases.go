@@ -211,12 +211,42 @@ func applyControlPlane(c Config) error {
 	if copied == 0 {
 		return fmt.Errorf("no panel-* binaries copied from %s", src)
 	}
+	if err := installPackedPortals(src); err != nil {
+		return err
+	}
 	for _, d := range []string{"/var/lib/panel/secrets", "/var/lib/panel/control", "/var/lib/panel/jobs"} {
 		_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", d).Run()
 	}
 	_ = os.Chmod("/var/lib/panel", 0o755)
 	_ = os.Chmod("/var/lib/panel/mail", 0o755)
 	return nil
+}
+
+func installPackedPortals(binSrc string) error {
+	candidates := []string{
+		filepath.Join(filepath.Dir(binSrc), "..", "share", "portals"),
+		filepath.Join(binSrc, "..", "share", "portals"),
+		"dist/share/portals",
+		"/usr/local/panel/share/portals",
+	}
+	var src string
+	for _, p := range candidates {
+		if _, err := os.Stat(filepath.Join(p, "server", "index.html")); err == nil {
+			src = p
+			break
+		}
+	}
+	if src == "" {
+		return nil
+	}
+	dest := "/usr/local/panel/share/portals"
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	if src == dest {
+		return nil
+	}
+	return copyPortalTree(src, dest)
 }
 
 func controlPlaneSource() string {

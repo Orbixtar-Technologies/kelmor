@@ -1,0 +1,15 @@
+[Unit]
+Description=Hosting Panel SMTP send-limit policy
+After=network-online.target
+[Service]
+Type=simple
+User=panel
+Group=panel
+Environment=PANEL_SMTP_POLICY_ADDR=127.0.0.1:10031
+Environment=PANEL_SMTP_LIMITS=/var/lib/panel/mail/send-limits
+Environment=PANEL_SMTP_COUNTS=/var/lib/panel/mail/send-counts
+ExecStart=/usr/local/panel/bin/panel-smtp-policy
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target

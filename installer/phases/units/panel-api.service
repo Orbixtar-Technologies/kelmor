@@ -1,20 +1,17 @@
 [Unit]
-Description=Hosting Panel Worker
+Description=Hosting Panel Control API
 After=network-online.target postgresql.service panel-agent.service
-
+Wants=panel-agent.service
 [Service]
+Type=simple
 User=panel
 Group=panel
 Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql
 Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 Environment=PANEL_STATE_DIR=/var/lib/panel
-ExecStart=/usr/local/panel/bin/panel-worker
+Environment=PANEL_API_ADDR=127.0.0.1:18080
+ExecStart=/usr/local/panel/bin/panel-api
 Restart=on-failure
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/panel
-
+RestartSec=2
 [Install]
 WantedBy=multi-user.target
