@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 // Drive Server Portal + Account Portal through the MVP surfaces in Chrome.
-import { createRequire } from 'node:module'
+import http from 'node:http'
+import puppeteer from 'puppeteer-core'
 import { setTimeout as delay } from 'node:timers/promises'
-
-const require = createRequire(import.meta.url)
-const puppeteer = require('puppeteer-core')
 
 const SERVER = process.env.PANEL_SERVER_PORTAL || 'http://127.0.0.1:18443'
 const ACCOUNT = process.env.PANEL_ACCOUNT_PORTAL || 'http://127.0.0.1:18444'
@@ -37,11 +35,26 @@ async function textIncludes (page, needle) {
 	}
 }
 
-async function waitHTTP (host, want, tries = 40) {
+function httpHost (host) {
+	return new Promise((resolve, reject) => {
+		const req = http.request({
+			host: '127.0.0.1',
+			port: 80,
+			path: '/',
+			headers: { Host: host },
+		}, (res) => {
+			res.resume()
+			resolve(res.statusCode)
+		})
+		req.on('error', reject)
+		req.end()
+	})
+}
+
+async function waitHTTP (host, want, tries = 60) {
 	for (let i = 0; i < tries; i++) {
 		try {
-			const res = await fetch('http://127.0.0.1/', { headers: { Host: host } })
-			if (res.status === want) return
+			if (await httpHost(host) === want) return
 		} catch {
 			// retry
 		}
@@ -52,7 +65,7 @@ async function waitHTTP (host, want, tries = 40) {
 
 const browser = await puppeteer.launch({
 	executablePath: CHROME,
-	headless: 'new',
+	headless: true,
 	args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
 })
 const page = await browser.newPage()
@@ -62,13 +75,13 @@ try {
 	await page.waitForSelector('a[href="/accounts"]')
 	await textIncludes(page, 'Host operations')
 	await page.click('a[href="/accounts"]')
+	await page.waitForSelector('select[name="package_id"] option')
 	await page.waitForSelector('input[name="username"]')
 	await page.type('input[name="username"]', username)
 	await page.type('input[name="domain"]', domain)
 	await page.type('input[name="email"]', `ops@${domain}`)
 	await page.type('input[name="password"]', OWNER_PASS)
 	await page.click('button[type="submit"]')
-	await page.waitForFunction((u) => document.body.innerText.includes(u) || document.body.innerText.includes('Queued'), {}, username)
 	await waitHTTP(domain, 200)
 	await page.goto(`${SERVER}/accounts`, { waitUntil: 'networkidle0' })
 	await textIncludes(page, username)

@@ -126,8 +126,12 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 func (h *Host) stopAppProcess(websiteID, workDir string) {
 	sock := "/run/panel/apps/" + websiteID + ".sock"
 	killMatching(sock)
+	if websiteID != "" {
+		killMatching(websiteID + ".sock")
+	}
 	if workDir != "" {
 		killMatching(workDir)
+		killByCwd(workDir)
 	}
 	_ = os.Remove(sock)
 }
@@ -154,6 +158,30 @@ func killMatching(needle string) {
 			continue
 		}
 		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+}
+
+func killByCwd(dir string) {
+	if dir == "" || dir == "/" {
+		return
+	}
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	self := os.Getpid()
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid <= 1 || pid == self {
+			continue
+		}
+		cwd, err := os.Readlink(filepath.Join("/proc", e.Name(), "cwd"))
+		if err != nil {
+			continue
+		}
+		if cwd == dir || strings.HasPrefix(cwd, dir+"/") {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
 	}
 }
 

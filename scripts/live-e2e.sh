@@ -223,6 +223,13 @@ for _ in $(seq 1 20); do
   sleep 0.2
 done
 [[ "$uncode" == "200" ]] || { echo "expected HTTP 200 after unsuspend, got $uncode" >&2; exit 1; }
+pycode=""
+for _ in $(seq 1 20); do
+  pycode=$(curl -sS -o /tmp/py-uns.out -w '%{http_code}' -H 'Host: python.livehost.test' http://127.0.0.1/ || true)
+  [[ "$pycode" == "200" ]] && break
+  sleep 0.3
+done
+[[ "$pycode" == "200" ]] || { echo "python site down after unsuspend: $pycode" >&2; exit 1; }
 
 TUSER="tm$(date +%s)"
 TDOM="${TUSER}.test"
