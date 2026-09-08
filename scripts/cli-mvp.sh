@@ -85,6 +85,13 @@ if [[ -f /var/lib/panel/secrets/backup-sftp.env ]]; then
   echo "$sbak" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert (d.get("backup") or {}).get("destination")=="sftp", d'
   echo "cli-sftp-backup ok"
 fi
+if [[ -f /var/lib/panel/secrets/backup-s3.env ]]; then
+  s3bak=$($CLI backup create "$aid" s3)
+  s3op=$(echo "$s3bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  [[ -n "$s3op" ]] && $CLI job wait "$s3op"
+  echo "$s3bak" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert (d.get("backup") or {}).get("destination")=="s3", d'
+  echo "cli-s3-backup ok"
+fi
 sus=$($CLI account suspend "$aid")
 sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$sop" ]] && $CLI job wait "$sop"

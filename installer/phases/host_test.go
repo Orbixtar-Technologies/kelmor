@@ -2,6 +2,8 @@ package phases
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -39,6 +41,18 @@ func TestHostServicesStartPowerDNSWithConfigDir(t *testing.T) {
 	}
 	if len(need) != 0 {
 		t.Fatalf("missing host services %v", need)
+	}
+}
+
+func TestLoadEnvPairsReadsPanelKeys(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "backup-s3.env")
+	if err := os.WriteFile(p, []byte("# comment\nPANEL_S3_BUCKET=panel\nIGNORE=1\n\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	got := loadEnvPairs(p)
+	if len(got) != 1 || got[0] != "PANEL_S3_BUCKET=panel" {
+		t.Fatalf("%v", got)
 	}
 }
 

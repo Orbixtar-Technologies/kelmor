@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -86,6 +88,7 @@ func applyHostRuntime(c Config) error {
 	}
 	startControlPlane()
 	startSMTPPolicy()
+	startObjectStore()
 	_ = startLocalACME(c)
 	enablePanelUnits()
 	startAccountApps()
@@ -167,9 +170,49 @@ func enablePanelUnits() {
 	if exec.Command("/bin/systemctl", "is-system-running").Run() != nil {
 		return
 	}
-	for _, name := range []string{"panel-agent", "panel-api", "panel-worker", "panel-smtp-policy"} {
+	for _, name := range []string{"panel-agent", "panel-api", "panel-worker", "panel-smtp-policy", "panel-object-store"} {
 		_ = exec.Command("/bin/systemctl", "enable", "--now", name+".service").Run()
 	}
+}
+
+func startObjectStore() {
+	if _, err := os.Stat("/usr/local/panel/bin/panel-object-store"); err != nil {
+		return
+	}
+	if con, err := net.DialTimeout("tcp", "127.0.0.1:19090", 150*time.Millisecond); err == nil {
+		_ = con.Close()
+		return
+	}
+	if exec.Command("/usr/bin/pgrep", "-f", "/panel-object-store").Run() == nil {
+		return
+	}
+	_ = os.MkdirAll("/var/lib/panel/objects", 0o750)
+	_ = exec.Command("/bin/chown", "panel:panel", "/var/lib/panel/objects").Run()
+	args := []string{"-u", "panel", "-g", "panel", "env"}
+	args = append(args, loadEnvPairs("/var/lib/panel/secrets/backup-s3.env")...)
+	args = append(args, "/usr/local/panel/bin/panel-object-store")
+	cmd := exec.Command("/usr/bin/sudo", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	_ = cmd.Start()
+	_ = waitListen("127.0.0.1:19090", 3*time.Second)
+}
+
+func loadEnvPairs(path string) []string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "PANEL_") && strings.Contains(line, "=") {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 func startSMTPPolicy() {
@@ -231,6 +274,11 @@ func verifyHostRuntime(c Config) error {
 	}
 	if exec.Command("/usr/bin/pgrep", "-f", "/panel-smtp-policy").Run() != nil {
 		return fmt.Errorf("panel-smtp-policy is not running")
+	}
+	if _, err := os.Stat("/usr/local/panel/bin/panel-object-store"); err == nil {
+		if err := waitListen("127.0.0.1:19090", 2*time.Second); err != nil {
+			return fmt.Errorf("panel-object-store is not listening: %w", err)
+		}
 	}
 	return nil
 }

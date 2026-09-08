@@ -66,7 +66,7 @@ Encrypted account backups (HPM1) and native export/import are documented in `doc
 
 ## Ports
 
-21 (FTP) + 40000–40100 (PASV), 22, 25, 53, 80, 443, 587, 993, **8443** (Server Portal), **8444** (Account Portal). Development preview uses 18443/18444/18080.
+21 (FTP) + 40000–40100 (PASV), 22, 25, 53, 80, 443, 587, 993, **8443** (Server Portal), **8444** (Account Portal), **19090** (loopback S3 object store). Development preview uses 18443/18444/18080.
 
 ## What is not in this first slice
 

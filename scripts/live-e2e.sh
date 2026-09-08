@@ -447,6 +447,32 @@ if [[ -n "${skey:-}" ]]; then
   sudo grep -q before-backup "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker"
   echo "sftp-restore ok"
 fi
+s3key=""
+if [[ -f /var/lib/panel/secrets/backup-s3.env ]]; then
+  s3bak=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/backups" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"kind":"full","destination":"s3"}')
+  echo "$s3bak"
+  s3op=$(echo "$s3bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  s3key=$(echo "$s3bak" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("backup") or {}).get("id") or "")')
+  wait_job "$s3op" backup-s3
+  found=$(sudo find /var/lib/panel/objects -type f -name '*.hpm' | head -n 1)
+  [[ -n "$found" ]] || { echo "s3 object missing" >&2; sudo find /var/lib/panel/objects -ls >&2; exit 1; }
+  echo "s3-object $found"
+  [[ -n "$s3key" ]]
+  sudo mariadb "$DBNAME" -e "DELETE FROM panel_restore;"
+  sudo rm -f "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker"
+  curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"path":"/public_html/restore-marker.txt","content":"after-s3-backup"}' >/dev/null
+  s3rst=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/restores" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"backup_id\":\"$s3key\",\"mode\":\"in_place\"}")
+  echo "$s3rst"
+  s3rop=$(echo "$s3rst" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  wait_job "$s3rop" restore-s3
+  sudo grep -q before-backup /home/$UNAME/public_html/restore-marker.txt
+  sudo mariadb -N "$DBNAME" -e "SELECT k FROM panel_restore LIMIT 1;" | grep -q before-backup
+  sudo grep -q before-backup "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker"
+  echo "s3-restore ok"
+fi
 
 exp=$(curl -sS "$BASE/api/v1/accounts/$aid/export" -H "$AUTH")
 echo "$exp" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("export", d.get("account",{}).get("username"))'

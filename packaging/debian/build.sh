@@ -12,7 +12,7 @@ mkdir -p "$STAGE/DEBIAN" \
 cp "$ROOT/packaging/debian/control" "$STAGE/DEBIAN/control"
 sed -i "s/^Version:.*/Version: $VER/" "$STAGE/DEBIAN/control"
 make -C "$ROOT" build portals
-cp "$ROOT/dist/bin/"panel-{api,worker,agent,cli,updater,backup,install,smtp-policy} "$STAGE/usr/local/panel/bin/"
+cp "$ROOT/dist/bin/"panel-{api,worker,agent,cli,updater,backup,install,smtp-policy,object-store} "$STAGE/usr/local/panel/bin/"
 cp -a "$ROOT/dist/share/portals/." "$STAGE/usr/local/panel/share/portals/"
 cp "$ROOT/installer/phases/units/"*.service "$STAGE/etc/systemd/system/"
 cp "$ROOT/packaging/debian/postinst" "$STAGE/DEBIAN/postinst"

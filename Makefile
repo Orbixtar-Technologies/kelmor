@@ -40,6 +40,7 @@ build:
 	$(GO) build -o dist/bin/panel-install ./cmd/panel-install
 	$(GO) build -o dist/bin/panel-dev ./cmd/panel-dev
 	$(GO) build -o dist/bin/panel-smtp-policy ./cmd/panel-smtp-policy
+	$(GO) build -o dist/bin/panel-object-store ./cmd/panel-object-store
 
 package: build
 	bash packaging/debian/build.sh

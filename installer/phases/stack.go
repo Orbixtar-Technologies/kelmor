@@ -1,7 +1,9 @@
 package phases
 
 import (
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -447,7 +449,10 @@ Match Group panel-sftp
 	if err := os.WriteFile(root(c, "etc/ssh/sshd_config.d/panel-sftp.conf"), []byte(sftp), 0o644); err != nil {
 		return err
 	}
-	return applyBackupOffsite(c)
+	if err := applyBackupOffsite(c); err != nil {
+		return err
+	}
+	return applyBackupS3(c)
 }
 
 func applyFTPStack(c Config) error {
@@ -585,6 +590,61 @@ Match User panel-backup
 		_ = exec.Command("/bin/kill", "-HUP", fmt.Sprintf("%d", pid)).Run()
 	}
 	return nil
+}
+
+func applyBackupS3(c Config) error {
+	if err := os.MkdirAll(root(c, "var/lib/panel/objects"), 0o750); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root(c, "var/lib/panel/secrets"), 0o750); err != nil {
+		return err
+	}
+	envPath := root(c, "var/lib/panel/secrets/backup-s3.env")
+	if !s3EnvReady(envPath) {
+		access, err := randomHex(16)
+		if err != nil {
+			return err
+		}
+		secret, err := randomHex(24)
+		if err != nil {
+			return err
+		}
+		env := strings.Join([]string{
+			"PANEL_S3_ENDPOINT=http://127.0.0.1:19090",
+			"PANEL_S3_LISTEN=127.0.0.1:19090",
+			"PANEL_S3_REGION=us-east-1",
+			"PANEL_S3_BUCKET=panel",
+			"PANEL_S3_ACCESS_KEY=" + access,
+			"PANEL_S3_SECRET_KEY=" + secret,
+			"PANEL_S3_DATA=/var/lib/panel/objects",
+			"",
+		}, "\n")
+		if err := os.WriteFile(envPath, []byte(env), 0o640); err != nil {
+			return err
+		}
+	}
+	if !c.Dev {
+		_ = exec.Command("/bin/chown", "panel:panel", root(c, "var/lib/panel/objects"), envPath).Run()
+		startObjectStore()
+	}
+	return nil
+}
+
+func s3EnvReady(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	s := string(b)
+	return strings.Contains(s, "PANEL_S3_ENDPOINT=") && strings.Contains(s, "PANEL_S3_ACCESS_KEY=") && strings.Contains(s, "PANEL_S3_SECRET_KEY=")
+}
+
+func randomHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func sshHostFingerprints() []string {
@@ -755,6 +815,12 @@ func verifySystemd(c Config) error {
 	if !strings.Contains(string(b), "backup-sftp.env") {
 		return fmt.Errorf("panel-worker.service missing offsite SFTP env")
 	}
+	if !strings.Contains(string(b), "backup-s3.env") {
+		return fmt.Errorf("panel-worker.service missing S3 backup env")
+	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/panel-object-store.service")); err != nil {
+		return fmt.Errorf("panel-object-store.service missing")
+	}
 	return nil
 }
 
@@ -899,6 +965,8 @@ func verifySecurity(c Config) error {
 		"etc/ssh/sshd_config.d/panel-backup-sftp.conf",
 		"var/lib/panel/offsite",
 		"var/lib/panel/secrets/backup-sftp.env",
+		"var/lib/panel/objects",
+		"var/lib/panel/secrets/backup-s3.env",
 	} {
 		if _, err := os.Stat(root(c, p)); err != nil {
 			return err
@@ -916,6 +984,16 @@ func verifySecurity(c Config) error {
 		}
 		if fps := sshHostFingerprints(); len(fps) > 1 && !strings.Contains(string(envb), ",") {
 			return fmt.Errorf("backup-sftp.env must pin every ssh host key")
+		}
+		s3env, err := os.ReadFile(root(c, "var/lib/panel/secrets/backup-s3.env"))
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(s3env), "PANEL_S3_ENDPOINT=http://127.0.0.1:19090") {
+			return fmt.Errorf("backup-s3.env missing loopback endpoint")
+		}
+		if !strings.Contains(string(s3env), "PANEL_S3_ACCESS_KEY=") || !strings.Contains(string(s3env), "PANEL_S3_SECRET_KEY=") {
+			return fmt.Errorf("backup-s3.env missing credentials")
 		}
 	}
 	if pub := netaddr.PublicIPv4(); pub != "" && pub != "127.0.0.1" {

@@ -3,16 +3,12 @@ package backup
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
 	"time"
 )
@@ -58,7 +54,7 @@ func (s *S3) Put(ctx context.Context, key string, data []byte) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
-	s.sign(req, data)
+	SignAWS4(req, data, s.AccessKey, s.SecretKey, s.Region)
 	res, err := s.client().Do(req)
 	if err != nil {
 		return err
@@ -76,7 +72,7 @@ func (s *S3) Get(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.sign(req, nil)
+	SignAWS4(req, nil, s.AccessKey, s.SecretKey, s.Region)
 	res, err := s.client().Do(req)
 	if err != nil {
 		return nil, err
@@ -105,7 +101,7 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	s.sign(req, nil)
+	SignAWS4(req, nil, s.AccessKey, s.SecretKey, s.Region)
 	res, err := s.client().Do(req)
 	if err != nil {
 		return err
@@ -127,7 +123,7 @@ func (s *S3) List(ctx context.Context, prefix string) ([]Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.sign(req, nil)
+	SignAWS4(req, nil, s.AccessKey, s.SecretKey, s.Region)
 	res, err := s.client().Do(req)
 	if err != nil {
 		return nil, err
@@ -180,67 +176,6 @@ func (s *S3) client() *http.Client {
 		return s.Client
 	}
 	return http.DefaultClient
-}
-
-func (s *S3) sign(req *http.Request, payload []byte) {
-	if s.AccessKey == "" {
-		return
-	}
-	now := time.Now().UTC()
-	amzDate := now.Format("20060102T150405Z")
-	date := now.Format("20060102")
-	payloadHash := sha256Hex(payload)
-	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
-	canonical := strings.Join([]string{
-		req.Method,
-		req.URL.EscapedPath(),
-		canonicalQuery(req.URL),
-		"host:" + req.URL.Host,
-		"x-amz-content-sha256:" + payloadHash,
-		"x-amz-date:" + amzDate,
-		"",
-		"host;x-amz-content-sha256;x-amz-date",
-		payloadHash,
-	}, "\n")
-	scope := date + "/" + s.Region + "/s3/aws4_request"
-	sts := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonical))
-	signing := hmacSHA256([]byte("AWS4"+s.SecretKey), []byte(date))
-	signing = hmacSHA256(signing, []byte(s.Region))
-	signing = hmacSHA256(signing, []byte("s3"))
-	signing = hmacSHA256(signing, []byte("aws4_request"))
-	sig := hex.EncodeToString(hmacSHA256(signing, []byte(sts)))
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+s.AccessKey+"/"+scope+", SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature="+sig)
-}
-
-func canonicalQuery(u *url.URL) string {
-	q := u.Query()
-	if len(q) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(q))
-	for k := range q {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var parts []string
-	for _, k := range keys {
-		for _, v := range q[k] {
-			parts = append(parts, url.QueryEscape(k)+"="+url.QueryEscape(v))
-		}
-	}
-	return strings.Join(parts, "&")
-}
-
-func sha256Hex(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
-func hmacSHA256(key, data []byte) []byte {
-	m := hmac.New(sha256.New, key)
-	_, _ = m.Write(data)
-	return m.Sum(nil)
 }
 
 func envDefault(k, d string) string {

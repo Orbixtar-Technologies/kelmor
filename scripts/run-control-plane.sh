@@ -19,6 +19,9 @@ fi
 if sudo test -f "$STATE/secrets/backup-sftp.env"; then
   eval "$(sudo grep -E '^PANEL_SFTP_[A-Z0-9_]+=' "$STATE/secrets/backup-sftp.env")"
 fi
+if sudo test -f "$STATE/secrets/backup-s3.env"; then
+  eval "$(sudo grep -E '^PANEL_S3_[A-Z0-9_]+=' "$STATE/secrets/backup-s3.env")"
+fi
 export PANEL_STATE_DIR="$STATE"
 export PANEL_AGENT_SOCK="$SOCK"
 export PANEL_API_ADDR="$ADDR"
@@ -42,4 +45,10 @@ exec sudo -u panel -g panel env \
   PANEL_SFTP_KEY="${PANEL_SFTP_KEY:-}" \
   PANEL_SFTP_HOST_KEY="${PANEL_SFTP_HOST_KEY:-}" \
   PANEL_SFTP_ROOT="${PANEL_SFTP_ROOT:-}" \
+  PANEL_S3_ENDPOINT="${PANEL_S3_ENDPOINT:-}" \
+  PANEL_S3_REGION="${PANEL_S3_REGION:-}" \
+  PANEL_S3_BUCKET="${PANEL_S3_BUCKET:-}" \
+  PANEL_S3_ACCESS_KEY="${PANEL_S3_ACCESS_KEY:-}" \
+  PANEL_S3_SECRET_KEY="${PANEL_S3_SECRET_KEY:-}" \
+  PANEL_S3_PREFIX="${PANEL_S3_PREFIX:-}" \
   "$ROOT/bin/$1"

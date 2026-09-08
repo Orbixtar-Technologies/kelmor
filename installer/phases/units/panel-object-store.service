@@ -1,0 +1,15 @@
+[Unit]
+Description=Hosting Panel S3-compatible backup object store
+After=network-online.target
+[Service]
+Type=simple
+User=panel
+Group=panel
+Environment=PANEL_S3_LISTEN=127.0.0.1:19090
+Environment=PANEL_S3_DATA=/var/lib/panel/objects
+EnvironmentFile=-/var/lib/panel/secrets/backup-s3.env
+ExecStart=/usr/local/panel/bin/panel-object-store
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target

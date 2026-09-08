@@ -14,6 +14,7 @@ Environment=PANEL_PDNS_API_KEY=panel-loopback
 EnvironmentFile=-/var/lib/panel/acme.env
 EnvironmentFile=-/var/lib/panel/public.env
 EnvironmentFile=-/var/lib/panel/secrets/backup-sftp.env
+EnvironmentFile=-/var/lib/panel/secrets/backup-s3.env
 ExecStart=/usr/local/panel/bin/panel-worker
 Restart=on-failure
 RestartSec=2

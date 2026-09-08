@@ -44,6 +44,8 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/ssh/sshd_config.d/panel-backup-sftp.conf",
 		"var/panel/host/var/lib/panel/offsite",
 		"var/panel/host/var/lib/panel/secrets/backup-sftp.env",
+		"var/panel/host/var/lib/panel/objects",
+		"var/panel/host/var/lib/panel/secrets/backup-s3.env",
 		"var/panel/host/etc/vsftpd.conf",
 		"var/panel/host/etc/pam.d/vsftpd",
 		"var/panel/host/var/lib/panel/ftp/user_conf",
@@ -86,6 +88,19 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	}
 	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/secrets/backup-sftp.env") {
 		t.Fatalf("worker unit missing offsite SFTP env file: %s", worker)
+	}
+	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/secrets/backup-s3.env") {
+		t.Fatalf("worker unit missing S3 backup env file: %s", worker)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "var/panel/host/etc/systemd/system/panel-object-store.service")); err != nil {
+		t.Fatal(err)
+	}
+	s3env, err := os.ReadFile(filepath.Join(dir, "var/panel/host/var/lib/panel/secrets/backup-s3.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(s3env), "PANEL_S3_ENDPOINT=http://127.0.0.1:19090") {
+		t.Fatalf("backup-s3.env: %s", s3env)
 	}
 	pdns, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf"))
 	if err != nil {
