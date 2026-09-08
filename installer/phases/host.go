@@ -8,6 +8,69 @@ import (
 	"time"
 )
 
+type hostService struct {
+	Comm   string
+	Listen string
+	Args   []string
+}
+
+func hostServices() []hostService {
+	return []hostService{
+		{Comm: "php-fpm8.3", Args: []string{"/usr/sbin/php-fpm8.3"}},
+		{Comm: "nginx", Listen: "127.0.0.1:80", Args: []string{"/usr/sbin/nginx"}},
+		{Comm: "master", Listen: "127.0.0.1:25", Args: []string{"/usr/sbin/postfix", "start"}},
+		{Comm: "dovecot", Listen: "127.0.0.1:993", Args: []string{"/usr/sbin/dovecot"}},
+		{Comm: "pdns_server", Listen: "127.0.0.1:53", Args: []string{"/usr/sbin/pdns_server", "--daemon=yes", "--guardian=no", "--config-dir=/etc/powerdns"}},
+		{Comm: "vsftpd", Listen: "127.0.0.1:21", Args: []string{"/usr/sbin/vsftpd", "/etc/vsftpd.conf"}},
+		{Comm: "clamd", Args: []string{"/usr/sbin/clamd"}},
+		{Comm: "freshclam", Args: []string{"/usr/bin/freshclam", "--daemon"}},
+		{Comm: "rspamd", Args: []string{"/usr/bin/rspamd", "-c", "/etc/rspamd/rspamd.conf"}},
+		{Comm: "fail2ban-server", Args: []string{"/usr/bin/fail2ban-server", "-xf", "start"}},
+	}
+}
+
+func startHostService(svc hostService) {
+	if len(svc.Args) == 0 {
+		return
+	}
+	if _, err := os.Stat(svc.Args[0]); err != nil {
+		return
+	}
+	if svc.Listen != "" {
+		if con, err := net.DialTimeout("tcp", svc.Listen, 150*time.Millisecond); err == nil {
+			_ = con.Close()
+			return
+		}
+	}
+	if svc.Comm != "" && exec.Command("/usr/bin/pgrep", "-x", svc.Comm).Run() == nil {
+		return
+	}
+	cmd := exec.Command(svc.Args[0], svc.Args[1:]...)
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "DEBIAN_FRONTEND=noninteractive"}
+	_ = cmd.Start()
+	if svc.Listen != "" {
+		_ = waitListen(svc.Listen, 3*time.Second)
+	}
+}
+
+func waitListen(addr string, d time.Duration) error {
+	deadline := time.Now().Add(d)
+	var last error
+	for time.Now().Before(deadline) {
+		con, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err == nil {
+			_ = con.Close()
+			return nil
+		}
+		last = err
+		time.Sleep(100 * time.Millisecond)
+	}
+	if last == nil {
+		return fmt.Errorf("timeout waiting for %s", addr)
+	}
+	return fmt.Errorf("timeout waiting for %s: %w", addr, last)
+}
+
 func applyHostRuntime(c Config) error {
 	if c.Dev {
 		return nil
@@ -16,24 +79,8 @@ func applyHostRuntime(c Config) error {
 	_ = os.Chmod("/run/panel", 0o751)
 	_ = os.MkdirAll("/var/lib/panel/mail", 0o755)
 	_ = os.Chmod("/var/lib/panel", 0o755)
-	starts := [][]string{
-		{"/usr/sbin/php-fpm8.3"},
-		{"/usr/sbin/nginx"},
-		{"/usr/sbin/postfix", "start"},
-		{"/usr/sbin/dovecot"},
-		{"/usr/sbin/pdns_server", "--daemon"},
-		{"/usr/sbin/clamd"},
-		{"/usr/bin/freshclam", "--daemon"},
-		{"/usr/bin/rspamd", "-c", "/etc/rspamd/rspamd.conf"},
-		{"/usr/bin/fail2ban-server", "-xf", "start"},
-	}
-	for _, args := range starts {
-		if _, err := os.Stat(args[0]); err != nil {
-			continue
-		}
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "DEBIAN_FRONTEND=noninteractive"}
-		_ = cmd.Start()
+	for _, svc := range hostServices() {
+		startHostService(svc)
 	}
 	startControlPlane()
 	startSMTPPolicy()
@@ -189,7 +236,7 @@ func verifyHealth(c Config) error {
 	if c.Dev {
 		return nil
 	}
-	addrs := []string{"127.0.0.1:80", "127.0.0.1:25"}
+	addrs := []string{"127.0.0.1:80", "127.0.0.1:25", "127.0.0.1:53"}
 	if _, err := os.Stat("/usr/local/panel/bin/panel-api"); err == nil {
 		addrs = append(addrs, "127.0.0.1:18080")
 	}

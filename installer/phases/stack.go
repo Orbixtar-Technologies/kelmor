@@ -552,6 +552,12 @@ func verifyDNS(c Config) error {
 	if !strings.Contains(string(b), "bind-dnssec-db=") {
 		return fmt.Errorf("pdns.conf missing bind-dnssec-db")
 	}
+	if c.Dev {
+		return nil
+	}
+	if err := waitListen("127.0.0.1:53", 2*time.Second); err != nil {
+		return fmt.Errorf("powerdns is not listening: %w", err)
+	}
 	return nil
 }
 
