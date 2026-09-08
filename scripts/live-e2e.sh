@@ -139,8 +139,8 @@ ftp=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/ftp" -H "$AUTH" -H 'content-t
 echo "$ftp"
 ftpjob=$(echo "$ftp" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$ftpjob" ftp
-if [[ -f /var/lib/panel/ftp/passwd ]]; then
-  grep -q '^liveftp:' /var/lib/panel/ftp/passwd || { echo "ftp passwd missing liveftp" >&2; exit 1; }
+if sudo test -f /var/lib/panel/ftp/passwd; then
+  sudo grep -q '^liveftp:' /var/lib/panel/ftp/passwd || { echo "ftp passwd missing liveftp" >&2; exit 1; }
 fi
 if ss -lnt | grep -q ':21 '; then
   python3 - <<'PY'
