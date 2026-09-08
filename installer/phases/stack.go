@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"time"
 )
 
@@ -169,7 +170,30 @@ func applyClamAV(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/clamav"), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(root(c, "etc/clamav/panel.conf"), []byte("TCPSocket 3310\nTCPAddr 127.0.0.1\n"), 0o644)
+	if err := os.WriteFile(root(c, "etc/clamav/panel.conf"), []byte("TCPSocket 3310\nTCPAddr 127.0.0.1\n"), 0o644); err != nil {
+		return err
+	}
+	if c.Dev {
+		return nil
+	}
+	sigdir := "/var/lib/clamav"
+	if err := os.MkdirAll(sigdir, 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(sigdir + "/main.cvd"); err != nil {
+		_ = os.WriteFile(sigdir+"/panel.ndb", []byte("PanelClam:0:*:50414e454c434c414d\n"), 0o644)
+		cmd := exec.Command("/usr/bin/freshclam", "--stdout", "--quiet")
+		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "DEBIAN_FRONTEND=noninteractive"}
+		_ = cmd.Start()
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(45 * time.Second):
+			_ = cmd.Process.Kill()
+		}
+	}
+	return nil
 }
 
 func applySecurity(c Config) error {

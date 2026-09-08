@@ -219,6 +219,14 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.unpackDirectory(p.Archive, p.Dest)
+	case "CopyHomedir":
+		var p struct {
+			Username string `json:"username"`
+			Source   string `json:"source"`
+			Dest     string `json:"dest"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.copyHomedir(p.Username, p.Source, p.Dest)
 	case "CreateMailboxHome":
 		var p struct {
 			Domain    string `json:"domain"`

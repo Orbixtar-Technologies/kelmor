@@ -29,4 +29,7 @@ func TestFromCPanel(t *testing.T) {
 	if !found {
 		t.Fatal(exp.Mailboxes)
 	}
+	if exp.Homedir == "" {
+		t.Fatal("expected homedir path from extracted cpmove tree")
+	}
 }

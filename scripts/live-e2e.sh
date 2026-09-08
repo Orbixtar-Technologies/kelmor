@@ -70,11 +70,17 @@ print("smtp accepted")
 PY
 sleep 1
 sudo ls /var/vmail/$DOMAIN/info/Maildir/new 2>/dev/null | head || true
-if sudo doveadm auth test info@$DOMAIN 'MailboxPass!2026' 2>&1 | grep -q succeeded; then
-  echo "imap-auth ok"
-fi
+imap_ok=0
+for i in $(seq 1 20); do
+  if sudo doveadm auth test info@$DOMAIN 'MailboxPass!2026' 2>&1 | grep -q succeeded; then
+    echo "imap-auth ok"
+    imap_ok=1
+    break
+  fi
+  sleep 1
+done
 python3 - <<'PY'
-import imaplib, ssl
+import imaplib, ssl, sys
 ctx = ssl._create_unverified_context()
 try:
     m = imaplib.IMAP4_SSL("127.0.0.1", 993, ssl_context=ctx)
@@ -83,7 +89,9 @@ try:
     m.logout()
 except Exception as e:
     print("imap skip", e)
+    sys.exit(0)
 PY
+[[ "$imap_ok" == "1" ]] || echo "warning: doveadm auth not ready"
 
 files=$(curl -sS "$BASE/api/v1/accounts/$aid/files?path=/public_html" -H "$AUTH")
 echo "$files"

@@ -136,6 +136,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.restoreBackup(j)
 	case "cron.apply":
 		return w.applyCron(j)
+	case "account.copy_homedir":
+		return w.copyHomedir(j)
 	default:
 		return fmt.Errorf("unknown job type %s", j.Type)
 	}
@@ -471,7 +473,7 @@ func (w *Worker) provisionCert(j *store.Job) error {
 	exp := time.Now().Add(90 * 24 * time.Hour)
 	c.Status = "active"
 	c.NotAfter = &exp
-	c.Issuer = "panel-dev"
+	c.Issuer = acme.IssuerName(acme.Directory())
 	w.Store.PutCert(c)
 	return nil
 }
@@ -492,6 +494,27 @@ func (w *Worker) applyCron(j *store.Job) error {
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyAccountCron",
 		Params: mustJSON(map[string]any{"username": acc.Username, "body": body.String()}),
+	})
+	return err
+}
+
+func (w *Worker) copyHomedir(j *store.Job) error {
+	acc := w.jobAccount(j)
+	if acc == nil {
+		return fmt.Errorf("account not ready")
+	}
+	src := str(j.Payload["source"])
+	dest := str(j.Payload["dest"])
+	user := str(j.Payload["username"])
+	if user == "" {
+		user = acc.Username
+	}
+	if dest == "" {
+		dest = acc.HomePath
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "CopyHomedir",
+		Params: mustJSON(map[string]any{"username": user, "source": src, "dest": dest}),
 	})
 	return err
 }

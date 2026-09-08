@@ -7,10 +7,15 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"golang.org/x/crypto/acme"
 
@@ -63,6 +68,11 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 		}); err != nil {
 			return err
 		}
+		if agent.Root == "" {
+			if err := waitHTTP01(hostname, httpCh.Token, val); err != nil {
+				return err
+			}
+		}
 		if _, err := cl.Accept(ctx, httpCh); err != nil {
 			return err
 		}
@@ -86,19 +96,70 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kb})
 	if _, err := agent.Dispatch(ctx, operations.Request{
 		Method: "ApplyFile",
-		Params: mustJSON(map[string]any{"path": "/var/lib/panel/certs/" + hostname + ".crt", "content": string(certPEM), "mode": 0o644}),
+		Params: mustJSON(map[string]any{"path": "/var/lib/panel/certs/" + hostname + ".crt", "content_b64": base64.StdEncoding.EncodeToString(certPEM), "mode": 0o644}),
+	}); err != nil {
+		return err
+	}
+	if _, err := agent.Dispatch(ctx, operations.Request{
+		Method: "ApplyFile",
+		Params: mustJSON(map[string]any{"path": "/var/lib/panel/certs/" + hostname + ".key", "content_b64": base64.StdEncoding.EncodeToString(keyPEM), "mode": 0o600}),
 	}); err != nil {
 		return err
 	}
 	_, err = agent.Dispatch(ctx, operations.Request{
-		Method: "ApplyFile",
-		Params: mustJSON(map[string]any{"path": "/var/lib/panel/certs/" + hostname + ".key", "content": string(keyPEM), "mode": 0o600}),
+		Method: "ReloadService",
+		Params: mustJSON(map[string]any{"name": "nginx"}),
 	})
 	return err
 }
 
+func waitHTTP01(hostname, token, body string) error {
+	url := "http://127.0.0.1/.well-known/acme-challenge/" + token
+	deadline := time.Now().Add(8 * time.Second)
+	var last error
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		req.Host = hostname
+		client := &http.Client{Timeout: 800 * time.Millisecond}
+		res, err := client.Do(req)
+		if err != nil {
+			last = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		got, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		_ = res.Body.Close()
+		if res.StatusCode == 200 && strings.TrimSpace(string(got)) == strings.TrimSpace(body) {
+			return nil
+		}
+		last = fmt.Errorf("http-01 %s returned %d %q", hostname, res.StatusCode, got)
+		time.Sleep(200 * time.Millisecond)
+	}
+	if last == nil {
+		last = fmt.Errorf("http-01 challenge not published")
+	}
+	return last
+}
+
 func Directory() string {
 	return os.Getenv("PANEL_ACME_DIRECTORY")
+}
+
+func IssuerName(directory string) string {
+	if directory == "" {
+		return "panel-dev"
+	}
+	switch {
+	case strings.Contains(directory, "staging"):
+		return "letsencrypt-staging"
+	case strings.Contains(directory, "pebble"):
+		return "pebble"
+	default:
+		return "letsencrypt"
+	}
 }
 
 func newCSR(hostname string, key *ecdsa.PrivateKey) ([]byte, error) {

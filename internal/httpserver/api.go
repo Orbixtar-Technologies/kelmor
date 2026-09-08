@@ -510,8 +510,20 @@ func (a *API) importCPanel(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
-	a.audit(r, "account.import.cpanel", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
-	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "source": "cpanel"})
+	a.Store.AddMember(acc.ID, actor(r).UserID)
+	copied := ""
+	if exp.Homedir != "" {
+		job, _ := a.Store.EnqueueJob(&store.Job{
+			Type: "account.copy_homedir", ResourceType: "account", ResourceID: acc.ID,
+			Payload: map[string]any{"account_id": acc.ID, "username": acc.Username, "source": exp.Homedir, "dest": acc.HomePath},
+			State:   "queued",
+		})
+		if job != nil {
+			copied = job.ID
+		}
+	}
+	a.audit(r, "account.import.cpanel", "account", acc.ID, true, nil, map[string]any{"username": acc.Username, "homedir": exp.Homedir})
+	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "source": "cpanel", "homedir_job": copied})
 }
 
 func (a *API) exportAccounts(w http.ResponseWriter, r *http.Request) {

@@ -20,6 +20,7 @@ type HostingAccountExport struct {
 	Records       []store.DNSRecord      `json:"dns_records"`
 	Cron          []store.CronJob        `json:"cron"`
 	FTP           []store.FTPAccount     `json:"ftp"`
+	Homedir       string                 `json:"homedir,omitempty"`
 }
 
 func Export(st store.Store, accountID string) (*HostingAccountExport, error) {

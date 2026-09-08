@@ -50,6 +50,9 @@ func FromCPanel(root, username string) (*HostingAccountExport, error) {
 	exp.Databases = parseMySQLDump(filepath.Join(root, "mysql.sql"), accID)
 	exp.Zones, exp.Records = parseDNSZones(filepath.Join(root, "dnszones"), accID, domID, ascii)
 	exp.Mailboxes = parseCPanelMail(filepath.Join(root, "va"), accID, mdID)
+	if hd := filepath.Join(root, "homedir"); dirExists(hd) {
+		exp.Homedir = hd
+	}
 	if len(exp.Mailboxes) == 0 {
 		exp.Mailboxes = []store.Mailbox{{
 			ID: store.NewID(), AccountID: accID, DomainID: mdID, LocalPart: "postmaster",
@@ -180,6 +183,11 @@ func parseCPanelMail(dir, accountID, mailDomainID string) []store.Mailbox {
 		})
 	}
 	return out
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 func extractIdent(line string) string {

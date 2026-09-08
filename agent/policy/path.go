@@ -15,6 +15,7 @@ var allowedRoots = []string{
 	"/run/panel/",
 	"/var/vmail/",
 	"/etc/panel/",
+	"/var/tmp/panel-imports/",
 }
 
 func ValidateManagedPath(p string) (string, error) {

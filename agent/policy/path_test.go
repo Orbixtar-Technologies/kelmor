@@ -12,6 +12,9 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/home/../etc/passwd"); err == nil {
 		t.Fatal("should reject traversal")
 	}
+	if _, err := ValidateManagedPath("/var/tmp/panel-imports/acme42/homedir"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestWithinAccount(t *testing.T) {

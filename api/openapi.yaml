@@ -211,6 +211,23 @@ paths:
           schema: { type: string }
       responses:
         "202": { description: reconcile queued }
+  /accounts/import/cpanel:
+    post:
+      operationId: importCPanel
+      x-capability: accounts.create
+      x-audit-action: account.import.cpanel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [root, username]
+              properties:
+                root: { type: string, description: Extracted cpmove tree }
+                username: { type: string }
+      responses:
+        "202": { description: reconcile and CopyHomedir queued }
   /accounts/{accountID}/export:
     get:
       operationId: exportAccount

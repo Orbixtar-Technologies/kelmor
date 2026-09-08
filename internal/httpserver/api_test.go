@@ -38,6 +38,27 @@ func TestAccountProvisionFlow(t *testing.T) {
 	}
 }
 
+func TestCPanelImportQueuesHomedirCopy(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	login := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})
+	token := login["token"].(string)
+	out := post(t, srv.URL+"/api/v1/accounts/import/cpanel", token, map[string]string{
+		"root": "../../testdata/cpanel-acme42", "username": "acme42",
+	})
+	if out["source"] != "cpanel" {
+		t.Fatalf("%v", out)
+	}
+	if out["homedir_job"] == "" {
+		t.Fatal("expected CopyHomedir job")
+	}
+}
+
 func post(t *testing.T, url, token string, body any) map[string]any {
 	t.Helper()
 	b, _ := json.Marshal(body)
