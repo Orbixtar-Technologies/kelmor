@@ -101,3 +101,21 @@ func attachUserProcesses(username, dir string) {
 func accountCgroupDir(username string) string {
 	return filepath.Join(panelCgroupRoot, username)
 }
+
+func (h *Host) freezeAccount(username string, freeze bool) error {
+	if err := validate.Username(username); err != nil {
+		return err
+	}
+	if !h.live() {
+		return nil
+	}
+	v := "0\n"
+	if freeze {
+		v = "1\n"
+	}
+	path := filepath.Join(accountCgroupDir(username), "cgroup.freeze")
+	if err := os.WriteFile(path, []byte(v), 0o644); err != nil && freeze {
+		return fmt.Errorf("cgroup.freeze: %w", err)
+	}
+	return nil
+}

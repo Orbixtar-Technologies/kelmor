@@ -197,8 +197,10 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		acc.Status = "terminated"
 	case "suspended":
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "LockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": true})})
 	default:
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "UnlockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": false})})
 		acc.Status = "active"
 	}
 	acc.ObservedRevision = acc.DesiredRevision
@@ -249,9 +251,10 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: runtime, RuntimeVersion: ver, DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
 		w.Store.PutWebsite(site)
 	}
+	enabled := acc.Status != "suspended" && acc.Status != "terminating"
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyWebsite",
-		Params: mustJSON(map[string]any{"website_id": site.ID, "account": acc.Username, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect}),
+		Params: mustJSON(map[string]any{"website_id": site.ID, "account": acc.Username, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect, "enabled": enabled}),
 	})
 	if err != nil {
 		return err
@@ -305,7 +308,7 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	account := acc.Username
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyWebsite",
-		Params: mustJSON(map[string]any{"website_id": site.ID, "account": account, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect}),
+		Params: mustJSON(map[string]any{"website_id": site.ID, "account": account, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect, "enabled": acc.Status != "suspended"}),
 	})
 	if err != nil {
 		return err
@@ -500,7 +503,7 @@ func (w *Worker) provisionCert(j *store.Job) error {
 				Params: mustJSON(map[string]any{
 					"website_id": site.ID, "account": acc.Username, "domain": d.ASCII,
 					"document_root": site.DocumentRoot, "runtime": site.Runtime,
-					"https_redirect": site.HTTPSRedirect,
+					"https_redirect": site.HTTPSRedirect, "enabled": acc.Status != "suspended",
 				}),
 			})
 			if err != nil {

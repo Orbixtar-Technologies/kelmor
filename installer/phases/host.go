@@ -40,7 +40,35 @@ func applyHostRuntime(c Config) error {
 	if _, err := os.Stat("/etc/panel/nftables-panel.nft"); err == nil {
 		_ = applyLiveNFT("/etc/panel/nftables-panel.nft")
 	}
+	applyExistingCgroups()
 	return nil
+}
+
+func applyExistingCgroups() {
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		return
+	}
+	root := "/sys/fs/cgroup/panel.accounts"
+	_ = os.MkdirAll(root, 0o755)
+	_ = os.WriteFile(root+"/cgroup.subtree_control", []byte("+cpu +memory +pids\n"), 0o644)
+	homes, err := os.ReadDir("/home")
+	if err != nil {
+		return
+	}
+	for _, h := range homes {
+		if !h.IsDir() {
+			continue
+		}
+		name := h.Name()
+		if len(name) < 2 {
+			continue
+		}
+		dir := root + "/" + name
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(dir+"/memory.max", []byte("2147483648\n"), 0o644)
+		_ = os.WriteFile(dir+"/cpu.max", []byte("200000 100000\n"), 0o644)
+		_ = os.WriteFile(dir+"/pids.max", []byte("100\n"), 0o644)
+	}
 }
 
 func startAccountApps() {

@@ -2,8 +2,18 @@ package configuration
 
 import "testing"
 
+func TestNginxSuspendedReturns503(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", Enabled: false})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "return 503") || contains(conf, "fastcgi_pass") {
+		t.Fatal(conf)
+	}
+}
+
 func TestNginxSiteValid(t *testing.T) {
-	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", PHPVersion: "8.3", HTTPSRedirect: true, Revision: 3})
+	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", PHPVersion: "8.3", HTTPSRedirect: true, Revision: 3, Enabled: true})
 	if err := ValidateNginx(conf); err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +29,7 @@ func TestNginxPythonProxiesOnHTTPS(t *testing.T) {
 	conf := NginxSite(WebsiteSpec{
 		WebsiteID: "py1", Domain: "python.acme.test", DocumentRoot: "/home/acme/python",
 		Runtime: "python", TLSCert: "/var/lib/panel/certs/python.acme.test.crt",
-		TLSKey: "/var/lib/panel/certs/python.acme.test.key",
+		TLSKey: "/var/lib/panel/certs/python.acme.test.key", Enabled: true,
 	})
 	if err := ValidateNginx(conf); err != nil {
 		t.Fatal(err)

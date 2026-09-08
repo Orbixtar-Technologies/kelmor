@@ -10,7 +10,7 @@ import (
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
-func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect bool) (Result, error) {
+func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect, enabled bool) (Result, error) {
 	if _, err := validate.NormalizeDomain(domain); err != nil {
 		return Result{}, err
 	}
@@ -25,7 +25,7 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	spec := configuration.WebsiteSpec{
 		WebsiteID: websiteID, Account: account, Domain: domain, DocumentRoot: docroot,
 		Runtime: runtime, PHPVersion: phpVersion, ProxyTarget: proxyTarget,
-		HTTPSRedirect: httpsRedirect, Revision: 1,
+		HTTPSRedirect: httpsRedirect, Revision: 1, Enabled: enabled,
 	}
 	if certAbs, err := h.resolve("/var/lib/panel/certs/" + domain + ".crt"); err == nil {
 		if _, err := os.Stat(certAbs); err == nil {

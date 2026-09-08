@@ -17,11 +17,19 @@ type WebsiteSpec struct {
 	Revision      int64
 	TLSCert       string
 	TLSKey        string
+	Enabled       bool
 }
 
 func NginxSite(s WebsiteSpec) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Managed by Hosting Panel\n# resource: %s\n# revision: %d\n# template: nginx/%s-site/v3\n# DO NOT EDIT\n", s.WebsiteID, s.Revision, s.Runtime)
+	if !s.Enabled {
+		b.WriteString(suspendedServer("80", s))
+		if s.TLSCert != "" && s.TLSKey != "" {
+			b.WriteString(suspendedServer("443 ssl", s))
+		}
+		return b.String()
+	}
 	b.WriteString("server {\n")
 	b.WriteString("    listen 80;\n")
 	b.WriteString("    listen [::]:80;\n")
@@ -81,6 +89,26 @@ func NginxSite(s WebsiteSpec) string {
 		}
 		b.WriteString("}\n")
 	}
+	return b.String()
+}
+
+func suspendedServer(listen string, s WebsiteSpec) string {
+	var b strings.Builder
+	b.WriteString("server {\n")
+	fmt.Fprintf(&b, "    listen %s;\n", listen)
+	if strings.HasPrefix(listen, "80") {
+		b.WriteString("    listen [::]:80;\n")
+	} else {
+		b.WriteString("    listen [::]:443 ssl;\n")
+	}
+	fmt.Fprintf(&b, "    server_name %s;\n", s.Domain)
+	if strings.Contains(listen, "ssl") && s.TLSCert != "" {
+		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)
+		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.TLSKey)
+	}
+	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+	b.WriteString("    location / { default_type text/plain; return 503 'account suspended\\n'; }\n")
+	b.WriteString("}\n")
 	return b.String()
 }
 

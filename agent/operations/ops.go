@@ -108,6 +108,16 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.deleteUnixUser(p.Username)
+	case "FreezeAccount":
+		var p struct {
+			Username string `json:"username"`
+			Freeze   bool   `json:"freeze"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		if err := h.freezeAccount(p.Username, p.Freeze); err != nil {
+			return nil, err
+		}
+		return Result{OK: true, ObservedState: map[bool]string{true: "frozen", false: "thawed"}[p.Freeze]}, nil
 	case "SetLinuxPassword":
 		var p struct {
 			Username string `json:"username"`
@@ -149,9 +159,14 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			DocumentRoot  string `json:"document_root"`
 			Runtime       string `json:"runtime"`
 			HTTPSRedirect bool   `json:"https_redirect"`
+			Enabled       *bool  `json:"enabled"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect)
+		enabled := true
+		if p.Enabled != nil {
+			enabled = *p.Enabled
+		}
+		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect, enabled)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`
@@ -513,7 +528,7 @@ func (h *Host) listDirectory(path string) (any, error) {
 }
 
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {
-	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true)
+	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true, true)
 }
 
 type diskStat struct{ total, used, itotal, iused uint64 }
