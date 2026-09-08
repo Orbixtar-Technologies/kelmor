@@ -18,11 +18,13 @@ if [[ -z "$token" ]]; then
 fi
 AUTH="Authorization: Bearer $token"
 
+WAIT_ITERS="${PANEL_JOB_WAIT_ITERS:-90}"
+
 wait_job() {
   local jid="$1" label="${2:-job}"
   [[ -z "$jid" ]] && return 0
   local st=""
-  for _ in $(seq 1 90); do
+  for _ in $(seq 1 "$WAIT_ITERS"); do
     st=$(curl -sS "$BASE/api/v1/jobs/$jid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state",""))')
     echo "$label job=$st"
     if [[ "$st" == "succeeded" ]]; then

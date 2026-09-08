@@ -170,7 +170,10 @@ func enablePanelUnits() {
 	if exec.Command("/bin/systemctl", "is-system-running").Run() != nil {
 		return
 	}
-	for _, name := range []string{"panel-agent", "panel-api", "panel-worker", "panel-smtp-policy", "panel-object-store"} {
+	for _, name := range []string{
+		"panel-agent", "panel-api", "panel-worker", "panel-smtp-policy", "panel-object-store",
+		"nginx", "php8.3-fpm", "postgresql", "mariadb", "postfix", "dovecot", "pdns", "vsftpd",
+	} {
 		_ = exec.Command("/bin/systemctl", "enable", "--now", name+".service").Run()
 	}
 }
