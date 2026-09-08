@@ -414,7 +414,7 @@ if [[ -f /var/lib/panel/secrets/backup-sftp.env ]]; then
   sbop=$(echo "$sbak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
   skey=$(echo "$sbak" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("backup") or {}).get("id") or "")')
   wait_job "$sbop" backup-sftp
-  found=$(sudo find /var/lib/panel/offsite -type f -name '*.hpm' | head -n 1)
+  found=$(sudo find /var/lib/panel/offsite/inbox -type f -name '*.hpm' | head -n 1)
   [[ -n "$found" ]] || { echo "sftp offsite object missing" >&2; sudo find /var/lib/panel/offsite -ls >&2; exit 1; }
   echo "sftp-offsite $found"
   [[ -n "$skey" ]]

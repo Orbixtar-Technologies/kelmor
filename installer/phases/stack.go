@@ -516,6 +516,9 @@ func applyBackupOffsite(c Config) error {
 	if err := os.MkdirAll(root(c, "var/lib/panel/offsite"), 0o750); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(root(c, "var/lib/panel/offsite/inbox"), 0o2770); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(root(c, "var/lib/panel/secrets"), 0o750); err != nil {
 		return err
 	}
@@ -530,14 +533,16 @@ Match User panel-backup
 		return err
 	}
 	if c.Dev {
-		body := "PANEL_SFTP_ROOT=/var/lib/panel/offsite\n"
+		body := "PANEL_SFTP_ROOT=/var/lib/panel/offsite/inbox\n"
 		return os.WriteFile(root(c, "var/lib/panel/secrets/backup-sftp.env"), []byte(body), 0o640)
 	}
 	if _, err := user.Lookup("panel-backup"); err != nil {
 		_ = exec.Command("/usr/sbin/useradd", "--system", "-d", "/var/lib/panel/offsite", "-s", "/usr/sbin/nologin", "panel-backup").Run()
 	}
-	_ = exec.Command("/bin/chown", "panel-backup:panel", "/var/lib/panel/offsite").Run()
-	_ = os.Chmod("/var/lib/panel/offsite", 0o2770)
+	_ = exec.Command("/bin/chown", "panel-backup:panel-backup", "/var/lib/panel/offsite").Run()
+	_ = os.Chmod("/var/lib/panel/offsite", 0o750)
+	_ = exec.Command("/bin/chown", "panel-backup:panel", "/var/lib/panel/offsite/inbox").Run()
+	_ = os.Chmod("/var/lib/panel/offsite/inbox", 0o2770)
 	keyPath := root(c, "var/lib/panel/secrets/backup-sftp")
 	if _, err := os.Stat(keyPath); err != nil {
 		cmd := exec.Command("/usr/bin/ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "", "-C", "panel-offsite")
@@ -569,7 +574,7 @@ Match User panel-backup
 		"PANEL_SFTP_USER=panel-backup",
 		"PANEL_SFTP_KEY=/var/lib/panel/secrets/backup-sftp",
 		"PANEL_SFTP_HOST_KEY=" + fp,
-		"PANEL_SFTP_ROOT=/var/lib/panel/offsite",
+		"PANEL_SFTP_ROOT=/var/lib/panel/offsite/inbox",
 		"",
 	}, "\n")
 	if err := os.WriteFile(root(c, "var/lib/panel/secrets/backup-sftp.env"), []byte(env), 0o640); err != nil {
@@ -900,10 +905,10 @@ func verifySecurity(c Config) error {
 		}
 	}
 	if !c.Dev {
-		if st, err := os.Stat(root(c, "var/lib/panel/offsite")); err != nil {
+		if st, err := os.Stat(root(c, "var/lib/panel/offsite/inbox")); err != nil {
 			return err
 		} else if st.Mode()&0o020 == 0 {
-			return fmt.Errorf("offsite directory must be group-writable for SFTP backups")
+			return fmt.Errorf("offsite inbox must be group-writable for SFTP backups")
 		}
 		envb, err := os.ReadFile(root(c, "var/lib/panel/secrets/backup-sftp.env"))
 		if err != nil {
