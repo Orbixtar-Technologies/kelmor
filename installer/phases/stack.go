@@ -6,12 +6,15 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/hosting-panel/panel/internal/firewall"
 	"github.com/hosting-panel/panel/internal/netaddr"
+
+	"golang.org/x/crypto/ssh"
 )
 
 //go:embed units/*.service
@@ -441,7 +444,10 @@ Match Group panel-sftp
     AllowTcpForwarding no
     X11Forwarding no
 `
-	return os.WriteFile(root(c, "etc/ssh/sshd_config.d/panel-sftp.conf"), []byte(sftp), 0o644)
+	if err := os.WriteFile(root(c, "etc/ssh/sshd_config.d/panel-sftp.conf"), []byte(sftp), 0o644); err != nil {
+		return err
+	}
+	return applyBackupOffsite(c)
 }
 
 func applyFTPStack(c Config) error {
@@ -504,6 +510,102 @@ account required pam_permit.so
 	cmd := exec.Command("/usr/sbin/vsftpd", "/etc/vsftpd.conf")
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin"}
 	return cmd.Start()
+}
+
+func applyBackupOffsite(c Config) error {
+	if err := os.MkdirAll(root(c, "var/lib/panel/offsite"), 0o750); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root(c, "var/lib/panel/secrets"), 0o750); err != nil {
+		return err
+	}
+	conf := `# Offsite backup receiver — key-only internal-sftp
+Match User panel-backup
+    PasswordAuthentication no
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no
+`
+	if err := os.WriteFile(root(c, "etc/ssh/sshd_config.d/panel-backup-sftp.conf"), []byte(conf), 0o644); err != nil {
+		return err
+	}
+	if c.Dev {
+		body := "PANEL_SFTP_ROOT=/var/lib/panel/offsite\n"
+		return os.WriteFile(root(c, "var/lib/panel/secrets/backup-sftp.env"), []byte(body), 0o640)
+	}
+	if _, err := user.Lookup("panel-backup"); err != nil {
+		_ = exec.Command("/usr/sbin/useradd", "--system", "-d", "/var/lib/panel/offsite", "-s", "/usr/sbin/nologin", "panel-backup").Run()
+	}
+	_ = exec.Command("/bin/chown", "panel-backup:panel-backup", "/var/lib/panel/offsite").Run()
+	_ = os.Chmod("/var/lib/panel/offsite", 0o750)
+	keyPath := root(c, "var/lib/panel/secrets/backup-sftp")
+	if _, err := os.Stat(keyPath); err != nil {
+		cmd := exec.Command("/usr/bin/ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "", "-C", "panel-offsite")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("ssh-keygen: %s", strings.TrimSpace(string(out)))
+		}
+	}
+	_ = os.Chmod(keyPath, 0o640)
+	_ = exec.Command("/bin/chown", "panel:panel", keyPath, keyPath+".pub").Run()
+	pub, err := os.ReadFile(keyPath + ".pub")
+	if err != nil {
+		return err
+	}
+	sshDir := "/var/lib/panel/offsite/.ssh"
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), pub, 0o600); err != nil {
+		return err
+	}
+	_ = exec.Command("/bin/chown", "-R", "panel-backup:panel-backup", sshDir).Run()
+	fp := sshHostFingerprint()
+	if fp == "" {
+		return fmt.Errorf("ssh host key fingerprint missing")
+	}
+	env := strings.Join([]string{
+		"PANEL_SFTP_HOST=127.0.0.1",
+		"PANEL_SFTP_USER=panel-backup",
+		"PANEL_SFTP_KEY=/var/lib/panel/secrets/backup-sftp",
+		"PANEL_SFTP_HOST_KEY=" + fp,
+		"PANEL_SFTP_ROOT=/var/lib/panel/offsite",
+		"",
+	}, "\n")
+	if err := os.WriteFile(root(c, "var/lib/panel/secrets/backup-sftp.env"), []byte(env), 0o640); err != nil {
+		return err
+	}
+	_ = exec.Command("/bin/chown", "panel:panel", root(c, "var/lib/panel/secrets/backup-sftp.env")).Run()
+	if pid := sshdPID(); pid > 0 {
+		_ = exec.Command("/bin/kill", "-HUP", fmt.Sprintf("%d", pid)).Run()
+	}
+	return nil
+}
+
+func sshHostFingerprint() string {
+	for _, name := range []string{"ssh_host_ed25519_key.pub", "ssh_host_rsa_key.pub", "ssh_host_ecdsa_key.pub"} {
+		b, err := os.ReadFile("/etc/ssh/" + name)
+		if err != nil {
+			continue
+		}
+		pk, _, _, _, err := ssh.ParseAuthorizedKey(b)
+		if err != nil {
+			continue
+		}
+		return ssh.FingerprintSHA256(pk)
+	}
+	return ""
+}
+
+func sshdPID() int {
+	out, err := exec.Command("/usr/bin/pgrep", "-x", "sshd").Output()
+	if err != nil {
+		return 0
+	}
+	var pid int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &pid); err != nil {
+		return 0
+	}
+	return pid
 }
 
 func vsftpdPID() int {
@@ -638,6 +740,13 @@ func verifySystemd(c Config) error {
 		if _, err := os.Stat(root(c, "etc/systemd/system/"+n)); err != nil {
 			return err
 		}
+	}
+	b, err := os.ReadFile(root(c, "etc/systemd/system/panel-worker.service"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(b), "backup-sftp.env") {
+		return fmt.Errorf("panel-worker.service missing offsite SFTP env")
 	}
 	return nil
 }
@@ -780,6 +889,9 @@ func verifySecurity(c Config) error {
 		"etc/vsftpd.conf",
 		"etc/pam.d/vsftpd",
 		"var/lib/panel/ftp/user_conf",
+		"etc/ssh/sshd_config.d/panel-backup-sftp.conf",
+		"var/lib/panel/offsite",
+		"var/lib/panel/secrets/backup-sftp.env",
 	} {
 		if _, err := os.Stat(root(c, p)); err != nil {
 			return err

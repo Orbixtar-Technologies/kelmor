@@ -407,6 +407,18 @@ bid=$(echo "$bak" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((
 bop=$(echo "$bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$bid" ]]
 wait_job "$bop" backup
+if [[ -f /var/lib/panel/secrets/backup-sftp.env ]]; then
+  sbak=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/backups" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"kind":"full","destination":"sftp"}')
+  echo "$sbak"
+  sbop=$(echo "$sbak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  skey=$(echo "$sbak" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("backup") or {}).get("id") or "")')
+  wait_job "$sbop" backup-sftp
+  found=$(sudo find /var/lib/panel/offsite -type f -name '*.hpm' | head -n 1)
+  [[ -n "$found" ]] || { echo "sftp offsite object missing" >&2; sudo find /var/lib/panel/offsite -ls >&2; exit 1; }
+  echo "sftp-offsite $found"
+  [[ -n "$skey" ]]
+fi
 sudo mariadb "$DBNAME" -e "DELETE FROM panel_restore;"
 sudo rm -f "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker"
 curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type: application/json' \

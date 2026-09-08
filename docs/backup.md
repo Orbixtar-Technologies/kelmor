@@ -14,4 +14,4 @@ SFTP and S3 repositories implement the same `Repository` interface. Destination 
 - `PANEL_SFTP_HOST_KEY` — required SHA256 host-key fingerprint (`SHA256:…`)
 - `PANEL_SFTP_ROOT` — remote directory (default `/var/lib/panel/offsite`)
 
-Without `PANEL_SFTP_HOST`, objects are written atomically under `PANEL_SFTP_ROOT` on this node. Destination `s3` uses SigV4 against `PANEL_S3_ENDPOINT` / `PANEL_S3_BUCKET`. The HPM1 envelope is unchanged.
+Without `PANEL_SFTP_HOST`, objects are written atomically under `PANEL_SFTP_ROOT` on this node. The installer creates the `panel-backup` system user, an ed25519 client key, and `/var/lib/panel/secrets/backup-sftp.env` so destination `sftp` pushes over SSH to `127.0.0.1` (host-key pinned). Override those variables for a remote receiver. Destination `s3` uses SigV4 against `PANEL_S3_ENDPOINT` / `PANEL_S3_BUCKET`. The HPM1 envelope is unchanged. The worker launcher and `panel-worker.service` load `backup-sftp.env`.

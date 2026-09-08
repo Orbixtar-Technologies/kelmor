@@ -16,6 +16,14 @@ if [[ -r "$STATE/public.env" ]]; then
 elif [[ -f "$STATE/public.env" ]]; then
   eval "$(sudo grep -E '^PANEL_PUBLIC_IPV4=' "$STATE/public.env")"
 fi
+if [[ -r "$STATE/secrets/backup-sftp.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$STATE/secrets/backup-sftp.env"
+  set +a
+elif [[ -f "$STATE/secrets/backup-sftp.env" ]]; then
+  eval "$(sudo grep -E '^PANEL_SFTP_' "$STATE/secrets/backup-sftp.env")"
+fi
 export PANEL_STATE_DIR="$STATE"
 export PANEL_AGENT_SOCK="$SOCK"
 export PANEL_API_ADDR="$ADDR"
@@ -34,4 +42,9 @@ exec sudo -u panel -g panel env \
   PANEL_PDNS_URL="$PDNS_URL" \
   PANEL_PDNS_API_KEY="$PDNS_KEY" \
   PANEL_PUBLIC_IPV4="${PANEL_PUBLIC_IPV4:-}" \
+  PANEL_SFTP_HOST="${PANEL_SFTP_HOST:-}" \
+  PANEL_SFTP_USER="${PANEL_SFTP_USER:-}" \
+  PANEL_SFTP_KEY="${PANEL_SFTP_KEY:-}" \
+  PANEL_SFTP_HOST_KEY="${PANEL_SFTP_HOST_KEY:-}" \
+  PANEL_SFTP_ROOT="${PANEL_SFTP_ROOT:-}" \
   "$ROOT/bin/$1"

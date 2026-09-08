@@ -13,6 +13,7 @@ Environment=PANEL_PDNS_URL=http://127.0.0.1:8081
 Environment=PANEL_PDNS_API_KEY=panel-loopback
 EnvironmentFile=-/var/lib/panel/acme.env
 EnvironmentFile=-/var/lib/panel/public.env
+EnvironmentFile=-/var/lib/panel/secrets/backup-sftp.env
 ExecStart=/usr/local/panel/bin/panel-worker
 Restart=on-failure
 RestartSec=2

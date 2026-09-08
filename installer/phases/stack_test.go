@@ -41,6 +41,9 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/rspamd/local.d/panel.conf",
 		"var/panel/host/etc/clamav/panel.conf",
 		"var/panel/host/etc/ssh/sshd_config.d/panel-sftp.conf",
+		"var/panel/host/etc/ssh/sshd_config.d/panel-backup-sftp.conf",
+		"var/panel/host/var/lib/panel/offsite",
+		"var/panel/host/var/lib/panel/secrets/backup-sftp.env",
 		"var/panel/host/etc/vsftpd.conf",
 		"var/panel/host/etc/pam.d/vsftpd",
 		"var/panel/host/var/lib/panel/ftp/user_conf",
@@ -80,6 +83,9 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	}
 	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/public.env") {
 		t.Fatalf("worker unit missing public IPv4 env file: %s", worker)
+	}
+	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/secrets/backup-sftp.env") {
+		t.Fatalf("worker unit missing offsite SFTP env file: %s", worker)
 	}
 	pdns, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf"))
 	if err != nil {
