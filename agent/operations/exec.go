@@ -35,6 +35,8 @@ var allowedBins = map[string]bool{
 	"/usr/bin/doveadm":      true,
 	"/usr/bin/pdns_control": true,
 	"/usr/bin/node":         true,
+	"/usr/bin/nodejs":       true,
+	"/exec-daemon/node":     true,
 	"/usr/bin/python3":      true,
 }
 

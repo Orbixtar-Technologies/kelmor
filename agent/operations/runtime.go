@@ -122,6 +122,7 @@ func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Resu
 		stmts := []string{
 			fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", name),
 			fmt.Sprintf("CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s'", dbUser, escapeSQL(password)),
+			fmt.Sprintf("ALTER USER '%s'@'localhost' IDENTIFIED BY '%s'", dbUser, escapeSQL(password)),
 			fmt.Sprintf("GRANT ALL ON %s.* TO '%s'@'localhost'", name, dbUser),
 			"FLUSH PRIVILEGES",
 		}

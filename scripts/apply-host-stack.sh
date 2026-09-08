@@ -113,6 +113,9 @@ if [[ -e /etc/nginx/sites-enabled/default ]]; then
   sudo rm -f /etc/nginx/sites-enabled/default
 fi
 sudo nginx -t && sudo nginx -s reload || true
+if [[ ! -x /usr/bin/node ]] && [[ -x /usr/bin/apt-get ]]; then
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/tmp/panel-nodejs.apt.log 2>&1 || true
+fi
 if [[ -x /usr/sbin/php-fpm8.3 ]] && ! pgrep -x php-fpm8.3 >/dev/null; then
   sudo /usr/sbin/php-fpm8.3 || true
 fi

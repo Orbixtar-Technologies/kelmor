@@ -13,6 +13,7 @@ var allowedPackages = map[string]bool{
 	"postfix": true, "dovecot-core": true, "dovecot-imapd": true, "dovecot-lmtpd": true,
 	"redis-server": true, "rspamd": true, "clamav": true, "clamav-daemon": true,
 	"fail2ban": true, "quota": true, "libnginx-mod-http-modsecurity": true,
+	"nodejs": true, "python3": true,
 }
 
 func InstallPackages(names []string) error {
@@ -43,7 +44,7 @@ func applySystemPackages(c Config) error {
 		"mariadb-server", "postgresql", "pdns-server", "pdns-backend-pgsql",
 		"postfix", "dovecot-core", "dovecot-imapd", "dovecot-lmtpd",
 		"redis-server", "rspamd", "clamav-daemon", "fail2ban", "quota",
-		"libnginx-mod-http-modsecurity",
+		"libnginx-mod-http-modsecurity", "nodejs", "python3",
 	})
 }
 

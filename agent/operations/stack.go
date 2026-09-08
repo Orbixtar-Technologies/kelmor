@@ -129,7 +129,15 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 func startAccountProcess(account, workDir, runtime string) error {
 	switch runtime {
 	case "node":
-		return startDetached("/usr/sbin/runuser", workDir, "-u", account, "--", "/usr/bin/node", "server.js")
+		bin := "/usr/bin/node"
+		if _, err := os.Stat(bin); err != nil {
+			if _, err := os.Stat("/exec-daemon/node"); err == nil {
+				bin = "/exec-daemon/node"
+			} else if _, err := os.Stat("/usr/bin/nodejs"); err == nil {
+				bin = "/usr/bin/nodejs"
+			}
+		}
+		return startDetached("/usr/sbin/runuser", workDir, "-u", account, "--", bin, "server.js")
 	case "python":
 		return startDetached("/usr/sbin/runuser", workDir, "-u", account, "--", "/usr/bin/python3", "app.py")
 	default:
