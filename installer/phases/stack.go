@@ -2,6 +2,7 @@ package phases
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"time"
 )
@@ -286,8 +287,20 @@ WantedBy=multi-user.target
 }
 
 func applyHealth(c Config) error {
-	report := fmt.Sprintf("installation_id=%s checked=%s web=ok dns=configured mail=configured firewall=table-inet-panel\n",
-		c.Hostname, time.Now().UTC().Format(time.RFC3339))
+	web, dns, mail := "ok", "configured", "configured"
+	if !c.Dev {
+		if _, err := net.DialTimeout("tcp", "127.0.0.1:80", 400*time.Millisecond); err != nil {
+			web = "down"
+		}
+		if _, err := net.DialTimeout("tcp", "127.0.0.1:25", 400*time.Millisecond); err != nil {
+			mail = "down"
+		}
+		if _, err := net.DialTimeout("tcp", "127.0.0.1:53", 400*time.Millisecond); err != nil {
+			dns = "down"
+		}
+	}
+	report := fmt.Sprintf("installation_id=%s checked=%s web=%s dns=%s mail=%s firewall=table-inet-panel\n",
+		c.Hostname, time.Now().UTC().Format(time.RFC3339), web, dns, mail)
 	return os.WriteFile(root(c, "var/lib/panel/health-report.txt"), []byte(report), 0o640)
 }
 
@@ -312,9 +325,13 @@ func verifyDNS(c Config) error {
 	return err
 }
 
+func verifyFirewall(c Config) error {
+	_, err := os.Stat(root(c, "etc/panel/nftables-panel.nft"))
+	return err
+}
+
 func verifySecurity(c Config) error {
 	for _, p := range []string{
-		"etc/panel/nftables-panel.nft",
 		"etc/nginx/modsec/panel.conf",
 		"etc/rspamd/local.d/panel.conf",
 		"etc/clamav/panel.conf",

@@ -93,7 +93,7 @@ func (w *Worker) execute(ctx context.Context, j *store.Job) {
 	if err != nil {
 		j.LastError = err.Error()
 		j.Logs = append(j.Logs, "error: "+err.Error())
-		if j.Attempts >= j.MaxAttempts {
+		if j.Attempts >= j.MaxAttempts || gone(err) {
 			j.State = "failed"
 			j.FinishedAt = &now
 		} else {
@@ -660,6 +660,14 @@ func publicIPv4() string {
 		return v
 	}
 	return "127.0.0.1"
+}
+
+func gone(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "missing")
 }
 
 func findSite(st store.Store, domainID string) *store.Website {

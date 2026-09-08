@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -82,14 +83,15 @@ func All() []Phase {
 		named{"database_stack", checkNoop, applyDatabaseStack, verifyNoop},
 		named{"dns", checkNoop, applyDNS, verifyDNS},
 		named{"mail", checkNoop, applyMail, verifyMail},
-		named{"security", checkNoop, applySecurity, verifyNoop},
-		named{"firewall", checkNoop, applyFirewall, verifySecurity},
+		named{"security", checkNoop, applySecurity, verifySecurity},
+		named{"firewall", checkNoop, applyFirewall, verifyFirewall},
 		named{"runtime_versions", checkNoop, applyRuntimeVersions, verifyNoop},
 		named{"templates", checkNoop, applyTemplates, verifyNoop},
 		named{"tls", checkNoop, applyTLS, verifyNoop},
 		named{"systemd", checkNoop, applySystemd, verifyNoop},
+		named{"host_runtime", checkNoop, applyHostRuntime, verifyNoop},
 		named{"administrator", checkNoop, applyAdministrator, verifyNoop},
-		named{"health_checks", checkNoop, applyHealth, verifyNoop},
+		named{"health_checks", checkNoop, applyHealth, verifyHealth},
 		named{"installation_report", checkNoop, applyReport, verifyNoop},
 	}
 }
@@ -129,7 +131,15 @@ func applyNoop(Config) error  { return nil }
 func verifyNoop(Config) error { return nil }
 
 func applyUsers(c Config) error {
-	return os.MkdirAll(root(c, "var/lib/panel"), 0o750)
+	if err := os.MkdirAll(root(c, "var/lib/panel"), 0o750); err != nil {
+		return err
+	}
+	if c.Dev {
+		return nil
+	}
+	_ = exec.Command("/usr/sbin/groupadd", "--system", "panel").Run()
+	_ = exec.Command("/usr/sbin/useradd", "--system", "-g", "panel", "-d", "/var/lib/panel", "-s", "/usr/sbin/nologin", "panel").Run()
+	return nil
 }
 
 func applyControlDB(c Config) error {
@@ -137,10 +147,12 @@ func applyControlDB(c Config) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
+	dsn := "postgres:///panel_control?host=/var/run/postgresql\n"
 	if !c.Dev {
-		return nil
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/createdb", "panel_control").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "SELECT 1").Run()
 	}
-	return os.WriteFile(filepath.Join(dir, "dsn"), []byte("postgres:///panel_control?host=/var/run/postgresql\n"), 0o640)
+	return os.WriteFile(filepath.Join(dir, "dsn"), []byte(dsn), 0o640)
 }
 
 func applyControlPlane(c Config) error {
