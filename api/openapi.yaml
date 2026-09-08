@@ -277,6 +277,29 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/{accountID}/wordpress:
+    post:
+      operationId: installWordPress
+      x-capability: applications.write
+      x-audit-action: wordpress.install
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [website_id, admin_user, admin_password, admin_email]
+              properties:
+                website_id: { type: string }
+                title: { type: string }
+                admin_user: { type: string }
+                admin_password: { type: string }
+                admin_email: { type: string }
+      responses:
+        "202": { description: WordPress install queued }
+        "403": { description: package application limit exceeded }
   /accounts/{accountID}/databases:
     get:
       operationId: listDatabases

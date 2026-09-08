@@ -24,6 +24,7 @@ panel-cli dnssec ds <account-id> <zone-id>
 panel-cli db create <account-id> shop mariadb
 panel-cli domain create <account-id> python.example.test python
 panel-cli website create <account-id> <domain-id> node
+panel-cli wordpress install <account-id> <website-id> 'My site' wpadmin 'WpAdmin!2026' owner@example.test
 panel-cli file write <account-id> /public_html/index.php '<?php echo "ok";'
 panel-cli file list <account-id> /public_html
 panel-cli backup restore <account-id> <backup-id>

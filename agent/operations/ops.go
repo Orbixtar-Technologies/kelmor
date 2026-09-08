@@ -327,6 +327,12 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.createMailboxHome(p.Domain, p.LocalPart, p.UID, p.GID)
+	case "InstallWordPress":
+		var p WordPressInstall
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.installWordPress(p)
 	case "ApplyDNSZone":
 		var p struct {
 			Name string `json:"name"`

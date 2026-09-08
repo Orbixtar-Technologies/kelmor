@@ -39,6 +39,7 @@ func main() {
   dnssec ds <account_id> <zone_id>
   db create <account_id> <name> <engine>
   website create <account_id> <domain_id> <runtime>
+  wordpress install <account_id> <website_id> <title> <admin> <password> <email>
   domain create <account_id> <fqdn> [runtime] [type]
   file list <account_id> [path]
   file write <account_id> <path> <content>
@@ -117,6 +118,11 @@ func main() {
 			body["type"] = args[5]
 		}
 		post(base+"/api/v1/accounts/"+args[2]+"/domains", token, body)
+	case args[0] == "wordpress" && args[1] == "install" && len(args) == 8:
+		post(base+"/api/v1/accounts/"+args[2]+"/wordpress", token, map[string]any{
+			"website_id": args[3], "title": args[4],
+			"admin_user": args[5], "admin_password": args[6], "admin_email": args[7],
+		})
 	case args[0] == "website" && len(args) == 5 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/websites", token, map[string]any{"domain_id": args[3], "runtime": args[4]})
 	case args[0] == "file" && args[1] == "list" && len(args) >= 3:

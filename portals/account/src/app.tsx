@@ -154,6 +154,30 @@ function Websites ({ accountId }: { accountId: string }) {
 				<button type="submit">Apply website</button>
 			</form>
 			</Can>
+			<Can cap="applications.write">
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				try {
+					await api(`/api/v1/accounts/${accountId}/wordpress`, { method: 'POST', body: JSON.stringify({
+						website_id: fd.get('website_id'),
+						title: fd.get('title'),
+						admin_user: fd.get('admin_user'),
+						admin_password: fd.get('admin_password'),
+						admin_email: fd.get('admin_email'),
+					}) })
+					setMsg('WordPress install queued')
+					await load()
+				} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
+			}}>
+				<select name="website_id">{items.map((it) => <option key={it.id} value={it.id}>{it.document_root}</option>)}</select>
+				<input name="title" placeholder="Site title" defaultValue="My site" required />
+				<input name="admin_user" placeholder="wp admin" defaultValue="wpadmin" required />
+				<input name="admin_password" type="password" minLength={8} required />
+				<input name="admin_email" type="email" placeholder="owner@example.test" required />
+				<button type="submit">Install WordPress</button>
+			</form>
+			</Can>
 			{msg ? <p>{msg}</p> : null}
 			{items.length === 0 ? <p>No websites yet. Provisioning creates one after the account job finishes.</p> : (
 				<table>
@@ -243,16 +267,22 @@ function Domains ({ accountId }: { accountId: string }) {
 
 function DNS ({ accountId }: { accountId: string }) {
 	const [zones, setZones] = useState<any[]>([])
+	const [zoneId, setZoneId] = useState('')
 	const [records, setRecords] = useState<any[]>([])
 	const [ds, setDS] = useState<any[]>([])
 	const [msg, setMsg] = useState('')
-	async function load () {
+	const zone = zones.find((z) => z.id === zoneId) || zones[0]
+	async function load (keepId?: string) {
 		const r = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones`)
 		setZones(r.items)
-		if (r.items[0]) {
-			const rec = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${r.items[0].id}/records`)
+		const id = keepId || zoneId || (r.items[0] && r.items[0].id) || ''
+		if (!zoneId && id) setZoneId(id)
+		const selected = r.items.find((z) => z.id === id) || r.items[0]
+		if (selected) {
+			if (!keepId && !zoneId) setZoneId(selected.id)
+			const rec = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${selected.id}/records`)
 			setRecords(rec.items)
-			const keys = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${r.items[0].id}/ds`).catch(() => ({ items: [] }))
+			const keys = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${selected.id}/ds`).catch(() => ({ items: [] }))
 			setDS(keys.items || [])
 		} else {
 			setRecords([])
@@ -260,25 +290,35 @@ function DNS ({ accountId }: { accountId: string }) {
 		}
 	}
 	useEffect(() => { load().catch((e) => setMsg(e instanceof Error ? e.message : 'failed')) }, [accountId])
+	useEffect(() => {
+		if (!zoneId) return
+		load(zoneId).catch((e) => setMsg(e instanceof Error ? e.message : 'failed'))
+	}, [zoneId])
 	return (
 		<>
 			<h1>DNS</h1>
 			{zones.length === 0 ? <p>No zones yet. They appear after account provisioning completes.</p> : (
 				<>
-					<p>{zones[0].name} — DNSSEC {zones[0].dnssec_enabled ? 'on' : 'off'}.</p>
+					<label>Zone
+						<select value={zone?.id || ''} onChange={(e) => setZoneId(e.target.value)}>
+							{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+						</select>
+					</label>
+					<p>{zone?.name} — DNSSEC {zone?.dnssec_enabled ? 'on' : 'off'}.</p>
 					<Can cap="dns.write">
 					<button type="button" onClick={async () => {
+						if (!zone) return
 						try {
-							await api(`/api/v1/accounts/${accountId}/dns/zones/${zones[0].id}/dnssec`, {
+							await api(`/api/v1/accounts/${accountId}/dns/zones/${zone.id}/dnssec`, {
 								method: 'POST',
-								body: JSON.stringify({ enabled: !zones[0].dnssec_enabled }),
+								body: JSON.stringify({ enabled: !zone.dnssec_enabled }),
 							})
-							setMsg(zones[0].dnssec_enabled ? 'DNSSEC disable queued' : 'DNSSEC enable queued')
-							await load()
+							setMsg(zone.dnssec_enabled ? 'DNSSEC disable queued' : 'DNSSEC enable queued')
+							await load(zone.id)
 						} catch (err) {
 							setMsg(err instanceof Error ? err.message : 'failed')
 						}
-					}}>{zones[0].dnssec_enabled ? 'Disable DNSSEC' : 'Enable DNSSEC'}</button>
+					}}>{zone?.dnssec_enabled ? 'Disable DNSSEC' : 'Enable DNSSEC'}</button>
 					</Can>
 					{ds.length > 0 ? (
 						<table>
@@ -291,7 +331,7 @@ function DNS ({ accountId }: { accountId: string }) {
 						e.preventDefault()
 						const fd = new FormData(e.currentTarget)
 						try {
-							await api(`/api/v1/accounts/${accountId}/dns/zones/${zones[0].id}/records`, {
+							await api(`/api/v1/accounts/${accountId}/dns/zones/${zone.id}/records`, {
 								method: 'POST',
 								body: JSON.stringify({
 									name: fd.get('name'),
@@ -329,7 +369,7 @@ function DNS ({ accountId }: { accountId: string }) {
 								<td>
 									<Can cap="dns.write">
 										<button type="button" onClick={async () => {
-											await api(`/api/v1/accounts/${accountId}/dns/zones/${zones[0].id}/records/${r.id}`, { method: 'DELETE' })
+											await api(`/api/v1/accounts/${accountId}/dns/zones/${zone.id}/records/${r.id}`, { method: 'DELETE' })
 											setMsg('Record deleted')
 											await load()
 										}}>Delete</button>

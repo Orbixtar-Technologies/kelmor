@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -98,6 +99,7 @@ func (a *API) Handler() http.Handler {
 				r.Post("/websites", a.createWebsite)
 				r.Get("/applications", a.listApps)
 				r.Post("/applications", a.createApp)
+				r.Post("/wordpress", a.installWordPress)
 				r.Get("/databases", a.listDBs)
 				r.Post("/databases", a.createDB)
 				r.Get("/dns/zones", a.listZones)
@@ -1118,6 +1120,63 @@ func (a *API) createApp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "application": in})
 }
 
+func (a *API) installWordPress(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.ApplicationsWrite) {
+		return
+	}
+	if err := a.enforceCountLimit(aid, "applications", len(a.Store.ListApps(aid)), func(p *store.Package) int { return p.ApplicationInstances }); err != nil {
+		a.rejectLimit(w, r, err)
+		return
+	}
+	var in struct {
+		WebsiteID     string `json:"website_id"`
+		Title         string `json:"title"`
+		AdminUser     string `json:"admin_user"`
+		AdminPassword string `json:"admin_password"`
+		AdminEmail    string `json:"admin_email"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if err := validate.Username(in.AdminUser); err != nil {
+		a.fail(w, r, 400, "VALIDATION", "admin_user: "+err.Error(), false)
+		return
+	}
+	if len(in.AdminPassword) < 8 {
+		a.fail(w, r, 400, "VALIDATION", "admin password must be at least 8 characters", false)
+		return
+	}
+	if in.AdminEmail == "" || !strings.Contains(in.AdminEmail, "@") {
+		a.fail(w, r, 400, "VALIDATION", "admin_email required", false)
+		return
+	}
+	if in.Title == "" {
+		in.Title = "WordPress"
+	}
+	site := a.Store.GetWebsite(in.WebsiteID)
+	if site == nil || site.AccountID != aid {
+		a.fail(w, r, 400, "VALIDATION", "website_id required", false)
+		return
+	}
+	app := &store.Application{
+		ID: id.New(), WebsiteID: site.ID, AccountID: aid,
+		Runtime: "wordpress", WorkingDirectory: site.DocumentRoot, Status: "provisioning",
+	}
+	a.Store.PutApp(app)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "wordpress.install", ResourceType: "application", ResourceID: app.ID,
+		Payload: map[string]any{
+			"application_id": app.ID, "title": in.Title,
+			"admin_user": in.AdminUser, "admin_password": in.AdminPassword,
+			"admin_email": in.AdminEmail,
+		},
+		State: "queued",
+	})
+	a.audit(r, "wordpress.install", "application", app.ID, true, nil, map[string]any{
+		"website_id": site.ID, "title": in.Title,
+	})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "application": app})
+}
+
 func (a *API) listDBs(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.DatabasesRead) {
@@ -1165,7 +1224,9 @@ func (a *API) listZones(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.DNSRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListZones(aid)})
+	items := a.Store.ListZones(aid)
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	writeJSON(w, 200, map[string]any{"items": items})
 }
 
 func (a *API) listRecords(w http.ResponseWriter, r *http.Request) {

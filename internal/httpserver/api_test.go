@@ -337,6 +337,35 @@ func delStatus(t *testing.T, url, token string) (int, map[string]any) {
 	return res.StatusCode, out
 }
 
+func TestWordPressInstallAPI(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "wpacct1", "primary_domain": "wpsite.test", "package_id": pkg,
+		"owner_email": "o@wpsite.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	site := &store.Website{ID: id.New(), AccountID: aid, DocumentRoot: "/home/wpacct1/public_html", Runtime: "php", Enabled: true}
+	st.PutWebsite(site)
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/wordpress", admin, map[string]any{
+		"website_id": site.ID, "title": "WP", "admin_user": "wpadmin",
+		"admin_password": "WpAdmin!2026", "admin_email": "o@wpsite.test",
+	}) != 202 {
+		t.Fatal("wordpress install")
+	}
+	apps := st.ListApps(aid)
+	if len(apps) != 1 || apps[0].Runtime != "wordpress" {
+		t.Fatalf("%v", apps)
+	}
+}
+
 func TestDNSSECAndCatchallAPI(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

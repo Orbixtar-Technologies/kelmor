@@ -122,6 +122,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.provisionWebsite(j)
 	case "application.deploy":
 		return w.deployApp(j)
+	case "wordpress.install":
+		return w.installWordPress(j)
 	case "database.provision":
 		return w.provisionDB(j)
 	case "dns.sync":
@@ -437,6 +439,100 @@ func (w *Worker) deployApp(j *store.Job) error {
 		return err
 	}
 	app.Status = "running"
+	w.Store.PutApp(app)
+	return nil
+}
+
+func (w *Worker) installWordPress(j *store.Job) error {
+	app := w.Store.GetApp(str(j.Payload["application_id"]))
+	if app == nil {
+		return fmt.Errorf("application missing")
+	}
+	acc := w.Store.GetAccount(app.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	site := w.Store.GetWebsite(app.WebsiteID)
+	if site == nil {
+		for _, s := range w.Store.ListWebsites(acc.ID) {
+			if s.Runtime == "php" || s.Runtime == "" {
+				cp := s
+				site = &cp
+				break
+			}
+		}
+	}
+	if site == nil {
+		return fmt.Errorf("website missing")
+	}
+	doc := site.DocumentRoot
+	if doc == "" {
+		doc = acc.HomePath + "/public_html"
+	}
+	dbName := acc.Username + "_wp"
+	dbUser := acc.Username + "_u"
+	pw := fmt.Sprintf("db-%s", store.NewID())
+	if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "CreateHostedDatabase",
+		Params: mustJSON(map[string]any{
+			"engine": "mariadb", "name": dbName, "username": dbUser, "password": pw,
+		}),
+	}); err != nil {
+		return err
+	}
+	found := false
+	for _, d := range w.Store.ListDBs(acc.ID) {
+		if d.Name == dbName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		w.Store.PutDB(&store.HostedDatabase{
+			ID: store.NewID(), AccountID: acc.ID, Engine: "mariadb", Name: dbName, Status: "active",
+		})
+	}
+	note := fmt.Sprintf("engine=mariadb\nname=%s\nusername=%s\npassword=%s\nhost=127.0.0.1\n", dbName, dbUser, pw)
+	_, _ = w.Agent.ApplyFile("/home/"+acc.Username+"/.panel-database.mariadb."+dbName, []byte(note), 0o600)
+	host := str(j.Payload["hostname"])
+	if host == "" {
+		if d := w.Store.GetDomain(site.DomainID); d != nil {
+			host = d.ASCII
+		}
+	}
+	title := str(j.Payload["title"])
+	if title == "" {
+		title = host
+	}
+	if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "InstallWordPress",
+		Params: mustJSON(map[string]any{
+			"username":       acc.Username,
+			"document_root":  doc,
+			"db_name":        dbName,
+			"db_user":        dbUser,
+			"db_password":    pw,
+			"db_host":        "127.0.0.1",
+			"site_url":       "http://" + host,
+			"title":          title,
+			"admin_user":     str(j.Payload["admin_user"]),
+			"admin_password": str(j.Payload["admin_password"]),
+			"admin_email":    str(j.Payload["admin_email"]),
+		}),
+	}); err != nil {
+		return err
+	}
+	if site.Runtime != "php" {
+		site.Runtime = "php"
+		w.Store.PutWebsite(site)
+		_ = w.applySiteRuntime(site, acc)
+	}
+	if d := w.Store.GetDomain(site.DomainID); d != nil {
+		_ = w.applyWebsiteDispatch(acc, site, d)
+	}
+	app.Status = "running"
+	app.Runtime = "wordpress"
+	app.WorkingDirectory = doc
 	w.Store.PutApp(app)
 	return nil
 }
