@@ -30,6 +30,7 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	if _, err := h.CreateDirectoryTree(docroot, uint32(hostingDirMode(docroot))); err != nil {
 		return Result{}, err
 	}
+	h.hardenWebDocroot(account, docroot)
 	spec := configuration.WebsiteSpec{
 		WebsiteID: websiteID, Account: account, Domain: domain, DocumentRoot: docroot,
 		Runtime: runtime, PHPVersion: phpVersion, ProxyTarget: proxyTarget,

@@ -72,6 +72,36 @@ func hardenSFTPHome(home string, uid, gid int) error {
 	return nil
 }
 
+func (h *Host) hardenWebDocroot(username, docroot string) {
+	if !h.live() || username == "" || docroot == "" {
+		return
+	}
+	ids, err := lookupUIDGID(username)
+	if err != nil {
+		return
+	}
+	real, err := h.resolve(docroot)
+	if err != nil {
+		return
+	}
+	gid := webServerGID()
+	if gid < 0 {
+		gid = ids.gid
+	}
+	_ = filepath.Walk(real, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			_ = os.Chmod(p, 0o750)
+		} else {
+			_ = os.Chmod(p, 0o640)
+		}
+		_ = os.Chown(p, ids.uid, gid)
+		return nil
+	})
+}
+
 func hardenPublicFiles(dir string, uid, gid int) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

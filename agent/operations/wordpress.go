@@ -87,7 +87,7 @@ func (h *Host) installWordPress(p WordPressInstall) (Result, error) {
 		return Result{}, err
 	}
 	if h.live() {
-		_ = h.chownTree(realDoc, p.Username)
+		h.hardenWebDocroot(p.Username, doc)
 	}
 	return Result{OK: true, ObservedState: "installed", Message: "wordpress files written"}, nil
 }
