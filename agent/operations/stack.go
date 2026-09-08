@@ -33,13 +33,20 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids string) (Resul
 		}
 	}
 	if h.live() {
+		_ = os.MkdirAll("/var/lib/panel/mail", 0o755)
+		_ = os.Chmod("/var/lib/panel/mail", 0o755)
 		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains", "/var/lib/panel/mail/uids", "/var/lib/panel/mail/gids"} {
 			if _, err := os.Stat(mapfile); err != nil {
 				continue
 			}
+			_ = os.Chmod(mapfile, 0o644)
 			if out, err := runFixed("/usr/sbin/postmap", mapfile); err != nil {
 				return Result{}, fmt.Errorf("postmap: %s", strings.TrimSpace(string(out)))
 			}
+			_ = os.Chmod(mapfile+".db", 0o644)
+		}
+		if p, err := h.resolve("/var/lib/panel/mail/passwd"); err == nil {
+			_ = os.Chmod(p, 0o644)
 		}
 		_, _ = runFixed("/usr/sbin/postfix", "reload")
 		_, _ = runFixed("/usr/bin/doveadm", "reload")
@@ -94,6 +101,10 @@ func (h *Host) createMailboxHome(domain, local string, uid, gid int) (Result, er
 	if err := validate.LocalPart(local); err != nil {
 		return Result{}, err
 	}
+	if h.live() {
+		_ = os.MkdirAll("/var/vmail", 0o755)
+		_ = os.Chmod("/var/vmail", 0o755)
+	}
 	base := "/var/vmail/" + domain + "/" + local
 	for _, d := range []string{"", "Maildir", "Maildir/new", "Maildir/cur", "Maildir/tmp"} {
 		p := base
@@ -109,6 +120,9 @@ func (h *Host) createMailboxHome(domain, local string, uid, gid int) (Result, er
 		return Result{}, err
 	}
 	if h.live() && uid >= 20000 {
+		if domainDir, err := h.resolve("/var/vmail/" + domain); err == nil {
+			_ = os.Chmod(domainDir, 0o755)
+		}
 		real, err := h.resolve(base)
 		if err == nil {
 			_ = os.Chown(real, uid, gid)

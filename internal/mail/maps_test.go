@@ -25,7 +25,7 @@ func TestVirtualMaps(t *testing.T) {
 		t.Fatal(UIDMap(recs))
 	}
 	p := PasswdFile(recs)
-	if !strings.Contains(p, "{ARGON2ID}") {
+	if !strings.Contains(p, "$argon2id$") && !strings.Contains(p, "{ARGON2ID}") {
 		t.Fatal(p)
 	}
 }

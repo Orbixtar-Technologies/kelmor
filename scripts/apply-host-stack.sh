@@ -9,6 +9,7 @@ export PANEL_PUBLIC_IPV4="${PANEL_PUBLIC_IPV4:-127.0.0.1}"
 
 sudo mkdir -p /run/panel /var/lib/panel/{mail,dns/zones,certs,acme-www/.well-known/acme-challenge,backups/staging,cron,logs} \
   /var/vmail /etc/nginx/panel-sites /etc/php/8.3/fpm/pool.d
+sudo chmod 0755 /var/vmail
 
 sudo install -d -m 0755 /var/lib/panel /var/lib/panel/dns /var/lib/panel/dns/zones
 sudo chgrp ubuntu /var/lib/panel /var/lib/panel/backups /var/lib/panel/backups/staging /run/panel || true
@@ -46,7 +47,7 @@ listen = *
 mail_location = maildir:~/Maildir
 passdb {
   driver = passwd-file
-  args = scheme=ARGON2ID /var/lib/panel/mail/passwd
+  args = /var/lib/panel/mail/passwd
 }
 userdb {
   driver = passwd-file
@@ -56,7 +57,11 @@ ssl = yes
 ssl_cert = </var/lib/panel/certs/imap.panel.local.crt
 ssl_key = </var/lib/panel/certs/imap.panel.local.key
 !include_try /etc/dovecot/conf.d/*.conf
+mail_location = maildir:~/Maildir
 EOF
+if [[ -f /etc/dovecot/conf.d/10-auth.conf ]]; then
+  sudo sed -i 's/^!include auth-system.conf.ext/# !include auth-system.conf.ext/' /etc/dovecot/conf.d/10-auth.conf || true
+fi
 
 sudo tee /etc/powerdns/pdns.conf >/dev/null <<'EOF'
 setuid=pdns
@@ -90,7 +95,8 @@ if [[ ! -s /var/lib/panel/mail/passwd ]]; then
   echo "# dovecot passwd-file" | sudo tee /var/lib/panel/mail/passwd >/dev/null
 fi
 sudo chown -R root:ubuntu /var/lib/panel/mail || true
-sudo chmod 0755 /var/lib/panel /var/lib/panel/dns /var/lib/panel/dns/zones
+sudo chmod 0755 /var/lib/panel /var/lib/panel/mail /var/lib/panel/dns /var/lib/panel/dns/zones
+sudo chmod 0644 /var/lib/panel/mail/* || true
 sudo chmod 0644 /var/lib/panel/dns/named-zones.conf || true
 
 if ! pgrep -x pdns_server >/dev/null; then
@@ -100,7 +106,10 @@ fi
 sudo postfix check || true
 sudo postfix reload || sudo /usr/sbin/postfix start || true
 sudo doveadm reload || sudo /usr/sbin/dovecot || true
-sudo nginx -s reload || true
+if [[ -e /etc/nginx/sites-enabled/default ]]; then
+  sudo rm -f /etc/nginx/sites-enabled/default
+fi
+sudo nginx -t && sudo nginx -s reload || true
 
 if [[ -x "$ROOT/dist/bin/panel-agent" ]]; then
   if ! pgrep -f '/dist/bin/panel-agent' >/dev/null; then

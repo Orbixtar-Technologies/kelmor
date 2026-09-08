@@ -20,7 +20,12 @@ func hardenSFTPHome(home string, uid, gid int) error {
 	}
 	for _, d := range []string{"public_html", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
 		p := filepath.Join(home, d)
-		_ = os.MkdirAll(p, 0o750)
+		mode := os.FileMode(0o750)
+		if d == "public_html" {
+			mode = 0o755
+		}
+		_ = os.MkdirAll(p, mode)
+		_ = os.Chmod(p, mode)
 		_ = os.Chown(p, uid, gid)
 	}
 	return nil

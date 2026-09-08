@@ -43,7 +43,10 @@ done
 getent passwd "$UNAME" || true
 ls -ld "/home/$UNAME" "/home/$UNAME/public_html" || true
 ls /etc/nginx/panel-sites || true
-curl -sS -H "Host: $DOMAIN" http://127.0.0.1/ | head
+code=$(curl -sS -o /tmp/live-site.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+echo "http $code"
+head -c 200 /tmp/live-site.html; echo
+[[ "$code" == "200" ]] || echo "warning: expected HTTP 200 for $DOMAIN"
 dig +short @"127.0.0.1" "$DOMAIN" A || true
 
 mds=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/domains" -H "Authorization: Bearer $token")

@@ -78,7 +78,7 @@ listen = *
 mail_location = maildir:~/Maildir
 passdb {
   driver = passwd-file
-  args = scheme=ARGON2ID /var/lib/panel/mail/passwd
+  args = /var/lib/panel/mail/passwd
 }
 userdb {
   driver = passwd-file
@@ -87,6 +87,8 @@ userdb {
 ssl = yes
 ssl_cert = </var/lib/panel/certs/imap.panel.local.crt
 ssl_key = </var/lib/panel/certs/imap.panel.local.key
+!include_try /etc/dovecot/conf.d/*.conf
+mail_location = maildir:~/Maildir
 `
 	if err := os.WriteFile(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
 		return err

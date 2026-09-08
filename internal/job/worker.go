@@ -217,7 +217,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP st
 	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyWebsite",
-		Params: mustJSON(map[string]any{"website_id": site.ID, "account": acc.Username, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime}),
+		Params: mustJSON(map[string]any{"website_id": site.ID, "account": acc.Username, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect}),
 	})
 	if err != nil {
 		return err
@@ -278,7 +278,7 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyWebsite",
-		Params: mustJSON(map[string]any{"website_id": site.ID, "account": account, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime}),
+		Params: mustJSON(map[string]any{"website_id": site.ID, "account": account, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect}),
 	})
 	if err != nil {
 		return err

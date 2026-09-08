@@ -100,8 +100,14 @@ func PasswdFile(recs []Recipient) string {
 	var b strings.Builder
 	b.WriteString("# dovecot passwd-file — generated, do not edit\n")
 	for _, r := range recs {
-		fmt.Fprintf(&b, "%s:{ARGON2ID}%s:%d:%d::%s::userdb_quota_rule=*:storage=%dB\n",
-			r.Address, strings.TrimPrefix(r.Hash, "$argon2id$"), r.UID, r.GID, r.Home, r.Quota)
+		hash := r.Hash
+		if hash == "" || hash == "!" {
+			hash = "!"
+		} else if !strings.HasPrefix(hash, "{") {
+			hash = "{ARGON2ID}" + hash
+		}
+		fmt.Fprintf(&b, "%s:%s:%d:%d::%s::userdb_quota_rule=*:storage=%dB\n",
+			r.Address, hash, r.UID, r.GID, r.Home, r.Quota)
 	}
 	return b.String()
 }

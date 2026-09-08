@@ -122,14 +122,15 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.ApplyFile(p.Path, []byte(p.Content), p.Mode)
 	case "ApplyWebsite":
 		var p struct {
-			WebsiteID    string `json:"website_id"`
-			Account      string `json:"account"`
-			Domain       string `json:"domain"`
-			DocumentRoot string `json:"document_root"`
-			Runtime      string `json:"runtime"`
+			WebsiteID      string `json:"website_id"`
+			Account        string `json:"account"`
+			Domain         string `json:"domain"`
+			DocumentRoot   string `json:"document_root"`
+			Runtime        string `json:"runtime"`
+			HTTPSRedirect  bool   `json:"https_redirect"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", true)
+		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`
