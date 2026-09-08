@@ -98,6 +98,61 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	}
 }
 
+func TestReconcileRewritesLoopbackARecords(t *testing.T) {
+	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.50")
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	pkgs := st.ListPackages()
+	acc := &store.Account{
+		ID: "acc-dns", Username: "dns42", PrimaryDomain: "oldip.test",
+		PackageID: pkgs[0].ID, Status: "active", HomePath: "/home/dns42",
+		LinuxUID: 20040, LinuxGID: 20040, DesiredRevision: 2,
+	}
+	st.PutAccount(acc)
+	st.PutDomain(&store.Domain{
+		ID: "dom-dns", AccountID: acc.ID, FQDN: "oldip.test", ASCII: "oldip.test",
+		Type: "primary", DocumentRoot: "/home/dns42/public_html", Status: "active",
+	})
+	st.PutZone(&store.DNSZone{ID: "z-dns", AccountID: acc.ID, DomainID: "dom-dns", Name: "oldip.test", Provider: "powerdns", DesiredRevision: 1})
+	st.PutRecord(&store.DNSRecord{ID: "r-a", ZoneID: "z-dns", Name: "@", Type: "A", Content: "127.0.0.1", TTL: 3600})
+	st.PutRecord(&store.DNSRecord{ID: "r-spf", ZoneID: "z-dns", Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:127.0.0.1 ~all", TTL: 3600})
+	st.PutRecord(&store.DNSRecord{ID: "r-custom", ZoneID: "z-dns", Name: "cdn", Type: "A", Content: "198.51.100.9", TTL: 3600})
+	root := t.TempDir()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: root}, logging.New("test"), box, "tester")
+	if err := w.provisionAccount(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var apex, spf, custom string
+	for _, rec := range st.ListRecords("z-dns") {
+		switch {
+		case rec.Type == "A" && rec.Name == "@":
+			apex = rec.Content
+		case rec.Type == "TXT" && rec.Name == "@":
+			spf = rec.Content
+		case rec.Type == "A" && rec.Name == "cdn":
+			custom = rec.Content
+		}
+	}
+	if apex != "203.0.113.50" {
+		t.Fatalf("apex A %q", apex)
+	}
+	if !bytes.Contains([]byte(spf), []byte("ip4:203.0.113.50")) || bytes.Contains([]byte(spf), []byte("ip4:127.0.0.1")) {
+		t.Fatalf("spf %q", spf)
+	}
+	if custom != "198.51.100.9" {
+		t.Fatalf("custom A overwritten: %q", custom)
+	}
+}
+
 func TestReconcileKeepsLaterUnsuspend(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

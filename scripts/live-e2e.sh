@@ -76,6 +76,15 @@ for i in $(seq 1 40); do
 done
 
 getent passwd "$UNAME" || true
+dnsjob=$(curl -sS -X PATCH "$BASE/api/v1/accounts/$aid" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"package_id\":\"$pkg\"}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$dnsjob" public-dns
+pub=$(grep -E '^PANEL_PUBLIC_IPV4=' /var/lib/panel/public.env 2>/dev/null | cut -d= -f2- || true)
+a=$(dig +short @"127.0.0.1" "$DOMAIN" A | tail -n1)
+echo "public-a $a public-ip $pub"
+if [[ -n "$pub" && "$pub" != "127.0.0.1" ]]; then
+  [[ "$a" == "$pub" ]] || { echo "expected $DOMAIN A $pub, got $a" >&2; cat /var/lib/panel/dns/zones/$DOMAIN.zone >&2; exit 1; }
+fi
 code=$(host_fetch "$DOMAIN" /tmp/live-site.html)
 echo "http $code"
 phpcode=$(host_fetch "$DOMAIN" /tmp/live-php.html /index.php)

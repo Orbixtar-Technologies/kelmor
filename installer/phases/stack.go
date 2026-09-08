@@ -474,7 +474,7 @@ user_config_dir=/var/lib/panel/ftp/user_conf
 hide_ids=YES
 pasv_min_port=40000
 pasv_max_port=40100
-pasv_address=127.0.0.1
+pasv_address=` + netaddr.PublicIPv4() + `
 `
 	if err := os.WriteFile(root(c, "etc/vsftpd.conf"), []byte(conf), 0o644); err != nil {
 		return err
@@ -497,12 +497,25 @@ account required pam_permit.so
 	if _, err := os.Stat("/usr/sbin/vsftpd"); err != nil {
 		return nil
 	}
-	if exec.Command("/usr/bin/pgrep", "-x", "vsftpd").Run() == nil {
-		return nil
+	if pid := vsftpdPID(); pid > 0 {
+		_ = exec.Command("/bin/kill", fmt.Sprintf("%d", pid)).Run()
+		time.Sleep(150 * time.Millisecond)
 	}
 	cmd := exec.Command("/usr/sbin/vsftpd", "/etc/vsftpd.conf")
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin"}
 	return cmd.Start()
+}
+
+func vsftpdPID() int {
+	out, err := exec.Command("/usr/bin/pgrep", "-x", "vsftpd").Output()
+	if err != nil {
+		return 0
+	}
+	var pid int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &pid); err != nil {
+		return 0
+	}
+	return pid
 }
 
 func applyTLS(c Config) error {

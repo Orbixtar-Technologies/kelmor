@@ -119,6 +119,13 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	vsftpd, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/vsftpd.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(vsftpd), "pasv_address=203.0.113.10") {
+		t.Fatalf("vsftpd PASV should publish public IPv4: %s", vsftpd)
+	}
 	if !contains(string(maincf), "smtpd_sender_login_maps = hash:/var/lib/panel/mail/sender-login") {
 		t.Fatalf("postfix missing sender-login maps: %s", maincf)
 	}

@@ -1,6 +1,6 @@
 # DNS
 
-Each provisioned domain gets a zone file at `/var/lib/panel/dns/zones/<name>.zone` and default A/MX/SPF/DMARC records. A records use `PANEL_PUBLIC_IPV4` when set, otherwise the host’s outbound IPv4. PowerDNS listens on `127.0.0.1` and that same public address (`local-address` in `pdns.conf`) so registrars can point NS at the node. The HTTP API stays on loopback only (`127.0.0.1:8081`). The installer writes `/var/lib/panel/public.env` so the worker systemd unit publishes the same address.
+Each provisioned domain gets a zone file at `/var/lib/panel/dns/zones/<name>.zone` and default A/MX/SPF/DMARC records. A records use `PANEL_PUBLIC_IPV4` when set, otherwise the host’s outbound IPv4. Reconcile rewrites existing apex/`ns1`/`mail` (and any other) A records still set to `127.0.0.1`, plus SPF `ip4:127.0.0.1`, so accounts created before the public address was known start answering on the NIC. Operator-set A records with other addresses are left alone. PowerDNS listens on `127.0.0.1` and that same public address (`local-address` in `pdns.conf`) so registrars can point NS at the node. The HTTP API stays on loopback only (`127.0.0.1:8081`). The installer writes `/var/lib/panel/public.env` so the worker systemd unit publishes the same address.
 
 Set `PANEL_PDNS_URL` and `PANEL_PDNS_API_KEY` on the worker to PATCH the live API after the zone file is written. Without those variables the file backend is still the source of truth for the agent.
 

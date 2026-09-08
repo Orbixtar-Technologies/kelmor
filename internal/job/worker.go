@@ -334,6 +334,8 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "MX", Content: "mail." + d.ASCII, TTL: 3600, Priority: intPtr(10)})
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:" + pubIP + " ~all", TTL: 3600})
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "_dmarc", Type: "TXT", Content: "v=DMARC1; p=none", TTL: 3600})
+	} else {
+		w.republishPublicAddresses(w.Store.ZoneByDomain(d.ID), pubIP)
 	}
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
 		if err := w.writeZone(z); err != nil && w.liveACME() {
@@ -731,6 +733,34 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	z.ObservedRevision = z.DesiredRevision
 	w.Store.PutZone(z)
 	return nil
+}
+
+func (w *Worker) republishPublicAddresses(z *store.DNSZone, pubIP string) {
+	if z == nil || pubIP == "" || pubIP == "127.0.0.1" {
+		return
+	}
+	changed := false
+	for _, rec := range w.Store.ListRecords(z.ID) {
+		switch rec.Type {
+		case "A":
+			if rec.Content == "127.0.0.1" || rec.Content == "0.0.0.0" {
+				rec.Content = pubIP
+				w.Store.PutRecord(&rec)
+				changed = true
+			}
+		case "TXT":
+			if strings.Contains(rec.Content, "ip4:127.0.0.1") {
+				rec.Content = strings.ReplaceAll(rec.Content, "ip4:127.0.0.1", "ip4:"+pubIP)
+				w.Store.PutRecord(&rec)
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return
+	}
+	z.DesiredRevision++
+	w.Store.PutZone(z)
 }
 
 func (w *Worker) writeZone(z *store.DNSZone) error {
