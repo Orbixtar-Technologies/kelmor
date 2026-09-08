@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/auth"
@@ -615,6 +616,44 @@ func TestCreateWebsiteReusesDomainRow(t *testing.T) {
 	}
 	if len(st.ListWebsites(aid)) != 1 {
 		t.Fatalf("duplicate websites: %d", len(st.ListWebsites(aid)))
+	}
+}
+
+func TestRequestCertSkipsFreshAndReusesInflight(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkgs := get(t, srv.URL+"/api/v1/packages", token)
+	pkg := pkgs["items"].([]any)[0].(map[string]any)["id"].(string)
+	created := post(t, srv.URL+"/api/v1/accounts", token, map[string]string{
+		"username": "certfresh", "primary_domain": "certfresh.test", "package_id": pkg,
+		"owner_email": "o@certfresh.test", "owner_password": "TenantPass!2026",
+	})
+	aid := created["resource_id"].(string)
+	far := time.Now().Add(80 * 24 * time.Hour)
+	st.PutCert(&store.Certificate{ID: "c-fresh", AccountID: aid, Hostname: "certfresh.test", Kind: "domain", Status: "active", NotAfter: &far})
+	fresh := post(t, srv.URL+"/api/v1/accounts/"+aid+"/certificates", token, map[string]string{"hostname": "certfresh.test"})
+	if fresh["operation_id"] != nil {
+		t.Fatalf("fresh cert queued: %v", fresh)
+	}
+	if cert, _ := fresh["certificate"].(map[string]any); cert == nil || cert["id"] != "c-fresh" {
+		t.Fatalf("fresh %v", fresh)
+	}
+	soon := time.Now().Add(5 * 24 * time.Hour)
+	st.PutCert(&store.Certificate{ID: "c-soon", AccountID: aid, Hostname: "certfresh.test", Kind: "domain", Status: "active", NotAfter: &soon})
+	first := post(t, srv.URL+"/api/v1/accounts/"+aid+"/certificates", token, map[string]string{"hostname": "certfresh.test"})
+	op, _ := first["operation_id"].(string)
+	if op == "" {
+		t.Fatalf("expected renew job: %v", first)
+	}
+	again := post(t, srv.URL+"/api/v1/accounts/"+aid+"/certificates", token, map[string]string{"hostname": "certfresh.test"})
+	if again["operation_id"] != op {
+		t.Fatalf("inflight %v vs %v", again["operation_id"], op)
 	}
 }
 

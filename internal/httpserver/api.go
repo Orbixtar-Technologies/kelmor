@@ -671,24 +671,13 @@ func (a *API) migrateAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "EXPORT", err.Error(), false)
 		return
 	}
-	srcHome := exp.Account.HomePath
 	acc, err := migration.ImportAs(a.Store, raw, in.Username, ascii, actor(r).UserID)
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
 	a.Store.AddMember(acc.ID, actor(r).UserID)
-	copied := ""
-	if srcHome != "" && srcHome != acc.HomePath {
-		job, _ := a.Store.EnqueueJob(&store.Job{
-			Type: "account.copy_homedir", ResourceType: "account", ResourceID: acc.ID,
-			Payload: map[string]any{"account_id": acc.ID, "username": acc.Username, "source": srcHome, "dest": acc.HomePath},
-			State:   "queued",
-		})
-		if job != nil {
-			copied = job.ID
-		}
-	}
+	copied := queuedReconcileJob(a.Store, acc.ID)
 	a.audit(r, "account.migrate", "account", acc.ID, true, map[string]any{"source": srcID}, map[string]any{"username": acc.Username, "domain": ascii})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "homedir_job": copied, "source_id": srcID})
 }
@@ -702,26 +691,13 @@ func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "INVALID_JSON", "invalid export", false)
 		return
 	}
-	var exp migration.HostingAccountExport
-	_ = json.Unmarshal(raw, &exp)
-	srcHome := exp.Account.HomePath
 	acc, err := migration.ImportAs(a.Store, raw, r.URL.Query().Get("username"), r.URL.Query().Get("domain"), actor(r).UserID)
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
 	a.Store.AddMember(acc.ID, actor(r).UserID)
-	copied := ""
-	if srcHome != "" && srcHome != acc.HomePath {
-		job, _ := a.Store.EnqueueJob(&store.Job{
-			Type: "account.copy_homedir", ResourceType: "account", ResourceID: acc.ID,
-			Payload: map[string]any{"account_id": acc.ID, "username": acc.Username, "source": srcHome, "dest": acc.HomePath},
-			State:   "queued",
-		})
-		if job != nil {
-			copied = job.ID
-		}
-	}
+	copied := queuedReconcileJob(a.Store, acc.ID)
 	a.audit(r, "account.import", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "homedir_job": copied})
 }
@@ -754,17 +730,7 @@ func (a *API) importCPanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.Store.AddMember(acc.ID, actor(r).UserID)
-	copied := ""
-	if exp.Homedir != "" {
-		job, _ := a.Store.EnqueueJob(&store.Job{
-			Type: "account.copy_homedir", ResourceType: "account", ResourceID: acc.ID,
-			Payload: map[string]any{"account_id": acc.ID, "username": acc.Username, "source": exp.Homedir, "dest": acc.HomePath},
-			State:   "queued",
-		})
-		if job != nil {
-			copied = job.ID
-		}
-	}
+	copied := queuedReconcileJob(a.Store, acc.ID)
 	a.audit(r, "account.import.cpanel", "account", acc.ID, true, nil, map[string]any{"username": acc.Username, "homedir": exp.Homedir})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "source": "cpanel", "homedir_job": copied})
 }
@@ -1733,15 +1699,77 @@ func (a *API) requestCert(w http.ResponseWriter, r *http.Request) {
 		}
 		cp := existing
 		c = &cp
-		c.Status = "requested"
 		break
+	}
+	if job := inflightCertJob(a.Store, c); job != nil {
+		writeJSON(w, 202, map[string]any{"operation_id": job.ID, "certificate": c})
+		return
+	}
+	if c != nil && certStillFresh(c) {
+		writeJSON(w, 200, map[string]any{"certificate": c})
+		return
 	}
 	if c == nil {
 		c = &store.Certificate{ID: id.New(), AccountID: aid, Hostname: host, Kind: "domain", Status: "requested"}
+	} else {
+		c.Status = "requested"
 	}
 	a.Store.PutCert(c)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "certificate.provision", ResourceType: "certificate", ResourceID: c.ID, Payload: map[string]any{"certificate_id": c.ID}, State: "queued"})
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "certificate.provision", ResourceType: "certificate", ResourceID: c.ID,
+		Payload: map[string]any{"certificate_id": c.ID}, State: "queued",
+	})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "certificate": c})
+}
+
+func queuedReconcileJob(st store.Store, accountID string) string {
+	for _, j := range st.ListJobs("queued", 100) {
+		if j.ResourceID == accountID && (j.Type == "account.reconcile" || j.Type == "account.provision") {
+			return j.ID
+		}
+	}
+	return ""
+}
+
+func inflightCertJob(st store.Store, c *store.Certificate) *store.Job {
+	if c == nil {
+		return nil
+	}
+	for _, state := range []string{"queued", "running"} {
+		for _, j := range st.ListJobs(state, 200) {
+			if j.Type != "certificate.provision" {
+				continue
+			}
+			if j.ResourceID == c.ID || strPayload(j.Payload, "certificate_id") == c.ID {
+				cp := j
+				return &cp
+			}
+		}
+	}
+	return nil
+}
+
+func certStillFresh(c *store.Certificate) bool {
+	if c == nil {
+		return false
+	}
+	switch c.Status {
+	case "issued", "active":
+	default:
+		return false
+	}
+	if c.NotAfter == nil {
+		return true
+	}
+	return c.NotAfter.After(time.Now().Add(30 * 24 * time.Hour))
+}
+
+func strPayload(payload map[string]any, key string) string {
+	if payload == nil {
+		return ""
+	}
+	s, _ := payload[key].(string)
+	return s
 }
 
 func (a *API) listBackups(w http.ResponseWriter, r *http.Request) {

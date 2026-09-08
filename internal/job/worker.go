@@ -259,8 +259,13 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	}
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
+	if err := w.applyMigratedData(j); err != nil {
+		return err
+	}
 	w.recordUsage(acc)
 	_ = w.syncFTPUsers()
+	_ = w.applyCron(j)
+	_ = w.applyMailStack(acc.ID)
 	j.Progress = 90
 	w.Store.UpdateJob(j)
 	return nil
@@ -1084,24 +1089,132 @@ func (w *Worker) applyCron(j *store.Job) error {
 }
 
 func (w *Worker) copyHomedir(j *store.Job) error {
+	return w.applyMigratedData(j)
+}
+
+func (w *Worker) applyMigratedData(j *store.Job) error {
+	if w.Agent == nil {
+		return nil
+	}
 	acc := w.jobAccount(j)
 	if acc == nil {
-		return fmt.Errorf("account missing")
+		return nil
 	}
-	src := str(j.Payload["source"])
-	dest := str(j.Payload["dest"])
-	user := str(j.Payload["username"])
-	if user == "" {
-		user = acc.Username
+	src := str(j.Payload["copy_source"])
+	if src == "" {
+		src = str(j.Payload["source"])
+	}
+	dest := str(j.Payload["copy_dest"])
+	if dest == "" {
+		dest = str(j.Payload["dest"])
 	}
 	if dest == "" {
 		dest = acc.HomePath
 	}
-	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
-		Method: "CopyHomedir",
-		Params: mustJSON(map[string]any{"username": user, "source": src, "dest": dest}),
-	})
-	return err
+	user := str(j.Payload["username"])
+	if user == "" {
+		user = acc.Username
+	}
+	if src != "" && src != dest {
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "CopyHomedir",
+			Params: mustJSON(map[string]any{"username": user, "source": src, "dest": dest}),
+		}); err != nil {
+			return err
+		}
+	}
+	if err := w.migrateDatabases(acc, j); err != nil {
+		return err
+	}
+	if err := w.migrateMailboxes(j); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w *Worker) migrateDatabases(acc *store.Account, j *store.Job) error {
+	for _, item := range payloadObjects(j.Payload["databases"]) {
+		engine := str(item["engine"])
+		srcName := str(item["source"])
+		destName := str(item["dest"])
+		if engine == "" || destName == "" {
+			continue
+		}
+		if srcName == "" {
+			srcName = destName
+		}
+		w.ensureRestoredDB(acc, engine, destName)
+		srcHome := str(j.Payload["copy_source"])
+		if srcHome == "" {
+			srcHome = str(j.Payload["source"])
+		}
+		if !strings.HasPrefix(srcHome, "/home/") {
+			continue
+		}
+		if srcName == destName && srcHome == acc.HomePath {
+			continue
+		}
+		dumpID := strings.ReplaceAll(acc.ID+"-"+engine+"-"+srcName, "/", "-")
+		dumpPath := "/var/lib/panel/backups/staging/migrate-" + dumpID + ".sql"
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "DumpHostedDatabase",
+			Params: mustJSON(map[string]any{"engine": engine, "name": srcName, "dest": dumpPath}),
+		}); err != nil {
+			if srcName == destName {
+				continue
+			}
+			return err
+		}
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "RestoreHostedDatabase",
+			Params: mustJSON(map[string]any{"engine": engine, "name": destName, "source": dumpPath}),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Worker) migrateMailboxes(j *store.Job) error {
+	for _, item := range payloadObjects(j.Payload["mailboxes"]) {
+		src := str(item["source"])
+		dest := str(item["dest"])
+		if src == "" || dest == "" || src == dest {
+			continue
+		}
+		dumpID := strings.ReplaceAll(strings.Trim(src, "/"), "/", "-")
+		archive := "/var/lib/panel/backups/staging/migrate-mail-" + dumpID + ".tar.gz"
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "PackDirectory",
+			Params: mustJSON(map[string]any{"source": src, "dest": archive}),
+		}); err != nil {
+			continue
+		}
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "UnpackDirectory",
+			Params: mustJSON(map[string]any{"archive": archive, "dest": dest}),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func payloadObjects(v any) []map[string]any {
+	switch items := v.(type) {
+	case []map[string]any:
+		return items
+	case []any:
+		out := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if m, ok := item.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func (w *Worker) createBackup(j *store.Job) error {

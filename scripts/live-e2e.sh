@@ -370,6 +370,72 @@ done
 migcode=$(curl -sS -o /tmp/e2emig.html -w '%{http_code}' -H 'Host: e2emig.test' http://127.0.0.1/)
 [[ "$migcode" == "200" ]] || { echo "e2emig HTTP $migcode" >&2; exit 1; }
 
+MUSER="md$(date +%s)"
+MDOM="${MUSER}.test"
+DUSER="dn${MUSER:2:10}"
+DDOM="${DUSER}.test"
+mcreated=$(curl -sS -X POST "$BASE/api/v1/accounts" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"username\":\"$MUSER\",\"primary_domain\":\"$MDOM\",\"package_id\":\"$pkg\",\"owner_email\":\"ops@$MDOM\",\"owner_password\":\"TenantPass!2026\"}")
+maid=$(echo "$mcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+mop=$(echo "$mcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$mop" migdata-provision
+for i in $(seq 1 40); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$maid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+mdom=$(curl -sS "$BASE/api/v1/accounts/$maid/mail/domains" -H "$AUTH" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; print(items[0]["id"] if items else "")')
+mbox=$(curl -sS -X POST "$BASE/api/v1/accounts/$maid/mail/mailboxes" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"domain_id\":\"$mdom\",\"local_part\":\"info\",\"password\":\"MailboxPass!2026\"}")
+mbop=$(echo "$mbox" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$mbop" migdata-mailbox
+malias=$(curl -sS -X POST "$BASE/api/v1/accounts/$maid/mail/aliases" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"domain_id\":\"$mdom\",\"address\":\"sales\",\"destination\":\"info@$MDOM\"}")
+maliasop=$(echo "$malias" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$maliasop" migdata-alias
+mdb=$(curl -sS -X POST "$BASE/api/v1/accounts/$maid/databases" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"name":"app","engine":"mariadb"}')
+mdop=$(echo "$mdb" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$mdop" migdata-db
+sudo mariadb "${MUSER}_app" -e "CREATE TABLE panel_mig (k varchar(32) primary key); INSERT INTO panel_mig VALUES ('from-src');"
+echo from-src | sudo tee "/var/vmail/$MDOM/info/Maildir/new/mig-marker" >/dev/null
+curl -sS -X POST "$BASE/api/v1/accounts/$maid/files" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"path":"/public_html/mig-marker.txt","content":"from-src"}' >/dev/null
+curl -sS -X POST "$BASE/api/v1/accounts/$maid/cron" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"schedule":"5 * * * *","command":"true","working_directory":"/public_html","enabled":true}' >/dev/null
+mmig=$(curl -sS -X POST "$BASE/api/v1/accounts/$maid/migrate" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"username\":\"$DUSER\",\"domain\":\"$DDOM\"}")
+echo "$mmig"
+did=$(echo "$mmig" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+dop=$(echo "$mmig" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("homedir_job",""))')
+[[ -n "$did" ]]
+wait_job "$dop" migdata-reconcile
+for i in $(seq 1 40); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$did" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  echo "migdest status=$st"
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+dcode=""
+for _ in $(seq 1 20); do
+  dcode=$(curl -sS -o /tmp/migdest.html -w '%{http_code}' -H "Host: $DDOM" http://127.0.0.1/)
+  [[ "$dcode" == "200" ]] && break
+  sleep 0.2
+done
+[[ "$dcode" == "200" ]] || { echo "migdest HTTP $dcode" >&2; exit 1; }
+sudo grep -q from-src "/home/$DUSER/public_html/mig-marker.txt" || { echo "homedir not copied" >&2; exit 1; }
+sudo mariadb -N "${DUSER}_app" -e "SELECT k FROM panel_mig LIMIT 1;" | grep -q from-src || { echo "db not copied" >&2; exit 1; }
+sudo grep -q from-src "/var/vmail/$DDOM/info/Maildir/new/mig-marker" || { echo "maildir not copied" >&2; exit 1; }
+curl -sS "$BASE/api/v1/accounts/$did/mail/aliases" -H "$AUTH" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; assert any(i.get("address")=="sales" and "info@" in (i.get("destination") or "") for i in items), items'
+curl -sS "$BASE/api/v1/accounts/$did/cron" -H "$AUTH" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; assert any(i.get("schedule")=="5 * * * *" for i in items), items'
+echo "migrate-data ok"
+mterm=$(curl -sS -X POST "$BASE/api/v1/accounts/$did/terminate" -H "$AUTH")
+mtop=$(echo "$mterm" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$mtop" migdata-dest-terminate
+sterm=$(curl -sS -X POST "$BASE/api/v1/accounts/$maid/terminate" -H "$AUTH")
+stop=$(echo "$sterm" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$stop" migdata-src-terminate
+
 sus=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/suspend" -H "$AUTH")
 sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$sop" suspend
