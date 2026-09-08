@@ -231,19 +231,6 @@ func flattenWordPressTree(h *Host, stage, doc string) error {
 	})
 }
 
-func (h *Host) chownTree(path, username string) error {
-	u, err := lookupUIDGID(username)
-	if err != nil {
-		return nil
-	}
-	return filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
-		if err == nil {
-			_ = os.Chown(p, u.uid, u.gid)
-		}
-		return nil
-	})
-}
-
 func wpConfigFile(p WordPressInstall) string {
 	return "<?php\n" +
 		"define('DB_NAME', '" + phpSingle(p.DBName) + "');\n" +
