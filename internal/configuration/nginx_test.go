@@ -17,6 +17,10 @@ func TestPHPPool(t *testing.T) {
 	if p == "" || !contains(p, "open_basedir") {
 		t.Fatal(p)
 	}
+	alt := PHPPoolFor("migrated", "panel-sftp", "8.3", 4)
+	if !contains(alt, "group = panel-sftp") {
+		t.Fatal(alt)
+	}
 }
 
 func contains(s, sub string) bool {

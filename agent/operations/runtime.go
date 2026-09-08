@@ -37,15 +37,19 @@ func (h *Host) applyPHPPool(account, version string, maxChildren int) (Result, e
 	if version == "" {
 		version = "8.3"
 	}
+	groupName := account
 	if h.live() {
-		if _, err := user.Lookup(account); err != nil {
+		u, err := user.Lookup(account)
+		if err != nil {
 			return Result{}, fmt.Errorf("unix user %s not ready", account)
 		}
-		if _, err := user.LookupGroup(account); err != nil {
-			return Result{}, fmt.Errorf("unix group %s not ready", account)
+		if g, err := user.LookupGroupId(u.Gid); err == nil {
+			groupName = g.Name
+		} else if _, err := user.LookupGroup(account); err != nil {
+			return Result{}, fmt.Errorf("unix group for %s not ready", account)
 		}
 	}
-	body := configuration.PHPPool(account, version, maxChildren)
+	body := configuration.PHPPoolFor(account, groupName, version, maxChildren)
 	path := fmt.Sprintf("/etc/php/%s/fpm/pool.d/panel-%s.conf", version, account)
 	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
 		return Result{}, err

@@ -54,13 +54,17 @@ func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell str
 		_ = hardenSFTPHome(home, uid, gid)
 		return Result{OK: true, Message: "unix identity exists", ObservedState: "exists"}, nil
 	}
-	if out, err := runFixed("/usr/sbin/groupadd", "-g", strconv.Itoa(gid), username); err != nil && !strings.Contains(string(out), "already exists") {
-		return Result{}, fmt.Errorf("groupadd: %s", strings.TrimSpace(string(out)))
+	if out, err := runFixed("/usr/sbin/groupadd", "-g", "19999", "panel-sftp"); err != nil {
+		if _, lookupErr := user.LookupGroup("panel-sftp"); lookupErr != nil {
+			return Result{}, fmt.Errorf("groupadd panel-sftp: %s", strings.TrimSpace(string(out)))
+		}
 	}
-	if out, err := runFixed("/usr/sbin/groupadd", "panel-sftp"); err != nil && !strings.Contains(string(out), "already exists") {
-		return Result{}, fmt.Errorf("groupadd panel-sftp: %s", strings.TrimSpace(string(out)))
+	if out, err := runFixed("/usr/sbin/groupadd", "-g", strconv.Itoa(gid), username); err != nil {
+		if _, lookupErr := user.LookupGroup(username); lookupErr != nil {
+			return Result{}, fmt.Errorf("groupadd: %s", strings.TrimSpace(string(out)))
+		}
 	}
-	args := []string{"-u", strconv.Itoa(uid), "-g", strconv.Itoa(gid), "-d", home, "-s", shell, "-m", "-G", "panel-sftp", username}
+	args := []string{"-u", strconv.Itoa(uid), "-g", username, "-d", home, "-s", shell, "-m", "-G", "panel-sftp", username}
 	if out, err := runFixed("/usr/sbin/useradd", args...); err != nil && !strings.Contains(string(out), "already exists") {
 		return Result{}, fmt.Errorf("useradd: %s", strings.TrimSpace(string(out)))
 	}

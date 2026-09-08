@@ -94,8 +94,15 @@ func ValidateNginx(conf string) error {
 }
 
 func PHPPool(account, version string, maxChildren int) string {
+	return PHPPoolFor(account, account, version, maxChildren)
+}
+
+func PHPPoolFor(account, group, version string, maxChildren int) string {
 	if maxChildren < 1 {
 		maxChildren = 5
+	}
+	if group == "" {
+		group = account
 	}
 	return fmt.Sprintf(`[panel-%s]
 user = %s
@@ -106,7 +113,7 @@ listen.group = www-data
 pm = ondemand
 pm.max_children = %d
 php_admin_value[open_basedir] = /home/%s:/tmp:/usr/share/php
-`, account, account, account, account, maxChildren, account)
+`, account, account, group, account, maxChildren, account)
 }
 
 func SystemdSlice(username string, cpuPercent int, memoryBytes int64, tasksMax int) string {
