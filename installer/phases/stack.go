@@ -22,6 +22,7 @@ func applyDNS(c Config) error {
 setgid=pdns
 launch=bind
 bind-config=/etc/powerdns/named.conf
+bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3
 local-address=127.0.0.1
 local-port=53
 webserver=yes
@@ -30,7 +31,11 @@ webserver-port=8081
 api=yes
 api-key=panel-loopback
 `
-	if err := writeUnlessExists(root(c, "etc/powerdns/pdns.conf"), []byte(body), 0o640); err != nil {
+	pdnsConf := root(c, "etc/powerdns/pdns.conf")
+	if err := writeUnlessExists(pdnsConf, []byte(body), 0o640); err != nil {
+		return err
+	}
+	if err := ensureFileContains(pdnsConf, "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3\n"); err != nil {
 		return err
 	}
 	named := `options {
@@ -387,6 +392,26 @@ func writeUnlessExists(path string, body []byte, mode os.FileMode) error {
 	return os.WriteFile(path, body, mode)
 }
 
+func ensureFileContains(path, line string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(b), strings.TrimSpace(line)) {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if !strings.HasSuffix(string(b), "\n") {
+		line = "\n" + line
+	}
+	_, err = f.WriteString(line)
+	return err
+}
+
 func verifySystemd(c Config) error {
 	for _, n := range []string{"panel-api.service", "panel-worker.service", "panel-agent.service", "panel-smtp-policy.service"} {
 		if _, err := os.Stat(root(c, "etc/systemd/system/"+n)); err != nil {
@@ -404,7 +429,9 @@ func applySystemd(c Config) error {
 		"panel-api.service": `[Unit]
 Description=Hosting Panel Control API
 After=network-online.target postgresql.service panel-agent.service
+Wants=panel-agent.service
 [Service]
+Type=simple
 User=panel
 Group=panel
 Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql
@@ -413,20 +440,26 @@ Environment=PANEL_STATE_DIR=/var/lib/panel
 Environment=PANEL_API_ADDR=127.0.0.1:18080
 ExecStart=/usr/local/panel/bin/panel-api
 Restart=on-failure
+RestartSec=2
 [Install]
 WantedBy=multi-user.target
 `,
 		"panel-worker.service": `[Unit]
 Description=Hosting Panel Desired-State Worker
-After=panel-api.service panel-agent.service
+After=panel-api.service panel-agent.service postgresql.service
+Wants=panel-agent.service
 [Service]
+Type=simple
 User=panel
 Group=panel
 Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql
 Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 Environment=PANEL_STATE_DIR=/var/lib/panel
+Environment=PANEL_PDNS_URL=http://127.0.0.1:8081
+Environment=PANEL_PDNS_API_KEY=panel-loopback
 ExecStart=/usr/local/panel/bin/panel-worker
 Restart=on-failure
+RestartSec=2
 [Install]
 WantedBy=multi-user.target
 `,
@@ -434,11 +467,15 @@ WantedBy=multi-user.target
 Description=Hosting Panel Privileged Agent
 After=network-online.target
 [Service]
+Type=simple
 User=root
 Group=root
+RuntimeDirectory=panel
+RuntimeDirectoryMode=0751
 Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 ExecStart=/usr/local/panel/bin/panel-agent
 Restart=on-failure
+RestartSec=1
 [Install]
 WantedBy=multi-user.target
 `,
@@ -446,6 +483,7 @@ WantedBy=multi-user.target
 Description=Hosting Panel SMTP send-limit policy
 After=network-online.target
 [Service]
+Type=simple
 User=panel
 Group=panel
 Environment=PANEL_SMTP_POLICY_ADDR=127.0.0.1:10031
@@ -453,6 +491,7 @@ Environment=PANEL_SMTP_LIMITS=/var/lib/panel/mail/send-limits
 Environment=PANEL_SMTP_COUNTS=/var/lib/panel/mail/send-counts
 ExecStart=/usr/local/panel/bin/panel-smtp-policy
 Restart=on-failure
+RestartSec=2
 [Install]
 WantedBy=multi-user.target
 `,
@@ -500,8 +539,14 @@ func verifyMail(c Config) error {
 }
 
 func verifyDNS(c Config) error {
-	_, err := os.Stat(root(c, "etc/powerdns/pdns.conf"))
-	return err
+	b, err := os.ReadFile(root(c, "etc/powerdns/pdns.conf"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(b), "bind-dnssec-db=") {
+		return fmt.Errorf("pdns.conf missing bind-dnssec-db")
+	}
+	return nil
 }
 
 func verifyFirewall(c Config) error {

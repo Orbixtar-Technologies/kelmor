@@ -52,6 +52,34 @@ func TestRecipientsForHostKeepsEveryAccount(t *testing.T) {
 	}
 }
 
+func TestCatchallVirtual(t *testing.T) {
+	st := store.NewMemory()
+	st.PutAccount(&store.Account{ID: "a", Username: "acme", LinuxUID: 20010, LinuxGID: 20010, Status: "active"})
+	st.PutDomain(&store.Domain{ID: "d", AccountID: "a", ASCII: "acme.test"})
+	st.PutMailDomain(&store.MailDomain{ID: "md", AccountID: "a", DomainID: "d", CatchallPolicy: "info"})
+	st.PutMailbox(&store.Mailbox{ID: "m", AccountID: "a", DomainID: "md", LocalPart: "info", PasswordHash: "h"})
+	v := Virtual(RecipientsForHost(st)) + CatchallVirtual(st)
+	if !strings.Contains(v, "@acme.test acme.test/info/Maildir/") {
+		t.Fatal(v)
+	}
+	if !strings.Contains(VDomains(st), "acme.test OK") {
+		t.Fatal(VDomains(st))
+	}
+	if CatchallLocal("reject") != "" || CatchallLocal("discard") != "discard" {
+		t.Fatal(CatchallLocal("discard"))
+	}
+}
+
+func TestCatchallSkipsTerminating(t *testing.T) {
+	st := store.NewMemory()
+	st.PutAccount(&store.Account{ID: "a", Username: "gone", Status: "terminated"})
+	st.PutDomain(&store.Domain{ID: "d", AccountID: "a", ASCII: "gone.test"})
+	st.PutMailDomain(&store.MailDomain{ID: "md", AccountID: "a", DomainID: "d", CatchallPolicy: "info"})
+	if CatchallVirtual(st) != "" {
+		t.Fatal(CatchallVirtual(st))
+	}
+}
+
 func TestRecipientsForHostSkipsTerminating(t *testing.T) {
 	st := store.NewMemory()
 	st.PutAccount(&store.Account{ID: "a", Username: "acme", LinuxUID: 20010, LinuxGID: 20010, Status: "terminating"})

@@ -60,6 +60,20 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(unit), "PANEL_STATE_DIR=/var/lib/panel") {
 		t.Fatalf("api unit missing state dir: %s", unit)
 	}
+	worker, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/systemd/system/panel-worker.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(worker), "PANEL_PDNS_URL=http://127.0.0.1:8081") {
+		t.Fatalf("worker unit missing PowerDNS URL: %s", worker)
+	}
+	pdns, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(pdns), "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3") {
+		t.Fatalf("pdns.conf missing DNSSEC db: %s", pdns)
+	}
 	acme, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/nginx/panel-sites/00-acme.conf"))
 	if err != nil {
 		t.Fatal(err)

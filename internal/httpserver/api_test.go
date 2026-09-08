@@ -337,6 +337,45 @@ func delStatus(t *testing.T, url, token string) (int, map[string]any) {
 	return res.StatusCode, out
 }
 
+func TestDNSSECAndCatchallAPI(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "dnssec1", "primary_domain": "signed.test", "package_id": pkg,
+		"owner_email": "o@signed.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	z := &store.DNSZone{ID: id.New(), AccountID: aid, Name: "signed.test", Provider: "powerdns"}
+	st.PutZone(z)
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/dns/zones/"+z.ID+"/dnssec", admin, map[string]any{"enabled": true}) != 202 {
+		t.Fatal("dnssec enable")
+	}
+	if got := st.GetZone(z.ID); got == nil || !got.DNSSECEnabled {
+		t.Fatal("zone not signed in store")
+	}
+	ds := get(t, srv.URL+"/api/v1/accounts/"+aid+"/dns/zones/"+z.ID+"/ds", admin)
+	if _, ok := ds["items"]; !ok {
+		t.Fatalf("%v", ds)
+	}
+	dom := &store.Domain{ID: id.New(), AccountID: aid, ASCII: "signed.test"}
+	st.PutDomain(dom)
+	md := &store.MailDomain{ID: id.New(), AccountID: aid, DomainID: dom.ID, CatchallPolicy: "reject", Status: "active"}
+	st.PutMailDomain(md)
+	if statusOf(t, http.MethodPatch, srv.URL+"/api/v1/accounts/"+aid+"/mail/domains/"+md.ID, admin, map[string]any{"catchall_policy": "info"}) != 202 {
+		t.Fatal("catchall")
+	}
+	if st.ListMailDomains(aid)[0].CatchallPolicy != "info" {
+		t.Fatal(st.ListMailDomains(aid)[0].CatchallPolicy)
+	}
+}
+
 func get(t *testing.T, url, token string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)

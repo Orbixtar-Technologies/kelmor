@@ -322,6 +322,28 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "200": { description: mail domains }
+  /accounts/{accountID}/mail/domains/{mailDomainID}:
+    patch:
+      operationId: patchMailDomain
+      x-capability: mail.write
+      x-audit-action: mail.catchall
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: mailDomainID
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [catchall_policy]
+              properties:
+                catchall_policy: { type: string, description: reject, discard, or mailbox local part }
+      responses:
+        "202": { description: mail maps queued }
   /accounts/import:
     post:
       operationId: importAccount
@@ -452,6 +474,40 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "200": { description: zones }
+  /accounts/{accountID}/dns/zones/{zoneID}/dnssec:
+    post:
+      operationId: setDNSSEC
+      x-capability: dns.write
+      x-audit-action: dns.dnssec
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - in: path
+          name: zoneID
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "202": { description: DNSSEC job queued }
+  /accounts/{accountID}/dns/zones/{zoneID}/ds:
+    get:
+      operationId: getDSRecords
+      x-capability: dns.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - in: path
+          name: zoneID
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: DS records for the parent zone }
   /accounts/{accountID}/dns/zones/{zoneID}/records/{recordID}:
     delete:
       operationId: deleteDNSRecord

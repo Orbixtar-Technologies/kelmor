@@ -56,7 +56,8 @@ var allowedServices = map[string]bool{
 	"postfix": true, "dovecot": true, "pdns": true, "mariadb": true, "mysql": true,
 	"postgresql": true, "redis-server": true, "rspamd": true, "clamav-daemon": true,
 	"panel-api": true, "panel-worker": true, "panel-agent": true,
-	"vsftpd": true,
+	"panel-smtp-policy": true,
+	"vsftpd":            true,
 }
 
 func runFixed(bin string, args ...string) ([]byte, error) {

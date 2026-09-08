@@ -33,9 +33,13 @@ func main() {
   ftp create <account_id> <username> <password>
   ftp delete <account_id> <ftp_id>
   mailbox create <account_id> <mail_domain_id> <local> <password>
+  mail catchall <account_id> <mail_domain_id> <reject|discard|local>
+  dnssec enable <account_id> <zone_id>
+  dnssec disable <account_id> <zone_id>
+  dnssec ds <account_id> <zone_id>
   db create <account_id> <name> <engine>
   website create <account_id> <domain_id> <runtime>
-  domain create <account_id> <fqdn> [runtime]
+  domain create <account_id> <fqdn> [runtime] [type]
   file list <account_id> [path]
   file write <account_id> <path> <content>
   backup create <account_id>
@@ -90,6 +94,14 @@ func main() {
 			url += "?username=" + args[3] + "&domain=" + args[4]
 		}
 		doBytes(http.MethodPost, url, token, raw)
+	case args[0] == "mail" && args[1] == "catchall" && len(args) == 5:
+		do(http.MethodPatch, base+"/api/v1/accounts/"+args[2]+"/mail/domains/"+args[3], token, map[string]any{"catchall_policy": args[4]}, true)
+	case args[0] == "dnssec" && args[1] == "enable" && len(args) == 4:
+		post(base+"/api/v1/accounts/"+args[2]+"/dns/zones/"+args[3]+"/dnssec", token, map[string]any{"enabled": true})
+	case args[0] == "dnssec" && args[1] == "disable" && len(args) == 4:
+		post(base+"/api/v1/accounts/"+args[2]+"/dns/zones/"+args[3]+"/dnssec", token, map[string]any{"enabled": false})
+	case args[0] == "dnssec" && args[1] == "ds" && len(args) == 4:
+		get(base+"/api/v1/accounts/"+args[2]+"/dns/zones/"+args[3]+"/ds", token)
 	case args[0] == "mailbox" && len(args) == 6 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/mail/mailboxes", token, map[string]any{
 			"domain_id": args[3], "local_part": args[4], "password": args[5],
@@ -100,6 +112,9 @@ func main() {
 		body := map[string]any{"fqdn": args[3]}
 		if len(args) >= 5 {
 			body["runtime"] = args[4]
+		}
+		if len(args) >= 6 {
+			body["type"] = args[5]
 		}
 		post(base+"/api/v1/accounts/"+args[2]+"/domains", token, body)
 	case args[0] == "website" && len(args) == 5 && args[1] == "create":

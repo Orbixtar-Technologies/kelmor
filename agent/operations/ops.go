@@ -334,6 +334,23 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.applyDNSZone(p.Name, p.Body)
+	case "SetDNSSEC":
+		var p struct {
+			Name    string `json:"name"`
+			Enabled bool   `json:"enabled"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.setDNSSEC(p.Name, p.Enabled)
+	case "GetDSRecords":
+		var p struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.getDSRecords(p.Name)
 	case "ApplyAccountCron":
 		var p struct {
 			Username string `json:"username"`

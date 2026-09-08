@@ -64,6 +64,68 @@ func Recipients(st store.Store, accountID string) []Recipient {
 	return out
 }
 
+func CatchallLocal(policy string) string {
+	p := strings.TrimSpace(strings.ToLower(policy))
+	switch p {
+	case "", "reject":
+		return ""
+	case "discard":
+		return "discard"
+	default:
+		return p
+	}
+}
+
+func MailDomainNames(st store.Store) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, acc := range st.ListAccounts("", "") {
+		if acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		for _, md := range st.ListMailDomains(acc.ID) {
+			d := st.GetDomain(md.DomainID)
+			if d == nil || d.ASCII == "" || seen[d.ASCII] {
+				continue
+			}
+			seen[d.ASCII] = true
+			names = append(names, d.ASCII)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func VDomains(st store.Store) string {
+	var b strings.Builder
+	for _, n := range MailDomainNames(st) {
+		fmt.Fprintf(&b, "%s OK\n", n)
+	}
+	return b.String()
+}
+
+func CatchallVirtual(st store.Store) string {
+	var lines []string
+	for _, acc := range st.ListAccounts("", "") {
+		if acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		for _, md := range st.ListMailDomains(acc.ID) {
+			local := CatchallLocal(md.CatchallPolicy)
+			if local == "" {
+				continue
+			}
+			d := st.GetDomain(md.DomainID)
+			if d == nil || d.ASCII == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("@%s %s/%s/Maildir/\n", d.ASCII, d.ASCII, local))
+		}
+	}
+	sort.Strings(lines)
+	return strings.Join(lines, "")
+}
+
 // RecipientsForHost builds the global virtual/passwd maps. ApplyMailMaps
 // replaces the files on disk, so one account must not erase the others.
 func RecipientsForHost(st store.Store) []Recipient {

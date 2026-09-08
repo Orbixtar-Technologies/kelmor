@@ -128,6 +128,10 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.syncDNS(j)
 	case "mailbox.provision":
 		return w.provisionMailbox(j)
+	case "mail.maps":
+		return w.applyMailStack(str(j.Payload["account_id"]))
+	case "dns.dnssec":
+		return w.applyZoneDNSSEC(j)
 	case "certificate.provision":
 		return w.provisionCert(j)
 	case "backup.create":
@@ -471,6 +475,9 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	if err := w.writeZone(z); err != nil {
 		return err
 	}
+	if err := w.applyDNSSECState(z); err != nil {
+		return err
+	}
 	p := &dns.PowerDNS{BaseURL: os.Getenv("PANEL_PDNS_URL"), APIKey: os.Getenv("PANEL_PDNS_API_KEY")}
 	if err := p.CreateZone(context.Background(), z.Name); err != nil {
 		return err
@@ -494,6 +501,62 @@ func (w *Worker) writeZone(z *store.DNSZone) error {
 	return err
 }
 
+func (w *Worker) applyZoneDNSSEC(j *store.Job) error {
+	z := w.Store.GetZone(str(j.Payload["zone_id"]))
+	if z == nil {
+		return nil
+	}
+	return w.applyDNSSECState(z)
+}
+
+func (w *Worker) applyDNSSECState(z *store.DNSZone) error {
+	if w.Agent == nil {
+		return nil
+	}
+	raw, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "SetDNSSEC",
+		Params: mustJSON(map[string]any{"name": z.Name, "enabled": z.DNSSECEnabled}),
+	})
+	if err != nil {
+		return err
+	}
+	_ = raw
+	z.ObservedRevision = z.DesiredRevision
+	w.Store.PutZone(z)
+	return nil
+}
+
+func (w *Worker) ensureCatchallHomes() error {
+	if w.Agent == nil {
+		return nil
+	}
+	for _, acc := range w.Store.ListAccounts("", "") {
+		if acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		for _, md := range w.Store.ListMailDomains(acc.ID) {
+			local := mail.CatchallLocal(md.CatchallPolicy)
+			if local == "" {
+				continue
+			}
+			d := w.Store.GetDomain(md.DomainID)
+			if d == nil {
+				continue
+			}
+			if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+				Method: "CreateMailboxHome",
+				Params: mustJSON(map[string]any{
+					"domain": d.ASCII, "local_part": local,
+					"uid": acc.LinuxUID, "gid": acc.LinuxGID,
+				}),
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (w *Worker) applyMailStack(accountID string) error {
 	acc := w.Store.GetAccount(accountID)
 	if acc == nil || (acc.Status != "terminating" && acc.Status != "terminated") {
@@ -511,12 +574,15 @@ func (w *Worker) applyMailStack(accountID string) error {
 			}
 		}
 	}
+	if err := w.ensureCatchallHomes(); err != nil {
+		return err
+	}
 	recs := mail.RecipientsForHost(w.Store)
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyMailMaps",
 		Params: mustJSON(map[string]any{
-			"virtual":     mail.Virtual(recs),
-			"domains":     mail.Domains(recs),
+			"virtual":     mail.Virtual(recs) + mail.CatchallVirtual(w.Store),
+			"domains":     mail.VDomains(w.Store),
 			"passwd":      mail.PasswdFile(recs),
 			"uids":        mail.UIDMap(recs),
 			"gids":        mail.GIDMap(recs),

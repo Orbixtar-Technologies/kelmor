@@ -37,6 +37,7 @@ func applyHostRuntime(c Config) error {
 	}
 	startControlPlane()
 	startSMTPPolicy()
+	enablePanelUnits()
 	startAccountApps()
 	if _, err := os.Stat("/etc/panel/nftables-panel.nft"); err == nil {
 		_ = applyLiveNFT("/etc/panel/nftables-panel.nft")
@@ -51,7 +52,7 @@ func applyExistingCgroups() {
 	}
 	root := "/sys/fs/cgroup/panel.accounts"
 	_ = os.MkdirAll(root, 0o755)
-	_ = os.WriteFile(root+"/cgroup.subtree_control", []byte("+cpu +memory +pids\n"), 0o644)
+	_ = os.WriteFile(root+"/cgroup.subtree_control", []byte("+cpu +memory +pids +io\n"), 0o644)
 	homes, err := os.ReadDir("/home")
 	if err != nil {
 		return
@@ -112,6 +113,15 @@ func startAccountApps() {
 	}
 }
 
+func enablePanelUnits() {
+	if exec.Command("/bin/systemctl", "is-system-running").Run() != nil {
+		return
+	}
+	for _, name := range []string{"panel-agent", "panel-api", "panel-worker", "panel-smtp-policy"} {
+		_ = exec.Command("/bin/systemctl", "enable", "--now", name+".service").Run()
+	}
+}
+
 func startSMTPPolicy() {
 	if _, err := os.Stat("/usr/local/panel/bin/panel-smtp-policy"); err != nil {
 		return
@@ -147,6 +157,8 @@ func startControlPlane() {
 			"PANEL_AGENT_SOCK=/run/panel/agent.sock",
 			"PANEL_API_ADDR=127.0.0.1:18080",
 			"PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql",
+			"PANEL_PDNS_URL=http://127.0.0.1:8081",
+			"PANEL_PDNS_API_KEY=panel-loopback",
 			"/usr/local/panel/bin/"+name)
 		_ = cmd.Start()
 	}
@@ -166,6 +178,9 @@ func verifyHostRuntime(c Config) error {
 	}
 	if _, err := os.Stat("/run/panel/agent.sock"); err != nil {
 		return fmt.Errorf("agent socket missing")
+	}
+	if exec.Command("/usr/bin/pgrep", "-f", "/panel-smtp-policy").Run() != nil {
+		return fmt.Errorf("panel-smtp-policy is not running")
 	}
 	return nil
 }

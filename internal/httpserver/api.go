@@ -104,7 +104,10 @@ func (a *API) Handler() http.Handler {
 				r.Get("/dns/zones/{zoneID}/records", a.listRecords)
 				r.Post("/dns/zones/{zoneID}/records", a.createRecord)
 				r.Delete("/dns/zones/{zoneID}/records/{recordID}", a.deleteRecord)
+				r.Post("/dns/zones/{zoneID}/dnssec", a.setDNSSEC)
+				r.Get("/dns/zones/{zoneID}/ds", a.getDSRecords)
 				r.Get("/mail/domains", a.listMailDomains)
+				r.Patch("/mail/domains/{mailDomainID}", a.patchMailDomain)
 				r.Get("/mail/mailboxes", a.listMailboxes)
 				r.Post("/mail/mailboxes", a.createMailbox)
 				r.Get("/certificates", a.listCerts)
@@ -1220,6 +1223,63 @@ func (a *API) deleteRecord(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "deleted": rid})
 }
 
+func (a *API) setDNSSEC(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.DNSWrite) {
+		return
+	}
+	z := a.Store.GetZone(chi.URLParam(r, "zoneID"))
+	if z == nil || z.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "zone missing", false)
+		return
+	}
+	var in struct {
+		Enabled *bool `json:"enabled"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if in.Enabled == nil {
+		a.fail(w, r, 400, "VALIDATION", "enabled is required", false)
+		return
+	}
+	z.DNSSECEnabled = *in.Enabled
+	z.DesiredRevision++
+	a.Store.PutZone(z)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "dns.dnssec", ResourceType: "dns_zone", ResourceID: z.ID,
+		Payload: map[string]any{"zone_id": z.ID}, State: "queued",
+	})
+	a.audit(r, "dns.dnssec", "dns_zone", z.ID, true, nil, map[string]any{"enabled": z.DNSSECEnabled})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "zone": z})
+}
+
+func (a *API) getDSRecords(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.DNSRead) {
+		return
+	}
+	z := a.Store.GetZone(chi.URLParam(r, "zoneID"))
+	if z == nil || z.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "zone missing", false)
+		return
+	}
+	items := []operations.DSRecord{}
+	if a.Agent != nil {
+		params, _ := json.Marshal(map[string]any{"name": z.Name})
+		raw, err := a.Agent.Dispatch(r.Context(), operations.Request{
+			Method: "GetDSRecords",
+			Params: params,
+		})
+		if err == nil {
+			b, _ := json.Marshal(raw)
+			var st operations.DNSSECState
+			if json.Unmarshal(b, &st) == nil {
+				items = st.DS
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "dnssec_enabled": z.DNSSECEnabled})
+}
+
 func (a *API) listMailDomains(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.MailRead) {
@@ -1237,6 +1297,48 @@ func (a *API) listMailDomains(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, 200, map[string]any{"items": items})
+}
+
+func (a *API) patchMailDomain(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.MailWrite) {
+		return
+	}
+	mdID := chi.URLParam(r, "mailDomainID")
+	var md *store.MailDomain
+	for _, item := range a.Store.ListMailDomains(aid) {
+		if item.ID == mdID {
+			cp := item
+			md = &cp
+			break
+		}
+	}
+	if md == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "mail domain missing", false)
+		return
+	}
+	var in struct {
+		CatchallPolicy string `json:"catchall_policy"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	policy := strings.TrimSpace(strings.ToLower(in.CatchallPolicy))
+	switch policy {
+	case "reject", "discard":
+	default:
+		if err := validate.LocalPart(policy); err != nil {
+			a.fail(w, r, 400, "VALIDATION", "catchall_policy must be reject, discard, or a mailbox local part", false)
+			return
+		}
+	}
+	before := md.CatchallPolicy
+	md.CatchallPolicy = policy
+	a.Store.PutMailDomain(md)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "mail.maps", ResourceType: "mail_domain", ResourceID: md.ID,
+		Payload: map[string]any{"account_id": aid}, State: "queued",
+	})
+	a.audit(r, "mail.catchall", "mail_domain", md.ID, true, map[string]any{"catchall_policy": before}, map[string]any{"catchall_policy": policy})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mail_domain": md})
 }
 
 func (a *API) listMailboxes(w http.ResponseWriter, r *http.Request) {

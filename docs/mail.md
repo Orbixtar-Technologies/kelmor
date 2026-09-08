@@ -5,3 +5,5 @@ Virtual mailboxes are desired state in PostgreSQL. The worker renders Postfix `v
 The installer writes `etc/postfix/main.cf` and `etc/dovecot/dovecot.conf` for a virtual-only host (no local Unix delivery). Port 25 may be blocked on cloud networks; configure an authenticated relay if the provider requires it.
 
 IMAP is Dovecot on 993. Submission is 587. Package `email_daily_limit` is enforced by `panel-smtp-policy` on `127.0.0.1:10031` (Postfix `check_policy_service`). Unknown senders are `DUNNO`; hosted mailbox senders increment `/var/lib/panel/mail/send-counts/<date>/<account>` and are rejected at the cap. If the policy process is down, Postfix uses `smtpd_policy_service_default_action = DUNNO`. There is no arbitrary `exec` of mail commands from the API.
+
+Each mail domain has a catch-all policy (`reject`, `discard`, or a mailbox local part). `reject` leaves unknown recipients unlisted so Postfix bounces them. `discard` and a local part add `@domain` to the virtual mailbox map and create `/var/vmail/<domain>/<local>/Maildir`. Change it with `PATCH /api/v1/accounts/{id}/mail/domains/{mailDomainID}` or Account Portal → Email.

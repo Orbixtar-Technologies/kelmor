@@ -244,6 +244,7 @@ function Domains ({ accountId }: { accountId: string }) {
 function DNS ({ accountId }: { accountId: string }) {
 	const [zones, setZones] = useState<any[]>([])
 	const [records, setRecords] = useState<any[]>([])
+	const [ds, setDS] = useState<any[]>([])
 	const [msg, setMsg] = useState('')
 	async function load () {
 		const r = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones`)
@@ -251,8 +252,11 @@ function DNS ({ accountId }: { accountId: string }) {
 		if (r.items[0]) {
 			const rec = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${r.items[0].id}/records`)
 			setRecords(rec.items)
+			const keys = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${r.items[0].id}/ds`).catch(() => ({ items: [] }))
+			setDS(keys.items || [])
 		} else {
 			setRecords([])
+			setDS([])
 		}
 	}
 	useEffect(() => { load().catch((e) => setMsg(e instanceof Error ? e.message : 'failed')) }, [accountId])
@@ -261,6 +265,27 @@ function DNS ({ accountId }: { accountId: string }) {
 			<h1>DNS</h1>
 			{zones.length === 0 ? <p>No zones yet. They appear after account provisioning completes.</p> : (
 				<>
+					<p>{zones[0].name} — DNSSEC {zones[0].dnssec_enabled ? 'on' : 'off'}.</p>
+					<Can cap="dns.write">
+					<button type="button" onClick={async () => {
+						try {
+							await api(`/api/v1/accounts/${accountId}/dns/zones/${zones[0].id}/dnssec`, {
+								method: 'POST',
+								body: JSON.stringify({ enabled: !zones[0].dnssec_enabled }),
+							})
+							setMsg(zones[0].dnssec_enabled ? 'DNSSEC disable queued' : 'DNSSEC enable queued')
+							await load()
+						} catch (err) {
+							setMsg(err instanceof Error ? err.message : 'failed')
+						}
+					}}>{zones[0].dnssec_enabled ? 'Disable DNSSEC' : 'Enable DNSSEC'}</button>
+					</Can>
+					{ds.length > 0 ? (
+						<table>
+							<thead><tr><th>DS for the parent / registrar</th></tr></thead>
+							<tbody>{ds.map((row, i) => <tr key={i}><td>{row.content}</td></tr>)}</tbody>
+						</table>
+					) : null}
 					<Can cap="dns.write">
 					<form onSubmit={async (e) => {
 						e.preventDefault()
@@ -322,13 +347,16 @@ function DNS ({ accountId }: { accountId: string }) {
 function Email ({ accountId }: { accountId: string }) {
 	const [boxes, setBoxes] = useState<any[]>([])
 	const [domains, setDomains] = useState<any[]>([])
-	useEffect(() => {
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/mail/mailboxes`).then((r) => setBoxes(r.items))
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/mail/domains`).then((r) => setDomains(r.items))
-	}, [accountId])
+	const [msg, setMsg] = useState('')
+	async function load () {
+		setBoxes((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/mail/mailboxes`)).items)
+		setDomains((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/mail/domains`)).items)
+	}
+	useEffect(() => { load() }, [accountId])
 	return (
 		<>
 			<h1>Email</h1>
+			<p>Catch-all policy is reject (bounce), discard (store in a discard mailbox), or a local part that already exists.</p>
 			<Can cap="mail.write">
 			<form onSubmit={async (e) => {
 				e.preventDefault()
@@ -336,14 +364,34 @@ function Email ({ accountId }: { accountId: string }) {
 				await api(`/api/v1/accounts/${accountId}/mail/mailboxes`, { method: 'POST', body: JSON.stringify({
 					domain_id: fd.get('domain_id'), local_part: fd.get('local_part'), password: fd.get('password'),
 				}) })
-				setBoxes((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/mail/mailboxes`)).items)
+				await load()
 			}}>
 				<select name="domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn || d.id}</option>)}</select>
 				<input name="local_part" placeholder="mailbox" required />
 				<input name="password" type="password" required />
 				<button type="submit">Create mailbox</button>
 			</form>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				try {
+					await api(`/api/v1/accounts/${accountId}/mail/domains/${fd.get('mail_domain_id')}`, {
+						method: 'PATCH',
+						body: JSON.stringify({ catchall_policy: fd.get('catchall_policy') }),
+					})
+					setMsg('Catch-all queued')
+					await load()
+				} catch (err) {
+					setMsg(err instanceof Error ? err.message : 'failed')
+				}
+			}}>
+				<select name="mail_domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn || d.id}</option>)}</select>
+				<input name="catchall_policy" placeholder="reject, discard, or info" defaultValue="reject" required />
+				<button type="submit">Set catch-all</button>
+			</form>
 			</Can>
+			{msg ? <p>{msg}</p> : null}
+			<ul>{domains.map((d) => <li key={d.id}>{d.ascii_fqdn} catch-all {d.catchall_policy}</li>)}</ul>
 			<ul>{boxes.map((b) => <li key={b.id}>{b.local_part} — {b.status}</li>)}</ul>
 		</>
 	)
