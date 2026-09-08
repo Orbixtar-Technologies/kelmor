@@ -95,19 +95,11 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 	switch runtime {
 	case "node":
 		stub := fmt.Sprintf("const http=require('http');\nconst fs=require('fs');\nconst sock=%q;\ntry{fs.unlinkSync(sock)}catch(e){}\nconst s=http.createServer((q,r)=>{r.writeHead(200,{'content-type':'text/plain'});r.end('node %s\\n');});\ns.listen(sock,()=>{try{fs.chmodSync(sock,0o666)}catch(e){}});\n", sock, websiteID)
-		if abs, err := h.resolve(workDir + "/server.js"); err == nil {
-			if _, err := os.Stat(abs); os.IsNotExist(err) {
-				_, _ = h.ApplyFile(workDir+"/server.js", []byte(stub), 0o644)
-			}
-		}
+		_, _ = h.ApplyFile(workDir+"/server.js", []byte(stub), 0o644)
 		command = "/usr/bin/node server.js"
 	case "python":
 		stub := fmt.Sprintf("import os, socket\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\nclass S(ThreadingHTTPServer):\n    address_family = socket.AF_UNIX\nclass H(BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'python %s\\n')\nsock = %q\ntry: os.unlink(sock)\nexcept FileNotFoundError: pass\nhttpd = S(sock, H)\nos.chmod(sock, 0o666)\nhttpd.serve_forever()\n", websiteID, sock)
-		if abs, err := h.resolve(workDir + "/app.py"); err == nil {
-			if _, err := os.Stat(abs); os.IsNotExist(err) {
-				_, _ = h.ApplyFile(workDir+"/app.py", []byte(stub), 0o644)
-			}
-		}
+		_, _ = h.ApplyFile(workDir+"/app.py", []byte(stub), 0o644)
 		command = "/usr/bin/python3 app.py"
 	}
 	body := fmt.Sprintf("[Unit]\nDescription=panel app %s\n[Service]\nUser=%s\nWorkingDirectory=%s\nExecStart=%s\nRestart=on-failure\nSlice=panel-account-%s.slice\n[Install]\nWantedBy=multi-user.target\n",

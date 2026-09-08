@@ -41,7 +41,7 @@ build:
 	$(GO) build -o dist/bin/panel-dev ./cmd/panel-dev
 
 package: build
-	@echo "Debian packaging is orchestrated by installer/updater, not this target."
+	bash packaging/debian/build.sh
 
 release: lint test build
 	@echo "Release artifacts would be signed from CI, not a workstation."

@@ -29,6 +29,7 @@ func main() {
   mailbox create <account_id> <mail_domain_id> <local> <password>
   db create <account_id> <name> <engine>
   website create <account_id> <domain_id> <runtime>
+  domain create <account_id> <fqdn> [runtime]
   file list <account_id> [path]
   file write <account_id> <path> <content>
   backup create <account_id>
@@ -71,6 +72,12 @@ func main() {
 		})
 	case args[0] == "db" && len(args) == 5 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/databases", token, map[string]any{"name": args[3], "engine": args[4]})
+	case args[0] == "domain" && len(args) >= 4 && args[1] == "create":
+		body := map[string]any{"fqdn": args[3]}
+		if len(args) >= 5 {
+			body["runtime"] = args[4]
+		}
+		post(base+"/api/v1/accounts/"+args[2]+"/domains", token, body)
 	case args[0] == "website" && len(args) == 5 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/websites", token, map[string]any{"domain_id": args[3], "runtime": args[4]})
 	case args[0] == "file" && args[1] == "list" && len(args) >= 3:

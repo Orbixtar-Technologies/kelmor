@@ -755,8 +755,9 @@ func (a *API) createDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		FQDN string `json:"fqdn"`
-		Type string `json:"type"`
+		FQDN    string `json:"fqdn"`
+		Type    string `json:"type"`
+		Runtime string `json:"runtime"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	ascii, err := validate.NormalizeDomain(in.FQDN)
@@ -774,8 +775,8 @@ func (a *API) createDomain(w http.ResponseWriter, r *http.Request) {
 	acc := a.Store.GetAccount(aid)
 	d := &store.Domain{ID: id.New(), AccountID: aid, FQDN: ascii, ASCII: ascii, Type: in.Type, DocumentRoot: acc.HomePath + "/" + ascii, DNSManaged: true, Status: "provisioning"}
 	a.Store.PutDomain(d)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "domain.provision", ResourceType: "domain", ResourceID: d.ID, Payload: map[string]any{"domain_id": d.ID, "account_id": aid}, State: "queued"})
-	a.audit(r, "domain.create", "domain", d.ID, true, nil, map[string]any{"fqdn": ascii})
+	job, _ := a.Store.EnqueueJob(&store.Job{Type: "domain.provision", ResourceType: "domain", ResourceID: d.ID, Payload: map[string]any{"domain_id": d.ID, "account_id": aid, "runtime": in.Runtime}, State: "queued"})
+	a.audit(r, "domain.create", "domain", d.ID, true, nil, map[string]any{"fqdn": ascii, "runtime": in.Runtime})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "resource_id": d.ID, "status": "provisioning", "domain": d})
 }
 

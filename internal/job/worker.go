@@ -176,7 +176,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	})
 	pubIP := publicIPv4()
 	for _, d := range w.Store.ListDomains(acc.ID) {
-		_ = w.ensureDomainStack(&d, acc, pubIP)
+		_ = w.ensureDomainStack(&d, acc, pubIP, "")
 	}
 	switch acc.Status {
 	case "terminating":
@@ -195,7 +195,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	return nil
 }
 
-func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP string) error {
+func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, runtime string) error {
 	if pubIP == "" {
 		pubIP = publicIPv4()
 	}
@@ -221,8 +221,18 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP st
 		})
 	}
 	site := findSite(w.Store, d.ID)
+	if runtime != "" && site != nil {
+		site.Runtime = runtime
+	}
 	if site == nil {
-		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: "php", RuntimeVersion: "8.3", DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
+		if runtime == "" {
+			runtime = "php"
+		}
+		ver := ""
+		if runtime == "php" {
+			ver = "8.3"
+		}
+		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: runtime, RuntimeVersion: ver, DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
 		w.Store.PutWebsite(site)
 	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
@@ -232,15 +242,8 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP st
 	if err != nil {
 		return err
 	}
-	if site.Runtime == "php" {
-		ver := site.RuntimeVersion
-		if ver == "" || ver == "8.5" {
-			ver = "8.3"
-		}
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
-			Method: "ApplyPhpPool",
-			Params: mustJSON(map[string]any{"account": acc.Username, "version": ver, "max_children": 8}),
-		})
+	if err := w.applySiteRuntime(site, acc); err != nil {
+		return err
 	}
 	site.ObservedRevision = site.DesiredRevision
 	if acc.Status == "suspended" {
@@ -272,7 +275,7 @@ func (w *Worker) provisionDomain(j *store.Job) error {
 	if d == nil || acc == nil {
 		return fmt.Errorf("missing domain or account")
 	}
-	return w.ensureDomainStack(d, acc, publicIPv4())
+	return w.ensureDomainStack(d, acc, publicIPv4(), str(j.Payload["runtime"]))
 }
 
 func (w *Worker) provisionWebsite(j *store.Job) error {
@@ -295,28 +298,33 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	}
 	site.ObservedRevision = site.DesiredRevision
 	w.Store.PutWebsite(site)
-	if site.Runtime == "php" {
+	return w.applySiteRuntime(site, acc)
+}
+
+func (w *Worker) applySiteRuntime(site *store.Website, acc *store.Account) error {
+	switch site.Runtime {
+	case "php":
 		ver := site.RuntimeVersion
 		if ver == "" || ver == "8.5" {
 			ver = "8.3"
 		}
-		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "ApplyPhpPool",
-			Params: mustJSON(map[string]any{"account": account, "version": ver, "max_children": 8}),
-		}); err != nil {
-			return err
-		}
-	}
-	if site.Runtime == "node" || site.Runtime == "python" {
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+			Params: mustJSON(map[string]any{"account": acc.Username, "version": ver, "max_children": 8}),
+		})
+		return err
+	case "node", "python":
+		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "ApplyAppUnit",
 			Params: mustJSON(map[string]any{
-				"website_id": site.ID, "account": account, "runtime": site.Runtime,
-				"working_directory": "/home/" + account + "/apps/" + site.ID,
+				"website_id": site.ID, "account": acc.Username, "runtime": site.Runtime,
+				"working_directory": "/home/" + acc.Username + "/apps/" + site.ID,
 			}),
 		})
+		return err
+	default:
+		return nil
 	}
-	return nil
 }
 
 func (w *Worker) deployApp(j *store.Job) error {

@@ -1,0 +1,10 @@
+Package: hosting-panel
+Version: 0.1.0
+Section: admin
+Priority: optional
+Architecture: amd64
+Maintainer: Hosting Panel <ops@localhost>
+Depends: nginx, php8.3-fpm, postfix, dovecot-core, postgresql, mariadb-server
+Description: Ubuntu 24.04 hosting control plane
+ Desired-state API, worker, privileged agent, and CLI for isolated
+ hosting accounts. Portals are served separately.

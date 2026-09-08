@@ -13,6 +13,7 @@ panel-cli account export <account-id>
 panel-cli account import ./tenant.hpm-account.json moved moved.test
 panel-cli mailbox create <account-id> <mail-domain-id> info 'MailboxPass!2026'
 panel-cli db create <account-id> shop mariadb
+panel-cli domain create <account-id> python.example.test python
 panel-cli website create <account-id> <domain-id> node
 panel-cli file write <account-id> /public_html/index.php '<?php echo "ok";'
 panel-cli file list <account-id> /public_html

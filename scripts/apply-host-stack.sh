@@ -123,12 +123,19 @@ if [[ -x /usr/bin/rspamd ]] && ! pgrep -x rspamd >/dev/null; then
   sudo mkdir -p /run/rspamd
   sudo /usr/bin/rspamd -u _rspamd -g _rspamd -c /etc/rspamd/rspamd.conf || true
 fi
+if [[ ! -x /usr/sbin/clamd ]] && [[ -x /usr/bin/apt-get ]]; then
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y clamav-daemon >/tmp/panel-clamav.apt.log 2>&1 || true
+fi
 if [[ -x /usr/sbin/clamd ]] && ! pgrep -x clamd >/dev/null; then
   sudo /usr/sbin/clamd || true
 fi
+if [[ -x /usr/sbin/sshd ]] && ! pgrep -x sshd >/dev/null; then
+  sudo mkdir -p /run/sshd /var/run/sshd
+  sudo /usr/sbin/sshd || true
+fi
 
 if [[ -x "$ROOT/dist/bin/panel-agent" ]]; then
-  if ! pgrep -f '/dist/bin/panel-agent' >/dev/null; then
+  if ! pgrep -x panel-agent >/dev/null; then
     sudo mkdir -p /run/panel
     sudo env -u PANEL_DEV -u PANEL_HOST_ROOT PANEL_AGENT_SOCK=/run/panel/agent.sock \
       "$ROOT/dist/bin/panel-agent" >/tmp/panel-agent.log 2>&1 &
