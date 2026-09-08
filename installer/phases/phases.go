@@ -192,6 +192,8 @@ func applyControlPlane(c Config) error {
 	if src == "" {
 		return fmt.Errorf("control plane binaries not found (looked next to panel-install and ./dist/bin)")
 	}
+	srcAbs, _ := filepath.Abs(src)
+	destAbs, _ := filepath.Abs(dest)
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
@@ -202,18 +204,25 @@ func applyControlPlane(c Config) error {
 			continue
 		}
 		in := filepath.Join(src, e.Name())
+		out := filepath.Join(dest, e.Name())
+		if srcAbs == destAbs {
+			copied++
+			continue
+		}
 		b, err := os.ReadFile(in)
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(dest, e.Name()), b, 0o755); err != nil {
+		if err := os.WriteFile(out, b, 0o755); err != nil {
 			return err
 		}
 		copied++
 	}
-	if b, err := os.ReadFile(filepath.Join(src, "pebble")); err == nil {
-		if err := os.WriteFile(filepath.Join(dest, "pebble"), b, 0o755); err != nil {
-			return err
+	if srcAbs != destAbs {
+		if b, err := os.ReadFile(filepath.Join(src, "pebble")); err == nil {
+			if err := os.WriteFile(filepath.Join(dest, "pebble"), b, 0o755); err != nil {
+				return err
+			}
 		}
 	}
 	if copied == 0 {
