@@ -10,9 +10,17 @@ import (
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
-func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect, enabled, bandwidthHold bool, concurrent int) (Result, error) {
+func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVersion, proxyTarget string, httpsRedirect, enabled, bandwidthHold bool, concurrent int, aliases []string) (Result, error) {
 	if _, err := validate.NormalizeDomain(domain); err != nil {
 		return Result{}, err
+	}
+	var cleanAliases []string
+	for _, a := range aliases {
+		ascii, err := validate.NormalizeDomain(a)
+		if err != nil {
+			continue
+		}
+		cleanAliases = append(cleanAliases, ascii)
 	}
 	switch runtime {
 	case "static", "php", "node", "python", "proxy":
@@ -27,6 +35,7 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 		Runtime: runtime, PHPVersion: phpVersion, ProxyTarget: proxyTarget,
 		HTTPSRedirect: httpsRedirect, Revision: 1, Enabled: enabled,
 		BandwidthHold: bandwidthHold, ConcurrentWebRequests: concurrent,
+		Aliases: cleanAliases,
 	}
 	if certAbs, err := h.resolve("/var/lib/panel/certs/" + domain + ".crt"); err == nil {
 		if _, err := os.Stat(certAbs); err == nil {
@@ -119,9 +128,11 @@ func parseSiteAccountHosts(conf string) (account string, hosts []string) {
 				account = strings.Trim(fields[2], `";`)
 			}
 		case "server_name":
-			name := strings.TrimSuffix(fields[1], ";")
-			if name != "" && name != "_" {
-				hosts = append(hosts, name)
+			for _, f := range fields[1:] {
+				name := strings.TrimSuffix(f, ";")
+				if name != "" && name != "_" {
+					hosts = append(hosts, name)
+				}
 			}
 		case "root":
 			root := strings.TrimSuffix(fields[1], ";")

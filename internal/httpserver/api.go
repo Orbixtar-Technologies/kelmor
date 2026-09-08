@@ -1025,12 +1025,22 @@ func (a *API) createDomain(w http.ResponseWriter, r *http.Request) {
 	if in.Type == "" {
 		in.Type = "addon"
 	}
+	switch in.Type {
+	case "primary", "addon", "subdomain", "alias":
+	default:
+		a.fail(w, r, 400, "VALIDATION", "type must be primary, addon, subdomain, or alias", false)
+		return
+	}
 	if err := a.enforceDomainLimit(aid, in.Type); err != nil {
 		a.rejectLimit(w, r, err)
 		return
 	}
 	acc := a.Store.GetAccount(aid)
-	d := &store.Domain{ID: id.New(), AccountID: aid, FQDN: ascii, ASCII: ascii, Type: in.Type, DocumentRoot: acc.HomePath + "/" + ascii, DNSManaged: true, Status: "provisioning"}
+	doc := acc.HomePath + "/" + ascii
+	if in.Type == "alias" {
+		doc = acc.HomePath + "/public_html"
+	}
+	d := &store.Domain{ID: id.New(), AccountID: aid, FQDN: ascii, ASCII: ascii, Type: in.Type, DocumentRoot: doc, DNSManaged: true, Status: "provisioning"}
 	a.Store.PutDomain(d)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "domain.provision", ResourceType: "domain", ResourceID: d.ID, Payload: map[string]any{"domain_id": d.ID, "account_id": aid, "runtime": in.Runtime}, State: "queued"})
 	a.audit(r, "domain.create", "domain", d.ID, true, nil, map[string]any{"fqdn": ascii, "runtime": in.Runtime})

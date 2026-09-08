@@ -70,6 +70,25 @@ echo "http $code"
 php=$(curl -sS -H "Host: $DOMAIN" http://127.0.0.1/index.php || true)
 echo "php $php"
 [[ "$code" == "200" ]] || { echo "expected HTTP 200 for $DOMAIN, got $code" >&2; exit 1; }
+ADOM="www.$DOMAIN"
+existing_alias=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
+print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$ADOM'), ''))")
+if [[ -z "$existing_alias" ]]; then
+  aliasj=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"fqdn\":\"$ADOM\",\"type\":\"alias\"}")
+  echo "$aliasj"
+  aop=$(echo "$aliasj" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  wait_job "$aop" alias-provision
+fi
+acode=""
+for _ in $(seq 1 20); do
+  acode=$(curl -sS -o /tmp/alias-ok.html -w '%{http_code}' -H "Host: $ADOM" http://127.0.0.1/)
+  [[ "$acode" == "200" ]] && break
+  sleep 0.2
+done
+[[ "$acode" == "200" ]] || { echo "alias $ADOM HTTP $acode" >&2; exit 1; }
+sudo grep -q "$ADOM" /etc/nginx/panel-sites/*.conf || { echo "alias missing from nginx server_name" >&2; exit 1; }
+echo "alias-ok $ADOM"
 dig +short @"127.0.0.1" "$DOMAIN" A || true
 
 mds=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/domains" -H "$AUTH")

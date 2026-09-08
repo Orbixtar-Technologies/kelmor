@@ -161,15 +161,16 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.ApplyFile(p.Path, body, p.Mode)
 	case "ApplyWebsite":
 		var p struct {
-			WebsiteID             string `json:"website_id"`
-			Account               string `json:"account"`
-			Domain                string `json:"domain"`
-			DocumentRoot          string `json:"document_root"`
-			Runtime               string `json:"runtime"`
-			HTTPSRedirect         bool   `json:"https_redirect"`
-			Enabled               *bool  `json:"enabled"`
-			BandwidthHold         *bool  `json:"bandwidth_hold"`
-			ConcurrentWebRequests int    `json:"concurrent_web_requests"`
+			WebsiteID             string   `json:"website_id"`
+			Account               string   `json:"account"`
+			Domain                string   `json:"domain"`
+			DocumentRoot          string   `json:"document_root"`
+			Runtime               string   `json:"runtime"`
+			HTTPSRedirect         bool     `json:"https_redirect"`
+			Enabled               *bool    `json:"enabled"`
+			BandwidthHold         *bool    `json:"bandwidth_hold"`
+			ConcurrentWebRequests int      `json:"concurrent_web_requests"`
+			Aliases               []string `json:"aliases"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		enabled := true
@@ -180,7 +181,7 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		if p.BandwidthHold != nil {
 			hold = *p.BandwidthHold
 		}
-		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect, enabled, hold, p.ConcurrentWebRequests)
+		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect, enabled, hold, p.ConcurrentWebRequests, p.Aliases)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`
@@ -607,7 +608,7 @@ func (h *Host) listDirectory(path string) (any, error) {
 }
 
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {
-	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true, true, false, 0)
+	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true, true, false, 0, nil)
 }
 
 type diskStat struct{ total, used, itotal, iused uint64 }

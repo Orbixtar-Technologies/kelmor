@@ -272,6 +272,9 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 	if pubIP == "" {
 		pubIP = publicIPv4()
 	}
+	if d.Type == "alias" {
+		d.DocumentRoot = acc.HomePath + "/public_html"
+	}
 	d.Status = "active"
 	w.Store.PutDomain(d)
 	if w.Store.ZoneByDomain(d.ID) == nil {
@@ -293,34 +296,44 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 			Params: mustJSON(map[string]any{"hostname": d.ASCII, "days": 90}),
 		})
 	}
-	site := findSite(w.Store, d.ID)
-	if runtime != "" && site != nil {
-		site.Runtime = runtime
-	}
-	if site == nil {
-		if runtime == "" {
-			runtime = "php"
+	if d.Type == "alias" {
+		if primary := w.primaryDomain(acc); primary != nil {
+			if site := findSite(w.Store, primary.ID); site != nil {
+				if err := w.applyWebsiteDispatch(acc, site, primary); err != nil {
+					return err
+				}
+			}
 		}
-		ver := ""
-		if runtime == "php" {
-			ver = "8.3"
+	} else {
+		site := findSite(w.Store, d.ID)
+		if runtime != "" && site != nil {
+			site.Runtime = runtime
 		}
-		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: runtime, RuntimeVersion: ver, DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
+		if site == nil {
+			if runtime == "" {
+				runtime = "php"
+			}
+			ver := ""
+			if runtime == "php" {
+				ver = "8.3"
+			}
+			site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: runtime, RuntimeVersion: ver, DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
+			w.Store.PutWebsite(site)
+		}
+		if err := w.applyWebsiteDispatch(acc, site, d); err != nil {
+			return err
+		}
+		if err := w.applySiteRuntime(site, acc); err != nil {
+			return err
+		}
+		site.ObservedRevision = site.DesiredRevision
+		if acc.Status == "suspended" {
+			site.Enabled = false
+		} else {
+			site.Enabled = true
+		}
 		w.Store.PutWebsite(site)
 	}
-	if err := w.applyWebsiteDispatch(acc, site, d); err != nil {
-		return err
-	}
-	if err := w.applySiteRuntime(site, acc); err != nil {
-		return err
-	}
-	site.ObservedRevision = site.DesiredRevision
-	if acc.Status == "suspended" {
-		site.Enabled = false
-	} else {
-		site.Enabled = true
-	}
-	w.Store.PutWebsite(site)
 	if w.Store.MailDomainByDomain(d.ID) == nil {
 		md := &store.MailDomain{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, CatchallPolicy: "reject", Status: "active"}
 		w.Store.PutMailDomain(md)
@@ -978,6 +991,36 @@ func (w *Worker) websiteEnabled(acc *store.Account) bool {
 	}
 }
 
+func (w *Worker) primaryDomain(acc *store.Account) *store.Domain {
+	if acc == nil {
+		return nil
+	}
+	for _, d := range w.Store.ListDomains(acc.ID) {
+		if d.Type == "primary" || d.ASCII == acc.PrimaryDomain {
+			cp := d
+			return &cp
+		}
+	}
+	return nil
+}
+
+func (w *Worker) aliasesFor(acc *store.Account, siteDomain *store.Domain) []string {
+	if acc == nil || siteDomain == nil {
+		return nil
+	}
+	primary := w.primaryDomain(acc)
+	if primary == nil || (siteDomain.ID != primary.ID && siteDomain.ASCII != acc.PrimaryDomain) {
+		return nil
+	}
+	var out []string
+	for _, d := range w.Store.ListDomains(acc.ID) {
+		if d.Type == "alias" && d.ASCII != "" {
+			out = append(out, d.ASCII)
+		}
+	}
+	return out
+}
+
 func (w *Worker) concurrentWebRequests(acc *store.Account) int {
 	if acc == nil {
 		return 0
@@ -1016,6 +1059,7 @@ func (w *Worker) applyWebsiteDispatch(acc *store.Account, site *store.Website, d
 			"https_redirect": site.HTTPSRedirect, "enabled": w.websiteEnabled(acc),
 			"bandwidth_hold":          w.bandwidthHold(acc),
 			"concurrent_web_requests": w.concurrentWebRequests(acc),
+			"aliases":                 w.aliasesFor(acc, d),
 		}),
 	})
 	return err

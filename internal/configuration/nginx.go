@@ -20,6 +20,7 @@ type WebsiteSpec struct {
 	Enabled               bool
 	BandwidthHold         bool
 	ConcurrentWebRequests int
+	Aliases               []string
 }
 
 func NginxSite(s WebsiteSpec) string {
@@ -42,7 +43,7 @@ func NginxSite(s WebsiteSpec) string {
 	b.WriteString("server {\n")
 	b.WriteString("    listen 80;\n")
 	b.WriteString("    listen [::]:80;\n")
-	fmt.Fprintf(&b, "    server_name %s;\n", s.Domain)
+	fmt.Fprintf(&b, "    server_name %s;\n", serverNames(s))
 	fmt.Fprintf(&b, "    root %s;\n", s.DocumentRoot)
 	b.WriteString("    index index.php index.html;\n")
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
@@ -74,7 +75,7 @@ func NginxSite(s WebsiteSpec) string {
 		b.WriteString("server {\n")
 		b.WriteString("    listen 443 ssl;\n")
 		b.WriteString("    listen [::]:443 ssl;\n")
-		fmt.Fprintf(&b, "    server_name %s;\n", s.Domain)
+		fmt.Fprintf(&b, "    server_name %s;\n", serverNames(s))
 		fmt.Fprintf(&b, "    root %s;\n", s.DocumentRoot)
 		b.WriteString("    index index.php index.html;\n")
 		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)
@@ -101,6 +102,20 @@ func NginxSite(s WebsiteSpec) string {
 		b.WriteString("}\n")
 	}
 	return b.String()
+}
+
+func serverNames(s WebsiteSpec) string {
+	names := []string{s.Domain}
+	seen := map[string]bool{s.Domain: true}
+	for _, a := range s.Aliases {
+		a = strings.TrimSpace(a)
+		if a == "" || seen[a] || strings.ContainsAny(a, " \t\n{};") {
+			continue
+		}
+		seen[a] = true
+		names = append(names, a)
+	}
+	return strings.Join(names, " ")
 }
 
 func connLimitLines(s WebsiteSpec) string {
@@ -134,7 +149,7 @@ func limitedServer(listen string, s WebsiteSpec, status int, body string) string
 	} else {
 		b.WriteString("    listen [::]:443 ssl;\n")
 	}
-	fmt.Fprintf(&b, "    server_name %s;\n", s.Domain)
+	fmt.Fprintf(&b, "    server_name %s;\n", serverNames(s))
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
 	if strings.Contains(listen, "ssl") && s.TLSCert != "" {
 		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)

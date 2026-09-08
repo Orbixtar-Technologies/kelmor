@@ -221,12 +221,17 @@ function Domains ({ accountId }: { accountId: string }) {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
 				try {
-					await api(`/api/v1/accounts/${accountId}/domains`, { method: 'POST', body: JSON.stringify({ fqdn: fd.get('fqdn'), type: 'addon' }) })
+					await api(`/api/v1/accounts/${accountId}/domains`, { method: 'POST', body: JSON.stringify({ fqdn: fd.get('fqdn'), type: fd.get('type') || 'addon' }) })
 					setMsg('Provisioning queued')
 					await load()
 				} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
 			}}>
 				<input name="fqdn" placeholder="addon.example.com" required />
+				<select name="type" defaultValue="addon">
+					<option value="addon">Addon (own site)</option>
+					<option value="subdomain">Subdomain</option>
+					<option value="alias">Alias (park on primary)</option>
+				</select>
 				<button type="submit">Attach domain</button>
 			</form>
 			</Can>

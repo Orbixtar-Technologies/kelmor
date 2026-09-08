@@ -2,6 +2,19 @@ package configuration
 
 import "testing"
 
+func TestNginxAliasServerNames(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{
+		WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html",
+		Runtime: "php", Enabled: true, Aliases: []string{"www.acme.test", "parked.test"},
+	})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "server_name acme.test www.acme.test parked.test;") {
+		t.Fatal(conf)
+	}
+}
+
 func TestNginxSuspendedReturns503(t *testing.T) {
 	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", Enabled: false})
 	if err := ValidateNginx(conf); err != nil {

@@ -12,7 +12,7 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	if _, err := h.CreateLinuxUser("gone42", 20020, 20020, "/home/gone42", "/usr/sbin/nologin"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.applyWebsite("site-1", "gone42", "gone.test", "/home/gone42/public_html", "php", "", "", false, true, false, 0); err != nil {
+	if _, err := h.applyWebsite("site-1", "gone42", "gone.test", "/home/gone42/public_html", "php", "", "", false, true, false, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.applyPHPPool("gone42", "8.3", 4); err != nil {
