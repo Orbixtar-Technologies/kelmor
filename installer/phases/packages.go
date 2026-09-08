@@ -18,6 +18,7 @@ var allowedPackages = map[string]bool{
 	"nodejs": true, "python3": true, "openssh-server": true,
 	"nftables": true, "acl": true,
 	"vsftpd": true, "libpam-pwdfile": true,
+	"curl": true, "ca-certificates": true,
 }
 
 func InstallPackages(names []string) error {
@@ -29,9 +30,15 @@ func InstallPackages(names []string) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("root required to install packages")
 	}
+	env := []string{"DEBIAN_FRONTEND=noninteractive", "PATH=/usr/sbin:/usr/bin:/bin"}
+	update := exec.Command("/usr/bin/apt-get", "update")
+	update.Env = env
+	if out, err := update.CombinedOutput(); err != nil {
+		return fmt.Errorf("apt-get update: %s", string(out))
+	}
 	args := append([]string{"-y", "install"}, names...)
 	cmd := exec.Command("/usr/bin/apt-get", args...)
-	cmd.Env = []string{"DEBIAN_FRONTEND=noninteractive", "PATH=/usr/sbin:/usr/bin:/bin"}
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("apt-get: %s", string(out))
