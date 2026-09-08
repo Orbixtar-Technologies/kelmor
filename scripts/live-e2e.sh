@@ -333,6 +333,53 @@ if sudo mariadb -e "SHOW DATABASES" | grep -q "${TUSER}_term"; then
   exit 1
 fi
 
+BUSER="bw$(date +%s)"
+BDOM="${BUSER}.test"
+bwpkg=$(curl -sS -X POST "$BASE/api/v1/packages" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"name\":\"BandwidthHold ${BUSER}\",\"disk_bytes\":10737418240,\"bandwidth_bytes_monthly\":200,\"domains\":10,\"subdomains\":20,\"alias_domains\":5,\"databases\":5,\"database_users\":5,\"mailboxes\":5,\"mailbox_storage_bytes\":1073741824,\"ftp_users\":5,\"cron_jobs\":5,\"application_instances\":2,\"backup_retention_days\":7,\"cpu_percent\":100,\"memory_bytes\":536870912,\"process_limit\":50,\"io_weight\":100,\"iops\":100,\"concurrent_web_requests\":50,\"email_daily_limit\":50}")
+bwpkgid=$(echo "$bwpkg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')
+[[ -n "$bwpkgid" ]] || { echo "bandwidth package create failed: $bwpkg" >&2; exit 1; }
+bcreated=$(curl -sS -X POST "$BASE/api/v1/accounts" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"username\":\"$BUSER\",\"primary_domain\":\"$BDOM\",\"package_id\":\"$bwpkgid\",\"owner_email\":\"ops@$BDOM\",\"owner_password\":\"TenantPass!2026\"}")
+bid=$(echo "$bcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+bop=$(echo "$bcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$bop" bw-provision
+for i in $(seq 1 40); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$bid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  echo "bwacc status=$st"
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+bcode=""
+for _ in $(seq 1 20); do
+  bcode=$(curl -sS -o /tmp/bw-ok.html -w '%{http_code}' -H "Host: $BDOM" http://127.0.0.1/)
+  [[ "$bcode" == "200" ]] && break
+  sleep 0.2
+done
+[[ "$bcode" == "200" ]] || { echo "bwacc HTTP $bcode before hold" >&2; exit 1; }
+wid=$(curl -sS "$BASE/api/v1/accounts/$bid/websites" -H "$AUTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or []; print(items[0]["id"] if items else "")')
+[[ -n "$wid" ]] || { echo "bwacc website missing" >&2; exit 1; }
+now=$(date -u +'%d/%b/%Y:%H:%M:%S +0000')
+echo "127.0.0.1 - - [${now}] \"GET / HTTP/1.1\" 200 500 \"-\" \"live-e2e\"" | sudo tee "/var/log/nginx/${wid}.access.log" >/dev/null
+sudo chmod 644 "/var/log/nginx/${wid}.access.log"
+patch=$(curl -sS -X PATCH "$BASE/api/v1/accounts/$bid" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"package_id\":\"$bwpkgid\"}")
+pop=$(echo "$patch" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$pop" bw-reconcile
+usage=$(curl -sS "$BASE/api/v1/accounts/$bid/usage" -H "$AUTH")
+echo "$usage" | python3 -c 'import json,sys; u=json.load(sys.stdin); n=int(u.get("bandwidth_bytes") or 0); assert n>=500, u; print("bandwidth_bytes", n)'
+hold=""
+for _ in $(seq 1 20); do
+  hold=$(curl -sS -o /tmp/bw-hold.html -w '%{http_code}' -H "Host: $BDOM" http://127.0.0.1/)
+  [[ "$hold" == "509" ]] && break
+  sleep 0.2
+done
+[[ "$hold" == "509" ]] || { echo "expected HTTP 509 bandwidth hold, got $hold" >&2; cat /tmp/bw-hold.html >&2; exit 1; }
+grep -q 'bandwidth limit exceeded' /tmp/bw-hold.html || { echo "509 body missing hold text" >&2; exit 1; }
+bterm=$(curl -sS -X POST "$BASE/api/v1/accounts/$bid/terminate" -H "$AUTH")
+btop=$(echo "$bterm" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$btop" bw-terminate
+
 audit=$(curl -sS "$BASE/api/v1/audit-events" -H "$AUTH")
 echo "$audit" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
 assert isinstance(items, list) and len(items)>0

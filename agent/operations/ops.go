@@ -168,13 +168,18 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			Runtime       string `json:"runtime"`
 			HTTPSRedirect bool   `json:"https_redirect"`
 			Enabled       *bool  `json:"enabled"`
+			BandwidthHold *bool  `json:"bandwidth_hold"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		enabled := true
 		if p.Enabled != nil {
 			enabled = *p.Enabled
 		}
-		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect, enabled)
+		hold := false
+		if p.BandwidthHold != nil {
+			hold = *p.BandwidthHold
+		}
+		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect, enabled, hold)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`
@@ -215,6 +220,13 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.enforceAccountDisk(p.Username, p.Home)
+	case "EnforceAccountBandwidth":
+		var p struct {
+			Username string `json:"username"`
+			Hold     bool   `json:"hold"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.enforceAccountBandwidth(p.Username, p.Hold)
 	case "ApplyPhpPool":
 		var p struct {
 			Account     string `json:"account"`
@@ -580,7 +592,7 @@ func (h *Host) listDirectory(path string) (any, error) {
 }
 
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {
-	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true, true)
+	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true, true, false)
 }
 
 type diskStat struct{ total, used, itotal, iused uint64 }

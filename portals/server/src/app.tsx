@@ -603,16 +603,17 @@ function Monitor () {
 		<>
 			<header>
 				<h1>Account usage</h1>
-				<p>Disk, inodes, and process totals from the privileged agent walking each chrooted home. Failed jobs: {data.failed_jobs}. Certificates expiring within 14 days: {data.certs_expiring}.</p>
+				<p>Disk, monthly nginx bandwidth, inodes, and process totals from the privileged agent. Failed jobs: {data.failed_jobs}. Certificates expiring within 14 days: {data.certs_expiring}.</p>
 			</header>
 			{items.length === 0 ? <Empty title="No account usage yet" detail="Provision an account, then reload this page." /> : (
 				<table>
-					<thead><tr><th>Account</th><th>Disk</th><th>Inodes</th><th>Processes</th><th>Memory</th><th>Collected</th></tr></thead>
+					<thead><tr><th>Account</th><th>Disk</th><th>Bandwidth</th><th>Inodes</th><th>Processes</th><th>Memory</th><th>Collected</th></tr></thead>
 					<tbody>
 						{items.map((u: any) => (
 							<tr key={u.account_id}>
 								<td>{u.account_id}</td>
 								<td>{fmtBytes(u.disk_bytes)}</td>
+								<td>{fmtBytes(u.bandwidth_bytes)}</td>
 								<td>{u.inode_count}</td>
 								<td>{u.process_count}</td>
 								<td>{fmtBytes(u.memory_bytes)}</td>

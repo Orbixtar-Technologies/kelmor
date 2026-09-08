@@ -18,15 +18,23 @@ type WebsiteSpec struct {
 	TLSCert       string
 	TLSKey        string
 	Enabled       bool
+	BandwidthHold bool
 }
 
 func NginxSite(s WebsiteSpec) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Managed by Hosting Panel\n# resource: %s\n# revision: %d\n# template: nginx/%s-site/v3\n# DO NOT EDIT\n", s.WebsiteID, s.Revision, s.Runtime)
 	if !s.Enabled {
-		b.WriteString(suspendedServer("80", s))
+		b.WriteString(limitedServer("80", s, 503, "account suspended\\n"))
 		if s.TLSCert != "" && s.TLSKey != "" {
-			b.WriteString(suspendedServer("443 ssl", s))
+			b.WriteString(limitedServer("443 ssl", s, 503, "account suspended\\n"))
+		}
+		return b.String()
+	}
+	if s.BandwidthHold {
+		b.WriteString(limitedServer("80", s, 509, "bandwidth limit exceeded\\n"))
+		if s.TLSCert != "" && s.TLSKey != "" {
+			b.WriteString(limitedServer("443 ssl", s, 509, "bandwidth limit exceeded\\n"))
 		}
 		return b.String()
 	}
@@ -92,7 +100,7 @@ func NginxSite(s WebsiteSpec) string {
 	return b.String()
 }
 
-func suspendedServer(listen string, s WebsiteSpec) string {
+func limitedServer(listen string, s WebsiteSpec, status int, body string) string {
 	var b strings.Builder
 	b.WriteString("server {\n")
 	fmt.Fprintf(&b, "    listen %s;\n", listen)
@@ -102,12 +110,13 @@ func suspendedServer(listen string, s WebsiteSpec) string {
 		b.WriteString("    listen [::]:443 ssl;\n")
 	}
 	fmt.Fprintf(&b, "    server_name %s;\n", s.Domain)
+	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
 	if strings.Contains(listen, "ssl") && s.TLSCert != "" {
 		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)
 		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.TLSKey)
 	}
 	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
-	b.WriteString("    location / { default_type text/plain; return 503 'account suspended\\n'; }\n")
+	fmt.Fprintf(&b, "    location / { default_type text/plain; return %d '%s'; }\n", status, body)
 	b.WriteString("}\n")
 	return b.String()
 }

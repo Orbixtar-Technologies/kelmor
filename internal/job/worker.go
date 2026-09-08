@@ -305,12 +305,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: runtime, RuntimeVersion: ver, DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
 		w.Store.PutWebsite(site)
 	}
-	enabled := acc.Status != "suspended" && acc.Status != "terminating"
-	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
-		Method: "ApplyWebsite",
-		Params: mustJSON(map[string]any{"website_id": site.ID, "account": acc.Username, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect, "enabled": enabled}),
-	})
-	if err != nil {
+	if err := w.applyWebsiteDispatch(acc, site, d); err != nil {
 		return err
 	}
 	if err := w.applySiteRuntime(site, acc); err != nil {
@@ -359,12 +354,7 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	if d == nil || acc == nil {
 		return fmt.Errorf("website missing domain or account")
 	}
-	account := acc.Username
-	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
-		Method: "ApplyWebsite",
-		Params: mustJSON(map[string]any{"website_id": site.ID, "account": account, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect, "enabled": acc.Status != "suspended"}),
-	})
-	if err != nil {
+	if err := w.applyWebsiteDispatch(acc, site, d); err != nil {
 		return err
 	}
 	site.ObservedRevision = site.DesiredRevision
@@ -555,15 +545,8 @@ func (w *Worker) provisionCert(j *store.Job) error {
 			if d == nil || d.ASCII != c.Hostname {
 				continue
 			}
-			_, err := w.Agent.Dispatch(context.Background(), operations.Request{
-				Method: "ApplyWebsite",
-				Params: mustJSON(map[string]any{
-					"website_id": site.ID, "account": acc.Username, "domain": d.ASCII,
-					"document_root": site.DocumentRoot, "runtime": site.Runtime,
-					"https_redirect": site.HTTPSRedirect, "enabled": acc.Status != "suspended",
-				}),
-			})
-			if err != nil {
+			s := site
+			if err := w.applyWebsiteDispatch(acc, &s, d); err != nil {
 				return err
 			}
 		}
@@ -901,10 +884,68 @@ func mustJSON(v any) []byte {
 
 func intPtr(v int) *int { return &v }
 
+func (w *Worker) websiteEnabled(acc *store.Account) bool {
+	if acc == nil {
+		return false
+	}
+	switch acc.Status {
+	case "suspended", "terminating", "terminated":
+		return false
+	default:
+		return true
+	}
+}
+
+func (w *Worker) bandwidthHold(acc *store.Account) bool {
+	if acc == nil {
+		return false
+	}
+	pkg := w.Store.GetPackage(acc.PackageID)
+	if pkg == nil || pkg.BandwidthBytesMonthly <= 0 {
+		return false
+	}
+	u := w.Store.GetUsage(acc.ID)
+	if u == nil {
+		return false
+	}
+	return u.BandwidthBytes >= pkg.BandwidthBytesMonthly
+}
+
+func (w *Worker) applyWebsiteDispatch(acc *store.Account, site *store.Website, d *store.Domain) error {
+	if acc == nil || site == nil || d == nil || w.Agent == nil {
+		return fmt.Errorf("website apply missing account, site, or domain")
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyWebsite",
+		Params: mustJSON(map[string]any{
+			"website_id": site.ID, "account": acc.Username, "domain": d.ASCII,
+			"document_root": site.DocumentRoot, "runtime": site.Runtime,
+			"https_redirect": site.HTTPSRedirect, "enabled": w.websiteEnabled(acc),
+			"bandwidth_hold": w.bandwidthHold(acc),
+		}),
+	})
+	return err
+}
+
+func (w *Worker) reapplyAccountWebsites(acc *store.Account) {
+	if acc == nil {
+		return
+	}
+	for _, site := range w.Store.ListWebsites(acc.ID) {
+		d := w.Store.GetDomain(site.DomainID)
+		if d == nil {
+			continue
+		}
+		s := site
+		_ = w.applyWebsiteDispatch(acc, &s, d)
+	}
+}
+
 func (w *Worker) recordUsage(acc *store.Account) {
 	if acc == nil {
 		return
 	}
+	wasHold := w.bandwidthHold(acc)
 	now := time.Now().UTC()
 	u := &store.Usage{AccountID: acc.ID, CollectedAt: now}
 	if w.Agent != nil {
@@ -920,11 +961,20 @@ func (w *Worker) recordUsage(acc *store.Account) {
 				u.InodeCount = got.InodeCount
 				u.ProcessCount = int(got.ProcessCount)
 				u.MemoryBytes = got.MemoryBytes
+				u.BandwidthBytes = got.BandwidthBytes
 				w.Store.PutUsage(u)
 				_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 					Method: "EnforceAccountDisk",
 					Params: mustJSON(map[string]any{"username": acc.Username, "home": acc.HomePath}),
 				})
+				hold := w.bandwidthHold(acc)
+				_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+					Method: "EnforceAccountBandwidth",
+					Params: mustJSON(map[string]any{"username": acc.Username, "hold": hold}),
+				})
+				if wasHold != hold {
+					w.reapplyAccountWebsites(acc)
+				}
 				return
 			}
 		}

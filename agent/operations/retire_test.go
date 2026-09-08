@@ -12,7 +12,7 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	if _, err := h.CreateLinuxUser("gone42", 20020, 20020, "/home/gone42", "/usr/sbin/nologin"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.applyWebsite("site-1", "gone42", "gone.test", "/home/gone42/public_html", "php", "", "", false, true); err != nil {
+	if _, err := h.applyWebsite("site-1", "gone42", "gone.test", "/home/gone42/public_html", "php", "", "", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.applyPHPPool("gone42", "8.3", 4); err != nil {
@@ -22,6 +22,9 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := h.setQuota("gone42", 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.enforceAccountBandwidth("gone42", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.retireAccount("gone42", []string{"site-1"}, []string{"gone.test"}); err != nil {
@@ -41,5 +44,8 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/quotas/gone42")); !os.IsNotExist(err) {
 		t.Fatal("quota file remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/bandwidth/gone42")); !os.IsNotExist(err) {
+		t.Fatal("bandwidth dir remains")
 	}
 }

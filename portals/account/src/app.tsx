@@ -95,9 +95,16 @@ export function App () {
 
 function Dash ({ accountId }: { accountId: string }) {
 	const [acc, setAcc] = useState<any>(null)
+	const [usage, setUsage] = useState<any>(null)
 	const [err, setErr] = useState('')
 	useEffect(() => {
-		api(`/api/v1/accounts/${accountId}`).then(setAcc).catch((e) => setErr(e.message))
+		Promise.all([
+			api(`/api/v1/accounts/${accountId}`),
+			api(`/api/v1/accounts/${accountId}/usage`).catch(() => null),
+		]).then(([a, u]) => {
+			setAcc(a)
+			setUsage(u)
+		}).catch((e) => setErr(e.message))
 	}, [accountId])
 	if (err) return <p className="error">{err}</p>
 	if (!acc) return <p>Loading account…</p>
@@ -105,6 +112,9 @@ function Dash ({ accountId }: { accountId: string }) {
 		<>
 			<h1>{acc.primary_domain}</h1>
 			<p>Status {acc.status}. Home {acc.home_path}. Linux UID {acc.linux_uid}.</p>
+			{usage ? (
+				<p>Disk {usage.disk_bytes || 0} bytes. Monthly transfer {usage.bandwidth_bytes || 0} bytes (nginx body bytes this calendar month). Sites return HTTP 509 when the package bandwidth cap is reached.</p>
+			) : null}
 		</>
 	)
 }

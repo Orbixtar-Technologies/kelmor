@@ -115,6 +115,9 @@ sudo doveadm reload || sudo /usr/sbin/dovecot || true
 if [[ -e /etc/nginx/sites-enabled/default ]]; then
   sudo rm -f /etc/nginx/sites-enabled/default
 fi
+sudo tee /etc/nginx/conf.d/panel-bandwidth.conf >/dev/null <<'EOF'
+log_format panel_bw '$time_iso8601 $body_bytes_sent';
+EOF
 sudo nginx -t && sudo nginx -s reload || true
 if [[ ! -x /usr/bin/node ]] && [[ -x /usr/bin/apt-get ]]; then
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/tmp/panel-nodejs.apt.log 2>&1 || true

@@ -386,6 +386,7 @@ func (a *API) serverMonitor(w http.ResponseWriter, r *http.Request) {
 			AccountID: acc.ID, CollectedAt: time.Now().UTC(),
 			DiskBytes: got.DiskBytes, InodeCount: got.InodeCount,
 			MemoryBytes: got.MemoryBytes, ProcessCount: int(got.ProcessCount),
+			BandwidthBytes: got.BandwidthBytes,
 		}
 	}))
 }

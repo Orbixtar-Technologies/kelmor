@@ -12,6 +12,19 @@ func TestNginxSuspendedReturns503(t *testing.T) {
 	}
 }
 
+func TestNginxBandwidthHoldReturns509(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", Enabled: true, BandwidthHold: true})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "return 509") || contains(conf, "fastcgi_pass") {
+		t.Fatal(conf)
+	}
+	if !contains(conf, "acme-challenge") {
+		t.Fatal("held vhost must keep HTTP-01")
+	}
+}
+
 func TestNginxSiteValid(t *testing.T) {
 	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", PHPVersion: "8.3", HTTPSRedirect: true, Revision: 3, Enabled: true})
 	if err := ValidateNginx(conf); err != nil {

@@ -5,17 +5,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
 type AccountUsage struct {
-	Username     string `json:"username"`
-	Home         string `json:"home"`
-	DiskBytes    int64  `json:"disk_bytes"`
-	InodeCount   int64  `json:"inode_count"`
-	ProcessCount int64  `json:"process_count"`
-	MemoryBytes  int64  `json:"memory_bytes"`
+	Username       string `json:"username"`
+	Home           string `json:"home"`
+	DiskBytes      int64  `json:"disk_bytes"`
+	InodeCount     int64  `json:"inode_count"`
+	ProcessCount   int64  `json:"process_count"`
+	MemoryBytes    int64  `json:"memory_bytes"`
+	BandwidthBytes int64  `json:"bandwidth_bytes"`
 }
 
 func (h *Host) measureAccountUsage(username, home string) (AccountUsage, error) {
@@ -43,6 +45,8 @@ func (h *Host) measureAccountUsage(username, home string) (AccountUsage, error) 
 	if h.live() {
 		u.ProcessCount, u.MemoryBytes = processUsageFor(username)
 	}
+	u.BandwidthBytes = h.sumNginxBandwidth(h.websiteIDsForAccount(username), time.Now().UTC())
+	h.persistBandwidthTotal(username, time.Now().UTC(), u.BandwidthBytes)
 	return u, nil
 }
 
