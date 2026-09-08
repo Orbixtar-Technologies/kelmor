@@ -244,13 +244,22 @@ func (s *SFTP) timeout() time.Duration {
 }
 
 func fixedHostKey(want string) ssh.HostKeyCallback {
-	want = normalizeFP(want)
+	allowed := map[string][]byte{}
+	for _, part := range strings.Split(want, ",") {
+		n := normalizeFP(part)
+		if n == "" {
+			continue
+		}
+		allowed[n] = []byte(n)
+	}
 	return func(_ string, _ net.Addr, key ssh.PublicKey) error {
 		got := normalizeFP(ssh.FingerprintSHA256(key))
-		if subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {
-			return fmt.Errorf("ssh host key mismatch")
+		for _, exp := range allowed {
+			if subtle.ConstantTimeCompare(exp, []byte(got)) == 1 {
+				return nil
+			}
 		}
-		return nil
+		return fmt.Errorf("ssh host key mismatch")
 	}
 }
 

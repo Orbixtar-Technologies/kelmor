@@ -560,7 +560,7 @@ Match User panel-backup
 	}
 	_ = exec.Command("/bin/chown", "-R", "panel-backup:panel-backup", sshDir).Run()
 	_ = os.Chmod(sshDir, 0o700)
-	fp := sshHostFingerprint()
+	fp := strings.Join(sshHostFingerprints(), ",")
 	if fp == "" {
 		return fmt.Errorf("ssh host key fingerprint missing")
 	}
@@ -582,7 +582,8 @@ Match User panel-backup
 	return nil
 }
 
-func sshHostFingerprint() string {
+func sshHostFingerprints() []string {
+	var out []string
 	for _, name := range []string{"ssh_host_ed25519_key.pub", "ssh_host_rsa_key.pub", "ssh_host_ecdsa_key.pub"} {
 		b, err := os.ReadFile("/etc/ssh/" + name)
 		if err != nil {
@@ -592,9 +593,9 @@ func sshHostFingerprint() string {
 		if err != nil {
 			continue
 		}
-		return ssh.FingerprintSHA256(pk)
+		out = append(out, ssh.FingerprintSHA256(pk))
 	}
-	return ""
+	return out
 }
 
 func sshdPID() int {
@@ -903,6 +904,13 @@ func verifySecurity(c Config) error {
 			return err
 		} else if st.Mode()&0o020 == 0 {
 			return fmt.Errorf("offsite directory must be group-writable for SFTP backups")
+		}
+		envb, err := os.ReadFile(root(c, "var/lib/panel/secrets/backup-sftp.env"))
+		if err != nil {
+			return err
+		}
+		if fps := sshHostFingerprints(); len(fps) > 1 && !strings.Contains(string(envb), ",") {
+			return fmt.Errorf("backup-sftp.env must pin every ssh host key")
 		}
 	}
 	if pub := netaddr.PublicIPv4(); pub != "" && pub != "127.0.0.1" {
