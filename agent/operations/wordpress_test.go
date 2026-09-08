@@ -43,6 +43,32 @@ func TestInstallWordPressSandbox(t *testing.T) {
 	}
 }
 
+func TestSyncWordPressDatabaseRewritesPassword(t *testing.T) {
+	h := &Host{Root: t.TempDir()}
+	doc := "/home/acme42/blog"
+	if _, err := h.CreateDirectoryTree(doc, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	old := wpConfigFile(WordPressInstall{DBName: "acme42_wp", DBUser: "acme42_u", DBPassword: "old-secret", DBHost: "localhost", SiteURL: "http://blog.test"})
+	if _, err := h.ApplyFile(doc+"/wp-config.php", []byte(old), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.syncWordPressDatabase("acme42", "acme42_u", "new-secret", "127.0.0.1")
+	if err != nil || !res.OK {
+		t.Fatalf("%v %#v", err, res)
+	}
+	b, err := os.ReadFile(filepath.Join(h.Root, "home/acme42/blog/wp-config.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "new-secret") || strings.Contains(string(b), "old-secret") {
+		t.Fatalf("%s", b)
+	}
+	if !strings.Contains(string(b), "acme42_wp") {
+		t.Fatalf("db name rewritten: %s", b)
+	}
+}
+
 func TestInstallWordPressRejectsEscape(t *testing.T) {
 	h := &Host{Root: t.TempDir()}
 	_, err := h.installWordPress(WordPressInstall{

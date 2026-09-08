@@ -278,6 +278,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	_ = w.syncFTPUsers()
 	_ = w.applyCron(j)
 	_ = w.applyMailStack(acc.ID)
+	w.syncWordPressDatabase(acc)
 	j.Progress = 90
 	w.Store.UpdateJob(j)
 	return nil
@@ -685,6 +686,7 @@ func (w *Worker) provisionDB(j *store.Job) error {
 	_, _ = w.Agent.ApplyFile("/home/"+acc.Username+"/.panel-database."+d.Engine, []byte(note), 0o600)
 	d.Status = "active"
 	w.Store.PutDB(d)
+	w.syncWordPressDatabase(acc)
 	return nil
 }
 
@@ -1365,6 +1367,7 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 		return err
 	}
 	_ = w.applyMailStack(acc.ID)
+	w.syncWordPressDatabase(acc)
 	return nil
 }
 
@@ -1708,11 +1711,64 @@ func (w *Worker) recordUsage(acc *store.Account) {
 	w.Store.PutUsage(u)
 }
 
+func (w *Worker) peekHostedDBPassword(acc *store.Account, engine string) (username, password string, ok bool) {
+	if acc == nil {
+		return "", "", false
+	}
+	username = acc.Username + "_u"
+	if w.Box == nil {
+		return username, "", false
+	}
+	for _, u := range w.Store.ListDBUsers(acc.ID) {
+		if u.Username != username || u.Engine != engine {
+			continue
+		}
+		if len(u.PasswordEnc) == 0 {
+			continue
+		}
+		plain, err := w.Box.Decrypt(u.PasswordEnc)
+		if err != nil || len(plain) == 0 {
+			continue
+		}
+		return username, string(plain), true
+	}
+	return username, "", false
+}
+
+func (w *Worker) syncWordPressDatabase(acc *store.Account) {
+	if acc == nil || w.Agent == nil {
+		return
+	}
+	dbUser, pw, ok := w.peekHostedDBPassword(acc, "mariadb")
+	if !ok {
+		dbUser, pw, _ = w.hostedDBCredentials(acc, "mariadb")
+	}
+	dbName := acc.Username + "_wp"
+	for _, d := range w.Store.ListDBs(acc.ID) {
+		if d.Engine == "mariadb" || d.Engine == "mysql" {
+			dbName = d.Name
+			break
+		}
+	}
+	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "CreateHostedDatabase",
+		Params: mustJSON(map[string]any{
+			"engine": "mariadb", "name": dbName, "username": dbUser, "password": pw, "reset_password": true,
+		}),
+	})
+	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "SyncWordPressDatabase",
+		Params: mustJSON(map[string]any{
+			"username": acc.Username, "db_user": dbUser, "db_password": pw, "db_host": "127.0.0.1",
+		}),
+	})
+}
+
 func (w *Worker) hostedDBCredentials(acc *store.Account, engine string) (username, password string, reset bool) {
 	username = acc.Username + "_u"
 	var existing *store.DatabaseUser
 	for _, u := range w.Store.ListDBUsers(acc.ID) {
-		if u.Username == username && (u.Engine == engine || u.Engine == "") {
+		if u.Username == username && u.Engine == engine {
 			cp := u
 			existing = &cp
 			break

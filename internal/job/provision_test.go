@@ -323,3 +323,26 @@ func TestHostedDatabaseReusesSharedPassword(t *testing.T) {
 		t.Fatalf("passwords diverged\n%s\n%s", one, two)
 	}
 }
+
+func TestHostedDBCredentialsKeepEnginesSeparate(t *testing.T) {
+	st := store.NewMemory()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: t.TempDir()}, logging.New("test"), box, "tester")
+	acc := &store.Account{ID: "acc-eng", Username: "acme42"}
+	u1, p1, reset1 := w.hostedDBCredentials(acc, "mariadb")
+	u2, p2, reset2 := w.hostedDBCredentials(acc, "postgres")
+	if u1 != "acme42_u" || u1 != u2 || p1 == "" || p1 == p2 || !reset1 || !reset2 {
+		t.Fatalf("first pair %s %s %v / %s %s %v", u1, p1, reset1, u2, p2, reset2)
+	}
+	_, again, resetAgain := w.hostedDBCredentials(acc, "mariadb")
+	if again != p1 || resetAgain {
+		t.Fatalf("mariadb password drifted %s %v", again, resetAgain)
+	}
+	users := st.ListDBUsers(acc.ID)
+	if len(users) != 2 {
+		t.Fatalf("expected per-engine users, got %+v", users)
+	}
+}

@@ -26,7 +26,7 @@ func TestPostgresDesiredState(t *testing.T) {
 	if len(pg.ListPackages()) == 0 {
 		t.Fatal("packages missing")
 	}
-	job, err := pg.EnqueueJob(&Job{Type: "account.provision", Payload: map[string]any{"k": "v"}, State: "queued"})
+	job, err := pg.EnqueueJob(&Job{Type: "account.provision", Payload: map[string]any{"k": "v"}, State: "queued", IdempotencyKey: "store-test-claim"})
 	if err != nil || job == nil {
 		t.Fatalf("enqueue %v %v", job, err)
 	}
@@ -34,4 +34,18 @@ func TestPostgresDesiredState(t *testing.T) {
 	if claimed == nil || claimed.State != "running" {
 		t.Fatalf("claim %+v", claimed)
 	}
+	if claimed.ID != job.ID {
+		claimed.State = "queued"
+		claimed.LockedBy = ""
+		claimed.Attempts = claimed.Attempts - 1
+		if claimed.Attempts < 0 {
+			claimed.Attempts = 0
+		}
+		pg.UpdateJob(claimed)
+		t.Fatalf("claimed unrelated job %s instead of %s", claimed.ID, job.ID)
+	}
+	claimed.State = "succeeded"
+	now := claimed.CreatedAt
+	claimed.FinishedAt = &now
+	pg.UpdateJob(claimed)
 }

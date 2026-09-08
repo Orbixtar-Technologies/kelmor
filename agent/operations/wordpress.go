@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -355,6 +356,88 @@ func wpHomeDefines(siteURL string) string {
 	}
 	return "define('WP_HOME', '" + phpSingle(siteURL) + "');\n" +
 		"define('WP_SITEURL', '" + phpSingle(siteURL) + "');\n"
+}
+
+func (h *Host) syncWordPressDatabase(username, dbUser, dbPassword, dbHost string) (Result, error) {
+	if err := validate.Username(username); err != nil {
+		return Result{}, err
+	}
+	if dbUser == "" || dbPassword == "" {
+		return Result{}, fmt.Errorf("database credentials required")
+	}
+	if dbHost == "" {
+		dbHost = "127.0.0.1"
+	}
+	home, err := policy.WithinAccount(username, "/home/"+username)
+	if err != nil {
+		return Result{}, err
+	}
+	realHome, err := h.resolve(home)
+	if err != nil {
+		return Result{}, err
+	}
+	updated := 0
+	err = filepath.Walk(realHome, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if info.IsDir() {
+			switch info.Name() {
+			case "wp-admin", "wp-includes", "node_modules":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.Name() != "wp-config.php" {
+			return nil
+		}
+		rel, err := filepath.Rel(realHome, path)
+		if err != nil {
+			return nil
+		}
+		virt := filepath.Join("/home/"+username, rel)
+		if _, err := policy.WithinAccount(username, virt); err != nil {
+			return nil
+		}
+		prev, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		next := replaceWPDefines(string(prev), dbUser, dbPassword, dbHost)
+		if next == string(prev) {
+			return nil
+		}
+		if _, err := h.ApplyFile(virt, []byte(next), 0o640); err != nil {
+			return err
+		}
+		updated++
+		return nil
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{OK: true, ObservedState: "synced", Message: fmt.Sprintf("wordpress configs %d", updated)}, nil
+}
+
+var wpDefineRE = regexp.MustCompile(`define\(\s*'(DB_USER|DB_PASSWORD|DB_HOST)'\s*,\s*'((?:\\'|[^'])*)'\s*\)`)
+
+func replaceWPDefines(body, dbUser, dbPassword, dbHost string) string {
+	return wpDefineRE.ReplaceAllStringFunc(body, func(m string) string {
+		key := wpDefineRE.FindStringSubmatch(m)
+		if len(key) < 2 {
+			return m
+		}
+		switch key[1] {
+		case "DB_USER":
+			return "define('DB_USER', '" + phpSingle(dbUser) + "')"
+		case "DB_PASSWORD":
+			return "define('DB_PASSWORD', '" + phpSingle(dbPassword) + "')"
+		case "DB_HOST":
+			return "define('DB_HOST', '" + phpSingle(dbHost) + "')"
+		default:
+			return m
+		}
+	})
 }
 
 func phpSingle(s string) string {

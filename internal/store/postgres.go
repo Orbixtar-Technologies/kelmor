@@ -516,10 +516,8 @@ func (p *PG) PutDBUser(u *DatabaseUser) {
 	_, _ = p.pool.Exec(p.ctx(), `
 		INSERT INTO database_users (id, account_id, username, engine, password_enc)
 		VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (username) DO UPDATE SET
-			password_enc = CASE WHEN length(EXCLUDED.password_enc) = 0 THEN database_users.password_enc ELSE EXCLUDED.password_enc END,
-			engine = EXCLUDED.engine,
-			account_id = EXCLUDED.account_id`,
+		ON CONFLICT (account_id, username, engine) DO UPDATE SET
+			password_enc = CASE WHEN length(EXCLUDED.password_enc) = 0 THEN database_users.password_enc ELSE EXCLUDED.password_enc END`,
 		u.ID, u.AccountID, u.Username, u.Engine, enc)
 }
 

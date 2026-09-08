@@ -376,6 +376,17 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.installWordPress(p)
+	case "SyncWordPressDatabase":
+		var p struct {
+			Username   string `json:"username"`
+			DBUser     string `json:"db_user"`
+			DBPassword string `json:"db_password"`
+			DBHost     string `json:"db_host"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.syncWordPressDatabase(p.Username, p.DBUser, p.DBPassword, p.DBHost)
 	case "ApplyDNSZone":
 		var p struct {
 			Name string `json:"name"`

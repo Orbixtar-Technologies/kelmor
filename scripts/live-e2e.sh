@@ -407,6 +407,21 @@ ensure_runtime_addon() {
 ensure_runtime_addon python.livehost.test python /tmp/py.out python
 ensure_runtime_addon node.livehost.test node /tmp/node.out node
 
+wdomains=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH")
+if echo "$wdomains" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; raise SystemExit(0 if any(i.get('ascii_fqdn')=='blog.livehost.test' for i in items) else 1)"; then
+  wpcode=""
+  for _ in $(seq 1 20); do
+    wpcode=$(host_fetch blog.livehost.test /tmp/wp.out)
+    echo "wordpress_http $wpcode"
+    if [[ "$wpcode" == "200" ]] && grep -q 'Live Blog' /tmp/wp.out; then
+      break
+    fi
+    sleep 0.5
+  done
+  [[ "$wpcode" == "200" ]] || { echo "wordpress site down: $wpcode" >&2; exit 1; }
+  grep -q 'Live Blog' /tmp/wp.out || { echo "wordpress title missing" >&2; head -c 200 /tmp/wp.out >&2; exit 1; }
+fi
+
 dbs=$(curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH")
 hasdb=$(echo "$dbs" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('name','').endswith('_e2e') for i in items))")
 if [[ "$hasdb" != "True" ]]; then
