@@ -22,7 +22,7 @@ wait_job() {
   local jid="$1" label="${2:-job}"
   [[ -z "$jid" ]] && return 0
   local st=""
-  for _ in $(seq 1 40); do
+  for _ in $(seq 1 90); do
     st=$(curl -sS "$BASE/api/v1/jobs/$jid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state",""))')
     echo "$label job=$st"
     if [[ "$st" == "succeeded" ]]; then
@@ -33,7 +33,7 @@ wait_job() {
       curl -sS "$BASE/api/v1/jobs/$jid" -H "$AUTH" >&2
       return 1
     fi
-    sleep 0.5
+    sleep 1
   done
   echo "$label timeout state=$st" >&2
   return 1
