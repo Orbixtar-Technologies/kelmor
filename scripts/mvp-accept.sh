@@ -33,7 +33,11 @@ bash "$ROOT/scripts/ui-mvp.sh"
 
 echo "== host probes =="
 dig +short @127.0.0.1 livehost.test A | grep -q 127.0.0.1
-curl -sS -o /dev/null -w '%{http_code}' -H 'Host: livehost.test' http://127.0.0.1/ | grep -q 200
+code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: livehost.test' http://127.0.0.1/)
+if [[ "$code" == "301" || "$code" == "302" ]]; then
+  code=$(curl -sk -o /dev/null -w '%{http_code}' --resolve livehost.test:443:127.0.0.1 https://livehost.test/)
+fi
+[[ "$code" == "200" ]]
 ok=0
 for _ in $(seq 1 20); do
   if sudo doveadm auth test info@livehost.test 'MailboxPass!2026' 2>/dev/null | grep -q succeeded; then

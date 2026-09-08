@@ -39,6 +39,17 @@ wait_job() {
   return 1
 }
 
+# Issued certificates enable HTTPS redirects. Follow to the local vhost.
+host_fetch() {
+  local host="$1" out="${2:-/tmp/host-fetch.body}" path="${3:-/}"
+  local code
+  code=$(curl -sS -o "$out" -w '%{http_code}' -H "Host: $host" "http://127.0.0.1$path" || true)
+  if [[ "$code" == "301" || "$code" == "302" ]]; then
+    code=$(curl -sk -o "$out" -w '%{http_code}' --resolve "$host:443:127.0.0.1" "https://$host$path" || true)
+  fi
+  printf '%s' "$code"
+}
+
 pkgs=$(curl -sS "$BASE/api/v1/packages" -H "$AUTH")
 pkg=$(echo "$pkgs" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
 starter=next((i for i in items if i.get("name")=="Starter"), None)
@@ -65,10 +76,11 @@ for i in $(seq 1 40); do
 done
 
 getent passwd "$UNAME" || true
-code=$(curl -sS -o /tmp/live-site.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+code=$(host_fetch "$DOMAIN" /tmp/live-site.html)
 echo "http $code"
-php=$(curl -sS -H "Host: $DOMAIN" http://127.0.0.1/index.php || true)
-echo "php $php"
+phpcode=$(host_fetch "$DOMAIN" /tmp/live-php.html /index.php)
+php=$(cat /tmp/live-php.html || true)
+echo "php $phpcode $php"
 [[ "$code" == "200" ]] || { echo "expected HTTP 200 for $DOMAIN, got $code" >&2; exit 1; }
 ADOM="www.$DOMAIN"
 existing_alias=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
@@ -82,7 +94,7 @@ if [[ -z "$existing_alias" ]]; then
 fi
 acode=""
 for _ in $(seq 1 20); do
-  acode=$(curl -sS -o /tmp/alias-ok.html -w '%{http_code}' -H "Host: $ADOM" http://127.0.0.1/)
+  acode=$(host_fetch "$ADOM" /tmp/alias-ok.html)
   [[ "$acode" == "200" ]] && break
   sleep 0.2
 done
@@ -125,7 +137,7 @@ fi
 [[ -n "$rwid" ]] || { echo "retire website missing for $RDOM" >&2; exit 1; }
 rcode=""
 for _ in $(seq 1 20); do
-  rcode=$(curl -sS -o /tmp/retire-ok.html -w '%{http_code}' -H "Host: $RDOM" http://127.0.0.1/)
+  rcode=$(host_fetch "$RDOM" /tmp/retire-ok.html)
   [[ "$rcode" == "200" ]] && break
   sleep 0.2
 done
@@ -147,7 +159,7 @@ done
 sudo test ! -f "/etc/nginx/panel-sites/${rwid}.conf" || { echo "vhost $rwid remains" >&2; exit 1; }
 sudo test -d "/home/$UNAME" || { echo "home removed after website retire" >&2; exit 1; }
 sudo test -f "/etc/php/8.3/fpm/pool.d/panel-${UNAME}.conf" || { echo "php pool removed after website retire" >&2; exit 1; }
-pcode=$(curl -sS -o /tmp/live-site-after-retire.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+pcode=$(host_fetch "$DOMAIN" /tmp/live-site-after-retire.html)
 [[ "$pcode" == "200" ]] || { echo "primary $DOMAIN HTTP $pcode after addon retire" >&2; exit 1; }
 echo "website-retire-ok $RDOM"
 rdid=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
@@ -160,7 +172,7 @@ wait_job "$ddop" domain-delete
 dleft=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print('remain' if any(i.get('ascii_fqdn')=='$RDOM' for i in items) else 'gone')")
 [[ "$dleft" == "gone" ]] || { echo "domain $RDOM still listed" >&2; exit 1; }
 sudo test ! -f "/var/lib/panel/dns/zones/${RDOM}.zone" || { echo "zone $RDOM remains" >&2; exit 1; }
-pcode=$(curl -sS -o /tmp/live-site-after-domain-retire.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+pcode=$(host_fetch "$DOMAIN" /tmp/live-site-after-domain-retire.html)
 [[ "$pcode" == "200" ]] || { echo "primary $DOMAIN HTTP $pcode after domain retire" >&2; exit 1; }
 echo "domain-retire-ok $RDOM"
 dig +short @"127.0.0.1" "$DOMAIN" A || true
@@ -302,13 +314,13 @@ if [[ "$has_py" != "True" ]]; then
     -d '{"fqdn":"python.livehost.test","type":"addon","runtime":"python"}'
   sleep 3
 fi
-pycode=$(curl -sS -o /tmp/py.out -w '%{http_code}' -H 'Host: python.livehost.test' http://127.0.0.1/ || true)
+pycode=$(host_fetch python.livehost.test /tmp/py.out)
 echo "python_http $pycode"
 head -c 80 /tmp/py.out; echo
 if [[ "$pycode" != "200" ]]; then
   curl -sS -X PATCH "$BASE/api/v1/accounts/$aid" -H "$AUTH" -H 'content-type: application/json' -d '{}' >/dev/null
   sleep 3
-  pycode=$(curl -sS -o /tmp/py.out -w '%{http_code}' -H 'Host: python.livehost.test' http://127.0.0.1/ || true)
+  pycode=$(host_fetch python.livehost.test /tmp/py.out)
   echo "python_http_retry $pycode"
 fi
 [[ "$pycode" == "200" ]] || { echo "python site down" >&2; exit 1; }
@@ -367,7 +379,7 @@ for i in $(seq 1 20); do
   [[ "$st" == "active" ]] && break
   sleep 1
 done
-migcode=$(curl -sS -o /tmp/e2emig.html -w '%{http_code}' -H 'Host: e2emig.test' http://127.0.0.1/)
+migcode=$(host_fetch e2emig.test /tmp/e2emig.html)
 [[ "$migcode" == "200" ]] || { echo "e2emig HTTP $migcode" >&2; exit 1; }
 
 MUSER="md$(date +%s)"
@@ -418,7 +430,7 @@ for i in $(seq 1 40); do
 done
 dcode=""
 for _ in $(seq 1 20); do
-  dcode=$(curl -sS -o /tmp/migdest.html -w '%{http_code}' -H "Host: $DDOM" http://127.0.0.1/)
+  dcode=$(host_fetch "$DDOM" /tmp/migdest.html)
   [[ "$dcode" == "200" ]] && break
   sleep 0.2
 done
@@ -441,7 +453,7 @@ sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(
 wait_job "$sop" suspend
 suscode=""
 for _ in $(seq 1 20); do
-  suscode=$(curl -sS -o /tmp/live-sus.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+  suscode=$(host_fetch "$DOMAIN" /tmp/live-sus.html)
   [[ "$suscode" == "503" ]] && break
   sleep 0.2
 done
@@ -451,14 +463,14 @@ uop=$(echo "$uns" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(
 wait_job "$uop" unsuspend
 uncode=""
 for _ in $(seq 1 20); do
-  uncode=$(curl -sS -o /tmp/live-uns.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+  uncode=$(host_fetch "$DOMAIN" /tmp/live-uns.html)
   [[ "$uncode" == "200" ]] && break
   sleep 0.2
 done
 [[ "$uncode" == "200" ]] || { echo "expected HTTP 200 after unsuspend, got $uncode" >&2; exit 1; }
 pycode=""
 for _ in $(seq 1 20); do
-  pycode=$(curl -sS -o /tmp/py-uns.out -w '%{http_code}' -H 'Host: python.livehost.test' http://127.0.0.1/ || true)
+  pycode=$(host_fetch python.livehost.test /tmp/py-uns.out)
   [[ "$pycode" == "200" ]] && break
   sleep 0.3
 done
@@ -481,7 +493,7 @@ for i in $(seq 1 40); do
 done
 tcode=""
 for _ in $(seq 1 20); do
-  tcode=$(curl -sS -o /tmp/termacc.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+  tcode=$(host_fetch "$TDOM" /tmp/termacc.html)
   [[ "$tcode" == "200" ]] && break
   sleep 0.2
 done
@@ -507,7 +519,7 @@ if getent passwd "$TUSER" >/dev/null; then
 fi
 gone=""
 for _ in $(seq 1 20); do
-  gone=$(curl -sS -o /tmp/term-gone.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+  gone=$(host_fetch "$TDOM" /tmp/term-gone.html)
   [[ "$gone" == "404" ]] && break
   sleep 0.2
 done
@@ -544,7 +556,7 @@ for i in $(seq 1 40); do
 done
 bcode=""
 for _ in $(seq 1 20); do
-  bcode=$(curl -sS -o /tmp/bw-ok.html -w '%{http_code}' -H "Host: $BDOM" http://127.0.0.1/)
+  bcode=$(host_fetch "$BDOM" /tmp/bw-ok.html)
   [[ "$bcode" == "200" ]] && break
   sleep 0.2
 done
@@ -570,7 +582,7 @@ usage=$(curl -sS "$BASE/api/v1/accounts/$bid/usage" -H "$AUTH")
 echo "$usage" | python3 -c 'import json,sys; u=json.load(sys.stdin); n=int(u.get("bandwidth_bytes") or 0); assert n>=500, u; print("bandwidth_bytes", n)'
 hold=""
 for _ in $(seq 1 20); do
-  hold=$(curl -sS -o /tmp/bw-hold.html -w '%{http_code}' -H "Host: $BDOM" http://127.0.0.1/)
+  hold=$(host_fetch "$BDOM" /tmp/bw-hold.html)
   [[ "$hold" == "509" ]] && break
   sleep 0.2
 done
