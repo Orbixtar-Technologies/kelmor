@@ -110,8 +110,19 @@ func connLimitLines(s WebsiteSpec) string {
 	return fmt.Sprintf("    set $panel_account %q;\n    limit_conn panel_acct %d;\n    limit_conn_status 429;\n", s.Account, s.ConcurrentWebRequests)
 }
 
-func NginxConnZone() string {
-	return "limit_conn_zone $panel_account zone=panel_acct:10m;\n"
+func NginxConnZone(hosts map[string]string) string {
+	var b strings.Builder
+	b.WriteString("map $host $panel_account {\n    default \"\";\n")
+	for host, account := range hosts {
+		host = strings.TrimSpace(host)
+		account = strings.TrimSpace(account)
+		if host == "" || account == "" || strings.ContainsAny(host+account, " \t\n{};") {
+			continue
+		}
+		fmt.Fprintf(&b, "    %s %s;\n", host, account)
+	}
+	b.WriteString("}\nlimit_conn_zone $panel_account zone=panel_acct:10m;\n")
+	return b.String()
 }
 
 func limitedServer(listen string, s WebsiteSpec, status int, body string) string {

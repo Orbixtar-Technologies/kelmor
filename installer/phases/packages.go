@@ -59,7 +59,7 @@ func applyWebStack(c Config) error {
 	}
 	include := "include /etc/nginx/panel-sites/*.conf;\n"
 	modsec := "modsecurity on;\nmodsecurity_rules_file /etc/nginx/modsec/panel.conf;\n"
-	conn := "limit_conn_zone $panel_account zone=panel_acct:10m;\n"
+	conn := "map $host $panel_account {\n    default \"\";\n}\nlimit_conn_zone $panel_account zone=panel_acct:10m;\n"
 	if c.Dev {
 		if err := os.MkdirAll(root(c, "etc/nginx/conf.d"), 0o755); err != nil {
 			return err

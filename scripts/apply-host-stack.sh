@@ -119,6 +119,9 @@ sudo tee /etc/nginx/conf.d/panel-bandwidth.conf >/dev/null <<'EOF'
 log_format panel_bw '$time_iso8601 $body_bytes_sent';
 EOF
 sudo tee /etc/nginx/conf.d/panel-conn-limit.conf >/dev/null <<'EOF'
+map $host $panel_account {
+    default "";
+}
 limit_conn_zone $panel_account zone=panel_acct:10m;
 EOF
 sudo nginx -t && sudo nginx -s reload || true

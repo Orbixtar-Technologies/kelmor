@@ -23,7 +23,7 @@ func TestApplyWebStackWritesConnZone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(b) == "" || !containsAll(string(b), "limit_conn_zone") {
+	if !containsAll(string(b), "limit_conn_zone") || !containsAll(string(b), "map $host") {
 		t.Fatal(string(b))
 	}
 }

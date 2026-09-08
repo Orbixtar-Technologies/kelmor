@@ -82,7 +82,7 @@ func TestApplyWebsiteWritesConnLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsStr(string(zone), "limit_conn_zone") {
+	if !containsStr(string(zone), "limit_conn_zone") || !containsStr(string(zone), "c.test acme42") {
 		t.Fatal(string(zone))
 	}
 	body, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites/c1.conf"))

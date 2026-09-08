@@ -361,6 +361,7 @@ wid=$(curl -sS "$BASE/api/v1/accounts/$bid/websites" -H "$AUTH" | python3 -c 'im
 [[ -n "$wid" ]] || { echo "bwacc website missing" >&2; exit 1; }
 sudo grep -q 'limit_conn panel_acct 50' "/etc/nginx/panel-sites/${wid}.conf" || { echo "expected limit_conn 50 on $wid" >&2; cat "/etc/nginx/panel-sites/${wid}.conf" >&2; exit 1; }
 sudo grep -q 'limit_conn_zone $panel_account' /etc/nginx/conf.d/panel-conn-limit.conf || { echo "nginx conn zone missing" >&2; exit 1; }
+sudo grep -q "$BDOM $BUSER" /etc/nginx/conf.d/panel-conn-limit.conf || { echo "conn map missing $BDOM" >&2; cat /etc/nginx/conf.d/panel-conn-limit.conf >&2; exit 1; }
 echo "conn-limit ok"
 now=$(date -u +'%d/%b/%Y:%H:%M:%S +0000')
 echo "127.0.0.1 - - [${now}] \"GET / HTTP/1.1\" 200 500 \"-\" \"live-e2e\"" | sudo tee "/var/log/nginx/${wid}.access.log" >/dev/null

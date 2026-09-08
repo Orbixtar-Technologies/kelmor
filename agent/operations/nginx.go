@@ -34,9 +34,6 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 			spec.TLSKey = "/var/lib/panel/certs/" + domain + ".key"
 		}
 	}
-	if _, err := h.ApplyFile("/etc/nginx/conf.d/panel-conn-limit.conf", []byte(configuration.NginxConnZone()), 0o644); err != nil {
-		return Result{}, err
-	}
 	body := configuration.NginxSite(spec)
 	if err := configuration.ValidateNginx(body); err != nil {
 		return Result{}, err
@@ -46,6 +43,9 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 		return Result{}, err
 	}
 	h.retireOtherSites(domain, path)
+	if err := h.rewriteConnZone(); err != nil {
+		return Result{}, err
+	}
 	if err := h.testNginx(); err != nil {
 		return Result{}, err
 	}
@@ -75,6 +75,65 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 		}
 	}
 	return Result{OK: true, Message: "website applied", ObservedState: "active"}, nil
+}
+
+func (h *Host) rewriteConnZone() error {
+	dir, err := h.resolve("/etc/nginx/panel-sites")
+	if err != nil {
+		return err
+	}
+	hosts := map[string]string{}
+	ents, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, e := range ents {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		account, names := parseSiteAccountHosts(string(raw))
+		if account == "" {
+			continue
+		}
+		for _, name := range names {
+			hosts[name] = account
+		}
+	}
+	_, err = h.ApplyFile("/etc/nginx/conf.d/panel-conn-limit.conf", []byte(configuration.NginxConnZone(hosts)), 0o644)
+	return err
+}
+
+func parseSiteAccountHosts(conf string) (account string, hosts []string) {
+	for _, line := range strings.Split(conf, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "set":
+			if len(fields) >= 3 && fields[1] == "$panel_account" {
+				account = strings.Trim(fields[2], `";`)
+			}
+		case "server_name":
+			name := strings.TrimSuffix(fields[1], ";")
+			if name != "" && name != "_" {
+				hosts = append(hosts, name)
+			}
+		case "root":
+			root := strings.TrimSuffix(fields[1], ";")
+			if account == "" && strings.HasPrefix(root, "/home/") {
+				rest := strings.TrimPrefix(root, "/home/")
+				if i := strings.IndexByte(rest, '/'); i > 0 {
+					account = rest[:i]
+				}
+			}
+		}
+	}
+	return account, hosts
 }
 
 func (h *Host) retireOtherSites(domain, keep string) {

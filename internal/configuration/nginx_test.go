@@ -24,8 +24,9 @@ func TestNginxConcurrentLimitConn(t *testing.T) {
 	if !contains(conf, "limit_conn panel_acct 12") || !contains(conf, `set $panel_account "acme42"`) {
 		t.Fatal(conf)
 	}
-	if NginxConnZone() == "" || !contains(NginxConnZone(), "limit_conn_zone") {
-		t.Fatal("http zone required")
+	zone := NginxConnZone(map[string]string{"acme.test": "acme42"})
+	if !contains(zone, "limit_conn_zone") || !contains(zone, "acme.test acme42") {
+		t.Fatal(zone)
 	}
 }
 
