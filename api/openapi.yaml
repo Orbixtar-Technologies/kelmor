@@ -137,6 +137,15 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/{accountID}/terminate:
+    post:
+      operationId: terminateAccount
+      x-capability: accounts.terminate
+      x-audit-action: account.terminate
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: retire queued }
   /accounts/{accountID}/domains:
     get:
       operationId: listDomains

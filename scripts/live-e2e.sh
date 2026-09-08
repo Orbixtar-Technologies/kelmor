@@ -246,6 +246,11 @@ for _ in $(seq 1 20); do
   sleep 0.2
 done
 [[ "$tcode" == "200" ]] || { echo "termacc HTTP $tcode" >&2; exit 1; }
+tdb=$(curl -sS -X POST "$BASE/api/v1/accounts/$tid/databases" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"name":"term","engine":"mariadb"}')
+tdop=$(echo "$tdb" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$tdop" term-db
+sudo mariadb -e "SHOW DATABASES" | grep -q "${TUSER}_term"
 term=$(curl -sS -X POST "$BASE/api/v1/accounts/$tid/terminate" -H "$AUTH")
 trop=$(echo "$term" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$trop" terminate
@@ -273,6 +278,10 @@ if grep -q "$TDOM" /tmp/term-gone.html; then
 fi
 if grep -q "$TDOM" /var/lib/panel/mail/virtual 2>/dev/null; then
   echo "mail map still lists $TDOM" >&2
+  exit 1
+fi
+if sudo mariadb -e "SHOW DATABASES" | grep -q "${TUSER}_term"; then
+  echo "mariadb ${TUSER}_term still exists" >&2
   exit 1
 fi
 

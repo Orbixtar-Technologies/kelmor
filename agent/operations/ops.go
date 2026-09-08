@@ -225,6 +225,14 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.createHostedDatabase(p.Engine, p.Name, p.Username, p.Password)
+	case "DropHostedDatabase":
+		var p struct {
+			Engine   string `json:"engine"`
+			Name     string `json:"name"`
+			Username string `json:"username"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.dropHostedDatabase(p.Engine, p.Name, p.Username)
 	case "ApplyMailMaps":
 		virtual, domains, passwd, uids, gids, err := decodeMaps(req.Params)
 		if err != nil {

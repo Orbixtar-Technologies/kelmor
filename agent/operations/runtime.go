@@ -152,6 +152,37 @@ func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Resu
 	return Result{OK: true, ObservedState: "active"}, nil
 }
 
+func (h *Host) dropHostedDatabase(engine, name, dbUser string) (Result, error) {
+	if !ident(name) || !ident(dbUser) {
+		return Result{}, fmt.Errorf("invalid database identifier")
+	}
+	if !h.live() {
+		return Result{OK: true, ObservedState: "absent"}, nil
+	}
+	switch engine {
+	case "mariadb", "mysql":
+		stmts := []string{
+			fmt.Sprintf("DROP DATABASE IF EXISTS %s", name),
+			fmt.Sprintf("DROP USER IF EXISTS '%s'@'localhost'", dbUser),
+			"FLUSH PRIVILEGES",
+		}
+		for _, stmt := range stmts {
+			out, err := runFixed("/usr/bin/mariadb", "-e", stmt)
+			if err != nil {
+				return Result{}, fmt.Errorf("mariadb: %s", strings.TrimSpace(string(out)))
+			}
+		}
+	case "postgres":
+		if out, err := runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "DROP DATABASE IF EXISTS "+name); err != nil {
+			return Result{}, fmt.Errorf("psql: %s", strings.TrimSpace(string(out)))
+		}
+		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "DROP USER IF EXISTS "+dbUser)
+	default:
+		return Result{}, fmt.Errorf("unsupported engine")
+	}
+	return Result{OK: true, ObservedState: "absent"}, nil
+}
+
 func ident(s string) bool {
 	if s == "" || len(s) > 63 {
 		return false

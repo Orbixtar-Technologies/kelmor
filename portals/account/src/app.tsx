@@ -78,7 +78,7 @@ export function App () {
 							<Route path="/email" element={<Email accountId={accountId} />} />
 							<Route path="/databases" element={<Databases accountId={accountId} />} />
 							<Route path="/files" element={<Files accountId={accountId} />} />
-							<Route path="/ssl" element={<List path={`/api/v1/accounts/${accountId}/certificates`} title="Certificates" />} />
+							<Route path="/ssl" element={<Certificates accountId={accountId} />} />
 							<Route path="/backups" element={<Backups accountId={accountId} />} />
 							<Route path="/cron" element={<Cron accountId={accountId} />} />
 						</Routes>
@@ -151,24 +151,39 @@ function Websites ({ accountId }: { accountId: string }) {
 	)
 }
 
-function List ({ path, title }: { path: string; title: string }) {
+function Certificates ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>(path).then((r) => setItems(asList(r))) }, [path])
+	const [msg, setMsg] = useState('')
+	const load = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/certificates`).then((r) => setItems(asList(r)))
+	useEffect(() => { load() }, [accountId])
 	return (
 		<>
-			<h1>{title}</h1>
-			{items.length === 0 ? <p>Nothing provisioned in this module yet. Create a resource or wait for the account job to finish.</p> : (
+			<h1>SSL/TLS</h1>
+			<p>Issues a certificate through the control plane (Pebble in the lab, Let’s Encrypt on a public host).</p>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				try {
+					await api(`/api/v1/accounts/${accountId}/certificates`, {
+						method: 'POST',
+						body: JSON.stringify({ hostname: fd.get('hostname') }),
+					})
+					setMsg('Certificate request queued')
+					await load()
+				} catch (err) {
+					setMsg(err instanceof Error ? err.message : 'failed')
+				}
+			}}>
+				<input name="hostname" placeholder="www.example.test" required />
+				<button type="submit">Request certificate</button>
+			</form>
+			{msg ? <p>{msg}</p> : null}
+			{items.length === 0 ? <p>No certificates yet.</p> : (
 				<table>
-					<thead><tr><th>Resource</th><th>Detail</th><th>State</th></tr></thead>
-					<tbody>
-						{items.map((it) => (
-							<tr key={it.id}>
-								<td>{it.fqdn || it.hostname || it.name || it.local_part || it.runtime || it.id}</td>
-								<td>{it.document_root || it.engine || it.kind || it.runtime_version || ''}</td>
-								<td>{it.status || (it.enabled === false ? 'disabled' : 'ready')}</td>
-							</tr>
-						))}
-					</tbody>
+					<thead><tr><th>Hostname</th><th>Kind</th><th>State</th></tr></thead>
+					<tbody>{items.map((c) => (
+						<tr key={c.id}><td>{c.hostname}</td><td>{c.kind}</td><td>{c.status}</td></tr>
+					))}</tbody>
 				</table>
 			)}
 		</>

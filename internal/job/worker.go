@@ -162,6 +162,9 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		return w.retireAccount(acc, j)
 	}
 	pkg := w.Store.GetPackage(acc.PackageID)
+	if pkg == nil {
+		pkg = &store.Package{CPUPercent: 100, MemoryBytes: 512 << 20, DiskBytes: 1 << 30, ProcessLimit: 100}
+	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateLinuxUser",
 		Params: mustJSON(map[string]any{"username": acc.Username, "uid": acc.LinuxUID, "gid": acc.LinuxGID, "home": acc.HomePath, "shell": "/usr/sbin/nologin"}),
@@ -201,6 +204,10 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	default:
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "UnlockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": false})})
+		for _, site := range w.Store.ListWebsites(acc.ID) {
+			s := site
+			_ = w.applySiteRuntime(&s, acc)
+		}
 		acc.Status = "active"
 	}
 	acc.ObservedRevision = acc.DesiredRevision
@@ -212,6 +219,20 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 }
 
 func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
+	for _, db := range w.Store.ListDBs(acc.ID) {
+		d := db
+		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "DropHostedDatabase",
+			Params: mustJSON(map[string]any{
+				"engine": d.Engine, "name": d.Name, "username": acc.Username + "_u",
+			}),
+		})
+		if err != nil {
+			return err
+		}
+		d.Status = "terminated"
+		w.Store.PutDB(&d)
+	}
 	var ids []string
 	for _, site := range w.Store.ListWebsites(acc.ID) {
 		ids = append(ids, site.ID)

@@ -113,6 +113,7 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 		return Result{}, err
 	}
 	if h.live() {
+		h.stopAppProcess(websiteID, workDir)
 		_, _ = runFixed("/bin/systemctl", "daemon-reload")
 		_, _ = runFixed("/bin/systemctl", "start", "panel-app-"+websiteID+".service")
 		// systemd unit start is often blocked (policy-rc.d); always
@@ -120,6 +121,40 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 		_ = startAccountProcess(account, workDir, runtime)
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
+}
+
+func (h *Host) stopAppProcess(websiteID, workDir string) {
+	sock := "/run/panel/apps/" + websiteID + ".sock"
+	killMatching(sock)
+	if workDir != "" {
+		killMatching(workDir)
+	}
+	_ = os.Remove(sock)
+}
+
+func killMatching(needle string) {
+	if needle == "" {
+		return
+	}
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	self := os.Getpid()
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid <= 1 || pid == self {
+			continue
+		}
+		cmd, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		if !strings.Contains(string(cmd), needle) {
+			continue
+		}
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
 }
 
 func startAccountProcess(account, workDir, runtime string) error {

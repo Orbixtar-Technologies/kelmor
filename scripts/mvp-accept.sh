@@ -25,6 +25,8 @@ curl -sS -o /dev/null -w 'server:%{http_code}\n' http://127.0.0.1:18443/ | grep 
 curl -sS -o /dev/null -w 'account:%{http_code}\n' http://127.0.0.1:18444/ | grep -q 200
 curl -sS http://127.0.0.1:18443/ | grep -q 'Server Portal'
 curl -sS http://127.0.0.1:18444/ | grep -q 'Account Portal'
+echo "== UI live path =="
+bash "$ROOT/scripts/ui-mvp.sh"
 
 echo "== host probes =="
 dig +short @127.0.0.1 livehost.test A | grep -q 127.0.0.1
