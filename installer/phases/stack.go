@@ -274,7 +274,7 @@ func ensurePanelMailCert(c Config) error {
 }
 
 func reloadLiveMail(c Config) {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return
 	}
 	// A new unix_listener is not created by doveadm reload.
@@ -298,7 +298,7 @@ func applyFirewall(c Config) error {
 	if err := os.WriteFile(path, []byte(rules), 0o600); err != nil {
 		return err
 	}
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	return applyLiveNFT(path)
@@ -541,13 +541,17 @@ Match User panel-backup
 		body := "PANEL_SFTP_ROOT=/var/lib/panel/offsite/inbox\n"
 		return os.WriteFile(root(c, "var/lib/panel/secrets/backup-sftp.env"), []byte(body), 0o640)
 	}
-	if _, err := user.Lookup("panel-backup"); err != nil {
-		_ = exec.Command("/usr/sbin/useradd", "--system", "-d", "/var/lib/panel/offsite", "-s", "/usr/sbin/nologin", "panel-backup").Run()
+	offsite := root(c, "var/lib/panel/offsite")
+	inbox := root(c, "var/lib/panel/offsite/inbox")
+	_ = os.Chmod(offsite, 0o750)
+	_ = os.Chmod(inbox, 0o2770)
+	if installPrefix(c) == "" {
+		if _, err := user.Lookup("panel-backup"); err != nil {
+			_ = exec.Command("/usr/sbin/useradd", "--system", "-d", "/var/lib/panel/offsite", "-s", "/usr/sbin/nologin", "panel-backup").Run()
+		}
+		_ = exec.Command("/bin/chown", "panel-backup:panel-backup", offsite).Run()
+		_ = exec.Command("/bin/chown", "panel-backup:panel", inbox).Run()
 	}
-	_ = exec.Command("/bin/chown", "panel-backup:panel-backup", "/var/lib/panel/offsite").Run()
-	_ = os.Chmod("/var/lib/panel/offsite", 0o750)
-	_ = exec.Command("/bin/chown", "panel-backup:panel", "/var/lib/panel/offsite/inbox").Run()
-	_ = os.Chmod("/var/lib/panel/offsite/inbox", 0o2770)
 	keyPath := root(c, "var/lib/panel/secrets/backup-sftp")
 	if _, err := os.Stat(keyPath); err != nil {
 		cmd := exec.Command("/usr/bin/ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "", "-C", "panel-offsite")
@@ -561,14 +565,16 @@ Match User panel-backup
 	if err != nil {
 		return err
 	}
-	sshDir := "/var/lib/panel/offsite/.ssh"
+	sshDir := root(c, "var/lib/panel/offsite/.ssh")
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(sshDir, "authorized_keys"), pub, 0o600); err != nil {
 		return err
 	}
-	_ = exec.Command("/bin/chown", "-R", "panel-backup:panel-backup", sshDir).Run()
+	if installPrefix(c) == "" {
+		_ = exec.Command("/bin/chown", "-R", "panel-backup:panel-backup", sshDir).Run()
+	}
 	_ = os.Chmod(sshDir, 0o700)
 	fp := strings.Join(sshHostFingerprints(), ",")
 	if fp == "" {
@@ -585,9 +591,11 @@ Match User panel-backup
 	if err := os.WriteFile(root(c, "var/lib/panel/secrets/backup-sftp.env"), []byte(env), 0o640); err != nil {
 		return err
 	}
-	_ = exec.Command("/bin/chown", "panel:panel", root(c, "var/lib/panel/secrets/backup-sftp.env")).Run()
-	if pid := sshdPID(); pid > 0 {
-		_ = exec.Command("/bin/kill", "-HUP", fmt.Sprintf("%d", pid)).Run()
+	if installPrefix(c) == "" {
+		_ = exec.Command("/bin/chown", "panel:panel", root(c, "var/lib/panel/secrets/backup-sftp.env")).Run()
+		if pid := sshdPID(); pid > 0 {
+			_ = exec.Command("/bin/kill", "-HUP", fmt.Sprintf("%d", pid)).Run()
+		}
 	}
 	return nil
 }
@@ -697,7 +705,6 @@ func applyTLS(c Config) error {
 	if err := os.MkdirAll(root(c, "var/lib/panel/secrets"), 0o750); err != nil {
 		return err
 	}
-	_ = writeUnlessExists(root(c, "var/lib/panel/acme.env"), []byte("# PANEL_ACME_DIRECTORY=https://acme-v02.api.letsencrypt.org/directory\n"), 0o640)
 	if err := os.MkdirAll(root(c, "etc/nginx/panel-sites"), 0o755); err != nil {
 		return err
 	}
@@ -715,24 +722,34 @@ func applyTLS(c Config) error {
 	if err := os.WriteFile(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644); err != nil {
 		return err
 	}
-	return startLocalACME(c)
+	return ensureACME(c)
 }
 
 func verifyTLS(c Config) error {
 	if _, err := os.Stat(root(c, "var/lib/panel/acme-www/.well-known/acme-challenge")); err != nil {
 		return err
 	}
-	if c.Dev || pebbleBinary() == "" {
+	if c.Dev {
 		return nil
 	}
-	if _, err := os.Stat(root(c, "var/lib/panel/acme.directory")); err != nil {
-		return fmt.Errorf("local ACME directory missing")
+	dir := strings.TrimSpace(readACMEDirectory(c))
+	if dir == "" {
+		return fmt.Errorf("ACME directory missing")
 	}
-	con, err := net.DialTimeout("tcp", "127.0.0.1:14000", 400*time.Millisecond)
-	if err != nil {
-		return fmt.Errorf("pebble ACME not listening: %w", err)
+	if isLabDirectory(dir) {
+		if pebbleBinary() == "" || installPrefix(c) != "" {
+			return nil
+		}
+		con, err := net.DialTimeout("tcp", "127.0.0.1:14000", 400*time.Millisecond)
+		if err != nil {
+			return fmt.Errorf("pebble ACME not listening: %w", err)
+		}
+		_ = con.Close()
+		return nil
 	}
-	_ = con.Close()
+	if !strings.Contains(dir, "letsencrypt.org") {
+		return fmt.Errorf("expected Let's Encrypt ACME directory, got %s", dir)
+	}
 	return nil
 }
 
@@ -903,7 +920,7 @@ func verifyMail(c Config) error {
 	if _, err := os.Stat(root(c, "etc/dovecot/conf.d/99-panel-sasl.conf")); err != nil {
 		return err
 	}
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	if err := waitListen("127.0.0.1:587", 2*time.Second); err != nil {
@@ -920,7 +937,7 @@ func verifyDNS(c Config) error {
 	if !strings.Contains(string(b), "bind-dnssec-db=") {
 		return fmt.Errorf("pdns.conf missing bind-dnssec-db")
 	}
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	if err := waitListen("127.0.0.1:53", 2*time.Second); err != nil {
@@ -938,7 +955,7 @@ func verifyFirewall(c Config) error {
 	if _, err := os.Stat(root(c, "etc/panel/nftables-panel.nft")); err != nil {
 		return err
 	}
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	if _, err := os.Stat("/usr/sbin/nft"); err != nil {

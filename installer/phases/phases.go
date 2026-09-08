@@ -20,6 +20,8 @@ type Config struct {
 	NonInteractive bool
 	Dev            bool
 	ConfigPath     string
+	ACMEMode       string
+	Root           string
 }
 
 type Phase interface {
@@ -116,11 +118,17 @@ func checkPreflight(c Config) error {
 		return fmt.Errorf("unsupported architecture %s", runtime.GOARCH)
 	}
 	if !c.Dev {
-		if b, err := os.ReadFile("/etc/os-release"); err == nil {
-			s := string(b)
-			if !strings.Contains(s, "Ubuntu") || !strings.Contains(s, "24.04") {
-				return fmt.Errorf("Ubuntu 24.04 LTS required")
-			}
+		release := "/etc/os-release"
+		if installPrefix(c) != "" {
+			release = root(c, "etc/os-release")
+		}
+		b, err := os.ReadFile(release)
+		if err != nil {
+			return fmt.Errorf("Ubuntu 24.04 LTS required: %w", err)
+		}
+		s := string(b)
+		if !strings.Contains(s, "Ubuntu") || !strings.Contains(s, "24.04") {
+			return fmt.Errorf("Ubuntu 24.04 LTS required")
 		}
 	}
 	if c.Hostname == "" {
@@ -176,7 +184,7 @@ func applyControlPlane(c Config) error {
 	if c.Dev {
 		return nil
 	}
-	dest := "/usr/local/panel/bin"
+	dest := root(c, "usr/local/panel/bin")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
@@ -211,18 +219,20 @@ func applyControlPlane(c Config) error {
 	if copied == 0 {
 		return fmt.Errorf("no panel-* binaries copied from %s", src)
 	}
-	if err := installPackedPortals(src); err != nil {
+	if err := installPackedPortals(c, src); err != nil {
 		return err
 	}
-	for _, d := range []string{"/var/lib/panel/secrets", "/var/lib/panel/control", "/var/lib/panel/jobs"} {
-		_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", d).Run()
+	if installPrefix(c) == "" {
+		for _, d := range []string{"/var/lib/panel/secrets", "/var/lib/panel/control", "/var/lib/panel/jobs"} {
+			_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", d).Run()
+		}
+		_ = os.Chmod("/var/lib/panel", 0o755)
+		_ = os.Chmod("/var/lib/panel/mail", 0o755)
 	}
-	_ = os.Chmod("/var/lib/panel", 0o755)
-	_ = os.Chmod("/var/lib/panel/mail", 0o755)
 	return nil
 }
 
-func installPackedPortals(binSrc string) error {
+func installPackedPortals(c Config, binSrc string) error {
 	candidates := []string{
 		filepath.Join(filepath.Dir(binSrc), "..", "share", "portals"),
 		filepath.Join(binSrc, "..", "share", "portals"),
@@ -239,7 +249,7 @@ func installPackedPortals(binSrc string) error {
 	if src == "" {
 		return nil
 	}
-	dest := "/usr/local/panel/share/portals"
+	dest := root(c, "usr/local/panel/share/portals")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
@@ -263,7 +273,7 @@ func controlPlaneSource() string {
 }
 
 func verifyUsers(c Config) error {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	if err := exec.Command("/usr/bin/getent", "passwd", "panel").Run(); err != nil {
@@ -279,7 +289,7 @@ func verifyControlDB(c Config) error {
 	if _, err := os.Stat(root(c, "var/lib/panel/control/dsn")); err != nil {
 		return err
 	}
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	cmd := exec.Command("/usr/bin/psql", "-d", "panel_control", "-c", "SELECT 1")
@@ -296,8 +306,9 @@ func verifyControlPlane(c Config) error {
 	if c.Dev {
 		return nil
 	}
+	dest := root(c, "usr/local/panel/bin")
 	for _, n := range []string{"panel-api", "panel-agent", "panel-worker", "panel-install"} {
-		if _, err := os.Stat("/usr/local/panel/bin/" + n); err != nil {
+		if _, err := os.Stat(filepath.Join(dest, n)); err != nil {
 			return fmt.Errorf("missing %s", n)
 		}
 	}
@@ -321,8 +332,13 @@ func root(c Config, p string) string {
 	if c.Dev {
 		return filepath.Join("var", "panel", "host", p)
 	}
-	if strings.HasPrefix(p, "/") {
-		return p
+	prefix := strings.TrimSpace(c.Root)
+	if prefix == "" {
+		prefix = strings.TrimSpace(os.Getenv("PANEL_INSTALL_ROOT"))
+	}
+	p = strings.TrimPrefix(p, "/")
+	if prefix != "" {
+		return filepath.Join(prefix, p)
 	}
 	return "/" + p
 }

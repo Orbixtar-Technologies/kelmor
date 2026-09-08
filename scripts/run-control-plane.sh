@@ -22,6 +22,9 @@ fi
 if sudo test -f "$STATE/secrets/backup-s3.env"; then
   eval "$(sudo grep -E '^PANEL_S3_[A-Z0-9_]+=' "$STATE/secrets/backup-s3.env")"
 fi
+if sudo test -f "$STATE/acme.env"; then
+  eval "$(sudo grep -E '^PANEL_ACME_[A-Z0-9_]+=' "$STATE/acme.env")"
+fi
 export PANEL_STATE_DIR="$STATE"
 export PANEL_AGENT_SOCK="$SOCK"
 export PANEL_API_ADDR="$ADDR"
@@ -51,4 +54,6 @@ exec sudo -u panel -g panel env \
   PANEL_S3_ACCESS_KEY="${PANEL_S3_ACCESS_KEY:-}" \
   PANEL_S3_SECRET_KEY="${PANEL_S3_SECRET_KEY:-}" \
   PANEL_S3_PREFIX="${PANEL_S3_PREFIX:-}" \
+  PANEL_ACME_DIRECTORY="${PANEL_ACME_DIRECTORY:-}" \
+  PANEL_ACME_INSECURE="${PANEL_ACME_INSECURE:-}" \
   "$ROOT/bin/$1"

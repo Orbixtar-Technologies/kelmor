@@ -60,10 +60,10 @@ func applyWebStack(c Config) error {
 	include := "include /etc/nginx/panel-sites/*.conf;\n"
 	modsec := "modsecurity on;\nmodsecurity_rules_file /etc/nginx/modsec/panel.conf;\n"
 	conn := "map $host $panel_account {\n    default \"\";\n}\nlimit_conn_zone $panel_account zone=panel_acct:10m;\n"
+	if err := os.MkdirAll(root(c, "etc/nginx/conf.d"), 0o755); err != nil {
+		return err
+	}
 	if c.Dev {
-		if err := os.MkdirAll(root(c, "etc/nginx/conf.d"), 0o755); err != nil {
-			return err
-		}
 		if err := os.WriteFile(root(c, "etc/nginx/panel-sites.conf"), []byte(include), 0o644); err != nil {
 			return err
 		}
@@ -72,21 +72,21 @@ func applyWebStack(c Config) error {
 		}
 		return os.WriteFile(root(c, "etc/nginx/conf.d/panel-conn-limit.conf"), []byte(conn), 0o644)
 	}
-	if err := os.WriteFile("/etc/nginx/conf.d/panel-sites.conf", []byte(include), 0o644); err != nil {
+	if err := os.WriteFile(root(c, "etc/nginx/conf.d/panel-sites.conf"), []byte(include), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile("/etc/nginx/conf.d/panel-modsec.conf", []byte(modsec), 0o644); err != nil {
+	if err := os.WriteFile(root(c, "etc/nginx/conf.d/panel-modsec.conf"), []byte(modsec), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile("/etc/nginx/conf.d/panel-conn-limit.conf", []byte(conn), 0o644)
+	return os.WriteFile(root(c, "etc/nginx/conf.d/panel-conn-limit.conf"), []byte(conn), 0o644)
 }
 
 func applyDatabaseStack(c Config) error {
-	if c.Dev {
-		return os.MkdirAll(root(c, "var/lib/panel/db"), 0o750)
-	}
-	if err := os.MkdirAll("/var/lib/panel/db", 0o750); err != nil {
+	if err := os.MkdirAll(root(c, "var/lib/panel/db"), 0o750); err != nil {
 		return err
+	}
+	if c.Dev || installPrefix(c) != "" {
+		return nil
 	}
 	for _, args := range [][]string{
 		{"/usr/sbin/mysqld", "--user=mysql"},
@@ -107,7 +107,7 @@ func applyDatabaseStack(c Config) error {
 }
 
 func verifySystemPackages(c Config) error {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	for _, n := range []string{"nginx", "postfix", "dovecot-core", "postgresql", "vsftpd"} {
@@ -121,7 +121,7 @@ func verifySystemPackages(c Config) error {
 }
 
 func verifyDatabaseStack(c Config) error {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		_, err := os.Stat(root(c, "var/lib/panel/db"))
 		return err
 	}

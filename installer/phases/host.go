@@ -76,7 +76,7 @@ func waitListen(addr string, d time.Duration) error {
 }
 
 func applyHostRuntime(c Config) error {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	_ = os.MkdirAll("/run/panel", 0o751)
@@ -89,7 +89,7 @@ func applyHostRuntime(c Config) error {
 	startControlPlane()
 	startSMTPPolicy()
 	startObjectStore()
-	_ = startLocalACME(c)
+	_ = ensureACME(c)
 	enablePanelUnits()
 	startAccountApps()
 	if _, err := os.Stat("/etc/panel/nftables-panel.nft"); err == nil {
@@ -261,7 +261,7 @@ func verifyHostRuntime(c Config) error {
 	if err := verifyHealth(c); err != nil {
 		return err
 	}
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	for _, name := range []string{"panel-agent", "panel-api", "panel-worker"} {
@@ -284,7 +284,7 @@ func verifyHostRuntime(c Config) error {
 }
 
 func verifyHealth(c Config) error {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	addrs := []string{"127.0.0.1:80", "127.0.0.1:25", "127.0.0.1:53"}

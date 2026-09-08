@@ -16,7 +16,7 @@ const (
 )
 
 func applyQuotaHomes(c Config) error {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return os.MkdirAll(root(c, "var/lib/panel/homes"), 0o750)
 	}
 	return ensureQuotaHomes()

@@ -10,6 +10,87 @@ import (
 	"time"
 )
 
+const (
+	letsEncryptProd    = "https://acme-v02.api.letsencrypt.org/directory"
+	letsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
+	pebbleDirectory    = "https://127.0.0.1:14000/dir"
+)
+
+func ensureACME(c Config) error {
+	if useLabACME(c) {
+		return startLocalACME(c)
+	}
+	return writePublicACME(c)
+}
+
+func useLabACME(c Config) bool {
+	if c.Dev {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(c.ACMEMode)) {
+	case "pebble", "lab":
+		return true
+	case "letsencrypt", "le", "production", "staging":
+		return false
+	}
+	if os.Getenv("PANEL_ACME_LAB") == "1" {
+		return true
+	}
+	dir := readACMEDirectory(c)
+	if dir != "" {
+		return isLabDirectory(dir)
+	}
+	return false
+}
+
+func readACMEDirectory(c Config) string {
+	if v := strings.TrimSpace(os.Getenv("PANEL_ACME_DIRECTORY")); v != "" {
+		return v
+	}
+	b, err := os.ReadFile(root(c, "var/lib/panel/acme.directory"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func isLabDirectory(dir string) bool {
+	dir = strings.ToLower(dir)
+	return strings.Contains(dir, "pebble") || strings.Contains(dir, "127.0.0.1") || strings.Contains(dir, "localhost")
+}
+
+func installPrefix(c Config) string {
+	if c.Dev {
+		return ""
+	}
+	if strings.TrimSpace(c.Root) != "" {
+		return strings.TrimSpace(c.Root)
+	}
+	return strings.TrimSpace(os.Getenv("PANEL_INSTALL_ROOT"))
+}
+
+func writeACMEEnv(c Config, directory string, insecure bool) error {
+	body := "PANEL_ACME_DIRECTORY=" + directory + "\n"
+	if insecure {
+		body += "PANEL_ACME_INSECURE=1\n"
+	}
+	if err := os.MkdirAll(filepath.Dir(root(c, "var/lib/panel/acme.env")), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(root(c, "var/lib/panel/acme.directory"), []byte(directory+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(root(c, "var/lib/panel/acme.env"), []byte(body), 0o640)
+}
+
+func writePublicACME(c Config) error {
+	directory := letsEncryptProd
+	if strings.EqualFold(c.ACMEMode, "staging") || os.Getenv("PANEL_ACME_STAGING") == "1" {
+		directory = letsEncryptStaging
+	}
+	return writeACMEEnv(c, directory, false)
+}
+
 func startLocalACME(c Config) error {
 	if c.Dev {
 		return nil
@@ -43,14 +124,17 @@ func startLocalACME(c Config) error {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfg), 0o640); err != nil {
 		return err
 	}
+	if err := writeACMEEnv(c, pebbleDirectory, true); err != nil {
+		return err
+	}
+	if installPrefix(c) != "" {
+		return nil
+	}
 	ensureLoopbackHost(c.Hostname)
 	ensureLoopbackHost("livehost.test")
 	bin := pebbleBinary()
 	if bin == "" {
 		return nil
-	}
-	if err := os.WriteFile(root(c, "var/lib/panel/acme.directory"), []byte("https://127.0.0.1:14000/dir\n"), 0o644); err != nil {
-		return err
 	}
 	if exec.Command("/usr/bin/pgrep", "-x", "pebble").Run() == nil {
 		return nil

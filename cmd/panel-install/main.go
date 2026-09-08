@@ -20,11 +20,15 @@ func main() {
 	nonInteractive := flag.Bool("non-interactive", false, "unattended install")
 	config := flag.String("config", "", "install.yaml")
 	dev := flag.Bool("dev", false, "development sandbox install")
+	acme := flag.String("acme", "", "letsencrypt, staging, pebble/lab (default: keep an existing lab directory, otherwise Let's Encrypt)")
+	installRoot := flag.String("root", os.Getenv("PANEL_INSTALL_ROOT"), "filesystem prefix for packaged file writes")
 	flag.Parse()
 
 	statePath := "/var/lib/panel/install-state.json"
 	if *dev || os.Getenv("PANEL_DEV") == "1" {
 		statePath = filepath.Join("var", "panel", "install-state.json")
+	} else if strings.TrimSpace(*installRoot) != "" {
+		statePath = filepath.Join(*installRoot, "var/lib/panel/install-state.json")
 	}
 	st, err := phases.LoadState(statePath)
 	if err != nil {
@@ -34,7 +38,7 @@ func main() {
 	cfg := phases.Config{
 		Hostname: *hostname, AdminEmail: *adminEmail, Channel: *channel,
 		NonInteractive: *nonInteractive, Dev: *dev || os.Getenv("PANEL_DEV") == "1",
-		ConfigPath: *config,
+		ConfigPath: *config, ACMEMode: *acme, Root: strings.TrimSpace(*installRoot),
 	}
 	if cfg.Hostname == "" {
 		cfg.Hostname, _ = os.Hostname()
