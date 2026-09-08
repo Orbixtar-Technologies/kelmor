@@ -62,7 +62,7 @@ api-key=panel-loopback
 };
 include "/var/lib/panel/dns/named-zones.conf";
 `
-	if err := writeUnlessExists(root(c, "etc/powerdns/named.conf"), []byte(named), 0o644); err != nil {
+	if err := os.WriteFile(root(c, "etc/powerdns/named.conf"), []byte(named), 0o644); err != nil {
 		return err
 	}
 	if _, err := os.Stat(root(c, "var/lib/panel/dns/named-zones.conf")); os.IsNotExist(err) {
