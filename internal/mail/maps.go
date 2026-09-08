@@ -231,6 +231,47 @@ func PasswdFile(recs []Recipient) string {
 	return b.String()
 }
 
+func SenderLogin(st store.Store, recs []Recipient) string {
+	var lines []string
+	seen := map[string]bool{}
+	add := func(addr, login string) {
+		if addr == "" || login == "" {
+			return
+		}
+		key := addr + " " + login
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		lines = append(lines, addr+" "+login+"\n")
+	}
+	for _, r := range recs {
+		add(r.Address, r.Address)
+	}
+	for _, acc := range st.ListAccounts("", "") {
+		if acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		for _, al := range st.ListMailAliases(acc.ID) {
+			md := mailDomain(st, al.DomainID)
+			if md == nil {
+				continue
+			}
+			d := st.GetDomain(md.DomainID)
+			if d == nil || d.ASCII == "" || al.Address == "" || al.Destination == "" {
+				continue
+			}
+			dest := al.Destination
+			if !strings.Contains(dest, "@") {
+				dest = dest + "@" + d.ASCII
+			}
+			add(al.Address+"@"+d.ASCII, dest)
+		}
+	}
+	sort.Strings(lines)
+	return "# panel sender-login map — generated, do not edit\n" + strings.Join(lines, "")
+}
+
 func SendLimits(recs []Recipient) string {
 	var b strings.Builder
 	b.WriteString("# sender account daily_limit — generated, do not edit\n")

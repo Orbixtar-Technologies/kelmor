@@ -27,6 +27,7 @@ type HostingAccountExport struct {
 	FTPHashes     map[string]string      `json:"ftp_hashes,omitempty"`
 	SSH           []store.SSHKey         `json:"ssh_keys,omitempty"`
 	Homedir       string                 `json:"homedir,omitempty"`
+	MySQLDump     string                 `json:"mysql_dump,omitempty"`
 }
 
 func Export(st store.Store, accountID string) (*HostingAccountExport, error) {
@@ -273,7 +274,11 @@ func planDataMove(exp *HostingAccountExport, srcUser, srcDomain, destUser, destD
 		if destUser == srcUser {
 			srcName = d.Name
 		}
-		dbs = append(dbs, map[string]any{"engine": d.Engine, "source": srcName, "dest": d.Name})
+		item := map[string]any{"engine": d.Engine, "source": srcName, "dest": d.Name}
+		if exp.MySQLDump != "" {
+			item["dump"] = exp.MySQLDump
+		}
+		dbs = append(dbs, item)
 	}
 	var mails []any
 	for _, mb := range exp.Mailboxes {

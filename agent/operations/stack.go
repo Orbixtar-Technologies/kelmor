@@ -14,7 +14,7 @@ import (
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
 
-func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, aliases string) (Result, error) {
+func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, aliases, senderLogin string) (Result, error) {
 	if _, err := h.ApplyFile("/var/lib/panel/mail/virtual", []byte(virtual), 0o640); err != nil {
 		return Result{}, err
 	}
@@ -45,6 +45,12 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, a
 	if _, err := h.ApplyFile("/var/lib/panel/mail/aliases", []byte(aliases), 0o640); err != nil {
 		return Result{}, err
 	}
+	if senderLogin == "" {
+		senderLogin = "# panel sender-login map — generated, do not edit\n"
+	}
+	if _, err := h.ApplyFile("/var/lib/panel/mail/sender-login", []byte(senderLogin), 0o640); err != nil {
+		return Result{}, err
+	}
 	if h.live() {
 		_ = os.MkdirAll("/var/lib/panel/mail", 0o755)
 		_ = os.Chmod("/var/lib/panel", 0o755)
@@ -52,7 +58,10 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, a
 		if out, err := runFixed("/usr/sbin/postconf", "virtual_alias_maps=hash:/var/lib/panel/mail/aliases"); err != nil {
 			return Result{}, fmt.Errorf("postconf: %s", strings.TrimSpace(string(out)))
 		}
-		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains", "/var/lib/panel/mail/uids", "/var/lib/panel/mail/gids", "/var/lib/panel/mail/aliases"} {
+		if out, err := runFixed("/usr/sbin/postconf", "smtpd_sender_login_maps=hash:/var/lib/panel/mail/sender-login"); err != nil {
+			return Result{}, fmt.Errorf("postconf: %s", strings.TrimSpace(string(out)))
+		}
+		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains", "/var/lib/panel/mail/uids", "/var/lib/panel/mail/gids", "/var/lib/panel/mail/aliases", "/var/lib/panel/mail/sender-login"} {
 			if _, err := os.Stat(mapfile); err != nil {
 				continue
 			}
@@ -391,21 +400,22 @@ func sighupPidFile(path string) {
 	_ = syscall.Kill(pid, syscall.SIGHUP)
 }
 
-func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids, sendLimits, aliases string, err error) {
+func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids, sendLimits, aliases, senderLogin string, err error) {
 	var p struct {
-		Virtual    string `json:"virtual"`
-		Domains    string `json:"domains"`
-		Passwd     string `json:"passwd"`
-		UIDs       string `json:"uids"`
-		GIDs       string `json:"gids"`
-		SendLimits string `json:"send_limits"`
-		Aliases    string `json:"aliases"`
+		Virtual     string `json:"virtual"`
+		Domains     string `json:"domains"`
+		Passwd      string `json:"passwd"`
+		UIDs        string `json:"uids"`
+		GIDs        string `json:"gids"`
+		SendLimits  string `json:"send_limits"`
+		Aliases     string `json:"aliases"`
+		SenderLogin string `json:"sender_login"`
 	}
 	if err = json.Unmarshal(raw, &p); err != nil {
-		return "", "", "", "", "", "", "", err
+		return "", "", "", "", "", "", "", "", err
 	}
-	if strings.ContainsAny(p.Virtual, "\x00") || strings.ContainsAny(p.Aliases, "\x00") {
-		return "", "", "", "", "", "", "", fmt.Errorf("NUL in mail map")
+	if strings.ContainsAny(p.Virtual, "\x00") || strings.ContainsAny(p.Aliases, "\x00") || strings.ContainsAny(p.SenderLogin, "\x00") {
+		return "", "", "", "", "", "", "", "", fmt.Errorf("NUL in mail map")
 	}
-	return p.Virtual, p.Domains, p.Passwd, p.UIDs, p.GIDs, p.SendLimits, p.Aliases, nil
+	return p.Virtual, p.Domains, p.Passwd, p.UIDs, p.GIDs, p.SendLimits, p.Aliases, p.SenderLogin, nil
 }

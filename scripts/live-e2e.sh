@@ -219,6 +219,22 @@ with smtplib.SMTP("127.0.0.1", 587, timeout=10) as s:
     s.sendmail(msg["From"], [msg["To"]], msg.as_string())
 print("submission accepted")
 PY
+python3 - <<PY
+import smtplib
+from email.mime.text import MIMEText
+try:
+    with smtplib.SMTP("127.0.0.1", 587, timeout=10) as s:
+        s.starttls()
+        s.login("info@$DOMAIN", "MailboxPass!2026")
+        msg = MIMEText("forged from")
+        msg["Subject"] = "forged"
+        msg["From"] = "forged@$DOMAIN"
+        msg["To"] = "info@$DOMAIN"
+        s.sendmail("forged@$DOMAIN", ["info@$DOMAIN"], msg.as_string())
+    raise SystemExit("sender mismatch was accepted")
+except (smtplib.SMTPSenderRefused, smtplib.SMTPDataError, smtplib.SMTPRecipientsRefused) as e:
+    print("sender mismatch rejected")
+PY
 have_sales=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/aliases" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
 print(next((i['id'] for i in items if i.get('address')=='sales'), ''))")
 if [[ -z "$have_sales" ]]; then
@@ -229,6 +245,20 @@ if [[ -z "$have_sales" ]]; then
   wait_job "$ajob" mail-alias
 fi
 sudo grep -q "sales@$DOMAIN info@$DOMAIN" /var/lib/panel/mail/aliases || { echo "alias map missing sales@$DOMAIN" >&2; exit 1; }
+sudo grep -q "sales@$DOMAIN info@$DOMAIN" /var/lib/panel/mail/sender-login || { echo "sender-login missing sales@$DOMAIN" >&2; exit 1; }
+python3 - <<PY
+import smtplib
+from email.mime.text import MIMEText
+msg = MIMEText("alias as sender")
+msg["Subject"] = "alias sender"
+msg["From"] = "sales@$DOMAIN"
+msg["To"] = "info@$DOMAIN"
+with smtplib.SMTP("127.0.0.1", 587, timeout=10) as s:
+    s.starttls()
+    s.login("info@$DOMAIN", "MailboxPass!2026")
+    s.sendmail(msg["From"], [msg["To"]], msg.as_string())
+print("alias sender accepted")
+PY
 python3 - <<PY
 import smtplib
 from email.mime.text import MIMEText
@@ -605,11 +635,48 @@ bterm=$(curl -sS -X POST "$BASE/api/v1/accounts/$bid/terminate" -H "$AUTH")
 btop=$(echo "$bterm" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$btop" bw-terminate
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CUSER="cp$(date +%s)"
+CDOM="${CUSER}.test"
+CTREE="/var/tmp/panel-imports/${CUSER}"
+mkdir -p "$CTREE"
+cp -a "$ROOT/testdata/cpanel-acme42/." "$CTREE/"
+sed -i "s/acme.test/${CDOM}/g; s/acme42/${CUSER}/g" "$CTREE/userdata/user" "$CTREE/mysql.sql" "$CTREE/dnszones/acme.test.db" || true
+mv "$CTREE/dnszones/acme.test.db" "$CTREE/dnszones/${CDOM}.db" 2>/dev/null || true
+mv "$CTREE/va/info@acme.test" "$CTREE/va/info@${CDOM}" 2>/dev/null || true
+cimp=$(curl -sS -X POST "$BASE/api/v1/accounts/import/cpanel" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"root\":\"$CTREE\",\"username\":\"$CUSER\"}")
+echo "$cimp"
+cid=$(echo "$cimp" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+cjid=$(echo "$cimp" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("homedir_job",""))')
+[[ -n "$cid" ]] || { echo "cpanel import failed: $cimp" >&2; exit 1; }
+wait_job "$cjid" cpanel-import
+for i in $(seq 1 40); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$cid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  echo "cpanel acc status=$st"
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+[[ "$st" == "active" ]] || { echo "cpanel account not active" >&2; exit 1; }
+blog=""
+for _ in $(seq 1 20); do
+  blog=$(sudo mariadb -N -e "SELECT option_value FROM ${CUSER}_wp.wp_options WHERE option_name='blogname'" 2>/dev/null || true)
+  [[ "$blog" == "Imported Blog" ]] && break
+  sleep 0.5
+done
+[[ "$blog" == "Imported Blog" ]] || { echo "cpanel mysql.sql not replayed: ${blog}" >&2; sudo mariadb -e "SHOW DATABASES" >&2; exit 1; }
+widget=$(sudo mariadb -N -e "SELECT name FROM ${CUSER}_store.products WHERE id=1")
+[[ "$widget" == "Widget" ]] || { echo "cpanel store dump missing Widget" >&2; exit 1; }
+echo "cpanel-mysql-replay ok"
+cterm=$(curl -sS -X POST "$BASE/api/v1/accounts/$cid/terminate" -H "$AUTH")
+ctop=$(echo "$cterm" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$ctop" cpanel-terminate
+
 audit=$(curl -sS "$BASE/api/v1/audit-events" -H "$AUTH")
 echo "$audit" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
 assert isinstance(items, list) and len(items)>0
 acts={i.get("action") for i in items if isinstance(i, dict)}
-need={"account.export","account.suspend","account.terminate","website.delete","domain.delete"}
+need={"account.export","account.suspend","account.terminate","website.delete","domain.delete","account.import.cpanel"}
 missing=need-acts
 assert not missing, missing
 print("audit", len(items), "actions_ok")'

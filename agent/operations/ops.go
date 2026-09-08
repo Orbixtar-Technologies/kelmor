@@ -290,12 +290,13 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.dumpHostedDatabase(p.Engine, p.Name, p.Dest)
 	case "RestoreHostedDatabase":
 		var p struct {
-			Engine string `json:"engine"`
-			Name   string `json:"name"`
-			Source string `json:"source"`
+			Engine  string `json:"engine"`
+			Name    string `json:"name"`
+			Source  string `json:"source"`
+			Extract string `json:"extract"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.restoreHostedDatabase(p.Engine, p.Name, p.Source)
+		return h.restoreHostedDatabase(p.Engine, p.Name, p.Source, p.Extract)
 	case "DropHostedDatabase":
 		var p struct {
 			Engine   string `json:"engine"`
@@ -315,11 +316,11 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		h.removeManaged(p.Path)
 		return Result{OK: true, ObservedState: "absent"}, nil
 	case "ApplyMailMaps":
-		virtual, domains, passwd, uids, gids, sendLimits, aliases, err := decodeMaps(req.Params)
+		virtual, domains, passwd, uids, gids, sendLimits, aliases, senderLogin, err := decodeMaps(req.Params)
 		if err != nil {
 			return nil, err
 		}
-		return h.applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, aliases)
+		return h.applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, aliases, senderLogin)
 	case "EnsureDKIM":
 		var p struct {
 			Domain string `json:"domain"`

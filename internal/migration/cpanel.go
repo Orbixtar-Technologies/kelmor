@@ -50,9 +50,9 @@ func FromCPanel(root, username string) (*HostingAccountExport, error) {
 	exp.Databases = parseMySQLDump(filepath.Join(root, "mysql.sql"), accID)
 	exp.Zones, exp.Records = parseDNSZones(filepath.Join(root, "dnszones"), accID, domID, ascii)
 	exp.Mailboxes = parseCPanelMail(filepath.Join(root, "va"), accID, mdID)
-	if hd := filepath.Join(root, "homedir"); dirExists(hd) {
-		exp.Homedir = hd
-	}
+	homedir, dump := stageCPanelPaths(root, username)
+	exp.Homedir = homedir
+	exp.MySQLDump = dump
 	if len(exp.Mailboxes) == 0 {
 		exp.Mailboxes = []store.Mailbox{{
 			ID: store.NewID(), AccountID: accID, DomainID: mdID, LocalPart: "postmaster",
@@ -188,6 +188,85 @@ func parseCPanelMail(dir, accountID, mailDomainID string) []store.Mailbox {
 func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
+}
+
+func importRootAllowed(p string) bool {
+	return strings.HasPrefix(p, "/var/tmp/panel-imports/") || strings.HasPrefix(p, "/var/lib/panel/imports/")
+}
+
+// stageCPanelPaths copies mysql.sql and homedir onto an agent-approved
+// prefix when the extracted tree lives elsewhere (for example testdata).
+func stageCPanelPaths(root, username string) (homedir, dump string) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		absRoot = root
+	}
+	destRoot := absRoot
+	if !importRootAllowed(absRoot+"/") && !importRootAllowed(absRoot) {
+		destRoot = filepath.Join("/var/tmp/panel-imports", username)
+		if err := os.MkdirAll(destRoot, 0o750); err != nil {
+			destRoot = absRoot
+		} else {
+			if src := filepath.Join(absRoot, "mysql.sql"); fileExists(src) {
+				_ = copyRegularFile(src, filepath.Join(destRoot, "mysql.sql"))
+			}
+			if src := filepath.Join(absRoot, "homedir"); dirExists(src) {
+				_ = copyRegularTree(src, filepath.Join(destRoot, "homedir"))
+			}
+		}
+	}
+	if dirExists(filepath.Join(destRoot, "homedir")) {
+		homedir = filepath.Join(destRoot, "homedir")
+	}
+	if fileExists(filepath.Join(destRoot, "mysql.sql")) {
+		dump = filepath.Join(destRoot, "mysql.sql")
+	}
+	return homedir, dump
+}
+
+func copyRegularFile(src, dest string) error {
+	in, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
+		return err
+	}
+	return os.WriteFile(dest, in, 0o640)
+}
+
+func copyRegularTree(src, dest string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info == nil {
+			return walkErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(dest, 0o755)
+		}
+		if strings.Contains(rel, "..") {
+			return fmt.Errorf("homedir path escape")
+		}
+		target := filepath.Join(dest, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		return copyRegularFile(path, target)
+	})
 }
 
 func extractIdent(line string) string {

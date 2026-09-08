@@ -106,6 +106,7 @@ virtual_mailbox_base = /var/vmail
 virtual_mailbox_domains = hash:/var/lib/panel/mail/vdomains
 virtual_mailbox_maps = hash:/var/lib/panel/mail/virtual
 virtual_alias_maps = hash:/var/lib/panel/mail/aliases
+smtpd_sender_login_maps = hash:/var/lib/panel/mail/sender-login
 virtual_minimum_uid = 20000
 virtual_uid_maps = hash:/var/lib/panel/mail/uids
 virtual_gid_maps = hash:/var/lib/panel/mail/gids
@@ -131,6 +132,7 @@ milter_default_action = accept
 		{"smtpd_sasl_path", "smtpd_sasl_path = private/auth\n"},
 		{"smtpd_tls_cert_file", "smtpd_tls_cert_file = /var/lib/panel/certs/imap.panel.local.crt\n"},
 		{"smtpd_tls_key_file", "smtpd_tls_key_file = /var/lib/panel/certs/imap.panel.local.key\n"},
+		{"smtpd_sender_login_maps", "smtpd_sender_login_maps = hash:/var/lib/panel/mail/sender-login\n"},
 	} {
 		if err := replaceConfigLine(maincf, kv[0], kv[1]); err != nil {
 			return err
@@ -177,7 +179,7 @@ mail_location = maildir:~/Maildir
 	if err := writeUnlessExists(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
 		return err
 	}
-	for _, name := range []string{"virtual", "vdomains", "passwd", "uids", "gids", "aliases"} {
+	for _, name := range []string{"virtual", "vdomains", "passwd", "uids", "gids", "aliases", "sender-login"} {
 		p := root(c, "var/lib/panel/mail/"+name)
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			if err := os.WriteFile(p, []byte("# panel mail map\n"), 0o640); err != nil {
@@ -199,6 +201,7 @@ submission inet n       -       n       -       -       smtpd
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
   -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
   -o smtpd_relay_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_sender_restrictions=reject_sender_login_mismatch
   -o milter_macro_daemon_name=ORIGINATING
 `
 
@@ -211,13 +214,30 @@ func ensureSubmissionMaster(path string) error {
 		return err
 	}
 	if strings.Contains(string(b), "panel-submission") {
-		return nil
+		return ensureSubmissionSenderRestrict(path, b)
 	}
 	out := string(b)
 	if !strings.HasSuffix(out, "\n") {
 		out += "\n"
 	}
 	return os.WriteFile(path, []byte(out+panelSubmissionBlock), 0o644)
+}
+
+func ensureSubmissionSenderRestrict(path string, current []byte) error {
+	s := string(current)
+	if strings.Contains(s, "reject_sender_login_mismatch") {
+		return nil
+	}
+	line := "  -o smtpd_sender_restrictions=reject_sender_login_mismatch\n"
+	needle := "  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject\n"
+	if strings.Contains(s, needle) {
+		s = strings.Replace(s, needle, needle+line, 1)
+	} else if strings.Contains(s, "  -o milter_macro_daemon_name=ORIGINATING\n") {
+		s = strings.Replace(s, "  -o milter_macro_daemon_name=ORIGINATING\n", line+"  -o milter_macro_daemon_name=ORIGINATING\n", 1)
+	} else {
+		s += line
+	}
+	return os.WriteFile(path, []byte(s), 0o644)
 }
 
 func ensurePanelMailCert(c Config) error {
@@ -671,6 +691,16 @@ func verifyMail(c Config) error {
 	}
 	if !strings.Contains(string(b), "panel-submission") {
 		return fmt.Errorf("postfix master.cf missing submission")
+	}
+	if !strings.Contains(string(b), "reject_sender_login_mismatch") {
+		return fmt.Errorf("postfix submission missing sender-login mismatch")
+	}
+	mainb, err := os.ReadFile(root(c, "etc/postfix/main.cf"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(mainb), "smtpd_sender_login_maps") {
+		return fmt.Errorf("postfix missing sender-login maps")
 	}
 	if _, err := os.Stat(root(c, "etc/dovecot/conf.d/99-panel-sasl.conf")); err != nil {
 		return err

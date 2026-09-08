@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hosting-panel/panel/agent/policy"
+	"github.com/hosting-panel/panel/internal/migration"
 )
 
 func (h *Host) dumpHostedDatabase(engine, name, dest string) (Result, error) {
@@ -53,11 +54,11 @@ func (h *Host) dumpHostedDatabase(engine, name, dest string) (Result, error) {
 	return Result{OK: true, ObservedState: "dumped"}, nil
 }
 
-func (h *Host) restoreHostedDatabase(engine, name, source string) (Result, error) {
+func (h *Host) restoreHostedDatabase(engine, name, source, extract string) (Result, error) {
 	if !ident(name) {
 		return Result{}, fmt.Errorf("invalid database identifier")
 	}
-	if err := validateStagingSQL(source); err != nil {
+	if err := validateSQLSource(source); err != nil {
 		return Result{}, err
 	}
 	in, err := h.resolve(source)
@@ -67,6 +68,12 @@ func (h *Host) restoreHostedDatabase(engine, name, source string) (Result, error
 	sql, err := os.ReadFile(in)
 	if err != nil {
 		return Result{}, err
+	}
+	if extract != "" {
+		sql = migration.ExtractMySQLDatabase(sql, extract)
+		if len(sql) == 0 {
+			return Result{OK: true, ObservedState: "restored-empty"}, nil
+		}
 	}
 	if !h.live() {
 		return Result{OK: true, ObservedState: "restored"}, nil
@@ -111,4 +118,20 @@ func validateStagingSQL(p string) error {
 		return fmt.Errorf("unexpected dump suffix")
 	}
 	return nil
+}
+
+func validateSQLSource(p string) error {
+	clean, err := policy.ValidateManagedPath(p)
+	if err != nil {
+		return err
+	}
+	if !strings.HasSuffix(clean, ".sql") {
+		return fmt.Errorf("unexpected dump suffix")
+	}
+	if strings.HasPrefix(clean, "/var/lib/panel/backups/") ||
+		strings.HasPrefix(clean, "/var/lib/panel/imports/") ||
+		strings.HasPrefix(clean, "/var/tmp/panel-imports/") {
+		return nil
+	}
+	return fmt.Errorf("sql source must be under import or backup staging")
 }

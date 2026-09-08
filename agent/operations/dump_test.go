@@ -20,7 +20,7 @@ func TestDumpAndRestoreSandboxSQL(t *testing.T) {
 	if len(body) == 0 {
 		t.Fatal("empty dump")
 	}
-	if _, err := h.restoreHostedDatabase("mariadb", "acme_site", dest); err != nil {
+	if _, err := h.restoreHostedDatabase("mariadb", "acme_site", dest, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.dumpHostedDatabase("mariadb", "acme_site", "/tmp/evil.sql"); err == nil {

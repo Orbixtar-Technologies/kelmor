@@ -822,13 +822,14 @@ func (w *Worker) applyMailStack(accountID string) error {
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyMailMaps",
 		Params: mustJSON(map[string]any{
-			"virtual":     mail.Virtual(recs) + mail.CatchallVirtual(w.Store),
-			"domains":     mail.VDomains(w.Store),
-			"passwd":      mail.PasswdFile(recs),
-			"uids":        mail.UIDMap(recs),
-			"gids":        mail.GIDMap(recs),
-			"send_limits": mail.SendLimits(recs),
-			"aliases":     mail.AliasMap(w.Store),
+			"virtual":      mail.Virtual(recs) + mail.CatchallVirtual(w.Store),
+			"domains":      mail.VDomains(w.Store),
+			"passwd":       mail.PasswdFile(recs),
+			"uids":         mail.UIDMap(recs),
+			"gids":         mail.GIDMap(recs),
+			"send_limits":  mail.SendLimits(recs),
+			"aliases":      mail.AliasMap(w.Store),
+			"sender_login": mail.SenderLogin(w.Store, recs),
 		}),
 	})
 	if err != nil {
@@ -1144,7 +1145,20 @@ func (w *Worker) migrateDatabases(acc *store.Account, j *store.Job) error {
 		if srcName == "" {
 			srcName = destName
 		}
-		w.ensureRestoredDB(acc, engine, destName)
+		if err := w.ensureHostedDBOnHost(acc, engine, destName); err != nil {
+			return err
+		}
+		if dump := str(item["dump"]); dump != "" {
+			if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+				Method: "RestoreHostedDatabase",
+				Params: mustJSON(map[string]any{
+					"engine": engine, "name": destName, "source": dump, "extract": srcName,
+				}),
+			}); err != nil {
+				return err
+			}
+			continue
+		}
 		srcHome := str(j.Payload["copy_source"])
 		if srcHome == "" {
 			srcHome = str(j.Payload["source"])
@@ -1424,27 +1438,41 @@ func (w *Worker) restoreDatabaseDumps(acc *store.Account, backupID string, dumps
 }
 
 func (w *Worker) ensureRestoredDB(acc *store.Account, engine, name string) {
+	_ = w.ensureHostedDBOnHost(acc, engine, name)
+}
+
+func (w *Worker) ensureHostedDBOnHost(acc *store.Account, engine, name string) error {
+	var row *store.HostedDatabase
 	for _, existing := range w.Store.ListDBs(acc.ID) {
 		if existing.Name == name {
-			return
+			e := existing
+			row = &e
+			break
 		}
 	}
-	row := &store.HostedDatabase{ID: store.NewID(), AccountID: acc.ID, Engine: engine, Name: name, Status: "provisioning"}
-	w.Store.PutDB(row)
+	if row == nil {
+		row = &store.HostedDatabase{ID: store.NewID(), AccountID: acc.ID, Engine: engine, Name: name, Status: "provisioning"}
+		w.Store.PutDB(row)
+	}
 	if w.Agent == nil {
-		return
+		row.Status = "active"
+		w.Store.PutDB(row)
+		return nil
 	}
 	dbUser, pw, reset := w.hostedDBCredentials(acc, engine)
-	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+	if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateHostedDatabase",
 		Params: mustJSON(map[string]any{
 			"engine": engine, "name": name, "username": dbUser, "password": pw, "reset_password": reset,
 		}),
-	})
+	}); err != nil {
+		return err
+	}
 	note := fmt.Sprintf("engine=%s\nname=%s\nusername=%s\npassword=%s\nhost=127.0.0.1\n", engine, name, dbUser, pw)
 	_, _ = w.Agent.ApplyFile("/home/"+acc.Username+"/.panel-database."+engine+"."+name, []byte(note), 0o600)
 	row.Status = "active"
 	w.Store.PutDB(row)
+	return nil
 }
 
 func (w *Worker) restoreMailboxTrees(acc *store.Account, backupID string, trees []backup.MailDump) error {

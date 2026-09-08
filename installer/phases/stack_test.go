@@ -119,8 +119,14 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !contains(string(maincf), "smtpd_sender_login_maps = hash:/var/lib/panel/mail/sender-login") {
+		t.Fatalf("postfix missing sender-login maps: %s", maincf)
+	}
 	if !contains(string(mastercf), "panel-submission") || !contains(string(mastercf), "smtpd_sasl_auth_enable=yes") {
 		t.Fatalf("master.cf missing authenticated submission: %s", mastercf)
+	}
+	if !contains(string(mastercf), "reject_sender_login_mismatch") {
+		t.Fatalf("master.cf missing sender-login mismatch: %s", mastercf)
 	}
 	sasl, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/dovecot/conf.d/99-panel-sasl.conf"))
 	if err != nil {

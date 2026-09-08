@@ -8,4 +8,4 @@ curl -H "Authorization: Bearer $PANEL_TOKEN" -d '{"root":"/var/tmp/cpmove-acme42
   http://127.0.0.1:18080/api/v1/accounts/import/cpanel
 ```
 
-The importer enqueues `account.reconcile` plus `account.copy_homedir`. The worker calls the typed agent `CopyHomedir` operation, which copies `homedir/` (regular files only, no symlinks) onto `/home/<username>`. Extract cpmove trees under `/var/lib/panel/imports/` or `/var/tmp/panel-imports/` so the agent path policy accepts the source. The 8 MiB JSON API limit is not used for file bytes.
+The importer stages `homedir/` and `mysql.sql` under `/var/tmp/panel-imports/<username>/` when the extracted tree is outside the agent path policy, then enqueues `account.reconcile`. The worker copies the homedir (regular files only, no symlinks) onto `/home/<username>`, creates each MariaDB database, and replays the matching `CREATE DATABASE` section from `mysql.sql` into that database (so tables and rows survive import). Extract cpmove trees under `/var/lib/panel/imports/` or `/var/tmp/panel-imports/` so the agent accepts the source. The 8 MiB JSON API limit is not used for file bytes.

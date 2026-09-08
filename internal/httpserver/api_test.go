@@ -71,6 +71,30 @@ func TestCPanelImportQueuesHomedirCopy(t *testing.T) {
 	if out["homedir_job"] == "" {
 		t.Fatal("expected CopyHomedir job")
 	}
+	var dump string
+	for _, j := range st.ListJobs("queued", 20) {
+		if j.Type != "account.reconcile" {
+			continue
+		}
+		switch items := j.Payload["databases"].(type) {
+		case []any:
+			for _, item := range items {
+				m, _ := item.(map[string]any)
+				if s, _ := m["dump"].(string); s != "" {
+					dump = s
+				}
+			}
+		case []map[string]any:
+			for _, m := range items {
+				if s, _ := m["dump"].(string); s != "" {
+					dump = s
+				}
+			}
+		}
+	}
+	if dump == "" {
+		t.Fatal("expected mysql dump path on reconcile job")
+	}
 }
 
 func post(t *testing.T, url, token string, body any) map[string]any {

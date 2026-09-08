@@ -81,6 +81,14 @@ func TestAliasMap(t *testing.T) {
 	if !strings.Contains(body, "sales@acme.test info@acme.test") {
 		t.Fatal(body)
 	}
+	recs := RecipientsForHost(st)
+	login := SenderLogin(st, recs)
+	if !strings.Contains(login, "info@acme.test info@acme.test") {
+		t.Fatal(login)
+	}
+	if !strings.Contains(login, "sales@acme.test info@acme.test") {
+		t.Fatal(login)
+	}
 }
 
 func TestCatchallSkipsTerminating(t *testing.T) {

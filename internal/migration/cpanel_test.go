@@ -32,4 +32,7 @@ func TestFromCPanel(t *testing.T) {
 	if exp.Homedir == "" {
 		t.Fatal("expected homedir path from extracted cpmove tree")
 	}
+	if exp.MySQLDump == "" || !fileExists(exp.MySQLDump) {
+		t.Fatalf("expected staged mysql dump, got %q", exp.MySQLDump)
+	}
 }
