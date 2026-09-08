@@ -170,6 +170,9 @@ func applyControlDB(c Config) error {
 		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "GRANT ALL ON SCHEMA public TO panel").Run()
 		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "GRANT ALL ON ALL TABLES IN SCHEMA public TO panel").Run()
 		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO panel").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", `CREATE EXTENSION IF NOT EXISTS pgcrypto`).Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "postgres", "-c", "ALTER ROLE panel WITH LOGIN CREATEDB CREATEROLE").Run()
+		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "postgres", "-c", "ALTER DATABASE panel_control OWNER TO panel").Run()
 		_ = exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "SELECT 1").Run()
 	}
 	return os.WriteFile(filepath.Join(dir, "dsn"), []byte(dsn), 0o640)
