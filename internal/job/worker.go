@@ -240,14 +240,12 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		acc.DesiredRevision = latest.DesiredRevision
 		acc.PackageID = latest.PackageID
 	}
-	if acc.Status == "terminating" {
+	if acc.Status == "terminating" || acc.Status == "terminated" {
 		return w.retireAccount(acc, j)
 	}
 	switch acc.Status {
 	case "suspended":
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "LockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": true})})
-		w.reapplyAccountWebsites(acc)
+		w.applySuspendedHost(acc)
 	default:
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "UnlockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": false})})
@@ -255,8 +253,21 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 			s := site
 			_ = w.applySiteRuntime(&s, acc)
 		}
-		acc.Status = "active"
+		if acc.Status == "provisioning" || acc.Status == "failed" || acc.Status == "" {
+			acc.Status = "active"
+		}
 		w.reapplyAccountWebsites(acc)
+	}
+	if latest := w.Store.GetAccount(acc.ID); latest != nil {
+		switch latest.Status {
+		case "suspended":
+			acc.Status = "suspended"
+			acc.DesiredRevision = latest.DesiredRevision
+			acc.PackageID = latest.PackageID
+			w.applySuspendedHost(acc)
+		case "terminating", "terminated":
+			return w.retireAccount(latest, j)
+		}
 	}
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
@@ -1621,6 +1632,15 @@ func (w *Worker) applyWebsiteDispatch(acc *store.Account, site *store.Website, d
 		}),
 	})
 	return err
+}
+
+func (w *Worker) applySuspendedHost(acc *store.Account) {
+	if acc == nil {
+		return
+	}
+	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "LockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
+	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": true})})
+	w.reapplyAccountWebsites(acc)
 }
 
 func (w *Worker) reapplyAccountWebsites(acc *store.Account) {

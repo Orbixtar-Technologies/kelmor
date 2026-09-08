@@ -153,6 +153,50 @@ func TestReconcileRewritesLoopbackARecords(t *testing.T) {
 	}
 }
 
+func TestReconcileKeepsLaterSuspend(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	pkgs := st.ListPackages()
+	acc := &store.Account{
+		ID: "acc-hold", Username: "hold42", PrimaryDomain: "hold.test",
+		PackageID: pkgs[0].ID, Status: "suspended", HomePath: "/home/hold42",
+		LinuxUID: 20012, LinuxGID: 20012, DesiredRevision: 4,
+	}
+	st.PutAccount(acc)
+	st.PutDomain(&store.Domain{
+		ID: "dom-hold", AccountID: acc.ID, FQDN: "hold.test", ASCII: "hold.test",
+		Type: "primary", DocumentRoot: "/home/hold42/public_html", Status: "active",
+	})
+	st.PutWebsite(&store.Website{
+		ID: "web-hold", AccountID: acc.ID, DomainID: "dom-hold", Runtime: "php",
+		DocumentRoot: "/home/hold42/public_html", Enabled: true,
+	})
+	root := t.TempDir()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: root}, logging.New("test"), box, "tester")
+	if err := w.provisionAccount(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.GetAccount(acc.ID); got.Status != "suspended" {
+		t.Fatalf("reconcile cleared suspend: %s", got.Status)
+	}
+	conf, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites/web-hold.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(conf, []byte("account suspended")) {
+		t.Fatalf("suspended vhost: %s", conf)
+	}
+}
+
 func TestReconcileKeepsLaterUnsuspend(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

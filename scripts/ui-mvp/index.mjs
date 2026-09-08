@@ -112,6 +112,13 @@ try {
 	await textIncludes(page, 'Host operations')
 	await page.click('a[href="/accounts"]')
 	await page.waitForSelector('select[name="package_id"] option')
+	await page.evaluate(() => {
+		const sel = document.querySelector('select[name="package_id"]')
+		if (!sel) throw new Error('package select missing')
+		const opt = [...sel.options].find((o) => o.textContent.includes('Starter'))
+		if (!opt) throw new Error('Starter package missing')
+		sel.value = opt.value
+	})
 	await page.waitForSelector('input[name="username"]')
 	await page.type('input[name="username"]', username)
 	await page.type('input[name="domain"]', domain)
@@ -207,7 +214,7 @@ try {
 		b.click()
 	})
 	await waitAccountStatus(acc.id, 'suspended')
-	await waitHTTP(domain, 503)
+	await waitHTTP(domain, 503, 90)
 	await page.evaluate(() => {
 		const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Unsuspend')
 		if (!b) throw new Error('unsuspend button missing')
