@@ -226,7 +226,7 @@ func (p *PG) ListResellers() []Reseller {
 		return nil
 	}
 	defer rows.Close()
-	var out []Reseller
+	out := []Reseller{}
 	for rows.Next() {
 		var r Reseller
 		_ = rows.Scan(&r.ID, &r.UserID, &r.Name, &r.BrandName, &r.PrivilegeMask, &r.Nameservers, &r.Status)
@@ -904,10 +904,10 @@ func (p *PG) PutCron(c *CronJob) {
 func (p *PG) ListCrons(accountID string) []CronJob {
 	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, schedule, command, working_directory, enabled FROM cron_jobs WHERE account_id=$1`, accountID)
 	if err != nil {
-		return nil
+		return []CronJob{}
 	}
 	defer rows.Close()
-	var out []CronJob
+	out := []CronJob{}
 	for rows.Next() {
 		var c CronJob
 		_ = rows.Scan(&c.ID, &c.AccountID, &c.Schedule, &c.Command, &c.WorkingDirectory, &c.Enabled)

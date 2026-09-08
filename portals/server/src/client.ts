@@ -14,6 +14,11 @@ export function getToken () {
 	return localStorage.getItem(tokenKey) || ''
 }
 
+export function asList<T> (r: { items?: T[] | null } | null | undefined): T[] {
+	if (!r || !Array.isArray(r.items)) return []
+	return r.items
+}
+
 export async function api<T> (path: string, init: RequestInit = {}): Promise<T> {
 	const headers = new Headers(init.headers)
 	if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')

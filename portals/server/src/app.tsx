@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
-import { api, clearToken, getToken, setToken } from './client'
+import { api, asList, clearToken, getToken, setToken } from './client'
 
 interface User { username: string; roles: string[]; email: string }
 
@@ -121,10 +121,10 @@ function Accounts () {
 	const nav = useNavigate()
 	async function reload () {
 		const r = await api<{ items: any[] }>(`/api/v1/accounts?q=${encodeURIComponent(q)}`)
-		setItems(r.items)
+		setItems(asList(r))
 	}
 	useEffect(() => { reload().catch((e) => setMsg(e.message)) }, [q])
-	useEffect(() => { api<{ items: any[] }>('/api/v1/packages').then((r) => setPackages(r.items)) }, [])
+	useEffect(() => { api<{ items: any[] }>('/api/v1/packages').then((r) => setPackages(asList(r))) }, [])
 	return (
 		<>
 			<header><h1>Hosting accounts</h1><p>Each account gets a dedicated Linux identity and a reconciliation job.</p></header>
@@ -371,7 +371,7 @@ function ImportAccount () {
 
 function Packages () {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>('/api/v1/packages').then((r) => setItems(r.items)) }, [])
+	useEffect(() => { api<{ items: any[] }>('/api/v1/packages').then((r) => setItems(asList(r))) }, [])
 	return (
 		<>
 			<header><h1>Packages</h1><p>Reusable CPU, memory, I/O and feature limits enforced through slices and quotas.</p></header>
@@ -387,7 +387,7 @@ function Packages () {
 					concurrent_web_requests: 100, email_daily_limit: 200,
 				}) })
 				const r = await api<{ items: any[] }>('/api/v1/packages')
-				setItems(r.items)
+				setItems(asList(r))
 			}}>
 				<input name="name" placeholder="package name" required />
 				<button type="submit">Create package</button>
@@ -402,7 +402,7 @@ function Packages () {
 
 function Resellers () {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>('/api/v1/resellers').then((r) => setItems(r.items)) }, [])
+	useEffect(() => { api<{ items: any[] }>('/api/v1/resellers').then((r) => setItems(asList(r))) }, [])
 	return (
 		<>
 			<header><h1>Resellers</h1><p>Delegated privileges. A reseller never sees root secrets or foreign customers.</p></header>
@@ -410,7 +410,7 @@ function Resellers () {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
 				await api('/api/v1/resellers', { method: 'POST', body: JSON.stringify({ name: fd.get('name'), user_id: 'pending' }) })
-				setItems((await api<{ items: any[] }>('/api/v1/resellers')).items)
+				setItems(asList(await api<{ items: any[] }>('/api/v1/resellers')))
 			}}>
 				<input name="name" placeholder="reseller name" required />
 				<button type="submit">Create reseller</button>
@@ -460,7 +460,7 @@ function Monitor () {
 function Jobs () {
 	const [items, setItems] = useState<any[]>([])
 	useEffect(() => {
-		const load = () => api<{ items: any[] }>('/api/v1/jobs').then((r) => setItems(r.items))
+		const load = () => api<{ items: any[] }>('/api/v1/jobs').then((r) => setItems(asList(r)))
 		load()
 		const id = setInterval(load, 1500)
 		return () => clearInterval(id)
@@ -481,7 +481,7 @@ function Jobs () {
 function Audit () {
 	const [items, setItems] = useState<any[]>([])
 	const [err, setErr] = useState('')
-	useEffect(() => { api<{ items: any[] }>('/api/v1/audit-events').then((r) => setItems(r.items)).catch((e) => setErr(e.message)) }, [])
+	useEffect(() => { api<{ items: any[] }>('/api/v1/audit-events').then((r) => setItems(asList(r))).catch((e) => setErr(e.message)) }, [])
 	if (err) return <Empty title="Audit unavailable" detail={err} />
 	return (
 		<>

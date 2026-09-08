@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
-import { api, clearToken, getToken, setToken } from './client'
+import { api, asList, clearToken, getToken, setToken } from './client'
 
 interface Me {
 	user: { username: string; roles: string[] }
@@ -110,7 +110,7 @@ function Websites ({ accountId }: { accountId: string }) {
 	const [domains, setDomains] = useState<any[]>([])
 	const [msg, setMsg] = useState('')
 	const load = () => Promise.all([
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/websites`).then((r) => setItems(r.items || [])),
+		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/websites`).then((r) => setItems(asList(r))),
 		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/domains`).then((r) => setDomains(r.items || [])),
 	])
 	useEffect(() => { load() }, [accountId])
@@ -153,7 +153,7 @@ function Websites ({ accountId }: { accountId: string }) {
 
 function List ({ path, title }: { path: string; title: string }) {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>(path).then((r) => setItems(r.items || [])) }, [path])
+	useEffect(() => { api<{ items: any[] }>(path).then((r) => setItems(asList(r))) }, [path])
 	return (
 		<>
 			<h1>{title}</h1>
@@ -178,7 +178,7 @@ function List ({ path, title }: { path: string; title: string }) {
 function Domains ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
 	const [msg, setMsg] = useState('')
-	const load = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/domains`).then((r) => setItems(r.items))
+	const load = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/domains`).then((r) => setItems(asList(r)))
 	useEffect(() => { load() }, [accountId])
 	return (
 		<>
@@ -256,7 +256,7 @@ function Email ({ accountId }: { accountId: string }) {
 
 function Databases ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>(`/api/v1/accounts/${accountId}/databases`).then((r) => setItems(r.items)) }, [accountId])
+	useEffect(() => { api<{ items: any[] }>(`/api/v1/accounts/${accountId}/databases`).then((r) => setItems(asList(r))) }, [accountId])
 	return (
 		<>
 			<h1>Databases</h1>
@@ -264,7 +264,7 @@ function Databases ({ accountId }: { accountId: string }) {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
 				await api(`/api/v1/accounts/${accountId}/databases`, { method: 'POST', body: JSON.stringify({ name: fd.get('name'), engine: fd.get('engine') }) })
-				setItems((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/databases`)).items)
+				setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/databases`)))
 			}}>
 				<input name="name" placeholder="store" required />
 				<select name="engine"><option value="mariadb">MariaDB</option><option value="postgres">PostgreSQL</option></select>
@@ -279,7 +279,7 @@ function Files ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
 	const [path, setPath] = useState('/')
 	useEffect(() => {
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/files?path=${encodeURIComponent(path)}`).then((r) => setItems(r.items || []))
+		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/files?path=${encodeURIComponent(path)}`).then((r) => setItems(asList(r)))
 	}, [accountId, path])
 	return (
 		<>
@@ -311,13 +311,13 @@ function Files ({ accountId }: { accountId: string }) {
 
 function Backups ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`).then((r) => setItems(r.items)) }, [accountId])
+	useEffect(() => { api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`).then((r) => setItems(asList(r))) }, [accountId])
 	return (
 		<>
 			<h1>Backups</h1>
 			<button type="button" onClick={async () => {
 				await api(`/api/v1/accounts/${accountId}/backups`, { method: 'POST', body: JSON.stringify({ kind: 'full', destination: 'local' }) })
-				setItems((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)).items)
+				setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
 			}}>Create full backup</button>
 			<ul>{items.map((b) => (
 				<li key={b.id}>
@@ -325,7 +325,7 @@ function Backups ({ accountId }: { accountId: string }) {
 					{b.state === 'succeeded' ? (
 						<button type="button" onClick={async () => {
 							await api(`/api/v1/accounts/${accountId}/restores`, { method: 'POST', body: JSON.stringify({ backup_id: b.id, mode: 'in_place' }) })
-							setItems((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)).items)
+							setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
 						}}>Restore</button>
 					) : null}
 				</li>
@@ -336,7 +336,7 @@ function Backups ({ accountId }: { accountId: string }) {
 
 function Cron ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])
-	useEffect(() => { api<{ items: any[] }>(`/api/v1/accounts/${accountId}/cron`).then((r) => setItems(r.items)) }, [accountId])
+	useEffect(() => { api<{ items: any[] }>(`/api/v1/accounts/${accountId}/cron`).then((r) => setItems(asList(r))) }, [accountId])
 	return (
 		<>
 			<h1>Cron jobs</h1>
@@ -344,9 +344,9 @@ function Cron ({ accountId }: { accountId: string }) {
 				e.preventDefault()
 				const fd = new FormData(e.currentTarget)
 				await api(`/api/v1/accounts/${accountId}/cron`, { method: 'POST', body: JSON.stringify({
-					schedule: fd.get('schedule'), command: fd.get('command'), working_directory: '/home', enabled: true,
+					schedule: fd.get('schedule'), command: fd.get('command'), enabled: true,
 				}) })
-				setItems((await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/cron`)).items)
+				setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/cron`)))
 			}}>
 				<input name="schedule" defaultValue="0 * * * *" />
 				<input name="command" placeholder="php cron.php" required />
