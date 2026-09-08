@@ -41,7 +41,7 @@ func NginxSite(s WebsiteSpec) string {
 			sock = s.WebsiteID
 		}
 		b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
-		fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
+		fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
 	case "node", "python":
 		fmt.Fprintf(&b, "    location / { proxy_pass http://unix:/run/panel/apps/%s.sock; proxy_set_header Host $host; }\n", s.WebsiteID)
 	case "proxy":
@@ -69,7 +69,7 @@ func NginxSite(s WebsiteSpec) string {
 				sock = s.WebsiteID
 			}
 			b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
-			fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
+			fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
 		default:
 			b.WriteString("    location / { try_files $uri $uri/ =404; }\n")
 		}

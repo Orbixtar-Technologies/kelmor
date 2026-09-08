@@ -64,6 +64,13 @@ func ImportAs(st store.Store, raw []byte, username, domain, ownerUserID string) 
 		exp.Account.LinuxUID = 0
 		exp.Account.LinuxGID = 0
 		exp.Account.OwnerUserID = ""
+		home := exp.Account.HomePath
+		for i := range exp.Domains {
+			exp.Domains[i].DocumentRoot = home + "/public_html"
+		}
+		for i := range exp.Websites {
+			exp.Websites[i].DocumentRoot = home + "/public_html"
+		}
 	}
 	if domain != "" {
 		old := exp.Account.PrimaryDomain

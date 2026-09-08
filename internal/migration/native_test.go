@@ -40,7 +40,8 @@ func TestExportImportRoundTrip(t *testing.T) {
 func TestImportAsRenames(t *testing.T) {
 	src := store.NewMemory()
 	src.PutAccount(&store.Account{ID: "acc1", Username: "acme42", PrimaryDomain: "acme.test", HomePath: "/home/acme42", Status: "active", LinuxUID: 20001, LinuxGID: 20001})
-	src.PutDomain(&store.Domain{ID: "d1", AccountID: "acc1", FQDN: "acme.test", ASCII: "acme.test", Type: "primary"})
+	src.PutDomain(&store.Domain{ID: "d1", AccountID: "acc1", FQDN: "acme.test", ASCII: "acme.test", Type: "primary", DocumentRoot: "/home/acme42/public_html"})
+	src.PutWebsite(&store.Website{ID: "w1", AccountID: "acc1", DomainID: "d1", Runtime: "php", DocumentRoot: "/home/acme42/public_html"})
 	exp, err := Export(src, "acc1")
 	if err != nil {
 		t.Fatal(err)
@@ -55,6 +56,10 @@ func TestImportAsRenames(t *testing.T) {
 	}
 	if src.AccountByUsername("acme42") == nil || src.AccountByUsername("moved42") == nil {
 		t.Fatal("both accounts should exist")
+	}
+	sites := src.ListWebsites(got.ID)
+	if len(sites) == 0 || sites[0].DocumentRoot != "/home/moved42/public_html" {
+		t.Fatalf("document root not remapped: %+v", sites)
 	}
 }
 

@@ -7,6 +7,9 @@ func TestNginxSiteValid(t *testing.T) {
 	if err := ValidateNginx(conf); err != nil {
 		t.Fatal(err)
 	}
+	if !contains(conf, "SCRIPT_FILENAME") {
+		t.Fatal("php location must set SCRIPT_FILENAME")
+	}
 	if err := ValidateNginx("not a server"); err == nil {
 		t.Fatal("expected invalid")
 	}
