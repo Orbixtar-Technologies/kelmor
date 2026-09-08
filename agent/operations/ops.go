@@ -159,6 +159,22 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			body = dec
 		}
 		return h.ApplyFile(p.Path, body, p.Mode)
+	case "ApplyFileChunk":
+		var p struct {
+			Path       string `json:"path"`
+			ContentB64 string `json:"content_b64"`
+			Mode       uint32 `json:"mode"`
+			Offset     int64  `json:"offset"`
+			Last       bool   `json:"last"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		body, err := base64.StdEncoding.DecodeString(p.ContentB64)
+		if err != nil {
+			return nil, err
+		}
+		return h.applyFileChunk(p.Path, body, p.Mode, p.Offset, p.Last)
 	case "ApplyWebsite":
 		var p struct {
 			WebsiteID             string   `json:"website_id"`
@@ -564,11 +580,7 @@ func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, erro
 		return Result{}, err
 	}
 	if h.Sock != "" {
-		_, err := CallUnix(context.Background(), h.Sock, Request{
-			Method: "ApplyFile",
-			Params: mustRaw(map[string]any{"path": path, "content_b64": base64.StdEncoding.EncodeToString(content), "mode": mode}),
-		})
-		if err != nil {
+		if err := h.applyFileOverSock(path, content, mode); err != nil {
 			return Result{}, err
 		}
 		return Result{OK: true, ObservedState: "written"}, nil

@@ -24,7 +24,7 @@ func CallUnix(ctx context.Context, sock string, req Request) (any, error) {
 		return nil, err
 	}
 	sc := bufio.NewScanner(c)
-	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
+	sc.Buffer(make([]byte, 0, 64*1024), MaxRPCLine)
 	if !sc.Scan() {
 		if err := sc.Err(); err != nil {
 			return nil, err

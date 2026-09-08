@@ -63,7 +63,7 @@ func main() {
 func serve(c net.Conn, host *operations.Host, logg *logging.Logger) {
 	defer c.Close()
 	sc := bufio.NewScanner(c)
-	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
+	sc.Buffer(make([]byte, 0, 64*1024), operations.MaxRPCLine)
 	for sc.Scan() {
 		var req operations.Request
 		if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
