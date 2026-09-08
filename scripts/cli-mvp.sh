@@ -34,10 +34,12 @@ if [[ -n "$mdid" ]]; then
   [[ -n "$mop" ]] && $CLI job wait "$mop"
 fi
 sudo doveadm auth test info@climvp.test 'MailboxPass!2026' | grep -q succeeded
-db=$($CLI db create "$aid" clipg postgres)
-dop=$(echo "$db" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
-[[ -n "$dop" ]] && $CLI job wait "$dop"
-sudo -u postgres psql -d climvp_clipg -c 'SELECT 1' >/dev/null
+if ! sudo -u postgres psql -d climvp_clipg -c 'SELECT 1' >/dev/null 2>&1; then
+  db=$($CLI db create "$aid" clipg postgres)
+  dop=$(echo "$db" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  [[ -n "$dop" ]] && $CLI job wait "$dop"
+  sudo -u postgres psql -d climvp_clipg -c 'SELECT 1' >/dev/null
+fi
 bak=$($CLI backup create "$aid")
 bop=$(echo "$bak" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 [[ -n "$bop" ]] && $CLI job wait "$bop"

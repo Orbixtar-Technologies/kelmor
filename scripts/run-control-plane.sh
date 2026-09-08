@@ -12,7 +12,10 @@ export PANEL_API_ADDR="$ADDR"
 export PANEL_DATABASE_URL="$DSN"
 unset PANEL_DEV PANEL_HOST_ROOT || true
 install -d -o root -g panel -m 0751 /run/panel || true
-install -d -o panel -g panel -m 0750 "$STATE" "$STATE/secrets" || true
+# Dovecot must traverse /var/lib/panel to read mail/passwd. Secrets stay 0750.
+install -d -o panel -g panel -m 0755 "$STATE" || true
+install -d -o panel -g panel -m 0750 "$STATE/secrets" || true
+chmod 0755 "$STATE" || true
 exec sudo -u panel -g panel env \
   PANEL_STATE_DIR="$STATE" \
   PANEL_AGENT_SOCK="$SOCK" \

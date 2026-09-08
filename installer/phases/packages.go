@@ -16,6 +16,7 @@ var allowedPackages = map[string]bool{
 	"redis-server": true, "rspamd": true, "clamav": true, "clamav-daemon": true,
 	"fail2ban": true, "quota": true, "libnginx-mod-http-modsecurity": true,
 	"nodejs": true, "python3": true, "openssh-server": true,
+	"nftables": true, "acl": true,
 }
 
 func InstallPackages(names []string) error {
@@ -47,6 +48,7 @@ func applySystemPackages(c Config) error {
 		"postfix", "dovecot-core", "dovecot-imapd", "dovecot-lmtpd",
 		"redis-server", "rspamd", "clamav-daemon", "fail2ban", "quota",
 		"libnginx-mod-http-modsecurity", "nodejs", "python3", "openssh-server",
+		"nftables", "acl",
 	})
 }
 

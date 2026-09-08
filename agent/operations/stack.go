@@ -36,6 +36,7 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids string) (Resul
 	}
 	if h.live() {
 		_ = os.MkdirAll("/var/lib/panel/mail", 0o755)
+		_ = os.Chmod("/var/lib/panel", 0o755)
 		_ = os.Chmod("/var/lib/panel/mail", 0o755)
 		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains", "/var/lib/panel/mail/uids", "/var/lib/panel/mail/gids"} {
 			if _, err := os.Stat(mapfile); err != nil {

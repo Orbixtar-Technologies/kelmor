@@ -12,6 +12,14 @@ import (
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
+func ownerName(uid int) string {
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return ""
+	}
+	return u.Username
+}
+
 func hostingDirMode(path string) os.FileMode {
 	// public_html is 0750 (owner + web group). World-readable 0755
 	// lets one tenant read another tenant's files.
@@ -38,8 +46,13 @@ func hardenSFTPHome(home string, uid, gid int) error {
 		return err
 	}
 	// 0751: nginx can traverse; other tenants cannot list or write.
+	// ACL lets the tenant list their own chroot root (OpenSSH forbids
+	// making this directory group-writable).
 	if err := os.Chmod(home, 0o751); err != nil {
 		return err
+	}
+	if uname := ownerName(uid); uname != "" {
+		_, _ = runFixed("/usr/bin/setfacl", "-m", "u:"+uname+":r-x", home)
 	}
 	webgid := webServerGID()
 	for _, d := range []string{"public_html", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
