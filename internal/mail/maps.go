@@ -60,7 +60,7 @@ func RecipientsForHost(st store.Store) []Recipient {
 	var out []Recipient
 	seen := map[string]bool{}
 	for _, acc := range st.ListAccounts("", "") {
-		if acc.Status == "terminated" {
+		if acc.Status == "terminated" || acc.Status == "terminating" {
 			continue
 		}
 		for _, r := range Recipients(st, acc.ID) {

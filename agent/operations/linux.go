@@ -194,6 +194,6 @@ func (h *Host) deleteUnixUser(username string) (Result, error) {
 	if !h.live() {
 		return h.DeleteLinuxUser(username)
 	}
-	_, _ = runFixed("/usr/sbin/userdel", "-r", username)
+	_, _ = runFixed("/usr/sbin/userdel", "-f", "-r", username)
 	return Result{OK: true, ObservedState: "absent"}, nil
 }

@@ -203,14 +203,60 @@ done
 migcode=$(curl -sS -o /tmp/e2emig.html -w '%{http_code}' -H 'Host: e2emig.test' http://127.0.0.1/)
 [[ "$migcode" == "200" ]] || { echo "e2emig HTTP $migcode" >&2; exit 1; }
 
-curl -sS -X POST "$BASE/api/v1/accounts/$aid/suspend" -H "$AUTH" >/dev/null
-sleep 1
-curl -sS -X POST "$BASE/api/v1/accounts/$aid/unsuspend" -H "$AUTH" >/dev/null
+sus=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/suspend" -H "$AUTH")
+sop=$(echo "$sus" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$sop" suspend
+suscode=$(curl -sS -o /tmp/live-sus.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+[[ "$suscode" == "503" ]] || { echo "expected HTTP 503 while suspended, got $suscode" >&2; exit 1; }
+uns=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/unsuspend" -H "$AUTH")
+uop=$(echo "$uns" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$uop" unsuspend
+uncode=$(curl -sS -o /tmp/live-uns.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+[[ "$uncode" == "200" ]] || { echo "expected HTTP 200 after unsuspend, got $uncode" >&2; exit 1; }
+
+TUSER="tm$(date +%s)"
+TDOM="${TUSER}.test"
+created=$(curl -sS -X POST "$BASE/api/v1/accounts" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"username\":\"$TUSER\",\"primary_domain\":\"$TDOM\",\"package_id\":\"$pkg\",\"owner_email\":\"ops@$TDOM\",\"owner_password\":\"TenantPass!2026\"}")
+echo "$created"
+tid=$(echo "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+top=$(echo "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+[[ -n "$tid" ]]
+wait_job "$top" term-provision
+for i in $(seq 1 40); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$tid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  echo "termacc status=$st"
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+tcode=$(curl -sS -o /tmp/termacc.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+[[ "$tcode" == "200" ]] || { echo "termacc HTTP $tcode" >&2; exit 1; }
+term=$(curl -sS -X POST "$BASE/api/v1/accounts/$tid/terminate" -H "$AUTH")
+trop=$(echo "$term" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$trop" terminate
+for i in $(seq 1 20); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$tid" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  echo "termacc after=$st"
+  [[ "$st" == "terminated" ]] && break
+  sleep 1
+done
+[[ "$st" == "terminated" ]] || { echo "account not terminated" >&2; exit 1; }
+if getent passwd "$TUSER" >/dev/null; then
+  echo "linux user $TUSER still exists" >&2
+  exit 1
+fi
+gone=$(curl -sS -o /tmp/term-gone.html -w '%{http_code}' -H "Host: $TDOM" http://127.0.0.1/)
+[[ "$gone" != "200" ]] || { echo "terminated vhost still served 200" >&2; exit 1; }
+if grep -q "$TDOM" /var/lib/panel/mail/virtual 2>/dev/null; then
+  echo "mail map still lists $TDOM" >&2
+  exit 1
+fi
+
 audit=$(curl -sS "$BASE/api/v1/audit-events" -H "$AUTH")
 echo "$audit" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
 assert isinstance(items, list) and len(items)>0
 acts={i.get("action") for i in items if isinstance(i, dict)}
-need={"account.export","account.suspend"}
+need={"account.export","account.suspend","account.terminate"}
 missing=need-acts
 assert not missing, missing
 print("audit", len(items), "actions_ok")'

@@ -158,6 +158,9 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	if acc == nil {
 		return fmt.Errorf("account missing")
 	}
+	if acc.Status == "terminating" {
+		return w.retireAccount(acc, j)
+	}
 	pkg := w.Store.GetPackage(acc.PackageID)
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateLinuxUser",
@@ -192,9 +195,6 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		_ = w.ensureDomainStack(&d, acc, pubIP, "")
 	}
 	switch acc.Status {
-	case "terminating":
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "DeleteLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
-		acc.Status = "terminated"
 	case "suspended":
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "LockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": true})})
@@ -206,6 +206,35 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	acc.ObservedRevision = acc.DesiredRevision
 	w.Store.PutAccount(acc)
 	w.recordUsage(acc)
+	j.Progress = 90
+	w.Store.UpdateJob(j)
+	return nil
+}
+
+func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
+	var ids []string
+	for _, site := range w.Store.ListWebsites(acc.ID) {
+		ids = append(ids, site.ID)
+	}
+	var domains []string
+	for _, d := range w.Store.ListDomains(acc.ID) {
+		domains = append(domains, d.ASCII)
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "RetireAccount",
+		Params: mustJSON(map[string]any{
+			"username":    acc.Username,
+			"website_ids": ids,
+			"domains":     domains,
+		}),
+	})
+	if err != nil {
+		return err
+	}
+	acc.Status = "terminated"
+	acc.ObservedRevision = acc.DesiredRevision
+	w.Store.PutAccount(acc)
+	_ = w.applyMailStack(acc.ID)
 	j.Progress = 90
 	w.Store.UpdateJob(j)
 	return nil
@@ -431,18 +460,20 @@ func (w *Worker) writeZone(z *store.DNSZone) error {
 }
 
 func (w *Worker) applyMailStack(accountID string) error {
-	local := mail.Recipients(w.Store, accountID)
 	acc := w.Store.GetAccount(accountID)
-	for _, r := range local {
-		uid, gid := 20000, 20000
-		if acc != nil {
-			uid, gid = acc.LinuxUID, acc.LinuxGID
-		}
-		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
-			Method: "CreateMailboxHome",
-			Params: mustJSON(map[string]any{"domain": r.Domain, "local_part": r.LocalPart, "uid": uid, "gid": gid}),
-		}); err != nil {
-			return err
+	if acc == nil || (acc.Status != "terminating" && acc.Status != "terminated") {
+		local := mail.Recipients(w.Store, accountID)
+		for _, r := range local {
+			uid, gid := 20000, 20000
+			if acc != nil {
+				uid, gid = acc.LinuxUID, acc.LinuxGID
+			}
+			if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+				Method: "CreateMailboxHome",
+				Params: mustJSON(map[string]any{"domain": r.Domain, "local_part": r.LocalPart, "uid": uid, "gid": gid}),
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	recs := mail.RecipientsForHost(w.Store)

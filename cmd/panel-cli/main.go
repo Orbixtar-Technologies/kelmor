@@ -24,6 +24,7 @@ func main() {
   account create <user> <domain> <package_id> <password>
   account suspend <id>
   account unsuspend <id>
+  account terminate <id>
   account export <id>
   account import <export.json> [username] [domain]
   account migrate <id> <newuser> <newdomain>
@@ -115,6 +116,8 @@ func main() {
 		post(base+"/api/v1/accounts/"+args[2]+"/suspend", token, map[string]any{})
 	case args[0] == "account" && len(args) == 3 && args[1] == "unsuspend":
 		post(base+"/api/v1/accounts/"+args[2]+"/unsuspend", token, map[string]any{})
+	case args[0] == "account" && len(args) == 3 && args[1] == "terminate":
+		post(base+"/api/v1/accounts/"+args[2]+"/terminate", token, map[string]any{})
 	case args[0] == "account" && len(args) == 3 && args[1] == "export":
 		get(base+"/api/v1/accounts/"+args[2]+"/export", token)
 	case args[0] == "backup" && len(args) == 3 && args[1] == "create":

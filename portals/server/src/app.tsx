@@ -257,6 +257,10 @@ function AccountDetail () {
 			<div className="row">
 				<button type="button" onClick={() => act(`/api/v1/accounts/${id}/suspend`, reload, setMsg)}>Suspend</button>
 				<button type="button" onClick={() => act(`/api/v1/accounts/${id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
+				<button type="button" onClick={() => {
+					if (!window.confirm(`Terminate ${acc.username}? This removes the Linux user, websites, and mail.`)) return
+					act(`/api/v1/accounts/${id}/terminate`, reload, setMsg)
+				}}>Terminate</button>
 				<button type="button" onClick={async () => {
 					const exp = await api<any>(`/api/v1/accounts/${id}/export`)
 					const blob = new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' })

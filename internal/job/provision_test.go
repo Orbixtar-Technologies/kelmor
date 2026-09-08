@@ -72,4 +72,24 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	if got == nil || got.State != "succeeded" || got.Checksum == "" {
 		t.Fatalf("backup %+v", got)
 	}
+
+	acc.Status = "terminating"
+	acc.DesiredRevision++
+	st.PutAccount(acc)
+	_, _ = st.EnqueueJob(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID}, State: "queued",
+	})
+	w.Drain(context.Background())
+	if got := st.GetAccount(acc.ID); got.Status != "terminated" {
+		t.Fatalf("terminate status %s", got.Status)
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatalf("home remains after terminate: %v", err)
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, "etc/nginx/panel-sites")); err == nil {
+		for _, e := range entries {
+			t.Fatalf("vhost remains after terminate: %s", e.Name())
+		}
+	}
 }
