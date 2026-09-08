@@ -31,11 +31,15 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 		})
 		return err
 	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	acctKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
 	}
-	cl := &acme.Client{Key: key, DirectoryURL: directory}
+	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
+	}
+	cl := &acme.Client{Key: acctKey, DirectoryURL: directory}
 	if insecureDirectory(directory) {
 		cl.HTTPClient = &http.Client{
 			Timeout: 30 * time.Second,
@@ -89,7 +93,7 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 			return err
 		}
 	}
-	csrDER, err := newCSR(hostname, key)
+	csrDER, err := newCSR(hostname, certKey)
 	if err != nil {
 		return err
 	}
@@ -101,7 +105,7 @@ func Issue(ctx context.Context, agent *operations.Host, hostname, contact, direc
 	for _, c := range der {
 		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c})...)
 	}
-	kb, err := x509.MarshalECPrivateKey(key)
+	kb, err := x509.MarshalECPrivateKey(certKey)
 	if err != nil {
 		return err
 	}
