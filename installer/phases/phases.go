@@ -76,9 +76,9 @@ func All() []Phase {
 		named{"preflight", checkPreflight, applyNoop, verifyNoop},
 		named{"repositories", checkNoop, applyRepositories, verifyNoop},
 		named{"system_packages", checkNoop, applySystemPackages, verifyNoop},
-		named{"panel_users", checkNoop, applyUsers, verifyNoop},
-		named{"control_database", checkNoop, applyControlDB, verifyNoop},
-		named{"control_plane", checkNoop, applyControlPlane, verifyNoop},
+		named{"panel_users", checkNoop, applyUsers, verifyUsers},
+		named{"control_database", checkNoop, applyControlDB, verifyControlDB},
+		named{"control_plane", checkNoop, applyControlPlane, verifyControlPlane},
 		named{"web_stack", checkNoop, applyWebStack, verifyWeb},
 		named{"database_stack", checkNoop, applyDatabaseStack, verifyNoop},
 		named{"dns", checkNoop, applyDNS, verifyDNS},
@@ -88,8 +88,8 @@ func All() []Phase {
 		named{"runtime_versions", checkNoop, applyRuntimeVersions, verifyNoop},
 		named{"templates", checkNoop, applyTemplates, verifyNoop},
 		named{"tls", checkNoop, applyTLS, verifyNoop},
-		named{"systemd", checkNoop, applySystemd, verifyNoop},
-		named{"host_runtime", checkNoop, applyHostRuntime, verifyNoop},
+		named{"systemd", checkNoop, applySystemd, verifySystemd},
+		named{"host_runtime", checkNoop, applyHostRuntime, verifyHostRuntime},
 		named{"administrator", checkNoop, applyAdministrator, verifyNoop},
 		named{"health_checks", checkNoop, applyHealth, verifyHealth},
 		named{"installation_report", checkNoop, applyReport, verifyNoop},
@@ -168,16 +168,17 @@ func applyControlPlane(c Config) error {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
-	src := "dist/bin"
-	if _, err := os.Stat(src); err != nil {
-		return nil
+	src := controlPlaneSource()
+	if src == "" {
+		return fmt.Errorf("control plane binaries not found (looked next to panel-install and ./dist/bin)")
 	}
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
+	copied := 0
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "panel-") {
 			continue
 		}
 		in := filepath.Join(src, e.Name())
@@ -187,6 +188,65 @@ func applyControlPlane(c Config) error {
 		}
 		if err := os.WriteFile(filepath.Join(dest, e.Name()), b, 0o755); err != nil {
 			return err
+		}
+		copied++
+	}
+	if copied == 0 {
+		return fmt.Errorf("no panel-* binaries copied from %s", src)
+	}
+	return nil
+}
+
+func controlPlaneSource() string {
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		if _, err := os.Stat(filepath.Join(dir, "panel-agent")); err == nil {
+			return dir
+		}
+	}
+	if _, err := os.Stat("dist/bin/panel-agent"); err == nil {
+		return "dist/bin"
+	}
+	return ""
+}
+
+func verifyUsers(c Config) error {
+	if c.Dev {
+		return nil
+	}
+	if err := exec.Command("/usr/bin/getent", "passwd", "panel").Run(); err != nil {
+		return fmt.Errorf("panel user missing")
+	}
+	if err := exec.Command("/usr/bin/getent", "group", "panel").Run(); err != nil {
+		return fmt.Errorf("panel group missing")
+	}
+	return nil
+}
+
+func verifyControlDB(c Config) error {
+	if _, err := os.Stat(root(c, "var/lib/panel/control/dsn")); err != nil {
+		return err
+	}
+	if c.Dev {
+		return nil
+	}
+	cmd := exec.Command("/usr/bin/psql", "-d", "panel_control", "-c", "SELECT 1")
+	cmd.Env = append(os.Environ(), "PGUSER=postgres")
+	if err := cmd.Run(); err != nil {
+		if err := exec.Command("/usr/bin/sudo", "-u", "postgres", "/usr/bin/psql", "-d", "panel_control", "-c", "SELECT 1").Run(); err != nil {
+			return fmt.Errorf("panel_control database missing")
+		}
+	}
+	return nil
+}
+
+func verifyControlPlane(c Config) error {
+	if c.Dev {
+		return nil
+	}
+	for _, n := range []string{"panel-api", "panel-agent", "panel-worker", "panel-install"} {
+		if _, err := os.Stat("/usr/local/panel/bin/" + n); err != nil {
+			return fmt.Errorf("missing %s", n)
 		}
 	}
 	return nil

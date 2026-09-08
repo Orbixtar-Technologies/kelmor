@@ -26,7 +26,7 @@ webserver-port=8081
 api=yes
 api-key=panel-loopback
 `
-	if err := os.WriteFile(root(c, "etc/powerdns/pdns.conf"), []byte(body), 0o640); err != nil {
+	if err := writeUnlessExists(root(c, "etc/powerdns/pdns.conf"), []byte(body), 0o640); err != nil {
 		return err
 	}
 	named := `options {
@@ -34,7 +34,7 @@ api-key=panel-loopback
 };
 include "/var/lib/panel/dns/named-zones.conf";
 `
-	if err := os.WriteFile(root(c, "etc/powerdns/named.conf"), []byte(named), 0o644); err != nil {
+	if err := writeUnlessExists(root(c, "etc/powerdns/named.conf"), []byte(named), 0o644); err != nil {
 		return err
 	}
 	if _, err := os.Stat(root(c, "var/lib/panel/dns/named-zones.conf")); os.IsNotExist(err) {
@@ -71,7 +71,7 @@ virtual_gid_maps = hash:/var/lib/panel/mail/gids
 smtpd_tls_security_level = may
 smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 `
-	if err := os.WriteFile(root(c, "etc/postfix/main.cf"), []byte(main), 0o644); err != nil {
+	if err := writeUnlessExists(root(c, "etc/postfix/main.cf"), []byte(main), 0o644); err != nil {
 		return err
 	}
 	dovecot := `protocols = imap lmtp
@@ -91,7 +91,7 @@ ssl_key = </var/lib/panel/certs/imap.panel.local.key
 !include_try /etc/dovecot/conf.d/*.conf
 mail_location = maildir:~/Maildir
 `
-	if err := os.WriteFile(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
+	if err := writeUnlessExists(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
 		return err
 	}
 	for _, name := range []string{"virtual", "vdomains", "passwd", "uids", "gids"} {
@@ -232,7 +232,27 @@ func applyTLS(c Config) error {
     }
 }
 `
-	return os.WriteFile(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644)
+	return writeUnlessExists(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644)
+}
+
+func writeUnlessExists(path string, body []byte, mode os.FileMode) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	return os.WriteFile(path, body, mode)
+}
+
+func verifySystemd(c Config) error {
+	for _, n := range []string{"panel-api.service", "panel-worker.service", "panel-agent.service"} {
+		if _, err := os.Stat(root(c, "etc/systemd/system/"+n)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyHostRuntime(c Config) error {
+	return verifyHealth(c)
 }
 
 func applySystemd(c Config) error {

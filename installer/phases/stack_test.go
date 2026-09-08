@@ -47,3 +47,29 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteUnlessExistsKeepsExisting(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "main.cf")
+	if err := os.WriteFile(p, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeUnlessExists(p, []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "keep\n" {
+		t.Fatalf("overwrote existing file: %q", b)
+	}
+	missing := filepath.Join(dir, "fresh.cf")
+	if err := writeUnlessExists(missing, []byte("created\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err = os.ReadFile(missing)
+	if err != nil || string(b) != "created\n" {
+		t.Fatalf("did not create missing file: %q %v", b, err)
+	}
+}

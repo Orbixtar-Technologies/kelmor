@@ -85,7 +85,7 @@ func (h *Host) unpackDirectory(archive, dest string) (Result, error) {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
-	if err := os.MkdirAll(out, 0o750); err != nil {
+	if err := os.MkdirAll(out, hostingDirMode(out)); err != nil {
 		return Result{}, err
 	}
 	out = filepath.Clean(out)
@@ -106,10 +106,11 @@ func (h *Host) unpackDirectory(archive, dest string) (Result, error) {
 			return Result{}, fmt.Errorf("archive traversal")
 		}
 		if hdr.FileInfo().IsDir() {
-			_ = os.MkdirAll(target, 0o750)
+			_ = os.MkdirAll(target, hostingDirMode(target))
+			_ = os.Chmod(target, hostingDirMode(target))
 			continue
 		}
-		_ = os.MkdirAll(filepath.Dir(target), 0o750)
+		_ = os.MkdirAll(filepath.Dir(target), hostingDirMode(filepath.Dir(target)))
 		wf, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 		if err != nil {
 			return Result{}, err

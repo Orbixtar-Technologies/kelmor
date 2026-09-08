@@ -11,6 +11,13 @@ import (
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
+func hostingDirMode(path string) os.FileMode {
+	if strings.HasSuffix(filepath.Clean(path), "public_html") {
+		return 0o755
+	}
+	return 0o750
+}
+
 func hardenSFTPHome(home string, uid, gid int) error {
 	if err := os.Chown(home, 0, 0); err != nil {
 		return err

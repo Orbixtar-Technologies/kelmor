@@ -354,9 +354,11 @@ func (h *Host) CreateLinuxUser(username string, uid, gid int, home, shell string
 		if d != "" {
 			p = filepath.Join(path, d)
 		}
-		if err := os.MkdirAll(p, 0o750); err != nil {
+		mode := hostingDirMode(p)
+		if err := os.MkdirAll(p, mode); err != nil {
 			return Result{}, err
 		}
+		_ = os.Chmod(p, mode)
 	}
 	meta := fmt.Sprintf("username=%s uid=%d gid=%d shell=%s created=%s\n", username, uid, gid, shell, time.Now().UTC().Format(time.RFC3339))
 	_ = os.WriteFile(filepath.Join(path, ".panel-identity"), []byte(meta), 0o640)
@@ -390,8 +392,8 @@ func (h *Host) CreateDirectoryTree(path string, mode uint32) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if mode == 0 {
-		mode = 0o750
+	if mode == 0 || hostingDirMode(p) == 0o755 {
+		mode = uint32(hostingDirMode(p))
 	}
 	if err := os.MkdirAll(p, os.FileMode(mode)); err != nil {
 		return Result{}, err

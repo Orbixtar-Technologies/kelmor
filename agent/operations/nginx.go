@@ -19,7 +19,7 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	default:
 		return Result{}, fmt.Errorf("unsupported runtime")
 	}
-	if _, err := h.CreateDirectoryTree(docroot, 0o750); err != nil {
+	if _, err := h.CreateDirectoryTree(docroot, uint32(hostingDirMode(docroot))); err != nil {
 		return Result{}, err
 	}
 	spec := configuration.WebsiteSpec{

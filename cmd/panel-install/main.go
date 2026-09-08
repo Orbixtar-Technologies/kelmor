@@ -49,7 +49,10 @@ func main() {
 
 	for _, p := range phases.All() {
 		if st.Phases[p.Name()] == "complete" {
-			continue
+			if err := p.Verify(cfg); err == nil {
+				continue
+			}
+			writeLog(log, p.Name(), "reapply", map[string]any{"reason": "verify failed after claimed complete"})
 		}
 		st.Phases[p.Name()] = "running"
 		_ = st.Save(statePath)

@@ -164,7 +164,7 @@ func packHome(home string) ([]byte, error) {
 }
 
 func unpackHome(raw []byte, dest string) error {
-	if err := os.MkdirAll(dest, 0o750); err != nil {
+	if err := os.MkdirAll(dest, unpackDirMode(dest)); err != nil {
 		return err
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(raw))
@@ -191,10 +191,11 @@ func unpackHome(raw []byte, dest string) error {
 			return fmt.Errorf("archive traversal")
 		}
 		if hdr.FileInfo().IsDir() {
-			_ = os.MkdirAll(target, 0o750)
+			_ = os.MkdirAll(target, unpackDirMode(target))
+			_ = os.Chmod(target, unpackDirMode(target))
 			continue
 		}
-		_ = os.MkdirAll(filepath.Dir(target), 0o750)
+		_ = os.MkdirAll(filepath.Dir(target), unpackDirMode(filepath.Dir(target)))
 		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 		if err != nil {
 			return err
@@ -205,4 +206,11 @@ func unpackHome(raw []byte, dest string) error {
 		}
 		_ = f.Close()
 	}
+}
+
+func unpackDirMode(path string) os.FileMode {
+	if strings.HasSuffix(filepath.Clean(path), "public_html") {
+		return 0o755
+	}
+	return 0o750
 }
