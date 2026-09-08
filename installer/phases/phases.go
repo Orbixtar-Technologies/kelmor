@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -139,6 +140,10 @@ func applyUsers(c Config) error {
 	}
 	_ = exec.Command("/usr/sbin/groupadd", "--system", "panel").Run()
 	_ = exec.Command("/usr/sbin/useradd", "--system", "-g", "panel", "-d", "/var/lib/panel", "-s", "/usr/sbin/nologin", "panel").Run()
+	_ = exec.Command("/usr/sbin/usermod", "-aG", "panel", "panel").Run()
+	if _, err := user.Lookup("ubuntu"); err == nil {
+		_ = exec.Command("/usr/sbin/usermod", "-aG", "panel", "ubuntu").Run()
+	}
 	return nil
 }
 

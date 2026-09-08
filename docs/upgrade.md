@@ -3,8 +3,9 @@
 `panel-updater verify` checks an Ed25519-signed release manifest. Payloads that say `unsigned-development` are refused.
 
 ```bash
-panel-updater verify ./bundle/manifest.json ./release.pub
-panel-updater apply ./bundle /usr/local/panel ./release.pub
+panel-updater sign ./bundle 1.2.0 stable
+panel-updater verify ./bundle/manifest.json ./bundle/release.pub
+panel-updater apply ./bundle /usr/local/panel ./bundle/release.pub
 # on failed health-check:
 panel-updater rollback /usr/local/panel
 ```

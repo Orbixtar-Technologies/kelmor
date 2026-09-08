@@ -70,6 +70,7 @@ print("smtp accepted")
 PY
 sleep 1
 sudo ls /var/vmail/$DOMAIN/info/Maildir/new 2>/dev/null | head || true
+sudo doveadm reload >/dev/null 2>&1 || true
 imap_ok=0
 for i in $(seq 1 20); do
   if sudo doveadm auth test info@$DOMAIN 'MailboxPass!2026' 2>&1 | grep -q succeeded; then

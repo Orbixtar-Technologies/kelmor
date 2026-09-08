@@ -10,4 +10,7 @@ if [[ -S /run/panel/agent.sock ]]; then
 fi
 mkdir -p "$PANEL_STATE_DIR"
 go run ./cmd/panel-install --dev --non-interactive --hostname localhost --admin-email admin@localhost >/tmp/panel-install.out || true
-go run ./cmd/panel-dev
+if id -nG | grep -qw panel; then
+  exec sg panel -c "./dist/bin/panel-dev"
+fi
+exec ./dist/bin/panel-dev
