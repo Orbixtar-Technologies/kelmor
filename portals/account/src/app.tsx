@@ -36,7 +36,7 @@ export function App () {
 							setError(err instanceof Error ? err.message : 'Login failed')
 						}
 					}}>
-						<label>Username<input name="username" defaultValue="acme42" /></label>
+						<label>Username<input name="username" defaultValue="livehost" /></label>
 						<label>Password<input name="password" type="password" defaultValue="TenantPass!2026" /></label>
 						{error ? <p className="error">{error}</p> : null}
 						<button type="submit">Open my hosting</button>
@@ -46,7 +46,8 @@ export function App () {
 		)
 	}
 
-	const accountId = (me.actor as any).account_ids?.[0] || ''
+	const ids = (me.actor as any).account_ids || []
+	const accountId = ids[0] || ''
 	return (
 		<div className="shell">
 			<header className="top">
@@ -71,7 +72,7 @@ export function App () {
 					{!accountId ? <p>No hosting account is attached to this login yet. Ask the administrator to provision one, then sign in as that username.</p> : (
 						<Routes>
 							<Route path="/" element={<Dash accountId={accountId} />} />
-							<Route path="/websites" element={<List path={`/api/v1/accounts/${accountId}/websites`} title="Websites" />} />
+							<Route path="/websites" element={<Websites accountId={accountId} />} />
 							<Route path="/domains" element={<Domains accountId={accountId} />} />
 							<Route path="/dns" element={<DNS accountId={accountId} />} />
 							<Route path="/email" element={<Email accountId={accountId} />} />
@@ -100,6 +101,52 @@ function Dash ({ accountId }: { accountId: string }) {
 		<>
 			<h1>{acc.primary_domain}</h1>
 			<p>Status {acc.status}. Home {acc.home_path}. Linux UID {acc.linux_uid}.</p>
+		</>
+	)
+}
+
+function Websites ({ accountId }: { accountId: string }) {
+	const [items, setItems] = useState<any[]>([])
+	const [domains, setDomains] = useState<any[]>([])
+	const [msg, setMsg] = useState('')
+	const load = () => Promise.all([
+		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/websites`).then((r) => setItems(r.items || [])),
+		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/domains`).then((r) => setDomains(r.items || [])),
+	])
+	useEffect(() => { load() }, [accountId])
+	return (
+		<>
+			<h1>Websites</h1>
+			<p>PHP-FPM, static files, or a Node/Python unit applied through the privileged agent.</p>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				try {
+					await api(`/api/v1/accounts/${accountId}/websites`, { method: 'POST', body: JSON.stringify({
+						domain_id: fd.get('domain_id'), runtime: fd.get('runtime'),
+					}) })
+					setMsg('Website apply queued')
+					await load()
+				} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
+			}}>
+				<select name="domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn}</option>)}</select>
+				<select name="runtime">
+					<option value="php">PHP 8.3</option>
+					<option value="static">Static</option>
+					<option value="node">Node</option>
+					<option value="python">Python</option>
+				</select>
+				<button type="submit">Apply website</button>
+			</form>
+			{msg ? <p>{msg}</p> : null}
+			{items.length === 0 ? <p>No websites yet. Provisioning creates one after the account job finishes.</p> : (
+				<table>
+					<thead><tr><th>Runtime</th><th>Document root</th><th>State</th></tr></thead>
+					<tbody>{items.map((it) => (
+						<tr key={it.id}><td>{it.runtime} {it.runtime_version}</td><td>{it.document_root}</td><td>{it.enabled === false ? 'disabled' : 'ready'}</td></tr>
+					))}</tbody>
+				</table>
+			)}
 		</>
 	)
 }

@@ -141,8 +141,18 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 	}
 }
 
+func (w *Worker) jobAccount(j *store.Job) *store.Account {
+	if acc := w.Store.GetAccount(str(j.Payload["account_id"])); acc != nil {
+		return acc
+	}
+	if j.ResourceType == "account" {
+		return w.Store.GetAccount(j.ResourceID)
+	}
+	return nil
+}
+
 func (w *Worker) provisionAccount(j *store.Job) error {
-	acc := w.Store.GetAccount(str(j.Payload["account_id"]))
+	acc := w.jobAccount(j)
 	if acc == nil {
 		return fmt.Errorf("account missing")
 	}
@@ -272,10 +282,10 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	}
 	d := w.Store.GetDomain(site.DomainID)
 	acc := w.Store.GetAccount(site.AccountID)
-	account := ""
-	if acc != nil {
-		account = acc.Username
+	if d == nil || acc == nil {
+		return fmt.Errorf("website missing domain or account")
 	}
+	account := acc.Username
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyWebsite",
 		Params: mustJSON(map[string]any{"website_id": site.ID, "account": account, "domain": d.ASCII, "document_root": site.DocumentRoot, "runtime": site.Runtime, "https_redirect": site.HTTPSRedirect}),
@@ -285,6 +295,15 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 	}
 	site.ObservedRevision = site.DesiredRevision
 	w.Store.PutWebsite(site)
+	if site.Runtime == "node" || site.Runtime == "python" {
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "ApplyAppUnit",
+			Params: mustJSON(map[string]any{
+				"website_id": site.ID, "account": account, "runtime": site.Runtime,
+				"working_directory": filepath.Dir(site.DocumentRoot),
+			}),
+		})
+	}
 	return nil
 }
 
@@ -298,10 +317,14 @@ func (w *Worker) deployApp(j *store.Job) error {
 	if acc != nil {
 		account = acc.Username
 	}
+	wid := app.WebsiteID
+	if wid == "" {
+		wid = app.ID
+	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyAppUnit",
 		Params: mustJSON(map[string]any{
-			"website_id": app.WebsiteID, "account": account, "runtime": app.Runtime,
+			"website_id": wid, "account": account, "runtime": app.Runtime,
 			"working_directory": app.WorkingDirectory, "start_command": app.StartCommand,
 		}),
 	})

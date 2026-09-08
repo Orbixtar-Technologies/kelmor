@@ -473,11 +473,12 @@ func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "INVALID_JSON", "invalid export", false)
 		return
 	}
-	acc, err := migration.Import(a.Store, raw)
+	acc, err := migration.ImportAs(a.Store, raw, r.URL.Query().Get("username"), r.URL.Query().Get("domain"), actor(r).UserID)
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
+	a.Store.AddMember(acc.ID, actor(r).UserID)
 	a.audit(r, "account.import", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc})
 }
@@ -798,6 +799,13 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 	in.DesiredRevision = 1
 	if in.Runtime == "" {
 		in.Runtime = "php"
+	}
+	acc := a.Store.GetAccount(aid)
+	if in.DocumentRoot == "" && acc != nil {
+		in.DocumentRoot = acc.HomePath + "/public_html"
+		if d := a.Store.GetDomain(in.DomainID); d != nil && d.DocumentRoot != "" {
+			in.DocumentRoot = d.DocumentRoot
+		}
 	}
 	a.Store.PutWebsite(&in)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "website.provision", ResourceType: "website", ResourceID: in.ID, Payload: map[string]any{"website_id": in.ID}, State: "queued"})

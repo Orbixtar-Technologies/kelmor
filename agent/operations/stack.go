@@ -82,6 +82,30 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 	if workDir == "" {
 		workDir = "/home/" + account + "/apps/" + websiteID
 	}
+	if _, err := h.CreateDirectoryTree(workDir, 0o750); err != nil {
+		return Result{}, err
+	}
+	if _, err := h.CreateDirectoryTree("/run/panel/apps", 0o755); err != nil {
+		return Result{}, err
+	}
+	sock := "/run/panel/apps/" + websiteID + ".sock"
+	switch runtime {
+	case "node":
+		stub := fmt.Sprintf("const http=require('http');\nconst s=http.createServer((q,r)=>{r.writeHead(200,{'content-type':'text/plain'});r.end('node %s\\n');});\ns.listen(%q);\n", websiteID, sock)
+		if abs, err := h.resolve(workDir + "/server.js"); err == nil {
+			if _, err := os.Stat(abs); os.IsNotExist(err) {
+				_, _ = h.ApplyFile(workDir+"/server.js", []byte(stub), 0o644)
+			}
+		}
+		command = "/usr/bin/node server.js"
+	case "python":
+		stub := fmt.Sprintf("from http.server import BaseHTTPRequestHandler, HTTPServer\nclass H(BaseHTTPRequestHandler):\n    def do_GET(self):\n        self.send_response(200); self.end_headers(); self.wfile.write(b'python %s\\n')\nHTTPServer(('127.0.0.1', 0), H).serve_forever()\n", websiteID)
+		if abs, err := h.resolve(workDir + "/app.py"); err == nil {
+			if _, err := os.Stat(abs); os.IsNotExist(err) {
+				_, _ = h.ApplyFile(workDir+"/app.py", []byte(stub), 0o644)
+			}
+		}
+	}
 	body := fmt.Sprintf("[Unit]\nDescription=panel app %s\n[Service]\nUser=%s\nWorkingDirectory=%s\nExecStart=%s\nRestart=on-failure\nSlice=panel-account-%s.slice\n[Install]\nWantedBy=multi-user.target\n",
 		websiteID, account, workDir, command, account)
 	path := "/etc/systemd/system/panel-app-" + websiteID + ".service"
@@ -90,6 +114,7 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 	}
 	if h.live() {
 		_, _ = runFixed("/bin/systemctl", "daemon-reload")
+		_, _ = runFixed("/bin/systemctl", "start", "panel-app-"+websiteID+".service")
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
 }

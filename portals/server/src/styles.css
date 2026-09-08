@@ -14,7 +14,9 @@ h1 { margin: 0 0 8px; font-size: 28px; }
 .lede, header p { color: #9aacc6; }
 label { display: grid; gap: 6px; margin: 12px 0; font-size: 14px; }
 input, select, button { font: inherit; }
-input, select { background: #0b1220; color: #e8edf5; border: 1px solid #334562; padding: 10px 12px; border-radius: 8px; }
+input, select, textarea { background: #0b1220; color: #e8edf5; border: 1px solid #334562; padding: 10px 12px; border-radius: 8px; }
+textarea { width: min(720px, 100%); display: block; margin: 8px 0; }
+h2 { margin: 28px 0 10px; font-size: 18px; }
 button { background: #2f6fed; color: white; border: 0; padding: 10px 14px; border-radius: 8px; cursor: pointer; }
 button.ghost { background: transparent; border: 1px solid #334562; width: 100%; margin-top: auto; }
 .error { color: #ff8b8b; }

@@ -181,18 +181,46 @@ function Accounts () {
 function AccountDetail () {
 	const [acc, setAcc] = useState<any>(null)
 	const [jobs, setJobs] = useState<any[]>([])
+	const [sites, setSites] = useState<any[]>([])
+	const [domains, setDomains] = useState<any[]>([])
+	const [zones, setZones] = useState<any[]>([])
+	const [records, setRecords] = useState<any[]>([])
+	const [mailboxes, setMailboxes] = useState<any[]>([])
+	const [mailDomains, setMailDomains] = useState<any[]>([])
+	const [files, setFiles] = useState<any[]>([])
+	const [backups, setBackups] = useState<any[]>([])
 	const [msg, setMsg] = useState('')
 	const id = window.location.pathname.split('/').pop() || ''
 	async function reload () {
 		setAcc(await api(`/api/v1/accounts/${id}`))
 		const j = await api<{ items: any[] }>('/api/v1/jobs')
-		setJobs(j.items.filter((x) => x.resource_id === id))
+		setJobs(j.items.filter((x) => x.resource_id === id || (x.payload && x.payload.account_id === id)))
+		const [ws, ds, zs, mds, mbs, fl, bks] = await Promise.all([
+			api<{ items: any[] }>(`/api/v1/accounts/${id}/websites`),
+			api<{ items: any[] }>(`/api/v1/accounts/${id}/domains`),
+			api<{ items: any[] }>(`/api/v1/accounts/${id}/dns/zones`),
+			api<{ items: any[] }>(`/api/v1/accounts/${id}/mail/domains`),
+			api<{ items: any[] }>(`/api/v1/accounts/${id}/mail/mailboxes`),
+			api<{ items: any[] }>(`/api/v1/accounts/${id}/files?path=/public_html`),
+			api<{ items: any[] }>(`/api/v1/accounts/${id}/backups`),
+		])
+		setSites(ws.items || [])
+		setDomains(ds.items || [])
+		setZones(zs.items || [])
+		setMailDomains(mds.items || [])
+		setMailboxes(mbs.items || [])
+		setFiles(fl.items || [])
+		setBackups(bks.items || [])
+		if (zs.items?.[0]) {
+			const rec = await api<{ items: any[] }>(`/api/v1/accounts/${id}/dns/zones/${zs.items[0].id}/records`)
+			setRecords(rec.items || [])
+		}
 	}
 	useEffect(() => { reload().catch((e) => setMsg(e.message)) }, [id])
 	if (!acc) return <Empty title="Loading account" detail={msg || 'Reading desired and observed state.'} />
 	return (
 		<>
-			<header><h1>{acc.username}</h1><p>{acc.primary_domain} · UID {acc.linux_uid} · {acc.status}</p></header>
+			<header><h1>{acc.username}</h1><p>{acc.primary_domain} · UID {acc.linux_uid} · {acc.status} · {acc.home_path}</p></header>
 			{msg ? <p className="notice">{msg}</p> : null}
 			<div className="row">
 				<button type="button" onClick={() => act(`/api/v1/accounts/${id}/suspend`, reload, setMsg)}>Suspend</button>
@@ -206,17 +234,85 @@ function AccountDetail () {
 					a.download = `${acc.username}.hpm-account.json`
 					a.click()
 					URL.revokeObjectURL(url)
+					setMsg('Native export downloaded')
 				}}>Download native export</button>
 				<button type="button" onClick={async () => {
 					await api(`/api/v1/accounts/${id}/backups`, { method: 'POST', body: JSON.stringify({ kind: 'full', destination: 'local' }) })
 					setMsg('Backup queued')
+					await reload()
 				}}>Queue encrypted backup</button>
 			</div>
+			<h2>Websites</h2>
+			<form className="row" onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${id}/websites`, { method: 'POST', body: JSON.stringify({
+					domain_id: fd.get('domain_id'), runtime: fd.get('runtime'), document_root: acc.home_path + '/public_html',
+				}) })
+				setMsg('Website apply queued')
+				await reload()
+			}}>
+				<select name="domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn}</option>)}</select>
+				<select name="runtime">
+					<option value="php">PHP</option>
+					<option value="static">Static</option>
+					<option value="node">Node</option>
+					<option value="python">Python</option>
+				</select>
+				<button type="submit">Apply website</button>
+			</form>
+			<table>
+				<thead><tr><th>Runtime</th><th>Root</th><th>Enabled</th></tr></thead>
+				<tbody>{sites.map((s) => <tr key={s.id}><td>{s.runtime} {s.runtime_version}</td><td>{s.document_root}</td><td>{s.enabled ? 'yes' : 'no'}</td></tr>)}</tbody>
+			</table>
+			<h2>DNS {zones[0] ? zones[0].name : ''}</h2>
+			{records.length === 0 ? <p>No records yet.</p> : (
+				<table>
+					<thead><tr><th>Name</th><th>Type</th><th>Content</th></tr></thead>
+					<tbody>{records.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.type}</td><td>{r.content}</td></tr>)}</tbody>
+				</table>
+			)}
+			<h2>Mail</h2>
+			<form className="row" onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${id}/mail/mailboxes`, { method: 'POST', body: JSON.stringify({
+					domain_id: fd.get('domain_id'), local_part: fd.get('local_part'), password: fd.get('password'),
+				}) })
+				setMsg('Mailbox queued')
+				await reload()
+			}}>
+				<select name="domain_id">{mailDomains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn}</option>)}</select>
+				<input name="local_part" placeholder="local part" required />
+				<input name="password" type="password" placeholder="mailbox password" required />
+				<button type="submit">Create mailbox</button>
+			</form>
+			<table>
+				<thead><tr><th>Mailbox</th><th>Status</th></tr></thead>
+				<tbody>{mailboxes.map((m) => <tr key={m.id}><td>{m.local_part}</td><td>{m.status}</td></tr>)}</tbody>
+			</table>
+			<h2>Files in public_html</h2>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${id}/files`, { method: 'POST', body: JSON.stringify({
+					path: fd.get('path'), content: fd.get('content'),
+				}) })
+				setMsg('File written through the agent')
+				await reload()
+			}}>
+				<input name="path" defaultValue="/public_html/index.html" />
+				<textarea name="content" rows={4} placeholder="file contents" required />
+				<button type="submit">Write file</button>
+			</form>
+			<ul>{files.map((f) => <li key={f.name}>{f.dir ? f.name + '/' : `${f.name} (${f.size})`}</li>)}</ul>
+			<h2>Backups</h2>
+			<ul>{backups.map((b) => <li key={b.id}>{b.kind} {b.state} {b.destination} {b.checksum ? b.checksum.slice(0, 12) : ''}</li>)}</ul>
 			<h2>Related jobs</h2>
 			{jobs.length === 0 ? <p>No jobs for this account.</p> : (
 				<table>
-					<thead><tr><th>Type</th><th>State</th><th>%</th></tr></thead>
-					<tbody>{jobs.map((j) => <tr key={j.id}><td>{j.type}</td><td>{j.state}</td><td>{j.progress}</td></tr>)}</tbody>
+					<thead><tr><th>Type</th><th>State</th><th>%</th><th>Error</th></tr></thead>
+					<tbody>{jobs.map((j) => <tr key={j.id}><td>{j.type}</td><td>{j.state}</td><td>{j.progress}</td><td>{j.last_error}</td></tr>)}</tbody>
 				</table>
 			)}
 		</>
@@ -235,13 +331,19 @@ function ImportAccount () {
 				setMsg('')
 				try {
 					const raw = await file.text()
-					const r = await api<any>('/api/v1/accounts/import', { method: 'POST', body: raw, headers: { 'Content-Type': 'application/json' } })
+					const qs = new URLSearchParams()
+					if (fd.get('username')) qs.set('username', String(fd.get('username')))
+					if (fd.get('domain')) qs.set('domain', String(fd.get('domain')))
+					const suffix = qs.toString() ? '?' + qs.toString() : ''
+					const r = await api<any>('/api/v1/accounts/import' + suffix, { method: 'POST', body: raw, headers: { 'Content-Type': 'application/json' } })
 					setMsg(`Imported ${r.account?.username || r.resource_id}`)
 				} catch (err) {
 					setMsg(err instanceof Error ? err.message : 'import failed')
 				}
 			}}>
 				<input name="export" type="file" accept="application/json" required />
+				<input name="username" placeholder="optional new username" />
+				<input name="domain" placeholder="optional new primary domain" />
 				<button type="submit">Import native export</button>
 			</form>
 			<form className="row" onSubmit={async (e) => {
