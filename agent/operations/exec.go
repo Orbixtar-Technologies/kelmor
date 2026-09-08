@@ -43,6 +43,7 @@ var allowedBins = map[string]bool{
 	"/usr/sbin/postqueue":   true,
 	"/usr/sbin/postsuper":   true,
 	"/usr/sbin/postmap":     true,
+	"/usr/sbin/postconf":    true,
 	"/usr/sbin/postfix":     true,
 	"/usr/bin/doveadm":      true,
 	"/usr/bin/pdns_control": true,

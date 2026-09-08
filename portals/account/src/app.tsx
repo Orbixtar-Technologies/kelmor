@@ -429,10 +429,61 @@ function Email ({ accountId }: { accountId: string }) {
 				<input name="catchall_policy" placeholder="reject, discard, or info" defaultValue="reject" required />
 				<button type="submit">Set catch-all</button>
 			</form>
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				try {
+					await api(`/api/v1/accounts/${accountId}/mail/aliases`, { method: 'POST', body: JSON.stringify({
+						domain_id: fd.get('domain_id'), address: fd.get('address'), destination: fd.get('destination'),
+					}) })
+					setMsg('Alias queued')
+					await load()
+				} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
+			}}>
+				<select name="domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn || d.id}</option>)}</select>
+				<input name="address" placeholder="sales" required />
+				<input name="destination" placeholder="info or other@example.test" required />
+				<button type="submit">Add alias</button>
+			</form>
 			</Can>
 			{msg ? <p>{msg}</p> : null}
 			<ul>{domains.map((d) => <li key={d.id}>{d.ascii_fqdn} catch-all {d.catchall_policy}</li>)}</ul>
-			<ul>{boxes.map((b) => <li key={b.id}>{b.local_part} — {b.status}</li>)}</ul>
+			<ul>{boxes.map((b) => (
+				<li key={b.id}>
+					{b.local_part} — {b.status}
+					<Can cap="mail.write">
+						<button type="button" onClick={async () => {
+							await api(`/api/v1/accounts/${accountId}/mail/mailboxes/${b.id}`, { method: 'DELETE' })
+							await load()
+						}}>Delete mailbox</button>
+					</Can>
+				</li>
+			))}</ul>
+			<MailAliases accountId={accountId} domains={domains} />
+		</>
+	)
+}
+
+function MailAliases ({ accountId, domains }: { accountId: string; domains: any[] }) {
+	const [items, setItems] = useState<any[]>([])
+	const load = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/mail/aliases`).then((r) => setItems(asList(r)))
+	useEffect(() => { load() }, [accountId])
+	return (
+		<>
+			<h2>Aliases</h2>
+			<ul>{items.map((a) => (
+				<li key={a.id}>
+					{a.address} → {a.destination}
+					<Can cap="mail.write">
+						<button type="button" onClick={async () => {
+							await api(`/api/v1/accounts/${accountId}/mail/aliases/${a.id}`, { method: 'DELETE' })
+							await load()
+						}}>Delete</button>
+					</Can>
+				</li>
+			))}
+			</ul>
+			{domains.length === 0 ? <p>No mail domains yet.</p> : null}
 		</>
 	)
 }
@@ -505,7 +556,17 @@ function Files ({ accountId }: { accountId: string }) {
 				<input name="label" placeholder="laptop" />
 				<button type="submit">Add SSH key</button>
 			</form>
-			<ul>{sshKeys.map((k) => <li key={k.id}>{k.label || k.fingerprint}</li>)}</ul>
+			<ul>{sshKeys.map((k) => (
+				<li key={k.id}>
+					{k.label || k.fingerprint}
+					<Can cap="files.write">
+						<button type="button" onClick={async () => {
+							await api(`/api/v1/accounts/${accountId}/ssh-keys/${k.id}`, { method: 'DELETE' })
+							await loadSSH()
+						}}>Remove</button>
+					</Can>
+				</li>
+			))}</ul>
 			<h2>FTP users</h2>
 			<p>Virtual FTP logins map to this account and chroot to public_html (port 21).</p>
 			<form onSubmit={async (e) => {

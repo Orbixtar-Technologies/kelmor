@@ -119,6 +119,27 @@ with smtplib.SMTP("127.0.0.1", 25, timeout=10) as s:
     s.sendmail(msg["From"], [msg["To"]], msg.as_string())
 print("smtp accepted")
 PY
+have_sales=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/aliases" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
+print(next((i['id'] for i in items if i.get('address')=='sales'), ''))")
+if [[ -z "$have_sales" ]]; then
+  aliasj=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/mail/aliases" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"domain_id\":\"$mdid\",\"address\":\"sales\",\"destination\":\"info\"}")
+  echo "$aliasj"
+  ajob=$(echo "$aliasj" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  wait_job "$ajob" mail-alias
+fi
+sudo grep -q "sales@$DOMAIN info@$DOMAIN" /var/lib/panel/mail/aliases || { echo "alias map missing sales@$DOMAIN" >&2; exit 1; }
+python3 - <<PY
+import smtplib
+from email.mime.text import MIMEText
+msg = MIMEText("panel alias smtp")
+msg["Subject"] = "panel alias"
+msg["From"] = "probe@localhost"
+msg["To"] = "sales@$DOMAIN"
+with smtplib.SMTP("127.0.0.1", 25, timeout=10) as s:
+    s.sendmail(msg["From"], [msg["To"]], msg.as_string())
+print("smtp alias accepted")
+PY
 if sudo test -f /var/lib/panel/mail/send-limits; then
   sudo grep -q "info@$DOMAIN" /var/lib/panel/mail/send-limits || { echo "send-limits missing info@$DOMAIN" >&2; exit 1; }
 fi

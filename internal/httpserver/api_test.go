@@ -362,6 +362,13 @@ func TestSSHKeyValidation(t *testing.T) {
 	if created["label"] != "laptop" {
 		t.Fatalf("label from comment: %v", created)
 	}
+	kid := created["id"].(string)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/ssh-keys/"+kid, admin, nil) != 200 {
+		t.Fatal("delete ssh key")
+	}
+	if len(st.ListSSH(aid)) != 0 {
+		t.Fatal("ssh key remained")
+	}
 }
 
 func TestWordPressInstallAPI(t *testing.T) {
@@ -429,6 +436,48 @@ func TestDNSSECAndCatchallAPI(t *testing.T) {
 	}
 	if st.ListMailDomains(aid)[0].CatchallPolicy != "info" {
 		t.Fatal(st.ListMailDomains(aid)[0].CatchallPolicy)
+	}
+}
+
+func TestMailAliasAndMailboxDelete(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "mailal1", "primary_domain": "aliasbox.test", "package_id": pkg,
+		"owner_email": "o@aliasbox.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	dom := &store.Domain{ID: id.New(), AccountID: aid, ASCII: "aliasbox.test"}
+	st.PutDomain(dom)
+	md := &store.MailDomain{ID: id.New(), AccountID: aid, DomainID: dom.ID, Status: "active"}
+	st.PutMailDomain(md)
+	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: "info", Status: "active"}
+	st.PutMailbox(mb)
+	created := post(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/aliases", admin, map[string]any{
+		"domain_id": md.ID, "address": "sales", "destination": "info",
+	})
+	if created["alias"] == nil {
+		t.Fatalf("%v", created)
+	}
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes/"+mb.ID, admin, nil) != 409 {
+		t.Fatal("expected mailbox in use")
+	}
+	alid := created["alias"].(map[string]any)["id"].(string)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/mail/aliases/"+alid, admin, nil) != 202 {
+		t.Fatal("delete alias")
+	}
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes/"+mb.ID, admin, nil) != 202 {
+		t.Fatal("delete mailbox")
+	}
+	if st.GetMailbox(mb.ID) != nil {
+		t.Fatal("mailbox remained")
 	}
 }
 

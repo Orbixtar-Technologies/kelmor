@@ -14,7 +14,7 @@ import (
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
 
-func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits string) (Result, error) {
+func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, aliases string) (Result, error) {
 	if _, err := h.ApplyFile("/var/lib/panel/mail/virtual", []byte(virtual), 0o640); err != nil {
 		return Result{}, err
 	}
@@ -39,11 +39,20 @@ func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits st
 			return Result{}, err
 		}
 	}
+	if aliases == "" {
+		aliases = "# panel virtual alias map — generated, do not edit\n"
+	}
+	if _, err := h.ApplyFile("/var/lib/panel/mail/aliases", []byte(aliases), 0o640); err != nil {
+		return Result{}, err
+	}
 	if h.live() {
 		_ = os.MkdirAll("/var/lib/panel/mail", 0o755)
 		_ = os.Chmod("/var/lib/panel", 0o755)
 		_ = os.Chmod("/var/lib/panel/mail", 0o755)
-		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains", "/var/lib/panel/mail/uids", "/var/lib/panel/mail/gids"} {
+		if out, err := runFixed("/usr/sbin/postconf", "virtual_alias_maps=hash:/var/lib/panel/mail/aliases"); err != nil {
+			return Result{}, fmt.Errorf("postconf: %s", strings.TrimSpace(string(out)))
+		}
+		for _, mapfile := range []string{"/var/lib/panel/mail/virtual", "/var/lib/panel/mail/vdomains", "/var/lib/panel/mail/uids", "/var/lib/panel/mail/gids", "/var/lib/panel/mail/aliases"} {
 			if _, err := os.Stat(mapfile); err != nil {
 				continue
 			}
@@ -378,7 +387,7 @@ func sighupPidFile(path string) {
 	_ = syscall.Kill(pid, syscall.SIGHUP)
 }
 
-func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids, sendLimits string, err error) {
+func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids, sendLimits, aliases string, err error) {
 	var p struct {
 		Virtual    string `json:"virtual"`
 		Domains    string `json:"domains"`
@@ -386,12 +395,13 @@ func decodeMaps(raw json.RawMessage) (virtual, domains, passwd, uids, gids, send
 		UIDs       string `json:"uids"`
 		GIDs       string `json:"gids"`
 		SendLimits string `json:"send_limits"`
+		Aliases    string `json:"aliases"`
 	}
 	if err = json.Unmarshal(raw, &p); err != nil {
-		return "", "", "", "", "", "", err
+		return "", "", "", "", "", "", "", err
 	}
-	if strings.ContainsAny(p.Virtual, "\x00") {
-		return "", "", "", "", "", "", fmt.Errorf("NUL in mail map")
+	if strings.ContainsAny(p.Virtual, "\x00") || strings.ContainsAny(p.Aliases, "\x00") {
+		return "", "", "", "", "", "", "", fmt.Errorf("NUL in mail map")
 	}
-	return p.Virtual, p.Domains, p.Passwd, p.UIDs, p.GIDs, p.SendLimits, nil
+	return p.Virtual, p.Domains, p.Passwd, p.UIDs, p.GIDs, p.SendLimits, p.Aliases, nil
 }

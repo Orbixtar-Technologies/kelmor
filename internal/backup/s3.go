@@ -6,10 +6,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -115,7 +118,50 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 }
 
 func (s *S3) List(ctx context.Context, prefix string) ([]Object, error) {
-	return nil, fmt.Errorf("s3 list not implemented")
+	q := url.Values{}
+	q.Set("list-type", "2")
+	if p := s.objectKey(prefix); p != "" {
+		q.Set("prefix", p)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/%s?%s", s.Endpoint, s.Bucket, q.Encode()), nil)
+	if err != nil {
+		return nil, err
+	}
+	s.sign(req, nil)
+	res, err := s.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		return nil, fmt.Errorf("s3 list: %s %s", res.Status, string(body))
+	}
+	var parsed struct {
+		Contents []struct {
+			Key  string `xml:"Key"`
+			Size int64  `xml:"Size"`
+		} `xml:"Contents"`
+	}
+	if err := xml.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("s3 list xml: %w", err)
+	}
+	strip := ""
+	if s.Prefix != "" {
+		strip = strings.TrimSuffix(s.Prefix, "/") + "/"
+	}
+	var out []Object
+	for _, c := range parsed.Contents {
+		key := c.Key
+		if strip != "" {
+			key = strings.TrimPrefix(key, strip)
+		}
+		out = append(out, Object{Key: key, Size: c.Size})
+	}
+	return out, nil
 }
 
 func (s *S3) Verify(ctx context.Context, key, checksum string) error {
@@ -149,7 +195,7 @@ func (s *S3) sign(req *http.Request, payload []byte) {
 	canonical := strings.Join([]string{
 		req.Method,
 		req.URL.EscapedPath(),
-		"",
+		canonicalQuery(req.URL),
 		"host:" + req.URL.Host,
 		"x-amz-content-sha256:" + payloadHash,
 		"x-amz-date:" + amzDate,
@@ -165,6 +211,25 @@ func (s *S3) sign(req *http.Request, payload []byte) {
 	signing = hmacSHA256(signing, []byte("aws4_request"))
 	sig := hex.EncodeToString(hmacSHA256(signing, []byte(sts)))
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+s.AccessKey+"/"+scope+", SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature="+sig)
+}
+
+func canonicalQuery(u *url.URL) string {
+	q := u.Query()
+	if len(q) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(q))
+	for k := range q {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		for _, v := range q[k] {
+			parts = append(parts, url.QueryEscape(k)+"="+url.QueryEscape(v))
+		}
+	}
+	return strings.Join(parts, "&")
 }
 
 func sha256Hex(b []byte) string {

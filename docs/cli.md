@@ -18,7 +18,11 @@ panel-cli ftp list <account-id>
 panel-cli firewall apply
 panel-cli reboot
 panel-cli mailbox create <account-id> <mail-domain-id> info 'MailboxPass!2026'
+panel-cli mailbox delete <account-id> <mailbox-id>
+panel-cli mail alias create <account-id> <mail-domain-id> sales info
+panel-cli mail alias delete <account-id> <alias-id>
 panel-cli mail catchall <account-id> <mail-domain-id> info
+panel-cli ssh-key delete <account-id> <key-id>
 panel-cli dnssec enable <account-id> <zone-id>
 panel-cli dnssec ds <account-id> <zone-id>
 panel-cli db create <account-id> shop mariadb

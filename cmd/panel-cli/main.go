@@ -33,6 +33,9 @@ func main() {
   ftp create <account_id> <username> <password>
   ftp delete <account_id> <ftp_id>
   mailbox create <account_id> <mail_domain_id> <local> <password>
+  mailbox delete <account_id> <mailbox_id>
+  mail alias create <account_id> <mail_domain_id> <local> <destination>
+  mail alias delete <account_id> <alias_id>
   mail catchall <account_id> <mail_domain_id> <reject|discard|local>
   dnssec enable <account_id> <zone_id>
   dnssec disable <account_id> <zone_id>
@@ -44,6 +47,7 @@ func main() {
   file list <account_id> [path]
   file write <account_id> <path> <content>
   ssh-key add <account_id> <public_key> [label]
+  ssh-key delete <account_id> <key_id>
   backup create <account_id>
   backup restore <account_id> <backup_id>
   jobs list
@@ -108,6 +112,14 @@ func main() {
 		post(base+"/api/v1/accounts/"+args[2]+"/mail/mailboxes", token, map[string]any{
 			"domain_id": args[3], "local_part": args[4], "password": args[5],
 		})
+	case args[0] == "mailbox" && args[1] == "delete" && len(args) == 4:
+		do(http.MethodDelete, base+"/api/v1/accounts/"+args[2]+"/mail/mailboxes/"+args[3], token, nil, true)
+	case args[0] == "mail" && args[1] == "alias" && args[2] == "create" && len(args) == 7:
+		post(base+"/api/v1/accounts/"+args[3]+"/mail/aliases", token, map[string]any{
+			"domain_id": args[4], "address": args[5], "destination": args[6],
+		})
+	case args[0] == "mail" && args[1] == "alias" && args[2] == "delete" && len(args) == 5:
+		do(http.MethodDelete, base+"/api/v1/accounts/"+args[3]+"/mail/aliases/"+args[4], token, nil, true)
 	case args[0] == "db" && len(args) == 5 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/databases", token, map[string]any{"name": args[3], "engine": args[4]})
 	case args[0] == "domain" && len(args) >= 4 && args[1] == "create":
@@ -138,6 +150,8 @@ func main() {
 			body["label"] = strings.Join(args[4:], " ")
 		}
 		post(base+"/api/v1/accounts/"+args[2]+"/ssh-keys", token, body)
+	case args[0] == "ssh-key" && args[1] == "delete" && len(args) == 4:
+		do(http.MethodDelete, base+"/api/v1/accounts/"+args[2]+"/ssh-keys/"+args[3], token, nil, true)
 	case args[0] == "file" && args[1] == "write" && len(args) == 5:
 		post(base+"/api/v1/accounts/"+args[2]+"/files", token, map[string]any{"path": args[3], "content": args[4]})
 	case args[0] == "backup" && len(args) == 4 && args[1] == "restore":

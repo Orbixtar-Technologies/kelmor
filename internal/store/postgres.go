@@ -642,6 +642,46 @@ func (p *PG) ListMailboxes(accountID string) []Mailbox {
 	return out
 }
 
+func (p *PG) DeleteMailbox(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM mailboxes WHERE id=$1`, id)
+}
+
+func (p *PG) PutMailAlias(a *MailAlias) {
+	_, _ = p.pool.Exec(p.ctx(), `
+		INSERT INTO mail_aliases (id, account_id, domain_id, address, destination)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (id) DO UPDATE SET address=EXCLUDED.address, destination=EXCLUDED.destination`,
+		a.ID, a.AccountID, a.DomainID, a.Address, a.Destination)
+}
+
+func (p *PG) GetMailAlias(id string) *MailAlias {
+	a := &MailAlias{}
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, address, destination FROM mail_aliases WHERE id=$1`, id).
+		Scan(&a.ID, &a.AccountID, &a.DomainID, &a.Address, &a.Destination); err != nil {
+		return nil
+	}
+	return a
+}
+
+func (p *PG) ListMailAliases(accountID string) []MailAlias {
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, domain_id, address, destination FROM mail_aliases WHERE $1='' OR account_id::text=$1`, accountID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []MailAlias
+	for rows.Next() {
+		var a MailAlias
+		_ = rows.Scan(&a.ID, &a.AccountID, &a.DomainID, &a.Address, &a.Destination)
+		out = append(out, a)
+	}
+	return out
+}
+
+func (p *PG) DeleteMailAlias(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM mail_aliases WHERE id=$1`, id)
+}
+
 func (p *PG) PutCert(c *Certificate) {
 	_, _ = p.pool.Exec(p.ctx(), `
 		INSERT INTO certificates (id, account_id, hostname, kind, status, not_after, issuer)
@@ -934,6 +974,19 @@ func (p *PG) ListCrons(accountID string) []CronJob {
 func (p *PG) PutSSH(k *SSHKey) {
 	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO ssh_keys (id, account_id, label, public_key, fingerprint, created_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING`,
 		k.ID, k.AccountID, k.Label, k.PublicKey, k.Fingerprint, k.CreatedAt)
+}
+
+func (p *PG) GetSSH(id string) *SSHKey {
+	k := &SSHKey{}
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, label, public_key, fingerprint, created_at FROM ssh_keys WHERE id=$1`, id).
+		Scan(&k.ID, &k.AccountID, &k.Label, &k.PublicKey, &k.Fingerprint, &k.CreatedAt); err != nil {
+		return nil
+	}
+	return k
+}
+
+func (p *PG) DeleteSSH(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM ssh_keys WHERE id=$1`, id)
 }
 
 func (p *PG) ListSSH(accountID string) []SSHKey {

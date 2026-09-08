@@ -148,6 +148,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.syncDNS(j)
 	case "mailbox.provision":
 		return w.provisionMailbox(j)
+	case "mailbox.delete", "mail.alias":
+		return w.applyMailStack(str(j.Payload["account_id"]))
 	case "mail.maps":
 		return w.applyMailStack(str(j.Payload["account_id"]))
 	case "dns.dnssec":
@@ -701,6 +703,7 @@ func (w *Worker) applyMailStack(accountID string) error {
 			"uids":        mail.UIDMap(recs),
 			"gids":        mail.GIDMap(recs),
 			"send_limits": mail.SendLimits(recs),
+			"aliases":     mail.AliasMap(w.Store),
 		}),
 	})
 	if err != nil {

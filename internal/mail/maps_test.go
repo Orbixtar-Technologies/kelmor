@@ -70,6 +70,19 @@ func TestCatchallVirtual(t *testing.T) {
 	}
 }
 
+func TestAliasMap(t *testing.T) {
+	st := store.NewMemory()
+	st.PutAccount(&store.Account{ID: "a", Username: "acme", LinuxUID: 20010, LinuxGID: 20010, Status: "active"})
+	st.PutDomain(&store.Domain{ID: "d", AccountID: "a", ASCII: "acme.test"})
+	st.PutMailDomain(&store.MailDomain{ID: "md", AccountID: "a", DomainID: "d"})
+	st.PutMailbox(&store.Mailbox{ID: "m", AccountID: "a", DomainID: "md", LocalPart: "info", PasswordHash: "h"})
+	st.PutMailAlias(&store.MailAlias{ID: "al", AccountID: "a", DomainID: "md", Address: "sales", Destination: "info"})
+	body := AliasMap(st)
+	if !strings.Contains(body, "sales@acme.test info@acme.test") {
+		t.Fatal(body)
+	}
+}
+
 func TestCatchallSkipsTerminating(t *testing.T) {
 	st := store.NewMemory()
 	st.PutAccount(&store.Account{ID: "a", Username: "gone", Status: "terminated"})

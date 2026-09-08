@@ -63,6 +63,11 @@ type Store interface {
 	PutMailbox(*Mailbox)
 	GetMailbox(string) *Mailbox
 	ListMailboxes(accountID string) []Mailbox
+	DeleteMailbox(id string)
+	PutMailAlias(*MailAlias)
+	GetMailAlias(string) *MailAlias
+	ListMailAliases(accountID string) []MailAlias
+	DeleteMailAlias(id string)
 
 	PutCert(*Certificate)
 	GetCert(string) *Certificate
@@ -88,7 +93,9 @@ type Store interface {
 	PutCron(*CronJob)
 	ListCrons(accountID string) []CronJob
 	PutSSH(*SSHKey)
+	GetSSH(id string) *SSHKey
 	ListSSH(accountID string) []SSHKey
+	DeleteSSH(id string)
 	PutFTP(*FTPAccount)
 	ListFTP(accountID string) []FTPAccount
 	ListAllFTP() []FTPAccount

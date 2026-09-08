@@ -29,6 +29,7 @@ type Memory struct {
 	Records   map[string]*DNSRecord
 	MailDom   map[string]*MailDomain
 	Mailboxes map[string]*Mailbox
+	Aliases   map[string]*MailAlias
 	Certs     map[string]*Certificate
 	Jobs      map[string]*Job
 	Audit     []*AuditEvent
@@ -51,7 +52,8 @@ func NewMemory() *Memory {
 		DBs: map[string]*HostedDatabase{}, DBUsers: map[string]*DatabaseUser{},
 		Zones: map[string]*DNSZone{}, Records: map[string]*DNSRecord{},
 		MailDom: map[string]*MailDomain{}, Mailboxes: map[string]*Mailbox{},
-		Certs: map[string]*Certificate{}, Jobs: map[string]*Job{},
+		Aliases: map[string]*MailAlias{},
+		Certs:   map[string]*Certificate{}, Jobs: map[string]*Job{},
 		Tokens: map[string]*APIToken{}, Backups: map[string]*BackupRun{},
 		Crons: map[string]*CronJob{}, SSHKeys: map[string]*SSHKey{},
 		FTPs: map[string]*FTPAccount{}, Usage: map[string]*Usage{},
@@ -415,6 +417,37 @@ func (m *Memory) ListMailboxes(accountID string) []Mailbox {
 	}
 	return out
 }
+func (m *Memory) DeleteMailbox(id string) {
+	m.mu.Lock()
+	delete(m.Mailboxes, id)
+	m.mu.Unlock()
+}
+func (m *Memory) PutMailAlias(a *MailAlias) { m.mu.Lock(); m.Aliases[a.ID] = a; m.mu.Unlock() }
+func (m *Memory) GetMailAlias(id string) *MailAlias {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if a := m.Aliases[id]; a != nil {
+		cp := *a
+		return &cp
+	}
+	return nil
+}
+func (m *Memory) ListMailAliases(accountID string) []MailAlias {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []MailAlias{}
+	for _, a := range m.Aliases {
+		if accountID == "" || a.AccountID == accountID {
+			out = append(out, *a)
+		}
+	}
+	return out
+}
+func (m *Memory) DeleteMailAlias(id string) {
+	m.mu.Lock()
+	delete(m.Aliases, id)
+	m.mu.Unlock()
+}
 
 func (m *Memory) PutCert(c *Certificate) { m.mu.Lock(); m.Certs[c.ID] = c; m.mu.Unlock() }
 func (m *Memory) GetCert(id string) *Certificate {
@@ -628,6 +661,20 @@ func (m *Memory) ListCrons(accountID string) []CronJob {
 	return out
 }
 func (m *Memory) PutSSH(k *SSHKey) { m.mu.Lock(); m.SSHKeys[k.ID] = k; m.mu.Unlock() }
+func (m *Memory) GetSSH(id string) *SSHKey {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if k := m.SSHKeys[id]; k != nil {
+		cp := *k
+		return &cp
+	}
+	return nil
+}
+func (m *Memory) DeleteSSH(id string) {
+	m.mu.Lock()
+	delete(m.SSHKeys, id)
+	m.mu.Unlock()
+}
 func (m *Memory) ListSSH(accountID string) []SSHKey {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

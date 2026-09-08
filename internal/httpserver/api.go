@@ -112,6 +112,10 @@ func (a *API) Handler() http.Handler {
 				r.Patch("/mail/domains/{mailDomainID}", a.patchMailDomain)
 				r.Get("/mail/mailboxes", a.listMailboxes)
 				r.Post("/mail/mailboxes", a.createMailbox)
+				r.Delete("/mail/mailboxes/{mailboxID}", a.deleteMailbox)
+				r.Get("/mail/aliases", a.listMailAliases)
+				r.Post("/mail/aliases", a.createMailAlias)
+				r.Delete("/mail/aliases/{aliasID}", a.deleteMailAlias)
 				r.Get("/certificates", a.listCerts)
 				r.Post("/certificates", a.requestCert)
 				r.Get("/backups", a.listBackups)
@@ -125,6 +129,7 @@ func (a *API) Handler() http.Handler {
 				r.Get("/ssh-keys", a.listSSH)
 				r.Post("/sftp-password", a.setSFTPPassword)
 				r.Post("/ssh-keys", a.createSSH)
+				r.Delete("/ssh-keys/{keyID}", a.deleteSSH)
 				r.Get("/ftp", a.listFTP)
 				r.Post("/ftp", a.createFTP)
 				r.Delete("/ftp/{ftpID}", a.deleteFTP)
@@ -1469,6 +1474,130 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mailbox": mb})
 }
 
+func (a *API) deleteMailbox(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.MailWrite) {
+		return
+	}
+	mb := a.Store.GetMailbox(chi.URLParam(r, "mailboxID"))
+	if mb == nil || mb.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "mailbox missing", false)
+		return
+	}
+	for _, al := range a.Store.ListMailAliases(aid) {
+		if al.Destination == mb.LocalPart || strings.HasPrefix(al.Destination, mb.LocalPart+"@") {
+			a.fail(w, r, 409, "IN_USE", "mailbox is an alias destination", false)
+			return
+		}
+	}
+	a.Store.DeleteMailbox(mb.ID)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "mailbox.delete", ResourceType: "mailbox", ResourceID: mb.ID,
+		Payload: map[string]any{"account_id": aid, "mailbox_id": mb.ID},
+		State:   "queued",
+	})
+	a.audit(r, "mailbox.delete", "mailbox", mb.ID, true, map[string]any{"local_part": mb.LocalPart}, nil)
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
+}
+
+func (a *API) listMailAliases(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.MailRead) {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"items": a.Store.ListMailAliases(aid)})
+}
+
+func (a *API) createMailAlias(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.MailWrite) {
+		return
+	}
+	var in struct {
+		DomainID    string `json:"domain_id"`
+		Address     string `json:"address"`
+		Destination string `json:"destination"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if err := validate.LocalPart(in.Address); err != nil {
+		a.fail(w, r, 400, "VALIDATION", "address: "+err.Error(), false)
+		return
+	}
+	dest, err := normalizeAliasDestination(in.Destination)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	md := resolveMailDomain(a.Store, aid, in.DomainID)
+	if md == nil {
+		a.fail(w, r, 400, "VALIDATION", "Mail domain is not provisioned yet", false)
+		return
+	}
+	if dest == in.Address {
+		a.fail(w, r, 400, "VALIDATION", "alias cannot point at itself", false)
+		return
+	}
+	for _, existing := range a.Store.ListMailAliases(aid) {
+		if existing.DomainID == md.ID && existing.Address == in.Address {
+			a.fail(w, r, 409, "CONFLICT", "alias already exists", false)
+			return
+		}
+	}
+	al := &store.MailAlias{ID: id.New(), AccountID: aid, DomainID: md.ID, Address: in.Address, Destination: dest}
+	a.Store.PutMailAlias(al)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "mail.alias", ResourceType: "mail_alias", ResourceID: al.ID,
+		Payload: map[string]any{"account_id": aid, "alias_id": al.ID},
+		State:   "queued",
+	})
+	a.audit(r, "mail.alias.create", "mail_alias", al.ID, true, nil, map[string]any{"address": al.Address, "destination": al.Destination})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "alias": al})
+}
+
+func (a *API) deleteMailAlias(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.MailWrite) {
+		return
+	}
+	al := a.Store.GetMailAlias(chi.URLParam(r, "aliasID"))
+	if al == nil || al.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "alias missing", false)
+		return
+	}
+	a.Store.DeleteMailAlias(al.ID)
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "mail.alias", ResourceType: "mail_alias", ResourceID: al.ID,
+		Payload: map[string]any{"account_id": aid, "alias_id": al.ID},
+		State:   "queued",
+	})
+	a.audit(r, "mail.alias.delete", "mail_alias", al.ID, true, map[string]any{"address": al.Address}, nil)
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
+}
+
+func normalizeAliasDestination(raw string) (string, error) {
+	s := strings.TrimSpace(strings.ToLower(raw))
+	if s == "" || strings.ContainsAny(s, ";|&$`\n\r ") {
+		return "", fmt.Errorf("invalid destination")
+	}
+	if !strings.Contains(s, "@") {
+		if err := validate.LocalPart(s); err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+	local, host, ok := strings.Cut(s, "@")
+	if !ok || strings.Count(s, "@") != 1 {
+		return "", fmt.Errorf("invalid destination")
+	}
+	if err := validate.LocalPart(local); err != nil {
+		return "", err
+	}
+	if _, err := validate.NormalizeDomain(host); err != nil {
+		return "", err
+	}
+	return local + "@" + host, nil
+}
+
 func (a *API) listCerts(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.WebsitesRead) {
@@ -1718,17 +1847,38 @@ func (a *API) createSSH(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256([]byte(rec.PublicKey))
 	rec.Fingerprint = hex.EncodeToString(sum[:])
 	a.Store.PutSSH(&rec)
-	acc := a.Store.GetAccount(aid)
+	a.applyAuthorizedKeys(r.Context(), aid)
+	writeJSON(w, 201, rec)
+}
+
+func (a *API) deleteSSH(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.FilesWrite) {
+		return
+	}
+	k := a.Store.GetSSH(chi.URLParam(r, "keyID"))
+	if k == nil || k.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "ssh key missing", false)
+		return
+	}
+	a.Store.DeleteSSH(k.ID)
+	a.applyAuthorizedKeys(r.Context(), aid)
+	a.audit(r, "ssh_key.delete", "ssh_key", k.ID, true, map[string]any{"fingerprint": k.Fingerprint}, nil)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (a *API) applyAuthorizedKeys(ctx context.Context, accountID string) {
+	acc := a.Store.GetAccount(accountID)
+	if acc == nil {
+		return
+	}
 	var keys strings.Builder
-	for _, k := range a.Store.ListSSH(aid) {
+	for _, k := range a.Store.ListSSH(accountID) {
 		keys.WriteString(strings.TrimSpace(k.PublicKey))
 		keys.WriteByte('\n')
 	}
-	if acc != nil {
-		params, _ := json.Marshal(map[string]any{"username": acc.Username, "body": keys.String()})
-		_, _ = a.Agent.Dispatch(r.Context(), operations.Request{Method: "ApplyAuthorizedKeys", Params: params})
-	}
-	writeJSON(w, 201, rec)
+	params, _ := json.Marshal(map[string]any{"username": acc.Username, "body": keys.String()})
+	_, _ = a.Agent.Dispatch(ctx, operations.Request{Method: "ApplyAuthorizedKeys", Params: params})
 }
 
 func (a *API) listFTP(w http.ResponseWriter, r *http.Request) {

@@ -37,6 +37,7 @@ local_transport = error:local delivery disabled
 virtual_mailbox_base = /var/vmail
 virtual_mailbox_domains = hash:/var/lib/panel/mail/vdomains
 virtual_mailbox_maps = hash:/var/lib/panel/mail/virtual
+virtual_alias_maps = hash:/var/lib/panel/mail/aliases
 virtual_minimum_uid = 20000
 virtual_uid_maps = hash:/var/lib/panel/mail/uids
 virtual_gid_maps = hash:/var/lib/panel/mail/gids

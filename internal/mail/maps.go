@@ -147,6 +147,32 @@ func RecipientsForHost(st store.Store) []Recipient {
 	return out
 }
 
+func AliasMap(st store.Store) string {
+	var lines []string
+	for _, acc := range st.ListAccounts("", "") {
+		if acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		for _, al := range st.ListMailAliases(acc.ID) {
+			md := mailDomain(st, al.DomainID)
+			if md == nil {
+				continue
+			}
+			d := st.GetDomain(md.DomainID)
+			if d == nil || d.ASCII == "" || al.Address == "" || al.Destination == "" {
+				continue
+			}
+			dest := al.Destination
+			if !strings.Contains(dest, "@") {
+				dest = dest + "@" + d.ASCII
+			}
+			lines = append(lines, fmt.Sprintf("%s@%s %s\n", al.Address, d.ASCII, dest))
+		}
+	}
+	sort.Strings(lines)
+	return "# panel virtual alias map — generated, do not edit\n" + strings.Join(lines, "")
+}
+
 func Virtual(recs []Recipient) string {
 	var b strings.Builder
 	b.WriteString("# panel virtual mailbox map — generated, do not edit\n")

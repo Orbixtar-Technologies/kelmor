@@ -332,6 +332,57 @@ paths:
       responses:
         "202": { description: queued }
         "403": { description: package mailbox limit exceeded }
+  /accounts/{accountID}/mail/mailboxes/{mailboxID}:
+    delete:
+      operationId: deleteMailbox
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: mailboxID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: mailbox removed and maps queued }
+        "409": { description: mailbox is an alias destination }
+  /accounts/{accountID}/mail/aliases:
+    get:
+      operationId: listMailAliases
+      x-capability: mail.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: virtual aliases }
+    post:
+      operationId: createMailAlias
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain_id, address, destination]
+              properties:
+                domain_id: { type: string }
+                address: { type: string }
+                destination: { type: string }
+      responses:
+        "202": { description: alias stored and maps queued }
+  /accounts/{accountID}/mail/aliases/{aliasID}:
+    delete:
+      operationId: deleteMailAlias
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: aliasID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: alias removed and maps queued }
   /jobs:
     get:
       operationId: listJobs
@@ -628,6 +679,18 @@ paths:
                 comment: { type: string, description: "Alias for label" }
       responses:
         "201": { description: key stored and authorized_keys applied }
+  /accounts/{accountID}/ssh-keys/{keyID}:
+    delete:
+      operationId: deleteSSHKey
+      x-capability: files.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: keyID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: key removed and authorized_keys applied }
   /accounts/{accountID}/api-tokens:
     get:
       operationId: listAPITokens

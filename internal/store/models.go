@@ -180,6 +180,14 @@ type Mailbox struct {
 	Status       string `json:"status"`
 }
 
+type MailAlias struct {
+	ID          string `json:"id"`
+	AccountID   string `json:"account_id"`
+	DomainID    string `json:"domain_id"`
+	Address     string `json:"address"`
+	Destination string `json:"destination"`
+}
+
 type Certificate struct {
 	ID        string     `json:"id"`
 	AccountID string     `json:"account_id,omitempty"`

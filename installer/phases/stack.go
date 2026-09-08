@@ -74,6 +74,7 @@ local_transport = error:local delivery disabled
 virtual_mailbox_base = /var/vmail
 virtual_mailbox_domains = hash:/var/lib/panel/mail/vdomains
 virtual_mailbox_maps = hash:/var/lib/panel/mail/virtual
+virtual_alias_maps = hash:/var/lib/panel/mail/aliases
 virtual_minimum_uid = 20000
 virtual_uid_maps = hash:/var/lib/panel/mail/uids
 virtual_gid_maps = hash:/var/lib/panel/mail/gids
@@ -108,7 +109,7 @@ mail_location = maildir:~/Maildir
 	if err := writeUnlessExists(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
 		return err
 	}
-	for _, name := range []string{"virtual", "vdomains", "passwd", "uids", "gids"} {
+	for _, name := range []string{"virtual", "vdomains", "passwd", "uids", "gids", "aliases"} {
 		p := root(c, "var/lib/panel/mail/"+name)
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			if err := os.WriteFile(p, []byte("# panel mail map\n"), 0o640); err != nil {

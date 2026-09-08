@@ -84,6 +84,13 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(acme), "return 404") {
 		t.Fatalf("default vhost must 404 unknown hosts: %s", acme)
 	}
+	maincf, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/postfix/main.cf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(maincf), "virtual_alias_maps = hash:/var/lib/panel/mail/aliases") {
+		t.Fatalf("postfix missing alias maps: %s", maincf)
+	}
 }
 
 func contains(s, sub string) bool {
