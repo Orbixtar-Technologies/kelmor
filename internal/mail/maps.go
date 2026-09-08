@@ -54,6 +54,27 @@ func Recipients(st store.Store, accountID string) []Recipient {
 	return out
 }
 
+// RecipientsForHost builds the global virtual/passwd maps. ApplyMailMaps
+// replaces the files on disk, so one account must not erase the others.
+func RecipientsForHost(st store.Store) []Recipient {
+	var out []Recipient
+	seen := map[string]bool{}
+	for _, acc := range st.ListAccounts("", "") {
+		if acc.Status == "terminated" {
+			continue
+		}
+		for _, r := range Recipients(st, acc.ID) {
+			if seen[r.Address] {
+				continue
+			}
+			seen[r.Address] = true
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
+	return out
+}
+
 func Virtual(recs []Recipient) string {
 	var b strings.Builder
 	b.WriteString("# panel virtual mailbox map — generated, do not edit\n")

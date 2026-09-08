@@ -13,6 +13,9 @@ func applyHostRuntime(c Config) error {
 		return nil
 	}
 	_ = os.MkdirAll("/run/panel", 0o751)
+	_ = os.Chmod("/run/panel", 0o751)
+	_ = os.MkdirAll("/var/lib/panel/mail", 0o755)
+	_ = os.Chmod("/var/lib/panel", 0o755)
 	starts := [][]string{
 		{"/usr/sbin/php-fpm8.3"},
 		{"/usr/sbin/nginx"},
@@ -30,19 +33,58 @@ func applyHostRuntime(c Config) error {
 		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "DEBIAN_FRONTEND=noninteractive"}
 		_ = cmd.Start()
 	}
+	startControlPlane()
 	return nil
+}
+
+func startControlPlane() {
+	if _, err := os.Stat("/usr/local/panel/bin/panel-agent"); err != nil {
+		return
+	}
+	if exec.Command("/usr/bin/pgrep", "-x", "panel-agent").Run() != nil {
+		cmd := exec.Command("/usr/local/panel/bin/panel-agent")
+		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "PANEL_AGENT_SOCK=/run/panel/agent.sock"}
+		_ = cmd.Start()
+		time.Sleep(300 * time.Millisecond)
+	}
+	for _, name := range []string{"panel-api", "panel-worker"} {
+		if exec.Command("/usr/bin/pgrep", "-x", name).Run() == nil {
+			continue
+		}
+		cmd := exec.Command("/usr/bin/sudo", "-u", "panel", "-g", "panel", "env",
+			"PANEL_STATE_DIR=/var/lib/panel",
+			"PANEL_AGENT_SOCK=/run/panel/agent.sock",
+			"PANEL_API_ADDR=127.0.0.1:18080",
+			"PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql",
+			"/usr/local/panel/bin/"+name)
+		_ = cmd.Start()
+	}
 }
 
 func verifyHealth(c Config) error {
 	if c.Dev {
 		return nil
 	}
-	for _, addr := range []string{"127.0.0.1:80", "127.0.0.1:25"} {
-		con, err := net.DialTimeout("tcp", addr, 400*time.Millisecond)
-		if err != nil {
-			return fmt.Errorf("health %s: %w", addr, err)
-		}
-		_ = con.Close()
+	addrs := []string{"127.0.0.1:80", "127.0.0.1:25"}
+	if _, err := os.Stat("/usr/local/panel/bin/panel-api"); err == nil {
+		addrs = append(addrs, "127.0.0.1:18080")
 	}
-	return nil
+	var last error
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		last = nil
+		for _, addr := range addrs {
+			con, err := net.DialTimeout("tcp", addr, 400*time.Millisecond)
+			if err != nil {
+				last = fmt.Errorf("health %s: %w", addr, err)
+				break
+			}
+			_ = con.Close()
+		}
+		if last == nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return last
 }

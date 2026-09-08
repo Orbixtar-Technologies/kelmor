@@ -1067,6 +1067,14 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: in.LocalPart, QuotaBytes: 1 << 30, PasswordHash: hash, Status: "provisioning"}
+	for _, existing := range a.Store.ListMailboxes(aid) {
+		if existing.DomainID == md.ID && existing.LocalPart == in.LocalPart {
+			existing.PasswordHash = hash
+			existing.Status = "provisioning"
+			mb = &existing
+			break
+		}
+	}
 	a.Store.PutMailbox(mb)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "mailbox.provision", ResourceType: "mailbox", ResourceID: mb.ID, Payload: map[string]any{"mailbox_id": mb.ID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mailbox": mb})

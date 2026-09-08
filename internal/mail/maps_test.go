@@ -29,3 +29,20 @@ func TestVirtualMaps(t *testing.T) {
 		t.Fatal(p)
 	}
 }
+
+func TestRecipientsForHostKeepsEveryAccount(t *testing.T) {
+	st := store.NewMemory()
+	st.PutAccount(&store.Account{ID: "a", Username: "acme", LinuxUID: 20010, LinuxGID: 20010, Status: "active"})
+	st.PutAccount(&store.Account{ID: "b", Username: "beta", LinuxUID: 20011, LinuxGID: 20011, Status: "active"})
+	st.PutDomain(&store.Domain{ID: "da", AccountID: "a", ASCII: "acme.test"})
+	st.PutDomain(&store.Domain{ID: "db", AccountID: "b", ASCII: "beta.test"})
+	st.PutMailDomain(&store.MailDomain{ID: "mda", AccountID: "a", DomainID: "da"})
+	st.PutMailDomain(&store.MailDomain{ID: "mdb", AccountID: "b", DomainID: "db"})
+	st.PutMailbox(&store.Mailbox{ID: "ma", AccountID: "a", DomainID: "mda", LocalPart: "info", PasswordHash: "ha"})
+	st.PutMailbox(&store.Mailbox{ID: "mb", AccountID: "b", DomainID: "mdb", LocalPart: "sales", PasswordHash: "hb"})
+	recs := RecipientsForHost(st)
+	body := PasswdFile(recs)
+	if !strings.Contains(body, "info@acme.test") || !strings.Contains(body, "sales@beta.test") {
+		t.Fatal(body)
+	}
+}

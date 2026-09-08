@@ -292,6 +292,8 @@ User=panel
 Group=panel
 Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql
 Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
+Environment=PANEL_STATE_DIR=/var/lib/panel
+Environment=PANEL_API_ADDR=127.0.0.1:18080
 ExecStart=/usr/local/panel/bin/panel-api
 Restart=on-failure
 [Install]
@@ -305,6 +307,7 @@ User=panel
 Group=panel
 Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql
 Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
+Environment=PANEL_STATE_DIR=/var/lib/panel
 ExecStart=/usr/local/panel/bin/panel-worker
 Restart=on-failure
 [Install]
@@ -316,6 +319,7 @@ After=network-online.target
 [Service]
 User=root
 Group=root
+Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 ExecStart=/usr/local/panel/bin/panel-agent
 Restart=on-failure
 [Install]

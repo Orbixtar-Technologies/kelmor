@@ -52,10 +52,18 @@ mds=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/domains" -H "$AUTH")
 mdid=$(echo "$mds" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or []; print(items[0]["id"] if items else "")')
 if [[ -n "$mdid" ]]; then
   curl -sS -X POST "$BASE/api/v1/accounts/$aid/mail/mailboxes" -H "$AUTH" -H 'content-type: application/json' \
-    -d "{\"domain_id\":\"$mdid\",\"local_part\":\"info\",\"password\":\"MailboxPass!2026\"}" >/tmp/mbox.json || true
-  sleep 2
+    -d "{\"domain_id\":\"$mdid\",\"local_part\":\"info\",\"password\":\"MailboxPass!2026\"}" >/tmp/mbox.json
+  mjob=$(python3 -c 'import json; print(json.load(open("/tmp/mbox.json")).get("operation_id",""))')
+  for i in $(seq 1 20); do
+    if [[ -z "$mjob" ]]; then break; fi
+    st=$(curl -sS "$BASE/api/v1/jobs/$mjob" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state",""))')
+    echo "mailbox job=$st"
+    [[ "$st" == "succeeded" || "$st" == "failed" ]] && break
+    sleep 1
+  done
 fi
 grep -n "$DOMAIN" /var/lib/panel/mail/virtual || true
+grep -n "info@$DOMAIN" /var/lib/panel/mail/passwd || true
 
 python3 - <<PY
 import smtplib
@@ -80,19 +88,24 @@ for i in $(seq 1 20); do
   fi
   sleep 1
 done
-python3 - <<'PY'
+python3 - <<PY
 import imaplib, ssl, sys
 ctx = ssl._create_unverified_context()
-try:
-    m = imaplib.IMAP4_SSL("127.0.0.1", 993, ssl_context=ctx)
-    typ, _ = m.login("info@livehost.test", "MailboxPass!2026")
-    print("imap", typ)
-    m.logout()
-except Exception as e:
-    print("imap skip", e)
-    sys.exit(0)
+last = None
+for _ in range(15):
+    try:
+        m = imaplib.IMAP4_SSL("127.0.0.1", 993, ssl_context=ctx)
+        typ, _ = m.login("info@$DOMAIN", "MailboxPass!2026")
+        print("imap", typ)
+        m.logout()
+        sys.exit(0)
+    except Exception as e:
+        last = e
+        import time; time.sleep(1)
+print("imap failed", last)
+sys.exit(1)
 PY
-[[ "$imap_ok" == "1" ]] || echo "warning: doveadm auth not ready"
+[[ "$imap_ok" == "1" ]] || { echo "doveadm auth failed" >&2; exit 1; }
 
 files=$(curl -sS "$BASE/api/v1/accounts/$aid/files?path=/public_html" -H "$AUTH")
 echo "$files"
@@ -108,8 +121,25 @@ if [[ "$has_py" != "True" ]]; then
     -d '{"fqdn":"python.livehost.test","type":"addon","runtime":"python"}'
   sleep 3
 fi
-curl -sS -o /tmp/py.out -w 'python_http %{http_code}\n' -H 'Host: python.livehost.test' http://127.0.0.1/ || true
+pycode=$(curl -sS -o /tmp/py.out -w '%{http_code}' -H 'Host: python.livehost.test' http://127.0.0.1/ || true)
+echo "python_http $pycode"
 head -c 80 /tmp/py.out; echo
+if [[ "$pycode" != "200" ]]; then
+  curl -sS -X PATCH "$BASE/api/v1/accounts/$aid" -H "$AUTH" -H 'content-type: application/json' -d '{}' >/dev/null
+  sleep 3
+  pycode=$(curl -sS -o /tmp/py.out -w '%{http_code}' -H 'Host: python.livehost.test' http://127.0.0.1/ || true)
+  echo "python_http_retry $pycode"
+fi
+[[ "$pycode" == "200" ]] || { echo "python site down" >&2; exit 1; }
+
+dbs=$(curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH")
+hasdb=$(echo "$dbs" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('name','').endswith('_e2e') for i in items))")
+if [[ "$hasdb" != "True" ]]; then
+  curl -sS -X POST "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"name":"e2e","engine":"mariadb"}'
+  sleep 3
+fi
+curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; print("databases", [(i.get("name"), i.get("status"), i.get("engine")) for i in items])'
 
 curl -sS -X POST "$BASE/api/v1/accounts/$aid/files" -H "$AUTH" -H 'content-type: application/json' \
   -d '{"path":"/public_html/restore-marker.txt","content":"before-backup"}' >/dev/null

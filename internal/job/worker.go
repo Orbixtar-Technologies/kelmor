@@ -416,9 +416,9 @@ func (w *Worker) writeZone(z *store.DNSZone) error {
 }
 
 func (w *Worker) applyMailStack(accountID string) error {
-	recs := mail.Recipients(w.Store, accountID)
+	local := mail.Recipients(w.Store, accountID)
 	acc := w.Store.GetAccount(accountID)
-	for _, r := range recs {
+	for _, r := range local {
 		uid, gid := 20000, 20000
 		if acc != nil {
 			uid, gid = acc.LinuxUID, acc.LinuxGID
@@ -430,6 +430,7 @@ func (w *Worker) applyMailStack(accountID string) error {
 			return err
 		}
 	}
+	recs := mail.RecipientsForHost(w.Store)
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyMailMaps",
 		Params: mustJSON(map[string]any{

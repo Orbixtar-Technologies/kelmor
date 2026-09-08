@@ -5,6 +5,7 @@ After=network-online.target
 [Service]
 User=root
 Group=root
+Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 ExecStart=/usr/local/panel/bin/panel-agent
 Restart=on-failure
 
