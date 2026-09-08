@@ -443,10 +443,22 @@ function Backups ({ accountId }: { accountId: string }) {
 		<>
 			<h1>Backups</h1>
 			<Can cap="backups.create">
-			<button type="button" onClick={async () => {
-				await api(`/api/v1/accounts/${accountId}/backups`, { method: 'POST', body: JSON.stringify({ kind: 'full', destination: 'local' }) })
+			<form onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api(`/api/v1/accounts/${accountId}/backups`, {
+					method: 'POST',
+					body: JSON.stringify({ kind: 'full', destination: String(fd.get('destination') || 'local') }),
+				})
 				setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
-			}}>Create full backup</button>
+			}}>
+				<select name="destination">
+					<option value="local">Local disk</option>
+					<option value="sftp">Offsite SFTP</option>
+					<option value="s3">S3-compatible</option>
+				</select>
+				<button type="submit">Create full backup</button>
+			</form>
 			</Can>
 			<ul>{items.map((b) => (
 				<li key={b.id}>

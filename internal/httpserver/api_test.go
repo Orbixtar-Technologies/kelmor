@@ -175,7 +175,8 @@ func TestPackageLimitsAndDiskQuota(t *testing.T) {
 	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
 	pkg := post(t, srv.URL+"/api/v1/packages", token, map[string]any{
 		"name": "Tiny", "domains": 1, "subdomains": 0, "alias_domains": 0,
-		"databases": 1, "mailboxes": 1, "cron_jobs": 1, "application_instances": 1,
+		"databases": 1, "database_users": 1, "mailboxes": 1, "mailbox_storage_bytes": 4096,
+		"cron_jobs": 1, "application_instances": 1,
 		"ftp_users": 1, "disk_bytes": 8,
 	})
 	created := post(t, srv.URL+"/api/v1/accounts", token, map[string]string{
@@ -217,6 +218,37 @@ func TestPackageLimitsAndDiskQuota(t *testing.T) {
 	})
 	if code != 403 {
 		t.Fatalf("second ftp: %d %v", code, body)
+	}
+	code, _ = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/websites", token, map[string]string{
+		"domain_id": "missing", "runtime": "php",
+	})
+	if code >= 400 {
+		t.Fatalf("first website should succeed: %d", code)
+	}
+	code, body = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/websites", token, map[string]string{
+		"domain_id": "missing", "runtime": "php",
+	})
+	if code != 403 {
+		t.Fatalf("second website: %d %v", code, body)
+	}
+}
+
+func TestRebootRequiresConfirm(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	code, _ := postStatus(t, srv.URL+"/api/v1/server/reboot", token, map[string]string{"confirm": "no"})
+	if code != 400 {
+		t.Fatalf("confirm: %d", code)
+	}
+	code, body := postStatus(t, srv.URL+"/api/v1/server/reboot", token, map[string]string{"confirm": "REBOOT"})
+	if code != 202 {
+		t.Fatalf("reboot: %d %v", code, body)
 	}
 }
 

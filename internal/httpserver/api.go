@@ -65,7 +65,7 @@ func (a *API) Handler() http.Handler {
 			r.Get("/server/monitor", a.serverMonitor)
 			r.Get("/server/services", a.serverServices)
 			r.Get("/server/processes", a.serverProcesses)
-			r.Post("/server/reboot", a.notImplemented("server.reboot"))
+			r.Post("/server/reboot", a.rebootHost)
 			r.Post("/server/firewall/apply", a.applyFirewall)
 			r.Get("/server/firewall", a.getFirewall)
 			r.Get("/jobs", a.listJobs)
@@ -395,6 +395,27 @@ func (a *API) serverServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"services": defaultServices()})
+}
+
+func (a *API) rebootHost(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ServerSettingsWrite) {
+		return
+	}
+	var in struct {
+		Confirm string `json:"confirm"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if in.Confirm != "REBOOT" {
+		a.fail(w, r, 400, "VALIDATION", "confirm must be REBOOT", false)
+		return
+	}
+	res, err := a.Agent.Dispatch(r.Context(), operations.Request{Method: "RebootHost"})
+	if err != nil {
+		a.fail(w, r, 500, "AGENT_ERROR", err.Error(), false)
+		return
+	}
+	a.audit(r, "server.reboot", "server", "", true, nil, map[string]any{"confirm": "REBOOT"})
+	writeJSON(w, 202, res)
 }
 
 func (a *API) applyFirewall(w http.ResponseWriter, r *http.Request) {
@@ -1043,6 +1064,12 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 			in.DocumentRoot = d.DocumentRoot
 		}
 	}
+	if err := a.enforceCountLimit(aid, "websites", len(a.Store.ListWebsites(aid)), func(p *store.Package) int {
+		return p.Domains + p.Subdomains + p.AliasDomains
+	}); err != nil {
+		a.rejectLimit(w, r, err)
+		return
+	}
 	a.Store.PutWebsite(&in)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "website.provision", ResourceType: "website", ResourceID: in.ID, Payload: map[string]any{"website_id": in.ID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "website": in})
@@ -1105,7 +1132,16 @@ func (a *API) createDB(w http.ResponseWriter, r *http.Request) {
 	}
 	name := acc.Username + "_" + in.Name
 	d := &store.HostedDatabase{ID: id.New(), AccountID: aid, Engine: in.Engine, Name: name, Status: "provisioning"}
+	if len(a.Store.ListDBUsers(aid)) == 0 {
+		if err := a.enforceCountLimit(aid, "database_users", 0, func(p *store.Package) int { return p.DatabaseUsers }); err != nil {
+			a.rejectLimit(w, r, err)
+			return
+		}
+	}
 	a.Store.PutDB(d)
+	if len(a.Store.ListDBUsers(aid)) == 0 {
+		a.Store.PutDBUser(&store.DatabaseUser{ID: id.New(), AccountID: aid, Username: acc.Username + "_u", Engine: in.Engine})
+	}
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "database.provision", ResourceType: "database", ResourceID: d.ID, Payload: map[string]any{"database_id": d.ID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "database": d})
 }
@@ -1229,7 +1265,11 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", "Could not hash mailbox password", false)
 		return
 	}
-	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: in.LocalPart, QuotaBytes: 1 << 30, PasswordHash: hash, Status: "provisioning"}
+	quota := int64(1 << 30)
+	if pkg := a.accountPackage(aid); pkg != nil && pkg.MailboxStorageBytes > 0 {
+		quota = pkg.MailboxStorageBytes
+	}
+	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: in.LocalPart, QuotaBytes: quota, PasswordHash: hash, Status: "provisioning"}
 	updating := false
 	for _, existing := range a.Store.ListMailboxes(aid) {
 		if existing.DomainID == md.ID && existing.LocalPart == in.LocalPart {
@@ -1297,6 +1337,12 @@ func (a *API) createBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Destination == "" {
 		in.Destination = "local"
+	}
+	switch in.Destination {
+	case "local", "sftp", "s3":
+	default:
+		a.fail(w, r, 400, "VALIDATION", "destination must be local, sftp, or s3", false)
+		return
 	}
 	b := &store.BackupRun{ID: id.New(), AccountID: aid, Kind: in.Kind, State: "queued", Destination: in.Destination, CreatedAt: time.Now().UTC()}
 	a.Store.PutBackup(b)

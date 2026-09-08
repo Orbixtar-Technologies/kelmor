@@ -109,6 +109,7 @@ function Dashboard () {
 				<Metric label="Failed jobs" value={String(data.stats.failedJobs)} />
 			</section>
 			<FirewallPanel />
+			<RebootPanel />
 			<h2>Services</h2>
 			<table>
 				<thead><tr><th>Service</th><th>Health</th><th>Running</th></tr></thead>
@@ -138,6 +139,29 @@ function FirewallPanel () {
 					setMsg(e instanceof Error ? e.message : 'apply failed')
 				}
 			}}>Apply table inet panel</button>
+			</Can>
+			{msg ? <p className="notice">{msg}</p> : null}
+		</section>
+	)
+}
+
+function RebootPanel () {
+	const [msg, setMsg] = useState('')
+	return (
+		<section>
+			<h2>Host reboot</h2>
+			<p>Records a reboot through the privileged agent. The node only shuts down when the agent is live and <code>PANEL_ALLOW_REBOOT=1</code>.</p>
+			<Can cap="server.settings.write">
+			<button type="button" onClick={async () => {
+				setMsg('')
+				if (!window.confirm('Reboot this hosting node? Active sites will drop until systemd brings them back.')) return
+				try {
+					const r = await api<any>('/api/v1/server/reboot', { method: 'POST', body: JSON.stringify({ confirm: 'REBOOT' }) })
+					setMsg(r.message || r.observed_state || 'reboot recorded')
+				} catch (e) {
+					setMsg(e instanceof Error ? e.message : 'reboot failed')
+				}
+			}}>Request host reboot</button>
 			</Can>
 			{msg ? <p className="notice">{msg}</p> : null}
 		</section>

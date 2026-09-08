@@ -50,6 +50,7 @@ func main() {
   cert request <account_id> <hostname>
   reseller create <name> <username> <password>
   firewall apply
+  reboot
   config validate`)
 		os.Exit(2)
 	}
@@ -151,6 +152,8 @@ func main() {
 		post(base+"/api/v1/resellers", token, map[string]any{"name": args[2], "username": args[3], "password": args[4]})
 	case join(args) == "firewall apply":
 		post(base+"/api/v1/server/firewall/apply", token, map[string]any{})
+	case args[0] == "reboot":
+		post(base+"/api/v1/server/reboot", token, map[string]any{"confirm": "REBOOT"})
 	case join(args) == "config validate":
 		fmt.Println(`{"ok":true,"templates":"versioned","rule":"test-before-reload"}`)
 	default:

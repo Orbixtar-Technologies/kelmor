@@ -16,6 +16,7 @@ panel-cli account sftp-password <account-id> 'SftpPass!2026'
 panel-cli ftp create <account-id> siteftp 'FtpPass!2026'
 panel-cli ftp list <account-id>
 panel-cli firewall apply
+panel-cli reboot
 panel-cli mailbox create <account-id> <mail-domain-id> info 'MailboxPass!2026'
 panel-cli db create <account-id> shop mariadb
 panel-cli domain create <account-id> python.example.test python

@@ -62,6 +62,23 @@ paths:
       x-audit-action: server.firewall.apply
       responses:
         "200": { description: table inet panel applied }
+  /server/reboot:
+    post:
+      operationId: rebootHost
+      x-capability: server.settings.write
+      x-audit-action: server.reboot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm: { type: string, enum: [REBOOT] }
+      responses:
+        "202": { description: reboot recorded; live shutdown only with PANEL_ALLOW_REBOOT=1 }
+        "400": { description: confirm missing }
   /packages:
     get:
       operationId: listPackages

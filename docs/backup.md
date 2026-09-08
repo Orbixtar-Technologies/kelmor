@@ -6,4 +6,12 @@ The worker never shells out as root. The typed agent dumps MariaDB/PostgreSQL an
 
 Restore is in-place onto the same Linux username. Cross-username restore is refused.
 
-SFTP and S3 repositories implement the same `Repository` interface; this tree ships the local adapter. Encrypted transport for off-host copies is a follow-on installer phase, not a different backup format.
+SFTP and S3 repositories implement the same `Repository` interface. Destination `sftp` uses `golang.org/x/crypto/ssh` plus `github.com/pkg/sftp` when `PANEL_SFTP_HOST` is set:
+
+- `PANEL_SFTP_HOST` — `host` or `host:port` (default port 22)
+- `PANEL_SFTP_USER` — remote user (default `panel-backup`)
+- `PANEL_SFTP_PASSWORD` and/or `PANEL_SFTP_KEY` / `PANEL_SFTP_KEY_PEM`
+- `PANEL_SFTP_HOST_KEY` — required SHA256 host-key fingerprint (`SHA256:…`)
+- `PANEL_SFTP_ROOT` — remote directory (default `/var/lib/panel/offsite`)
+
+Without `PANEL_SFTP_HOST`, objects are written atomically under `PANEL_SFTP_ROOT` on this node. Destination `s3` uses SigV4 against `PANEL_S3_ENDPOINT` / `PANEL_S3_BUCKET`. The HPM1 envelope is unchanged.

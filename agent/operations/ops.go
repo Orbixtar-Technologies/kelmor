@@ -366,6 +366,8 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.applyFTPUsers(p.Users)
+	case "RebootHost":
+		return h.rebootHost()
 	default:
 		return nil, fmt.Errorf("unknown operation %q", req.Method)
 	}
