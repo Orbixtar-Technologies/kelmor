@@ -192,8 +192,17 @@ if [[ -n "$mdid" ]]; then
     sleep 1
   done
 fi
+if [[ -n "$mdid" ]]; then
+  policy=$(echo "$mds" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
+print(next((i.get('catchall_policy') or 'reject' for i in items if i.get('id')=='$mdid'), 'reject'))")
+  maps=$(curl -sS -X PATCH "$BASE/api/v1/accounts/$aid/mail/domains/$mdid" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"catchall_policy\":\"$policy\"}")
+  mapsjob=$(echo "$maps" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  wait_job "$mapsjob" mail-maps
+fi
 grep -n "$DOMAIN" /var/lib/panel/mail/virtual || true
 grep -n "info@$DOMAIN" /var/lib/panel/mail/passwd || true
+sudo grep -n "info@$DOMAIN" /var/lib/panel/mail/sender-login || true
 
 python3 - <<PY
 import smtplib
