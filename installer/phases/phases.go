@@ -149,6 +149,34 @@ func applyControlPlane(c Config) error {
 			return err
 		}
 	}
+	if c.Dev {
+		return nil
+	}
+	dest := "/usr/local/panel/bin"
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	src := "dist/bin"
+	if _, err := os.Stat(src); err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		in := filepath.Join(src, e.Name())
+		b, err := os.ReadFile(in)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dest, e.Name()), b, 0o755); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

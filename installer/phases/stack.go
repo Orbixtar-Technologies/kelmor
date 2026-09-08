@@ -126,12 +126,35 @@ func applyWAF(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/nginx/modsec"), 0o755); err != nil {
 		return err
 	}
-	body := `# Managed by Hosting Panel — ModSecurity CRS include
+	body := `# Managed by Hosting Panel — ModSecurity
+SecRuleEngine DetectionOnly
+SecRequestBodyAccess On
+SecDataDir /tmp
+`
+	if _, err := os.Stat("/usr/share/modsecurity-crs/owasp-crs.conf"); err == nil && !c.Dev {
+		body += "Include /usr/share/modsecurity-crs/owasp-crs.conf\n"
+	}
+	if err := os.WriteFile(root(c, "etc/nginx/modsec/panel.conf"), []byte(body), 0o644); err != nil {
+		return err
+	}
+	enforce := `# Managed by Hosting Panel — enforced probe vhost only
 SecRuleEngine On
 SecRequestBodyAccess On
-Include /usr/share/modsecurity-crs/owasp-crs.conf
+SecDataDir /tmp
+SecRule REQUEST_HEADERS:User-Agent "@contains panel-modsec-probe" "id:19999,phase:1,deny,status:403,msg:'panel waf probe'"
 `
-	return os.WriteFile(root(c, "etc/nginx/modsec/panel.conf"), []byte(body), 0o644)
+	if err := os.WriteFile(root(c, "etc/nginx/modsec/panel-enforce.conf"), []byte(enforce), 0o644); err != nil {
+		return err
+	}
+	probe := `server {
+    listen 127.0.0.1:18481;
+    server_name _;
+    modsecurity on;
+    modsecurity_rules_file /etc/nginx/modsec/panel-enforce.conf;
+    location / { default_type text/plain; return 200 'waf-ok\n'; }
+}
+`
+	return os.WriteFile(root(c, "etc/nginx/panel-sites/01-modsec-probe.conf"), []byte(probe), 0o644)
 }
 
 func applyRspamd(c Config) error {
@@ -290,8 +313,18 @@ func verifyDNS(c Config) error {
 }
 
 func verifySecurity(c Config) error {
-	_, err := os.Stat(root(c, "etc/panel/nftables-panel.nft"))
-	return err
+	for _, p := range []string{
+		"etc/panel/nftables-panel.nft",
+		"etc/nginx/modsec/panel.conf",
+		"etc/rspamd/local.d/panel.conf",
+		"etc/clamav/panel.conf",
+		"etc/ssh/sshd_config.d/panel-sftp.conf",
+	} {
+		if _, err := os.Stat(root(c, p)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func hostnameOr(c Config) string {

@@ -1266,6 +1266,9 @@ func defaultServices() []map[string]any {
 		{"postfix", "/var/spool/postfix/pid/master.pid"},
 		{"dovecot", "/run/dovecot/master.pid"},
 		{"pdns", "/run/pdns.pid"},
+		{"rspamd", "/run/rspamd/rspamd.pid"},
+		{"clamav", "/run/clamav/clamd.pid"},
+		{"sshd", "/run/sshd.pid"},
 	}
 	out := []map[string]any{}
 	for _, p := range probes {

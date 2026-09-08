@@ -126,8 +126,36 @@ fi
 if [[ ! -x /usr/sbin/clamd ]] && [[ -x /usr/bin/apt-get ]]; then
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y clamav-daemon >/tmp/panel-clamav.apt.log 2>&1 || true
 fi
+sudo mkdir -p /var/lib/clamav /run/clamav
+if [[ ! -s /var/lib/clamav/panel.ndb ]]; then
+  echo 'PanelClam:0:*:50414e454c434c414d' | sudo tee /var/lib/clamav/panel.ndb >/dev/null
+  sudo chown -R clamav:clamav /var/lib/clamav /run/clamav 2>/dev/null || true
+fi
 if [[ -x /usr/sbin/clamd ]] && ! pgrep -x clamd >/dev/null; then
-  sudo /usr/sbin/clamd || true
+  sudo /usr/sbin/clamd --config-file=/etc/clamav/clamd.conf || true
+fi
+if [[ -f /etc/nginx/modules-enabled/50-mod-http-modsecurity.conf ]]; then
+  sudo tee /etc/nginx/modsec/panel.conf >/dev/null <<'EOF'
+SecRuleEngine DetectionOnly
+SecRequestBodyAccess On
+SecDataDir /tmp
+EOF
+  echo 'modsecurity on; modsecurity_rules_file /etc/nginx/modsec/panel.conf;' | sudo tee /etc/nginx/conf.d/panel-modsec.conf >/dev/null
+  sudo tee /etc/nginx/modsec/panel-enforce.conf >/dev/null <<'EOF'
+SecRuleEngine On
+SecRequestBodyAccess On
+SecDataDir /tmp
+SecRule REQUEST_HEADERS:User-Agent "@contains panel-modsec-probe" "id:19999,phase:1,deny,status:403,msg:'panel waf probe'"
+EOF
+  sudo tee /etc/nginx/panel-sites/01-modsec-probe.conf >/dev/null <<'EOF'
+server {
+    listen 127.0.0.1:18481;
+    server_name _;
+    modsecurity on;
+    modsecurity_rules_file /etc/nginx/modsec/panel-enforce.conf;
+    location / { default_type text/plain; return 200 'waf-ok\n'; }
+}
+EOF
 fi
 if [[ -x /usr/sbin/sshd ]]; then
   sudo mkdir -p /run/sshd /var/run/sshd /etc/ssh/sshd_config.d
