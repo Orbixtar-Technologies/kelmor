@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -153,6 +154,9 @@ service auth {
 	if err := os.WriteFile(root(c, "etc/dovecot/conf.d/99-panel-sasl.conf"), []byte(sasl), 0o644); err != nil {
 		return err
 	}
+	if err := ensurePanelMailCert(c); err != nil {
+		return err
+	}
 	dovecot := `protocols = imap lmtp
 listen = *
 mail_location = maildir:~/Maildir
@@ -216,11 +220,43 @@ func ensureSubmissionMaster(path string) error {
 	return os.WriteFile(path, []byte(out+panelSubmissionBlock), 0o644)
 }
 
+func ensurePanelMailCert(c Config) error {
+	dir := root(c, "var/lib/panel/certs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	crt := filepath.Join(dir, "imap.panel.local.crt")
+	key := filepath.Join(dir, "imap.panel.local.key")
+	if _, err := os.Stat(crt); err == nil {
+		if _, err := os.Stat(key); err == nil {
+			return nil
+		}
+	}
+	if _, err := os.Stat("/usr/bin/openssl"); err != nil {
+		return nil
+	}
+	cmd := exec.Command("/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+		"-keyout", key, "-out", crt, "-days", "3650", "-subj", "/CN=imap.panel.local")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("mail cert: %s", strings.TrimSpace(string(out)))
+	}
+	_ = os.Chmod(key, 0o640)
+	return nil
+}
+
 func reloadLiveMail(c Config) {
 	if c.Dev {
 		return
 	}
-	_, _ = exec.Command("/usr/bin/doveadm", "reload").CombinedOutput()
+	// A new unix_listener is not created by doveadm reload.
+	if _, err := os.Stat("/usr/sbin/dovecot"); err == nil {
+		_ = exec.Command("/usr/bin/doveadm", "stop").Run()
+		time.Sleep(200 * time.Millisecond)
+		if exec.Command("/usr/bin/pgrep", "-x", "dovecot").Run() != nil {
+			_ = exec.Command("/usr/sbin/dovecot").Start()
+		}
+	}
 	_, _ = exec.Command("/usr/sbin/postfix", "reload").CombinedOutput()
 	_ = waitListen("127.0.0.1:587", 3*time.Second)
 }
