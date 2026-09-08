@@ -481,6 +481,33 @@ func TestMailAliasAndMailboxDelete(t *testing.T) {
 	}
 }
 
+func TestDeleteDomainPrimaryConflict(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "domlab1", "primary_domain": "domlab.test", "package_id": pkg,
+		"owner_email": "o@domlab.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	primary := &store.Domain{ID: id.New(), AccountID: aid, ASCII: "domlab.test", Type: "primary"}
+	addon := &store.Domain{ID: id.New(), AccountID: aid, ASCII: "shop.domlab.test", Type: "addon"}
+	st.PutDomain(primary)
+	st.PutDomain(addon)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/domains/"+primary.ID, admin, nil) != 409 {
+		t.Fatal("expected primary domain delete conflict")
+	}
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/domains/"+addon.ID, admin, nil) != 202 {
+		t.Fatal("addon domain delete")
+	}
+}
+
 func TestDeleteWebsitePrimaryConflict(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

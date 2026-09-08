@@ -95,6 +95,7 @@ func (a *API) Handler() http.Handler {
 				r.Patch("/", a.modifyAccount)
 				r.Get("/domains", a.listDomains)
 				r.Post("/domains", a.createDomain)
+				r.Delete("/domains/{domainID}", a.deleteDomain)
 				r.Get("/websites", a.listWebsites)
 				r.Post("/websites", a.createWebsite)
 				r.Delete("/websites/{websiteID}", a.deleteWebsite)
@@ -1057,6 +1058,29 @@ func (a *API) createDomain(w http.ResponseWriter, r *http.Request) {
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "domain.provision", ResourceType: "domain", ResourceID: d.ID, Payload: map[string]any{"domain_id": d.ID, "account_id": aid, "runtime": in.Runtime}, State: "queued"})
 	a.audit(r, "domain.create", "domain", d.ID, true, nil, map[string]any{"fqdn": ascii, "runtime": in.Runtime})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "resource_id": d.ID, "status": "provisioning", "domain": d})
+}
+
+func (a *API) deleteDomain(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.DomainsWrite) {
+		return
+	}
+	d := a.Store.GetDomain(chi.URLParam(r, "domainID"))
+	if d == nil || d.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "domain missing", false)
+		return
+	}
+	if d.Type == "primary" {
+		a.fail(w, r, 409, "IN_USE", "primary domain cannot be deleted", false)
+		return
+	}
+	job, _ := a.Store.EnqueueJob(&store.Job{
+		Type: "domain.delete", ResourceType: "domain", ResourceID: d.ID,
+		Payload: map[string]any{"domain_id": d.ID, "account_id": aid},
+		State:   "queued",
+	})
+	a.audit(r, "domain.delete", "domain", d.ID, true, map[string]any{"fqdn": d.ASCII, "type": d.Type}, nil)
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
 func (a *API) listWebsites(w http.ResponseWriter, r *http.Request) {

@@ -66,6 +66,43 @@ func (h *Host) retireAccount(username string, websiteIDs, domains []string) (Res
 	return h.deleteUnixUser(username)
 }
 
+func (h *Host) retireDomain(account, ascii string, websiteIDs []string) (Result, error) {
+	if err := validate.Username(account); err != nil {
+		return Result{}, err
+	}
+	name, err := validate.NormalizeDomain(ascii)
+	if err != nil {
+		return Result{}, err
+	}
+	for _, id := range websiteIDs {
+		if _, err := h.retireWebsite(id, account); err != nil {
+			return Result{}, err
+		}
+	}
+	h.removeManaged("/var/lib/panel/certs/" + name + ".crt")
+	h.removeManaged("/var/lib/panel/certs/" + name + ".key")
+	h.removeManaged("/var/lib/panel/dns/zones/" + name + ".zone")
+	h.removeMailboxTree(name)
+	h.clearDKIM(name)
+	h.dropNamedZone(name)
+	if h.live() {
+		_, _ = runFixed("/usr/bin/pdnsutil", "delete-zone", name)
+		_, _ = runFixed("/usr/bin/pdns_control", "rediscover")
+	}
+	if err := h.rewriteConnZone(); err != nil {
+		return Result{}, err
+	}
+	if err := h.testNginx(); err != nil {
+		return Result{}, err
+	}
+	if h.live() {
+		if out, err := runFixed("/usr/sbin/nginx", "-s", "reload"); err != nil {
+			return Result{}, fmt.Errorf("nginx reload: %s", strings.TrimSpace(string(out)))
+		}
+	}
+	return Result{OK: true, ObservedState: "absent", Message: "domain retired"}, nil
+}
+
 func (h *Host) removeManaged(path string) {
 	abs, err := h.resolve(path)
 	if err != nil {

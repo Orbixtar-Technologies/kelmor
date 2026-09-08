@@ -282,7 +282,22 @@ function Domains ({ accountId }: { accountId: string }) {
 			</form>
 			</Can>
 			{msg ? <p>{msg}</p> : null}
-			<ul>{items.map((d) => <li key={d.id}>{d.ascii_fqdn} ({d.type}) {d.status}</li>)}</ul>
+			<ul>{items.map((d) => (
+				<li key={d.id}>
+					{d.ascii_fqdn} ({d.type}) {d.status}
+					<Can cap="domains.write">
+						{d.type === 'primary' ? ' — primary' : (
+							<button type="button" onClick={async () => {
+								try {
+									await api(`/api/v1/accounts/${accountId}/domains/${d.id}`, { method: 'DELETE' })
+									setMsg('Domain retire queued')
+									await load()
+								} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
+							}}>Remove</button>
+						)}
+					</Can>
+				</li>
+			))}</ul>
 		</>
 	)
 }

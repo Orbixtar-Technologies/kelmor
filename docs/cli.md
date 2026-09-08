@@ -28,6 +28,7 @@ panel-cli dnssec ds <account-id> <zone-id>
 panel-cli db create <account-id> shop mariadb
 panel-cli db delete <account-id> <database-id>
 panel-cli domain create <account-id> python.example.test python
+panel-cli domain delete <account-id> <domain-id>
 panel-cli website create <account-id> <domain-id> node
 panel-cli website delete <account-id> <website-id>
 panel-cli wordpress install <account-id> <website-id> 'My site' wpadmin 'WpAdmin!2026' owner@example.test

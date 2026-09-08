@@ -34,6 +34,7 @@ type Store interface {
 	PutDomain(*Domain)
 	GetDomain(string) *Domain
 	ListDomains(accountID string) []Domain
+	DeleteDomain(id string)
 
 	PutWebsite(*Website)
 	GetWebsite(string) *Website

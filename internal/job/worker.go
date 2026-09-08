@@ -136,6 +136,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.provisionAccount(j)
 	case "domain.provision":
 		return w.provisionDomain(j)
+	case "domain.delete":
+		return w.deleteDomain(j)
 	case "website.provision":
 		return w.provisionWebsite(j)
 	case "website.delete":
@@ -378,6 +380,47 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
 		_ = w.writeZone(z)
 	}
+	return nil
+}
+
+func (w *Worker) deleteDomain(j *store.Job) error {
+	d := w.Store.GetDomain(str(j.Payload["domain_id"]))
+	if d == nil {
+		return nil
+	}
+	if d.Type == "primary" {
+		return fmt.Errorf("primary domain cannot be deleted")
+	}
+	acc := w.Store.GetAccount(d.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	var websiteIDs []string
+	for _, site := range w.Store.ListWebsites(acc.ID) {
+		if site.DomainID == d.ID {
+			websiteIDs = append(websiteIDs, site.ID)
+		}
+	}
+	if w.Agent != nil {
+		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "RetireDomain",
+			Params: mustJSON(map[string]any{
+				"account": acc.Username, "domain": d.ASCII, "website_ids": websiteIDs,
+			}),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	w.Store.DeleteDomain(d.ID)
+	if d.Type == "alias" {
+		if primary := w.primaryDomain(acc); primary != nil {
+			if site := findSite(w.Store, primary.ID); site != nil {
+				_ = w.applyWebsiteDispatch(acc, site, primary)
+			}
+		}
+	}
+	_ = w.applyMailStack(acc.ID)
 	return nil
 }
 

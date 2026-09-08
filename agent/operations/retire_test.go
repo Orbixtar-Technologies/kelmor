@@ -87,3 +87,29 @@ func TestRetireWebsiteKeepsHomeAndPool(t *testing.T) {
 		t.Fatal("docroot removed")
 	}
 }
+
+func TestRetireDomainRemovesZoneKeepsHome(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Root: root}
+	if _, err := h.CreateLinuxUser("keep43", 20022, 20022, "/home/keep43", "/usr/sbin/nologin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.applyWebsite("site-gone", "keep43", "gone.keep.test", "/home/keep43/gone.keep.test", "php", "", "", false, true, false, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.applyDNSZone("gone.keep.test", "$TTL 60\n@ IN SOA ns1.gone.keep.test. hostmaster.gone.keep.test. (1 3600 3600 3600 60)\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.retireDomain("keep43", "gone.keep.test", []string{"site-gone"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/site-gone.conf")); !os.IsNotExist(err) {
+		t.Fatal("vhost remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/dns/zones/gone.keep.test.zone")); !os.IsNotExist(err) {
+		t.Fatal("zone remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "home/keep43")); err != nil {
+		t.Fatal("home removed")
+	}
+}

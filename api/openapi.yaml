@@ -262,6 +262,20 @@ paths:
       responses:
         "202": { description: queued }
         "403": { description: package domain limit exceeded }
+  /accounts/{accountID}/domains/{domainID}:
+    delete:
+      operationId: deleteDomain
+      x-capability: domains.write
+      x-audit-action: domain.delete
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: domainID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: retire queued }
+        "409": { description: primary domain }
   /accounts/{accountID}/websites:
     get:
       operationId: listWebsites

@@ -116,6 +116,14 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.retireAccount(p.Username, p.WebsiteIDs, p.Domains)
+	case "RetireDomain":
+		var p struct {
+			Account    string   `json:"account"`
+			Domain     string   `json:"domain"`
+			WebsiteIDs []string `json:"website_ids"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.retireDomain(p.Account, p.Domain, p.WebsiteIDs)
 	case "FreezeAccount":
 		var p struct {
 			Username string `json:"username"`

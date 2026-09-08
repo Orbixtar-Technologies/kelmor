@@ -373,6 +373,17 @@ func (p *PG) GetDomain(did string) *Domain {
 	return d
 }
 
+func (p *PG) DeleteDomain(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM wordpress_installations WHERE website_id IN (SELECT id FROM websites WHERE domain_id=$1)`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM applications WHERE website_id IN (SELECT id FROM websites WHERE domain_id=$1)`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM websites WHERE domain_id=$1`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM mail_aliases WHERE domain_id IN (SELECT id FROM mail_domains WHERE domain_id=$1)`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM mailboxes WHERE domain_id IN (SELECT id FROM mail_domains WHERE domain_id=$1)`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM mail_domains WHERE domain_id=$1`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM dns_zones WHERE domain_id=$1`, id)
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM domains WHERE id=$1`, id)
+}
+
 func (p *PG) ListDomains(accountID string) []Domain {
 	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, fqdn, ascii_fqdn, type, COALESCE(document_root,''), dns_managed, status FROM domains WHERE $1='' OR account_id::text=$1`, accountID)
 	if err != nil {

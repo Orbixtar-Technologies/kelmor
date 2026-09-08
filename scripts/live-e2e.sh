@@ -150,6 +150,19 @@ sudo test -f "/etc/php/8.3/fpm/pool.d/panel-${UNAME}.conf" || { echo "php pool r
 pcode=$(curl -sS -o /tmp/live-site-after-retire.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
 [[ "$pcode" == "200" ]] || { echo "primary $DOMAIN HTTP $pcode after addon retire" >&2; exit 1; }
 echo "website-retire-ok $RDOM"
+rdid=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
+print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$RDOM'), ''))")
+[[ -n "$rdid" ]] || { echo "retire domain id missing" >&2; exit 1; }
+ddel=$(curl -sS -X DELETE "$BASE/api/v1/accounts/$aid/domains/$rdid" -H "$AUTH")
+echo "$ddel"
+ddop=$(echo "$ddel" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$ddop" domain-delete
+dleft=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print('remain' if any(i.get('ascii_fqdn')=='$RDOM' for i in items) else 'gone')")
+[[ "$dleft" == "gone" ]] || { echo "domain $RDOM still listed" >&2; exit 1; }
+sudo test ! -f "/var/lib/panel/dns/zones/${RDOM}.zone" || { echo "zone $RDOM remains" >&2; exit 1; }
+pcode=$(curl -sS -o /tmp/live-site-after-domain-retire.html -w '%{http_code}' -H "Host: $DOMAIN" http://127.0.0.1/)
+[[ "$pcode" == "200" ]] || { echo "primary $DOMAIN HTTP $pcode after domain retire" >&2; exit 1; }
+echo "domain-retire-ok $RDOM"
 dig +short @"127.0.0.1" "$DOMAIN" A || true
 
 mds=$(curl -sS "$BASE/api/v1/accounts/$aid/mail/domains" -H "$AUTH")
@@ -505,7 +518,7 @@ audit=$(curl -sS "$BASE/api/v1/audit-events" -H "$AUTH")
 echo "$audit" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
 assert isinstance(items, list) and len(items)>0
 acts={i.get("action") for i in items if isinstance(i, dict)}
-need={"account.export","account.suspend","account.terminate","website.delete"}
+need={"account.export","account.suspend","account.terminate","website.delete","domain.delete"}
 missing=need-acts
 assert not missing, missing
 print("audit", len(items), "actions_ok")'

@@ -248,6 +248,50 @@ func (m *Memory) ListDomains(accountID string) []Domain {
 	}
 	return out
 }
+func (m *Memory) DeleteDomain(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for wid, w := range m.Websites {
+		if w != nil && w.DomainID == id {
+			for aid, app := range m.Apps {
+				if app != nil && app.WebsiteID == wid {
+					delete(m.Apps, aid)
+				}
+			}
+			delete(m.Websites, wid)
+		}
+	}
+	var mailIDs []string
+	for mid, md := range m.MailDom {
+		if md != nil && md.DomainID == id {
+			mailIDs = append(mailIDs, mid)
+			delete(m.MailDom, mid)
+		}
+	}
+	for _, mid := range mailIDs {
+		for bid, mb := range m.Mailboxes {
+			if mb != nil && mb.DomainID == mid {
+				delete(m.Mailboxes, bid)
+			}
+		}
+		for aid, al := range m.Aliases {
+			if al != nil && al.DomainID == mid {
+				delete(m.Aliases, aid)
+			}
+		}
+	}
+	for zid, z := range m.Zones {
+		if z != nil && z.DomainID == id {
+			for rid, rec := range m.Records {
+				if rec != nil && rec.ZoneID == zid {
+					delete(m.Records, rid)
+				}
+			}
+			delete(m.Zones, zid)
+		}
+	}
+	delete(m.Domains, id)
+}
 
 func (m *Memory) PutWebsite(w *Website) { m.mu.Lock(); m.Websites[w.ID] = w; m.mu.Unlock() }
 func (m *Memory) GetWebsite(id string) *Website {
