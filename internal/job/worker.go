@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/dns"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/store"
 )
@@ -182,6 +183,16 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account) error {
 	if err != nil {
 		return err
 	}
+	if site.Runtime == "php" {
+		ver := site.RuntimeVersion
+		if ver == "" {
+			ver = "8.3"
+		}
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "ApplyPhpPool",
+			Params: mustJSON(map[string]any{"account": acc.Username, "version": ver, "max_children": 8}),
+		})
+	}
 	site.ObservedRevision = site.DesiredRevision
 	if acc.Status == "suspended" {
 		site.Enabled = false
@@ -239,6 +250,18 @@ func (w *Worker) provisionDB(j *store.Job) error {
 	if d == nil {
 		return fmt.Errorf("database missing")
 	}
+	acc := w.Store.GetAccount(d.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	pw := fmt.Sprintf("db-%s", store.NewID())
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "CreateHostedDatabase",
+		Params: mustJSON(map[string]any{"engine": d.Engine, "name": d.Name, "username": acc.Username + "_u", "password": pw}),
+	})
+	if err != nil {
+		return err
+	}
 	d.Status = "active"
 	w.Store.PutDB(d)
 	return nil
@@ -248,6 +271,15 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	z := w.Store.GetZone(str(j.Payload["zone_id"]))
 	if z == nil {
 		return nil
+	}
+	p := &dns.PowerDNS{}
+	if err := p.CreateZone(context.Background(), z.Name); err != nil {
+		return err
+	}
+	for _, rec := range w.Store.ListRecords(z.ID) {
+		if err := p.UpsertRecord(context.Background(), z.Name, dns.Record{Name: rec.Name, Type: rec.Type, Content: rec.Content, TTL: rec.TTL}); err != nil {
+			return err
+		}
 	}
 	z.ObservedRevision = z.DesiredRevision
 	w.Store.PutZone(z)

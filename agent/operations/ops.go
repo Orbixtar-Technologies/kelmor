@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hosting-panel/panel/agent/policy"
+	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
 
 type Envelope struct {
@@ -81,19 +82,19 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return nil, err
 		}
-		return h.CreateLinuxUser(p.Username, p.UID, p.GID, p.Home, p.Shell)
+		return h.createUnixIdentity(p.Username, p.UID, p.GID, p.Home, p.Shell)
 	case "LockLinuxUser":
 		var p struct{ Username string `json:"username"` }
 		_ = json.Unmarshal(req.Params, &p)
-		return Result{OK: true, Message: "locked " + p.Username, ObservedState: "locked"}, nil
+		return h.lockUnixUser(p.Username)
 	case "UnlockLinuxUser":
 		var p struct{ Username string `json:"username"` }
 		_ = json.Unmarshal(req.Params, &p)
-		return Result{OK: true, Message: "unlocked " + p.Username, ObservedState: "unlocked"}, nil
+		return h.unlockUnixUser(p.Username)
 	case "DeleteLinuxUser":
 		var p struct{ Username string `json:"username"` }
 		_ = json.Unmarshal(req.Params, &p)
-		return h.DeleteLinuxUser(p.Username)
+		return h.deleteUnixUser(p.Username)
 	case "CreateDirectoryTree":
 		var p struct {
 			Path string `json:"path"`
@@ -117,18 +118,50 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			Runtime      string `json:"runtime"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.ApplyWebsite(p.WebsiteID, p.Domain, p.DocumentRoot, p.Runtime)
+		return h.applyWebsite(p.WebsiteID, p.Domain, p.DocumentRoot, p.Runtime, "", "", true)
 	case "ApplySystemdSlice":
-		return Result{OK: true, Message: "slice applied", ObservedState: "applied"}, nil
+		var p struct {
+			Username    string `json:"username"`
+			CPUPercent  int    `json:"cpu_percent"`
+			MemoryBytes int64  `json:"memory_bytes"`
+			TasksMax    int    `json:"tasks_max"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applySlice(p.Username, p.CPUPercent, p.MemoryBytes, p.TasksMax)
 	case "SetFilesystemQuota":
-		return Result{OK: true, Message: "quota applied", ObservedState: "applied"}, nil
+		var p struct {
+			Username string `json:"username"`
+			Bytes    int64  `json:"bytes"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.setQuota(p.Username, p.Bytes)
 	case "ApplyPhpPool":
-		return Result{OK: true, Message: "php pool applied", ObservedState: "applied"}, nil
+		var p struct {
+			Account     string `json:"account"`
+			Version     string `json:"version"`
+			MaxChildren int    `json:"max_children"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.applyPHPPool(p.Account, p.Version, p.MaxChildren)
+	case "CreateHostedDatabase":
+		var p struct {
+			Engine   string `json:"engine"`
+			Name     string `json:"name"`
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.createHostedDatabase(p.Engine, p.Name, p.Username, p.Password)
 	case "ReloadService":
 		var p struct{ Name string `json:"name"` }
 		_ = json.Unmarshal(req.Params, &p)
-		if p.Name == "" || strings.ContainsAny(p.Name, " ;|&$") {
-			return nil, fmt.Errorf("invalid service name")
+		if err := validateService(p.Name); err != nil {
+			return nil, err
+		}
+		if h.live() {
+			if out, err := runFixed("/bin/systemctl", "reload-or-restart", p.Name); err != nil {
+				return nil, fmt.Errorf("%s", strings.TrimSpace(string(out)))
+			}
 		}
 		return Result{OK: true, Message: "reload requested for " + p.Name}, nil
 	case "GetServiceStatus":
@@ -186,7 +219,7 @@ func (h *Host) GetSystemInfo() (SystemInfo, error) {
 }
 
 func (h *Host) CreateLinuxUser(username string, uid, gid int, home, shell string) (Result, error) {
-	if err := validateUsername(username); err != nil {
+	if err := validate.Username(username); err != nil {
 		return Result{}, err
 	}
 	path, err := h.resolve(home)
@@ -208,7 +241,7 @@ func (h *Host) CreateLinuxUser(username string, uid, gid int, home, shell string
 }
 
 func (h *Host) DeleteLinuxUser(username string) (Result, error) {
-	if err := validateUsername(username); err != nil {
+	if err := validate.Username(username); err != nil {
 		return Result{}, err
 	}
 	path, err := h.resolve("/home/" + username)
@@ -256,34 +289,7 @@ func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, erro
 }
 
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {
-	if _, err := h.CreateDirectoryTree(docroot, 0o750); err != nil {
-		return Result{}, err
-	}
-	index := filepath.Join(docroot, "index.html")
-	body := fmt.Sprintf("<!doctype html><html><body><h1>%s</h1><p>Served by Hosting Panel (%s).</p></body></html>\n", domain, runtime)
-	abs, err := h.resolve(index)
-	if err != nil {
-		return Result{}, err
-	}
-	if _, err := os.Stat(abs); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
-			return Result{}, err
-		}
-		_ = os.WriteFile(abs, []byte(body), 0o644)
-	}
-	conf := fmt.Sprintf("# Managed by Hosting Panel\n# resource: %s\n# template: nginx/%s-site/v1\n# DO NOT EDIT\nserver {\n  server_name %s;\n  root %s;\n}\n", websiteID, runtime, domain, docroot)
-	_, err = h.ApplyFile("/etc/nginx/panel-sites/"+websiteID+".conf", []byte(conf), 0o644)
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{OK: true, Message: "website applied", ObservedState: "active"}, nil
-}
-
-func validateUsername(s string) error {
-	if s == "" || strings.ContainsAny(s, "/;|&$`\\\"'") {
-		return fmt.Errorf("invalid username")
-	}
-	return nil
+	return h.applyWebsite(websiteID, domain, docroot, runtime, "", "", true)
 }
 
 type diskStat struct{ total, used, itotal, iused uint64 }

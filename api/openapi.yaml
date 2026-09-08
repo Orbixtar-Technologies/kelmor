@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Hosting Panel Control API
   version: 0.1.0
-  description: Desired-state hosting control plane. Server endpoints live under /api/v1/server and /api/v1/accounts. Customer tokens are never valid for server-admin capabilities.
+  description: Desired-state hosting control plane. Server endpoints require server-scoped capabilities. Account tokens are never valid for server-admin operations.
 servers:
   - url: /api/v1
 paths:
@@ -10,11 +10,16 @@ paths:
     get:
       operationId: healthz
       responses:
-        "200":
-          description: liveness
+        "200": { description: liveness }
+  /readyz:
+    get:
+      operationId: readyz
+      responses:
+        "200": { description: readiness }
   /auth/login:
     post:
       operationId: login
+      x-audit-action: auth.login
       requestBody:
         required: true
         content:
@@ -26,8 +31,47 @@ paths:
                 username: { type: string }
                 password: { type: string }
       responses:
-        "200":
-          description: session issued
+        "200": { description: session issued }
+        "401": { $ref: "#/components/responses/Error" }
+  /auth/logout:
+    post:
+      operationId: logout
+      responses:
+        "200": { description: session revoked }
+  /me:
+    get:
+      operationId: getMe
+      responses:
+        "200": { description: current actor }
+  /server:
+    get:
+      operationId: getServer
+      x-capability: server.read
+      responses:
+        "200": { description: host metrics and service health }
+  /packages:
+    get:
+      operationId: listPackages
+      x-capability: packages.read
+      responses:
+        "200": { description: hosting plans }
+    post:
+      operationId: createPackage
+      x-capability: packages.write
+      x-audit-action: package.create
+      responses:
+        "201": { description: created }
+  /resellers:
+    get:
+      operationId: listResellers
+      x-capability: resellers.read
+      responses:
+        "200": { description: resellers }
+    post:
+      operationId: createReseller
+      x-capability: resellers.create
+      responses:
+        "201": { description: created }
   /accounts:
     post:
       operationId: createAccount
@@ -35,8 +79,7 @@ paths:
       x-idempotency: required
       x-audit-action: account.create
       responses:
-        "202":
-          description: provisioning job accepted
+        "202": { description: provisioning job accepted }
     get:
       operationId: listAccounts
       x-capability: accounts.read
@@ -48,21 +91,115 @@ paths:
           name: status
           schema: { type: string }
       responses:
-        "200":
-          description: page of accounts
+        "200": { description: page of accounts }
+  /accounts/{accountID}:
+    get:
+      operationId: getAccount
+      x-capability: accounts.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: account }
+    patch:
+      operationId: modifyAccount
+      x-capability: accounts.modify
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: reconcile queued }
   /accounts/{accountID}/suspend:
     post:
       operationId: suspendAccount
       x-capability: accounts.suspend
       x-audit-action: account.suspend
       parameters:
-        - in: path
-          name: accountID
-          required: true
-          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/accountID"
       responses:
-        "202":
-          description: reconcile queued
+        "202": { description: reconcile queued }
+  /accounts/{accountID}/unsuspend:
+    post:
+      operationId: unsuspendAccount
+      x-capability: accounts.suspend
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: queued }
+  /accounts/{accountID}/domains:
+    get:
+      operationId: listDomains
+      x-capability: domains.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: domains }
+    post:
+      operationId: createDomain
+      x-capability: domains.write
+      x-audit-action: domain.create
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: queued }
+  /accounts/{accountID}/websites:
+    get:
+      operationId: listWebsites
+      x-capability: websites.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: websites }
+    post:
+      operationId: createWebsite
+      x-capability: websites.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: queued }
+  /accounts/{accountID}/databases:
+    get:
+      operationId: listDatabases
+      x-capability: databases.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: databases }
+    post:
+      operationId: createDatabase
+      x-capability: databases.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: queued }
+  /accounts/{accountID}/mail/mailboxes:
+    get:
+      operationId: listMailboxes
+      x-capability: mail.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: mailboxes }
+    post:
+      operationId: createMailbox
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: queued }
+  /accounts/{accountID}/backups:
+    get:
+      operationId: listBackups
+      x-capability: backups.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: backups }
+    post:
+      operationId: createBackup
+      x-capability: backups.create
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: queued }
   /jobs/{jobID}:
     get:
       operationId: getJob
@@ -72,9 +209,27 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        "200":
-          description: job status
+        "200": { description: job status }
+  /audit-events:
+    get:
+      operationId: listAuditEvents
+      x-capability: security.audit.read
+      responses:
+        "200": { description: audit trail }
 components:
+  parameters:
+    accountID:
+      in: path
+      name: accountID
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: structured error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
   schemas:
     APIError:
       type: object

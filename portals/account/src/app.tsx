@@ -110,8 +110,19 @@ function List ({ path, title }: { path: string; title: string }) {
 	return (
 		<>
 			<h1>{title}</h1>
-			{items.length === 0 ? <p>Nothing here yet.</p> : (
-				<ul>{items.map((it) => <li key={it.id}>{it.fqdn || it.hostname || it.runtime || it.name || it.id} — {it.status || it.kind || ''}</li>)}</ul>
+			{items.length === 0 ? <p>Nothing provisioned in this module yet. Create a resource or wait for the account job to finish.</p> : (
+				<table>
+					<thead><tr><th>Resource</th><th>Detail</th><th>State</th></tr></thead>
+					<tbody>
+						{items.map((it) => (
+							<tr key={it.id}>
+								<td>{it.fqdn || it.hostname || it.name || it.local_part || it.runtime || it.id}</td>
+								<td>{it.document_root || it.engine || it.kind || it.runtime_version || ''}</td>
+								<td>{it.status || (it.enabled === false ? 'disabled' : 'ready')}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
 			)}
 		</>
 	)

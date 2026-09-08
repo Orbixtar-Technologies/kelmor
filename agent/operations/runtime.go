@@ -1,0 +1,112 @@
+package operations
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/hosting-panel/panel/internal/configuration"
+	"github.com/hosting-panel/panel/internal/pkg/validate"
+)
+
+func (h *Host) applyPHPPool(account, version string, maxChildren int) (Result, error) {
+	if err := validate.Username(account); err != nil {
+		return Result{}, err
+	}
+	switch version {
+	case "8.3", "8.4", "8.5", "":
+	default:
+		return Result{}, fmt.Errorf("unknown PHP version")
+	}
+	if version == "" {
+		version = "8.3"
+	}
+	body := configuration.PHPPool(account, version, maxChildren)
+	path := fmt.Sprintf("/etc/php/%s/fpm/pool.d/panel-%s.conf", version, account)
+	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
+		return Result{}, err
+	}
+	return Result{OK: true, ObservedState: "applied"}, nil
+}
+
+func (h *Host) applySlice(username string, cpu int, memory int64, tasks int) (Result, error) {
+	if err := validate.Username(username); err != nil {
+		return Result{}, err
+	}
+	if tasks < 1 {
+		tasks = 100
+	}
+	body := configuration.SystemdSlice(username, cpu, memory, tasks)
+	_, err := h.ApplyFile("/etc/systemd/system/panel-account-"+username+".slice", []byte(body), 0o644)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{OK: true, ObservedState: "applied"}, nil
+}
+
+func (h *Host) setQuota(username string, bytes int64) (Result, error) {
+	if err := validate.Username(username); err != nil {
+		return Result{}, err
+	}
+	if !h.live() {
+		return Result{OK: true, ObservedState: "applied"}, nil
+	}
+	blocks := bytes / 1024
+	out, err := runFixed("/usr/sbin/setquota", "-u", username, fmt.Sprintf("%d", blocks), fmt.Sprintf("%d", blocks), "0", "0", "-a")
+	if err != nil {
+		return Result{}, fmt.Errorf("setquota: %s", strings.TrimSpace(string(out)))
+	}
+	return Result{OK: true, ObservedState: "applied"}, nil
+}
+
+func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Result, error) {
+	if !ident(name) || !ident(dbUser) {
+		return Result{}, fmt.Errorf("invalid database identifier")
+	}
+	if password == "" {
+		return Result{}, fmt.Errorf("password required")
+	}
+	switch engine {
+	case "mariadb", "mysql":
+		if !h.live() {
+			return Result{OK: true, ObservedState: "recorded"}, nil
+		}
+		stmt := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`; CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s'; GRANT ALL ON `%s`.* TO '%s'@'localhost'; FLUSH PRIVILEGES;", name, dbUser, escapeSQL(password), name, dbUser)
+		bin := "/usr/bin/mariadb"
+		out, err := runFixed(bin, "-e", stmt)
+		if err != nil {
+			return Result{}, fmt.Errorf("mariadb: %s", strings.TrimSpace(string(out)))
+		}
+	case "postgres":
+		if !h.live() {
+			return Result{OK: true, ObservedState: "recorded"}, nil
+		}
+		if _, err := runFixed("/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'"); err != nil {
+			// user may exist
+		}
+		if out, err := runFixed("/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE "+name+" OWNER "+dbUser); err != nil {
+			return Result{}, fmt.Errorf("psql: %s", strings.TrimSpace(string(out)))
+		}
+	default:
+		return Result{}, fmt.Errorf("unsupported engine")
+	}
+	return Result{OK: true, ObservedState: "active"}, nil
+}
+
+func ident(s string) bool {
+	if s == "" || len(s) > 63 {
+		return false
+	}
+	for i, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+			return false
+		}
+		if i == 0 && r >= '0' && r <= '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func escapeSQL(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
