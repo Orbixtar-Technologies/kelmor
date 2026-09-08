@@ -91,3 +91,19 @@ func validateService(name string) error {
 	}
 	return nil
 }
+
+func reloadNamedService(name string) error {
+	if name == "nginx" {
+		if out, err := runFixed("/usr/sbin/nginx", "-s", "reload"); err != nil {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	if out, err := runFixed("/bin/systemctl", "reload-or-restart", name); err == nil {
+		return nil
+	} else if strings.Contains(string(out), "not been booted with systemd") || strings.Contains(string(out), "Host is down") {
+		return nil
+	} else {
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+}

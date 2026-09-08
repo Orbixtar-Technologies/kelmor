@@ -273,8 +273,8 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		if h.live() {
-			if out, err := runFixed("/bin/systemctl", "reload-or-restart", p.Name); err != nil {
-				return nil, fmt.Errorf("%s", strings.TrimSpace(string(out)))
+			if err := reloadNamedService(p.Name); err != nil {
+				return nil, err
 			}
 		}
 		return Result{OK: true, Message: "reload requested for " + p.Name}, nil
