@@ -430,7 +430,14 @@ func writeUnlessExists(path string, body []byte, mode os.FileMode) error {
 func writePublicEnv(c Config) error {
 	pub := netaddr.PublicIPv4()
 	body := "PANEL_PUBLIC_IPV4=" + pub + "\n"
-	return os.WriteFile(root(c, "var/lib/panel/public.env"), []byte(body), 0o640)
+	path := root(c, "var/lib/panel/public.env")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return err
+	}
+	if !c.Dev {
+		_ = exec.Command("/bin/chown", "panel:panel", path).Run()
+	}
+	return nil
 }
 
 func replaceConfigLine(path, prefix, line string) error {
