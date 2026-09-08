@@ -137,8 +137,11 @@ func (h *Host) createHostedDatabase(engine, name, dbUser, password string) (Resu
 			return Result{OK: true, ObservedState: "recorded"}, nil
 		}
 		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'")
+		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "ALTER USER "+dbUser+" PASSWORD '"+escapeSQL(password)+"'")
 		if out, err := runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE "+name+" OWNER "+dbUser); err != nil {
-			return Result{}, fmt.Errorf("psql: %s", strings.TrimSpace(string(out)))
+			if !strings.Contains(string(out), "already exists") {
+				return Result{}, fmt.Errorf("psql: %s", strings.TrimSpace(string(out)))
+			}
 		}
 	default:
 		return Result{}, fmt.Errorf("unsupported engine")

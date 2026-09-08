@@ -34,7 +34,48 @@ func applyHostRuntime(c Config) error {
 		_ = cmd.Start()
 	}
 	startControlPlane()
+	startAccountApps()
 	return nil
+}
+
+func startAccountApps() {
+	homes, err := os.ReadDir("/home")
+	if err != nil {
+		return
+	}
+	for _, h := range homes {
+		if !h.IsDir() {
+			continue
+		}
+		user := h.Name()
+		apps := "/home/" + user + "/apps"
+		entries, err := os.ReadDir(apps)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			dir := apps + "/" + e.Name()
+			if _, err := os.Stat(dir + "/app.py"); err == nil {
+				if exec.Command("/usr/bin/pgrep", "-f", dir+"/app.py").Run() != nil {
+					cmd := exec.Command("/usr/sbin/runuser", "-u", user, "--", "/usr/bin/python3", "app.py")
+					cmd.Dir = dir
+					cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=/home/" + user}
+					_ = cmd.Start()
+				}
+			}
+			if _, err := os.Stat(dir + "/server.js"); err == nil {
+				if exec.Command("/usr/bin/pgrep", "-f", dir+"/server.js").Run() != nil {
+					cmd := exec.Command("/usr/sbin/runuser", "-u", user, "--", "/usr/bin/node", "server.js")
+					cmd.Dir = dir
+					cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=/home/" + user}
+					_ = cmd.Start()
+				}
+			}
+		}
+	}
 }
 
 func startControlPlane() {

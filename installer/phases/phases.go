@@ -201,6 +201,11 @@ func applyControlPlane(c Config) error {
 		}
 		copied++
 	}
+	if b, err := os.ReadFile(filepath.Join(src, "pebble")); err == nil {
+		if err := os.WriteFile(filepath.Join(dest, "pebble"), b, 0o755); err != nil {
+			return err
+		}
+	}
 	if copied == 0 {
 		return fmt.Errorf("no panel-* binaries copied from %s", src)
 	}

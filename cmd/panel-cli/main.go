@@ -36,6 +36,7 @@ func main() {
   backup restore <account_id> <backup_id>
   jobs list
   jobs failed
+  job wait <id>
   audit
   monitor
   import-cpanel <root> <username>
@@ -111,6 +112,8 @@ func main() {
 		get(base+"/api/v1/accounts/"+args[2]+"/export", token)
 	case args[0] == "backup" && len(args) == 3 && args[1] == "create":
 		post(base+"/api/v1/accounts/"+args[2]+"/backups", token, map[string]any{"kind": "full", "destination": "local"})
+	case args[0] == "job" && args[1] == "wait" && len(args) == 3:
+		waitJob(base, token, args[2])
 	case join(args) == "jobs list":
 		get(base+"/api/v1/jobs", token)
 	case join(args) == "jobs list --failed" || join(args) == "jobs failed":
@@ -133,6 +136,24 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", strings.Join(args, " "))
 		os.Exit(2)
 	}
+}
+
+func waitJob(base, token, id string) {
+	deadline := time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		out := do(http.MethodGet, base+"/api/v1/jobs/"+id, token, nil, false)
+		st, _ := out["state"].(string)
+		if st == "succeeded" {
+			fmt.Println(mustJSON(out))
+			return
+		}
+		if st == "failed" {
+			fmt.Fprintln(os.Stderr, mustJSON(out))
+			os.Exit(1)
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	fatal("job wait timeout")
 }
 
 func login(base, user, pass string) {
