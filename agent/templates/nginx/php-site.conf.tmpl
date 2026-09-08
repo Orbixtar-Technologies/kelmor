@@ -1,0 +1,16 @@
+# Managed by Hosting Panel
+# resource: {{.WebsiteID}}
+# revision: {{.Revision}}
+# template: nginx/php-site/v1
+# DO NOT EDIT
+server {
+    listen 80;
+    server_name {{.Domain}};
+    root {{.DocumentRoot}};
+    index index.php index.html;
+    access_log /var/log/nginx/{{.WebsiteID}}.access.log;
+    error_log /var/log/nginx/{{.WebsiteID}}.error.log;
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+}

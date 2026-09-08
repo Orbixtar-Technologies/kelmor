@@ -1,0 +1,7 @@
+dist/
+var/
+node_modules/
+*.log
+.DS_Store
+portals/server/dist
+portals/account/dist

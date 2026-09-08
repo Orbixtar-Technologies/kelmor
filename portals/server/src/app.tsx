@@ -1,0 +1,294 @@
+import { useEffect, useState } from 'react'
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
+import { api, clearToken, getToken, setToken } from './client'
+
+interface User { username: string; roles: string[]; email: string }
+
+export function App () {
+	const [user, setUser] = useState<User | null>(null)
+	const [error, setError] = useState('')
+
+	useEffect(() => {
+		if (!getToken()) return
+		api<{ user: User }>('/api/v1/me').then((r) => setUser(r.user)).catch(() => clearToken())
+	}, [])
+
+	if (!user) {
+		return (
+			<main className="auth">
+				<section className="card">
+					<p className="eyebrow">Infrastructure console</p>
+					<h1>Server Portal</h1>
+					<p className="lede">Administer the host, resellers, packages and privileged jobs. Customer sites live in the Account Portal.</p>
+					<form onSubmit={async (e) => {
+						e.preventDefault()
+						setError('')
+						const fd = new FormData(e.currentTarget)
+						try {
+							const r = await api<{ token: string; user: User }>('/api/v1/auth/login', {
+								method: 'POST',
+								body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }),
+							})
+							setToken(r.token)
+							setUser(r.user)
+						} catch (err) {
+							setError(err instanceof Error ? err.message : 'Login failed')
+						}
+					}}>
+						<label>Username<input name="username" autoComplete="username" defaultValue="admin" /></label>
+						<label>Password<input name="password" type="password" autoComplete="current-password" defaultValue="ChangeMeOnce!2026" /></label>
+						{error ? <p className="error" role="alert">{error}</p> : null}
+						<button type="submit">Sign in</button>
+					</form>
+				</section>
+			</main>
+		)
+	}
+
+	return (
+		<div className="shell">
+			<aside>
+				<p className="brand">Server Portal</p>
+				<nav>
+					<NavLink to="/" end>Dashboard</NavLink>
+					<NavLink to="/accounts">Accounts</NavLink>
+					<NavLink to="/resellers">Resellers</NavLink>
+					<NavLink to="/packages">Packages</NavLink>
+					<NavLink to="/jobs">Jobs</NavLink>
+					<NavLink to="/audit">Audit</NavLink>
+				</nav>
+				<button className="ghost" onClick={() => { clearToken(); setUser(null) }}>Sign out {user.username}</button>
+			</aside>
+			<main className="content">
+				<Routes>
+					<Route path="/" element={<Dashboard />} />
+					<Route path="/accounts" element={<Accounts />} />
+					<Route path="/resellers" element={<Resellers />} />
+					<Route path="/packages" element={<Packages />} />
+					<Route path="/jobs" element={<Jobs />} />
+					<Route path="/audit" element={<Audit />} />
+				</Routes>
+			</main>
+		</div>
+	)
+}
+
+function Dashboard () {
+	const [data, setData] = useState<any>(null)
+	const [err, setErr] = useState('')
+	useEffect(() => {
+		api('/api/v1/server').then(setData).catch((e) => setErr(e.message))
+	}, [])
+	if (err) return <Empty title="Could not load host metrics" detail={err} />
+	if (!data) return <Empty title="Reading host sensors" detail="Contacting the privileged agent for CPU, memory, disk and services." />
+	const s = data.system
+	return (
+		<>
+			<header><h1>Host operations</h1><p>Live observed state from the agent, not decorative charts.</p></header>
+			<section className="metrics">
+				<Metric label="Hostname" value={s.hostname} />
+				<Metric label="Load 1" value={Number(s.load1).toFixed(2)} />
+				<Metric label="Memory" value={fmtBytes(s.memory_used) + ' / ' + fmtBytes(s.memory_total)} />
+				<Metric label="Disk" value={fmtBytes(s.disk_used) + ' / ' + fmtBytes(s.disk_total)} />
+				<Metric label="Inodes" value={`${s.inodes_used} / ${s.inodes_total}`} />
+				<Metric label="Uptime" value={`${Math.floor(s.uptime_seconds / 3600)}h`} />
+				<Metric label="Accounts" value={String(data.stats.accounts)} />
+				<Metric label="Failed jobs" value={String(data.stats.failedJobs)} />
+			</section>
+			<h2>Services</h2>
+			<table>
+				<thead><tr><th>Service</th><th>Health</th><th>Running</th></tr></thead>
+				<tbody>
+					{data.services.map((svc: any) => (
+						<tr key={svc.name}><td>{svc.name}</td><td>{svc.health}</td><td>{svc.observed_running ? 'yes' : 'no'}</td></tr>
+					))}
+				</tbody>
+			</table>
+		</>
+	)
+}
+
+function Accounts () {
+	const [items, setItems] = useState<any[]>([])
+	const [packages, setPackages] = useState<any[]>([])
+	const [q, setQ] = useState('')
+	const [msg, setMsg] = useState('')
+	const nav = useNavigate()
+	async function reload () {
+		const r = await api<{ items: any[] }>(`/api/v1/accounts?q=${encodeURIComponent(q)}`)
+		setItems(r.items)
+	}
+	useEffect(() => { reload().catch((e) => setMsg(e.message)) }, [q])
+	useEffect(() => { api<{ items: any[] }>('/api/v1/packages').then((r) => setPackages(r.items)) }, [])
+	return (
+		<>
+			<header><h1>Hosting accounts</h1><p>Each account gets a dedicated Linux identity and a reconciliation job.</p></header>
+			<form className="row" onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				setMsg('')
+				try {
+					const r = await api<any>('/api/v1/accounts', {
+						method: 'POST',
+						headers: { 'Idempotency-Key': crypto.randomUUID() },
+						body: JSON.stringify({
+							username: fd.get('username'),
+							primary_domain: fd.get('domain'),
+							package_id: fd.get('package_id'),
+							owner_email: fd.get('email'),
+							owner_password: fd.get('password'),
+						}),
+					})
+					setMsg(`Queued ${r.operation_id}`)
+					await reload()
+					nav('/jobs')
+				} catch (err) {
+					setMsg(err instanceof Error ? err.message : 'failed')
+				}
+			}}>
+				<input name="username" placeholder="username" required />
+				<input name="domain" placeholder="primary domain" required />
+				<input name="email" placeholder="owner email" type="email" />
+				<input name="password" placeholder="owner password" type="password" required />
+				<select name="package_id">{packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+				<button type="submit">Provision account</button>
+			</form>
+			<input className="search" placeholder="Search username or domain" value={q} onChange={(e) => setQ(e.target.value)} />
+			{msg ? <p className="notice">{msg}</p> : null}
+			{items.length === 0 ? <Empty title="No accounts match" detail="Create a customer above or clear the search filter." /> : (
+				<table>
+					<thead><tr><th>User</th><th>Domain</th><th>Status</th><th>UID</th><th></th></tr></thead>
+					<tbody>
+						{items.map((a) => (
+							<tr key={a.id}>
+								<td>{a.username}</td><td>{a.primary_domain}</td><td>{a.status}</td><td>{a.linux_uid}</td>
+								<td>
+									<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/suspend`, reload, setMsg)}>Suspend</button>
+									<button type="button" onClick={() => act(`/api/v1/accounts/${a.id}/unsuspend`, reload, setMsg)}>Unsuspend</button>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
+		</>
+	)
+}
+
+function Packages () {
+	const [items, setItems] = useState<any[]>([])
+	useEffect(() => { api<{ items: any[] }>('/api/v1/packages').then((r) => setItems(r.items)) }, [])
+	return (
+		<>
+			<header><h1>Packages</h1><p>Reusable CPU, memory, I/O and feature limits enforced through slices and quotas.</p></header>
+			<form className="row" onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api('/api/v1/packages', { method: 'POST', body: JSON.stringify({
+					name: fd.get('name'), disk_bytes: 10 << 30, bandwidth_bytes_monthly: 100 << 30,
+					domains: 5, subdomains: 20, alias_domains: 10, databases: 5, database_users: 10,
+					mailboxes: 20, mailbox_storage_bytes: 2 << 30, ftp_users: 5, cron_jobs: 10,
+					application_instances: 3, backup_retention_days: 7, cpu_percent: 200,
+					memory_bytes: 2 << 30, process_limit: 150, io_weight: 100, iops: 800,
+					concurrent_web_requests: 100, email_daily_limit: 200,
+				}) })
+				const r = await api<{ items: any[] }>('/api/v1/packages')
+				setItems(r.items)
+			}}>
+				<input name="name" placeholder="package name" required />
+				<button type="submit">Create package</button>
+			</form>
+			<table>
+				<thead><tr><th>Name</th><th>CPU %</th><th>Memory</th><th>Disk</th></tr></thead>
+				<tbody>{items.map((p) => <tr key={p.id}><td>{p.name}</td><td>{p.cpu_percent}</td><td>{fmtBytes(p.memory_bytes)}</td><td>{fmtBytes(p.disk_bytes)}</td></tr>)}</tbody>
+			</table>
+		</>
+	)
+}
+
+function Resellers () {
+	const [items, setItems] = useState<any[]>([])
+	useEffect(() => { api<{ items: any[] }>('/api/v1/resellers').then((r) => setItems(r.items)) }, [])
+	return (
+		<>
+			<header><h1>Resellers</h1><p>Delegated privileges. A reseller never sees root secrets or foreign customers.</p></header>
+			<form className="row" onSubmit={async (e) => {
+				e.preventDefault()
+				const fd = new FormData(e.currentTarget)
+				await api('/api/v1/resellers', { method: 'POST', body: JSON.stringify({ name: fd.get('name'), user_id: 'pending' }) })
+				setItems((await api<{ items: any[] }>('/api/v1/resellers')).items)
+			}}>
+				<input name="name" placeholder="reseller name" required />
+				<button type="submit">Create reseller</button>
+			</form>
+			{items.length === 0 ? <Empty title="No resellers yet" detail="Create one to delegate packages and customer accounts." /> : (
+				<table><thead><tr><th>Name</th><th>Status</th></tr></thead>
+					<tbody>{items.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.status}</td></tr>)}</tbody></table>
+			)}
+		</>
+	)
+}
+
+function Jobs () {
+	const [items, setItems] = useState<any[]>([])
+	useEffect(() => {
+		const load = () => api<{ items: any[] }>('/api/v1/jobs').then((r) => setItems(r.items))
+		load()
+		const id = setInterval(load, 1500)
+		return () => clearInterval(id)
+	}, [])
+	return (
+		<>
+			<header><h1>Background jobs</h1><p>Durable PostgreSQL-style queue. Progress is observed, not guessed.</p></header>
+			{items.length === 0 ? <Empty title="Queue is idle" detail="Provisioning, backups and certificate work will appear here." /> : (
+				<table>
+					<thead><tr><th>Type</th><th>State</th><th>%</th><th>Error</th></tr></thead>
+					<tbody>{items.map((j) => <tr key={j.id}><td>{j.type}</td><td>{j.state}</td><td>{j.progress}</td><td>{j.last_error}</td></tr>)}</tbody>
+				</table>
+			)}
+		</>
+	)
+}
+
+function Audit () {
+	const [items, setItems] = useState<any[]>([])
+	const [err, setErr] = useState('')
+	useEffect(() => { api<{ items: any[] }>('/api/v1/audit-events').then((r) => setItems(r.items)).catch((e) => setErr(e.message)) }, [])
+	if (err) return <Empty title="Audit unavailable" detail={err} />
+	return (
+		<>
+			<header><h1>Privileged audit trail</h1><p>Secrets are redacted. Impersonation keeps the original actor.</p></header>
+			<table>
+				<thead><tr><th>When</th><th>Action</th><th>Resource</th><th>OK</th><th>IP</th></tr></thead>
+				<tbody>{items.map((e) => <tr key={e.id}><td>{e.occurred_at}</td><td>{e.action}</td><td>{e.resource_type}</td><td>{e.success ? 'yes' : 'no'}</td><td>{e.source_ip}</td></tr>)}</tbody>
+			</table>
+		</>
+	)
+}
+
+function Metric ({ label, value }: { label: string; value: string }) {
+	return <article><p>{label}</p><strong>{value}</strong></article>
+}
+
+function Empty ({ title, detail }: { title: string; detail: string }) {
+	return <section className="empty"><h2>{title}</h2><p>{detail}</p></section>
+}
+
+function fmtBytes (n: number) {
+	if (!n) return '0 B'
+	const u = ['B', 'KB', 'MB', 'GB', 'TB']
+	let i = 0
+	let v = n
+	while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+	return `${v.toFixed(1)} ${u[i]}`
+}
+
+async function act (path: string, reload: () => Promise<void>, setMsg: (s: string) => void) {
+	try {
+		const r = await api<any>(path, { method: 'POST', body: '{}' })
+		setMsg(`Queued ${r.operation_id}`)
+		await reload()
+	} catch (e) {
+		setMsg(e instanceof Error ? e.message : 'failed')
+	}
+}

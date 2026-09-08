@@ -1,0 +1,30 @@
+platform_release: 0.1.0
+channel: development
+supported_os:
+  - ubuntu-24.04
+go_baseline: "1.22"
+packages:
+  nginx:
+    channel: stable
+    major_minor: "1.30"
+  postgresql:
+    major: "18"
+  mariadb:
+    major_minor: "11.8"
+  powerdns:
+    major_minor: "5.0"
+  dovecot:
+    major_minor: "2.4"
+  postfix:
+    major_minor: "3.11"
+  rspamd:
+    major_minor: "4.1"
+runtimes:
+  php:
+    - "8.3"
+    - "8.4"
+    - "8.5"
+  node:
+    - "24"
+checksums: {}
+signature: unsigned-development

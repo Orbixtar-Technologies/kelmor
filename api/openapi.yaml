@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: Hosting Panel Control API
+  version: 0.1.0
+  description: Desired-state hosting control plane. Server endpoints live under /api/v1/server and /api/v1/accounts. Customer tokens are never valid for server-admin capabilities.
+servers:
+  - url: /api/v1
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      responses:
+        "200":
+          description: liveness
+  /auth/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: session issued
+  /accounts:
+    post:
+      operationId: createAccount
+      x-capability: accounts.create
+      x-idempotency: required
+      x-audit-action: account.create
+      responses:
+        "202":
+          description: provisioning job accepted
+    get:
+      operationId: listAccounts
+      x-capability: accounts.read
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        "200":
+          description: page of accounts
+  /accounts/{accountID}/suspend:
+    post:
+      operationId: suspendAccount
+      x-capability: accounts.suspend
+      x-audit-action: account.suspend
+      parameters:
+        - in: path
+          name: accountID
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "202":
+          description: reconcile queued
+  /jobs/{jobID}:
+    get:
+      operationId: getJob
+      parameters:
+        - in: path
+          name: jobID
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: job status
+components:
+  schemas:
+    APIError:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            request_id: { type: string }
+            details: { type: object }

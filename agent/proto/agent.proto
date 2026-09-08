@@ -1,0 +1,65 @@
+syntax = "proto3";
+package panel.agent.v1;
+option go_package = "github.com/hosting-panel/panel/agent/proto";
+
+service HostAgent {
+  rpc GetSystemInfo(Empty) returns (SystemInfo);
+  rpc GetServiceStatus(ServiceRequest) returns (ServiceStatus);
+  rpc ReloadService(ServiceRequest) returns (OperationResult);
+  rpc CreateLinuxUser(UnixUserSpec) returns (OperationResult);
+  rpc LockLinuxUser(AccountRequest) returns (OperationResult);
+  rpc UnlockLinuxUser(AccountRequest) returns (OperationResult);
+  rpc DeleteLinuxUser(AccountRequest) returns (OperationResult);
+  rpc SetFilesystemQuota(QuotaSpec) returns (OperationResult);
+  rpc CreateDirectoryTree(DirectorySpec) returns (OperationResult);
+  rpc ApplySystemdSlice(SliceSpec) returns (OperationResult);
+  rpc ApplyFile(FileSpec) returns (OperationResult);
+  rpc ValidateConfiguration(ValidateRequest) returns (OperationResult);
+  rpc ApplyWebsite(WebsiteSpec) returns (OperationResult);
+  rpc ApplyPhpPool(PhpPoolSpec) returns (OperationResult);
+  rpc ApplyFirewall(FirewallSpec) returns (OperationResult);
+}
+
+message Empty {}
+
+message Envelope {
+  string operation_id = 1;
+  string request_id = 2;
+  string actor_id = 3;
+  string resource_id = 4;
+  int64 expected_revision = 5;
+}
+
+message OperationResult {
+  bool ok = 1;
+  string message = 2;
+  string observed_state = 3;
+}
+
+message SystemInfo {
+  string hostname = 1;
+  string os = 2;
+  string kernel = 3;
+  double load1 = 4;
+  double cpu_percent = 5;
+  uint64 memory_used = 6;
+  uint64 memory_total = 7;
+  uint64 disk_used = 8;
+  uint64 disk_total = 9;
+  uint64 inodes_used = 10;
+  uint64 inodes_total = 11;
+  uint64 uptime_seconds = 12;
+}
+
+message ServiceRequest { Envelope env = 1; string name = 2; }
+message ServiceStatus { string name = 1; string health = 2; bool running = 3; }
+message AccountRequest { Envelope env = 1; string username = 2; }
+message UnixUserSpec { Envelope env = 1; string username = 2; int32 uid = 3; int32 gid = 4; string home = 5; string shell = 6; }
+message QuotaSpec { Envelope env = 1; string username = 2; int64 bytes = 3; }
+message DirectorySpec { Envelope env = 1; string path = 2; int32 uid = 3; int32 gid = 4; uint32 mode = 5; }
+message SliceSpec { Envelope env = 1; string username = 2; int32 cpu_percent = 3; int64 memory_bytes = 4; int32 tasks_max = 5; int32 io_weight = 6; }
+message FileSpec { Envelope env = 1; string path = 2; bytes content = 3; uint32 mode = 4; }
+message ValidateRequest { Envelope env = 1; string kind = 2; string path = 3; }
+message WebsiteSpec { Envelope env = 1; string website_id = 2; string domain = 3; string document_root = 4; string runtime = 5; }
+message PhpPoolSpec { Envelope env = 1; string account = 2; string version = 3; int32 max_children = 4; }
+message FirewallSpec { Envelope env = 1; string table = 2; bytes ruleset = 3; }

@@ -1,0 +1,17 @@
+[Unit]
+Description=Hosting Panel API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=panel
+Group=panel
+ExecStart=/usr/local/panel/bin/panel-api
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
