@@ -367,24 +367,45 @@ f.quit()
 PY
 fi
 
-# python runtime addon (idempotent)
-domains=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH")
-has_py=$(echo "$domains" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('ascii_fqdn')=='python.livehost.test' for i in items))")
-if [[ "$has_py" != "True" ]]; then
-  curl -sS -X POST "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" -H 'content-type: application/json' \
-    -d '{"fqdn":"python.livehost.test","type":"addon","runtime":"python"}'
-  sleep 3
-fi
-pycode=$(host_fetch python.livehost.test /tmp/py.out)
-echo "python_http $pycode"
-head -c 80 /tmp/py.out; echo
-if [[ "$pycode" != "200" ]]; then
-  curl -sS -X PATCH "$BASE/api/v1/accounts/$aid" -H "$AUTH" -H 'content-type: application/json' -d '{}' >/dev/null
-  sleep 3
-  pycode=$(host_fetch python.livehost.test /tmp/py.out)
-  echo "python_http_retry $pycode"
-fi
-[[ "$pycode" == "200" ]] || { echo "python site down" >&2; exit 1; }
+ensure_runtime_addon() {
+  local fqdn="$1" runtime="$2" out="$3" needle="$4"
+  local domains has created op code
+  domains=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH")
+  has=$(echo "$domains" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('ascii_fqdn')=='$fqdn' for i in items))")
+  if [[ "$has" != "True" ]]; then
+    created=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" -H 'content-type: application/json' \
+      -d "{\"fqdn\":\"$fqdn\",\"type\":\"addon\",\"runtime\":\"$runtime\"}")
+    echo "$created"
+    op=$(echo "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+    wait_job "$op" "$runtime-addon"
+  fi
+  code=""
+  for _ in $(seq 1 30); do
+    code=$(host_fetch "$fqdn" "$out")
+    echo "${runtime}_http $code"
+    if [[ "$code" == "200" ]] && grep -q "$needle" "$out"; then
+      head -c 80 "$out"; echo
+      return 0
+    fi
+    sleep 0.5
+  done
+  local retry
+  retry=$(curl -sS -X PATCH "$BASE/api/v1/accounts/$aid" -H "$AUTH" -H 'content-type: application/json' -d '{}')
+  wait_job "$(echo "$retry" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')" "$runtime-reapply" || true
+  for _ in $(seq 1 20); do
+    code=$(host_fetch "$fqdn" "$out")
+    echo "${runtime}_http_retry $code"
+    if [[ "$code" == "200" ]] && grep -q "$needle" "$out"; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "$runtime site down" >&2
+  return 1
+}
+
+ensure_runtime_addon python.livehost.test python /tmp/py.out python
+ensure_runtime_addon node.livehost.test node /tmp/node.out node
 
 dbs=$(curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH")
 hasdb=$(echo "$dbs" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('name','').endswith('_e2e') for i in items))")
@@ -590,6 +611,13 @@ for _ in $(seq 1 20); do
   sleep 0.3
 done
 [[ "$pycode" == "200" ]] || { echo "python site down after unsuspend: $pycode" >&2; exit 1; }
+ndcode=""
+for _ in $(seq 1 20); do
+  ndcode=$(host_fetch node.livehost.test /tmp/node-uns.out)
+  [[ "$ndcode" == "200" ]] && break
+  sleep 0.3
+done
+[[ "$ndcode" == "200" ]] || { echo "node site down after unsuspend: $ndcode" >&2; exit 1; }
 
 TUSER="tm$(date +%s)"
 TDOM="${TUSER}.test"

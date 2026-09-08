@@ -186,6 +186,31 @@ func killMatching(needle string) {
 	}
 }
 
+func processInDir(dir string) bool {
+	if dir == "" || dir == "/" {
+		return false
+	}
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return false
+	}
+	self := os.Getpid()
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid <= 1 || pid == self {
+			continue
+		}
+		cwd, err := os.Readlink(filepath.Join("/proc", e.Name(), "cwd"))
+		if err != nil {
+			continue
+		}
+		if cwd == dir || strings.HasPrefix(cwd, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func killByCwd(dir string) {
 	if dir == "" || dir == "/" {
 		return
@@ -211,6 +236,9 @@ func killByCwd(dir string) {
 }
 
 func startAccountProcess(account, workDir, runtime string) error {
+	if workDir != "" && processInDir(workDir) {
+		return nil
+	}
 	switch runtime {
 	case "node":
 		bin := "/usr/bin/node"

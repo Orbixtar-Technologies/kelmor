@@ -1,6 +1,28 @@
 package operations
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+func TestProcessInDirSeesCurrentWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	if !processInDir(dir) {
+		t.Fatal("expected the test process in dir")
+	}
+	other := t.TempDir()
+	if processInDir(other) {
+		t.Fatal("empty directory should not look occupied")
+	}
+}
 
 func TestIdent(t *testing.T) {
 	if !ident("livehost_shop") || !ident("livehost_u") {
