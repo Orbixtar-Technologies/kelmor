@@ -45,4 +45,7 @@ func TestIssueFallsBackToDevCert(t *testing.T) {
 	if _, err := os.Stat(h.Root + "/var/lib/panel/certs/acme.test.crt"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := Issue(context.Background(), h, "sandbox.test", "ops@acme.test", "https://127.0.0.1:14000/dir"); err != nil {
+		t.Fatal(err)
+	}
 }

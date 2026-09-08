@@ -329,14 +329,15 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:" + pubIP + " ~all", TTL: 3600})
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "_dmarc", Type: "TXT", Content: "v=DMARC1; p=none", TTL: 3600})
 	}
-	if len(w.Store.ListCerts(acc.ID)) == 0 {
-		exp := time.Now().Add(90 * 24 * time.Hour)
-		c := &store.Certificate{ID: store.NewID(), AccountID: acc.ID, Hostname: d.ASCII, Kind: "domain", Status: "active", NotAfter: &exp, Issuer: "panel-dev"}
-		w.Store.PutCert(c)
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
-			Method: "IssueDevCertificate",
-			Params: mustJSON(map[string]any{"hostname": d.ASCII, "days": 90}),
-		})
+	if z := w.Store.ZoneByDomain(d.ID); z != nil {
+		if err := w.writeZone(z); err != nil && w.liveACME() {
+			return fmt.Errorf("publish zone for ACME: %w", err)
+		}
+	}
+	if d.Type != "alias" {
+		if err := w.ensureCertificate(acc, d.ASCII); err != nil {
+			return err
+		}
 	}
 	if d.Type == "alias" {
 		if primary := w.primaryDomain(acc); primary != nil {
@@ -910,8 +911,37 @@ func (w *Worker) provisionMailbox(j *store.Job) error {
 	return nil
 }
 
-func (w *Worker) provisionCert(j *store.Job) error {
-	c := w.Store.GetCert(str(j.Payload["certificate_id"]))
+func (w *Worker) liveACME() bool {
+	return acme.Directory() != "" && (w.Agent == nil || w.Agent.Root == "")
+}
+
+func (w *Worker) ensureCertificate(acc *store.Account, hostname string) error {
+	if acc == nil || hostname == "" {
+		return nil
+	}
+	var cert *store.Certificate
+	for _, c := range w.Store.ListCerts(acc.ID) {
+		if c.Hostname != hostname {
+			continue
+		}
+		cp := c
+		cert = &cp
+		break
+	}
+	if cert != nil && cert.Status == "active" && cert.NotAfter != nil && time.Until(*cert.NotAfter) > 30*24*time.Hour {
+		return nil
+	}
+	if cert == nil {
+		cert = &store.Certificate{
+			ID: store.NewID(), AccountID: acc.ID, Hostname: hostname,
+			Kind: "domain", Status: "requested",
+		}
+		w.Store.PutCert(cert)
+	}
+	return w.issueStoredCertificate(cert)
+}
+
+func (w *Worker) issueStoredCertificate(c *store.Certificate) error {
 	if c == nil {
 		return fmt.Errorf("certificate missing")
 	}
@@ -921,14 +951,26 @@ func (w *Worker) provisionCert(j *store.Job) error {
 			contact = owner.Email
 		}
 	}
-	exp, err := acme.Issue(context.Background(), w.Agent, c.Hostname, contact, acme.Directory())
+	directory := acme.Directory()
+	exp, err := acme.Issue(context.Background(), w.Agent, c.Hostname, contact, directory)
 	if err != nil {
 		return err
 	}
 	c.Status = "active"
 	c.NotAfter = &exp
-	c.Issuer = acme.IssuerName(acme.Directory())
+	c.Issuer = acme.IssuerName(directory)
+	if w.Agent != nil && w.Agent.Root != "" {
+		c.Issuer = "panel-dev"
+	}
 	w.Store.PutCert(c)
+	return nil
+}
+
+func (w *Worker) provisionCert(j *store.Job) error {
+	c := w.Store.GetCert(str(j.Payload["certificate_id"]))
+	if err := w.issueStoredCertificate(c); err != nil {
+		return err
+	}
 	// Nginx only picks up a newly written certificate after ApplyWebsite.
 	if acc := w.Store.GetAccount(c.AccountID); acc != nil {
 		for _, site := range w.Store.ListWebsites(acc.ID) {

@@ -64,6 +64,10 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/certs/acme.test.crt")); err != nil {
 		t.Fatal(err)
 	}
+	certs := st.ListCerts(acc.ID)
+	if len(certs) != 1 || certs[0].Hostname != "acme.test" || certs[0].Issuer != "panel-dev" || certs[0].Status != "active" {
+		t.Fatalf("certificate %+v", certs)
+	}
 	b := &store.BackupRun{ID: "bak-1", AccountID: acc.ID, Kind: "full", State: "queued", Destination: "local"}
 	st.PutBackup(b)
 	_, _ = st.EnqueueJob(&store.Job{Type: "backup.create", ResourceType: "backup", ResourceID: b.ID, Payload: map[string]any{"backup_id": b.ID}, State: "queued"})

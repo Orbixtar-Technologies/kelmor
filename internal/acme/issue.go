@@ -24,7 +24,7 @@ import (
 )
 
 func Issue(ctx context.Context, agent *operations.Host, hostname, contact, directory string) (time.Time, error) {
-	if directory == "" {
+	if useDevCertificate(agent, directory) {
 		_, err := agent.Dispatch(ctx, operations.Request{
 			Method: "IssueDevCertificate",
 			Params: mustJSON(map[string]any{"hostname": hostname, "days": 90}),
@@ -167,6 +167,14 @@ func waitHTTP01(hostname, token, body string) error {
 		last = fmt.Errorf("http-01 challenge not published")
 	}
 	return last
+}
+
+func useDevCertificate(agent *operations.Host, directory string) bool {
+	if directory == "" {
+		return true
+	}
+	// Sandboxed agent trees cannot publish HTTP-01 on the live :80 listener.
+	return agent != nil && agent.Root != ""
 }
 
 func Directory() string {

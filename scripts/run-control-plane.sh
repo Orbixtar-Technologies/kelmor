@@ -6,6 +6,8 @@ STATE="${PANEL_STATE_DIR:-/var/lib/panel}"
 SOCK="${PANEL_AGENT_SOCK:-/run/panel/agent.sock}"
 ADDR="${PANEL_API_ADDR:-127.0.0.1:18080}"
 DSN="${PANEL_DATABASE_URL:-postgres:///panel_control?host=/var/run/postgresql}"
+PDNS_URL="${PANEL_PDNS_URL:-http://127.0.0.1:8081}"
+PDNS_KEY="${PANEL_PDNS_API_KEY:-panel-loopback}"
 export PANEL_STATE_DIR="$STATE"
 export PANEL_AGENT_SOCK="$SOCK"
 export PANEL_API_ADDR="$ADDR"
@@ -21,4 +23,6 @@ exec sudo -u panel -g panel env \
   PANEL_AGENT_SOCK="$SOCK" \
   PANEL_API_ADDR="$ADDR" \
   PANEL_DATABASE_URL="$DSN" \
+  PANEL_PDNS_URL="$PDNS_URL" \
+  PANEL_PDNS_API_KEY="$PDNS_KEY" \
   "$ROOT/bin/$1"
