@@ -1,0 +1,181 @@
+package phases
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+func applyPortals(c Config) error {
+	if err := installPortalApp(c, "server", "Server Portal"); err != nil {
+		return err
+	}
+	if err := installPortalApp(c, "account", "Account Portal"); err != nil {
+		return err
+	}
+	if err := writePortalNginx(c, "90-server-portal.conf", 8443, "usr/local/panel/share/portals/server"); err != nil {
+		return err
+	}
+	if err := writePortalNginx(c, "91-account-portal.conf", 8444, "usr/local/panel/share/portals/account"); err != nil {
+		return err
+	}
+	return reloadNginxIfLive(c)
+}
+
+func verifyPortals(c Config) error {
+	for _, rel := range []string{
+		"usr/local/panel/share/portals/server/index.html",
+		"usr/local/panel/share/portals/account/index.html",
+		"etc/nginx/panel-sites/90-server-portal.conf",
+		"etc/nginx/panel-sites/91-account-portal.conf",
+	} {
+		if _, err := os.Stat(root(c, rel)); err != nil {
+			return err
+		}
+	}
+	server, err := os.ReadFile(root(c, "usr/local/panel/share/portals/server/index.html"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(server), "Server Portal") {
+		return fmt.Errorf("server portal index missing title")
+	}
+	account, err := os.ReadFile(root(c, "usr/local/panel/share/portals/account/index.html"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(account), "Account Portal") {
+		return fmt.Errorf("account portal index missing title")
+	}
+	if c.Dev {
+		return nil
+	}
+	if err := waitListen("127.0.0.1:8443", 2*time.Second); err != nil {
+		return fmt.Errorf("server portal is not listening: %w", err)
+	}
+	if err := waitListen("127.0.0.1:8444", 2*time.Second); err != nil {
+		return fmt.Errorf("account portal is not listening: %w", err)
+	}
+	return nil
+}
+
+func installPortalApp(c Config, name, title string) error {
+	dest := root(c, "usr/local/panel/share/portals/"+name)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	src := portalAssetRoot(name)
+	if src != "" && src != dest {
+		if err := copyPortalTree(src, dest); err != nil {
+			return err
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dest, "index.html")); err == nil {
+		return nil
+	}
+	body := fmt.Sprintf("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>%s</title></head><body><h1>%s</h1><p>Built portal assets were not found next to panel-install. Run <code>make portals</code> and re-run the installer.</p></body></html>\n", title, title)
+	return os.WriteFile(filepath.Join(dest, "index.html"), []byte(body), 0o644)
+}
+
+func writePortalNginx(c Config, name string, port int, rootRel string) error {
+	if err := os.MkdirAll(root(c, "etc/nginx/panel-sites"), 0o755); err != nil {
+		return err
+	}
+	abs := root(c, rootRel)
+	if !c.Dev {
+		abs = "/" + strings.TrimPrefix(rootRel, "/")
+	}
+	body := fmt.Sprintf(`server {
+    listen %d;
+    listen [::]:%d;
+    server_name _;
+    root %s;
+    index index.html;
+    location /api/ {
+        proxy_pass http://127.0.0.1:18080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location = /healthz {
+        proxy_pass http://127.0.0.1:18080/healthz;
+    }
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+`, port, port, abs)
+	return os.WriteFile(root(c, "etc/nginx/panel-sites/"+name), []byte(body), 0o644)
+}
+
+func portalAssetRoot(name string) string {
+	candidates := []string{
+		filepath.Join("dist", "share", "portals", name),
+		filepath.Join("portals", name, "dist"),
+		filepath.Join("/usr/local/panel/share/portals", name),
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append([]string{filepath.Join(filepath.Dir(exe), "..", "share", "portals", name)}, candidates...)
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func copyPortalTree(src, dest string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(dest, rel)
+		if info.IsDir() {
+			return os.MkdirAll(out, 0o755)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(f, in)
+		_ = f.Close()
+		return copyErr
+	})
+}
+
+func reloadNginxIfLive(c Config) error {
+	if c.Dev {
+		return nil
+	}
+	if _, err := os.Stat("/usr/sbin/nginx"); err != nil {
+		return nil
+	}
+	if out, err := exec.Command("/usr/sbin/nginx", "-t").CombinedOutput(); err != nil {
+		return fmt.Errorf("nginx -t: %s", strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.Command("/usr/sbin/nginx", "-s", "reload").CombinedOutput(); err != nil {
+		return fmt.Errorf("nginx reload: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}

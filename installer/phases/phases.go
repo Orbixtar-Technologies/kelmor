@@ -92,6 +92,7 @@ func All() []Phase {
 		named{"systemd", checkNoop, applySystemd, verifySystemd},
 		named{"quota_homes", checkNoop, applyQuotaHomes, verifyQuotaHomes},
 		named{"host_runtime", checkNoop, applyHostRuntime, verifyHostRuntime},
+		named{"portals", checkNoop, applyPortals, verifyPortals},
 		named{"administrator", checkNoop, applyAdministrator, verifyNoop},
 		named{"health_checks", checkNoop, applyHealth, verifyHealth},
 		named{"installation_report", checkNoop, applyReport, verifyNoop},

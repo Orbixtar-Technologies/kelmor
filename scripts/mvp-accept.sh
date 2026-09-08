@@ -21,10 +21,13 @@ echo "== CLI live path =="
 bash "$ROOT/scripts/cli-mvp.sh"
 
 echo "== portals =="
-curl -sS -o /dev/null -w 'server:%{http_code}\n' http://127.0.0.1:18443/ | grep -q 200
-curl -sS -o /dev/null -w 'account:%{http_code}\n' http://127.0.0.1:18444/ | grep -q 200
-curl -sS http://127.0.0.1:18443/ | grep -q 'Server Portal'
-curl -sS http://127.0.0.1:18444/ | grep -q 'Account Portal'
+curl -sS -o /dev/null -w 'server:%{http_code}\n' http://127.0.0.1:8443/ | grep -q 200
+curl -sS -o /dev/null -w 'account:%{http_code}\n' http://127.0.0.1:8444/ | grep -q 200
+curl -sS http://127.0.0.1:8443/ | grep -q 'Server Portal'
+curl -sS http://127.0.0.1:8444/ | grep -q 'Account Portal'
+curl -sS http://127.0.0.1:8443/healthz | grep -q ok
+curl -sS -o /dev/null -w 'dev-server:%{http_code}\n' http://127.0.0.1:18443/ | grep -q 200 || true
+curl -sS -o /dev/null -w 'dev-account:%{http_code}\n' http://127.0.0.1:18444/ | grep -q 200 || true
 echo "== UI live path =="
 bash "$ROOT/scripts/ui-mvp.sh"
 

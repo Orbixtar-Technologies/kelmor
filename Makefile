@@ -47,5 +47,13 @@ package: build
 release: lint test build
 	@echo "Release artifacts would be signed from CI, not a workstation."
 
+portals:
+	cd portals/server && npm install && npm run build
+	cd portals/account && npm install && npm run build
+	mkdir -p dist/share/portals
+	rm -rf dist/share/portals/server dist/share/portals/account
+	cp -a portals/server/dist dist/share/portals/server
+	cp -a portals/account/dist dist/share/portals/account
+
 dev:
 	PANEL_DEV=1 PANEL_API_ADDR=127.0.0.1:$(API_PORT) ./scripts/dev.sh
