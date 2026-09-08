@@ -648,11 +648,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CUSER="cp$(date +%s)"
 CDOM="${CUSER}.test"
 CTREE="/var/tmp/panel-imports/${CUSER}"
-mkdir -p "$CTREE"
-cp -a "$ROOT/testdata/cpanel-acme42/." "$CTREE/"
-sed -i "s/acme.test/${CDOM}/g; s/acme42/${CUSER}/g" "$CTREE/userdata/user" "$CTREE/mysql.sql" "$CTREE/dnszones/acme.test.db" || true
-mv "$CTREE/dnszones/acme.test.db" "$CTREE/dnszones/${CDOM}.db" 2>/dev/null || true
-mv "$CTREE/va/info@acme.test" "$CTREE/va/info@${CDOM}" 2>/dev/null || true
+sudo mkdir -p "$CTREE"
+sudo cp -a "$ROOT/testdata/cpanel-acme42/." "$CTREE/"
+sudo sed -i "s/acme.test/${CDOM}/g; s/acme42/${CUSER}/g" "$CTREE/userdata/user" "$CTREE/mysql.sql" "$CTREE/dnszones/acme.test.db" || true
+sudo mv "$CTREE/dnszones/acme.test.db" "$CTREE/dnszones/${CDOM}.db" 2>/dev/null || true
+sudo mv "$CTREE/va/info@acme.test" "$CTREE/va/info@${CDOM}" 2>/dev/null || true
+sudo chmod -R a+rX "$CTREE"
 cimp=$(curl -sS -X POST "$BASE/api/v1/accounts/import/cpanel" -H "$AUTH" -H 'content-type: application/json' \
   -d "{\"root\":\"$CTREE\",\"username\":\"$CUSER\"}")
 echo "$cimp"

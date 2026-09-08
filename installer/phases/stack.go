@@ -90,6 +90,9 @@ func applyMail(c Config) error {
 	if err := os.MkdirAll(root(c, "var/lib/panel/mail"), 0o750); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(root(c, "var/tmp/panel-imports"), 0o1777); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(root(c, "etc/postfix"), 0o755); err != nil {
 		return err
 	}
