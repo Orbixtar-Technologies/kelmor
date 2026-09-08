@@ -572,6 +572,16 @@ func TestDeleteDatabaseAndCertOwnership(t *testing.T) {
 	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/certificates", admin, map[string]any{"hostname": "dblab.test"}) != 202 {
 		t.Fatal("owned cert hostname")
 	}
+	first := post(t, srv.URL+"/api/v1/accounts/"+aid+"/certificates", admin, map[string]any{"hostname": "dblab.test"})
+	second := post(t, srv.URL+"/api/v1/accounts/"+aid+"/certificates", admin, map[string]any{"hostname": "dblab.test"})
+	id1 := first["certificate"].(map[string]any)["id"]
+	id2 := second["certificate"].(map[string]any)["id"]
+	if id1 != id2 {
+		t.Fatalf("cert rows diverged %v %v", id1, id2)
+	}
+	if n := len(st.ListCerts(aid)); n != 1 {
+		t.Fatalf("expected one cert, got %d", n)
+	}
 }
 
 func TestCreateWebsiteReusesDomainRow(t *testing.T) {

@@ -1726,7 +1726,19 @@ func (a *API) requestCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Hostname = host
-	c := &store.Certificate{ID: id.New(), AccountID: aid, Hostname: in.Hostname, Kind: "domain", Status: "requested"}
+	var c *store.Certificate
+	for _, existing := range a.Store.ListCerts(aid) {
+		if existing.Hostname != host {
+			continue
+		}
+		cp := existing
+		c = &cp
+		c.Status = "requested"
+		break
+	}
+	if c == nil {
+		c = &store.Certificate{ID: id.New(), AccountID: aid, Hostname: host, Kind: "domain", Status: "requested"}
+	}
 	a.Store.PutCert(c)
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "certificate.provision", ResourceType: "certificate", ResourceID: c.ID, Payload: map[string]any{"certificate_id": c.ID}, State: "queued"})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "certificate": c})

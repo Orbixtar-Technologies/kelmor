@@ -508,7 +508,17 @@ func (m *Memory) DeleteMailAlias(id string) {
 	m.mu.Unlock()
 }
 
-func (m *Memory) PutCert(c *Certificate) { m.mu.Lock(); m.Certs[c.ID] = c; m.mu.Unlock() }
+func (m *Memory) PutCert(c *Certificate) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, existing := range m.Certs {
+		if existing.AccountID == c.AccountID && existing.Hostname == c.Hostname && id != c.ID {
+			delete(m.Certs, id)
+		}
+	}
+	cp := *c
+	m.Certs[c.ID] = &cp
+}
 func (m *Memory) GetCert(id string) *Certificate {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
