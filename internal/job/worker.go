@@ -715,11 +715,18 @@ func gone(err error) bool {
 }
 
 func findSite(st store.Store, domainID string) *store.Website {
+	var fallback *store.Website
 	for _, w := range st.ListWebsites("") {
-		if w.DomainID == domainID {
-			cp := w
+		if w.DomainID != domainID {
+			continue
+		}
+		cp := w
+		if w.Runtime == "node" || w.Runtime == "python" {
 			return &cp
 		}
+		if fallback == nil {
+			fallback = &cp
+		}
 	}
-	return nil
+	return fallback
 }
