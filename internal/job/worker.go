@@ -233,7 +233,9 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	})
 	pubIP := publicIPv4()
 	for _, d := range w.Store.ListDomains(acc.ID) {
-		_ = w.ensureDomainStack(&d, acc, pubIP, "")
+		if err := w.ensureDomainStack(&d, acc, pubIP, ""); err != nil {
+			return err
+		}
 	}
 	if latest := w.Store.GetAccount(acc.ID); latest != nil {
 		acc.Status = latest.Status
@@ -354,11 +356,6 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 			return fmt.Errorf("publish zone for ACME: %w", err)
 		}
 	}
-	if d.Type != "alias" {
-		if err := w.ensureCertificate(acc, d.ASCII); err != nil {
-			return err
-		}
-	}
 	if d.Type == "alias" {
 		if primary := w.primaryDomain(acc); primary != nil {
 			if site := findSite(w.Store, primary.ID); site != nil {
@@ -366,7 +363,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 					return err
 				}
 			}
-			if err := w.renewCertificate(acc, primary.ASCII); err != nil {
+			if err := w.renewCertificate(acc, primary.ASCII); err != nil && !labACMEOptional() {
 				return err
 			}
 		}
@@ -400,6 +397,9 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		}
 		w.Store.PutWebsite(site)
 		w.collapseDomainWebsites(acc, d, site)
+		if err := w.ensureCertificate(acc, d.ASCII); err != nil && !labACMEOptional() {
+			return err
+		}
 	}
 	if w.Store.MailDomainByDomain(d.ID) == nil {
 		md := &store.MailDomain{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, CatchallPolicy: "reject", Status: "active"}
@@ -968,6 +968,11 @@ func (w *Worker) provisionMailbox(j *store.Job) error {
 
 func (w *Worker) liveACME() bool {
 	return acme.Directory() != "" && (w.Agent == nil || w.Agent.Root == "")
+}
+
+func labACMEOptional() bool {
+	name := acme.IssuerName(acme.Directory())
+	return name == "pebble" || name == "panel-dev"
 }
 
 func (w *Worker) certificateNames(acc *store.Account, hostname string) []string {

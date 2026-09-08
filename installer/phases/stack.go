@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,18 @@ include "/var/lib/panel/dns/named-zones.conf";
 	if _, err := os.Stat(root(c, "var/lib/panel/dns/named-zones.conf")); os.IsNotExist(err) {
 		if err := os.WriteFile(root(c, "var/lib/panel/dns/named-zones.conf"), []byte(""), 0o644); err != nil {
 			return err
+		}
+	}
+	if installPrefix(c) == "" && !c.Dev {
+		db := root(c, "var/lib/panel/dns/bind-dnssec.sqlite3")
+		if _, err := os.Stat(db); err != nil {
+			_ = exec.Command("/usr/bin/pdnsutil", "create-bind-db", db).Run()
+			if u, err := user.Lookup("pdns"); err == nil {
+				uid, _ := strconv.Atoi(u.Uid)
+				gid, _ := strconv.Atoi(u.Gid)
+				_ = os.Chown(db, uid, gid)
+				_ = os.Chown(root(c, "var/lib/panel/dns"), uid, gid)
+			}
 		}
 	}
 	reloadLivePowerDNS(c)
