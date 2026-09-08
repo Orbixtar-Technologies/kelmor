@@ -40,7 +40,10 @@ wait_job() {
 }
 
 pkgs=$(curl -sS "$BASE/api/v1/packages" -H "$AUTH")
-pkg=$(echo "$pkgs" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d; print(items[0]["id"])')
+pkg=$(echo "$pkgs" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
+starter=next((i for i in items if i.get("name")=="Starter"), None)
+pick=starter or max(items, key=lambda i: i.get("disk_bytes") or 0)
+print(pick["id"])')
 
 existing=$(curl -sS "$BASE/api/v1/accounts" -H "$AUTH")
 aid=$(echo "$existing" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
