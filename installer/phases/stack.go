@@ -536,8 +536,8 @@ Match User panel-backup
 	if _, err := user.Lookup("panel-backup"); err != nil {
 		_ = exec.Command("/usr/sbin/useradd", "--system", "-d", "/var/lib/panel/offsite", "-s", "/usr/sbin/nologin", "panel-backup").Run()
 	}
-	_ = exec.Command("/bin/chown", "panel-backup:panel-backup", "/var/lib/panel/offsite").Run()
-	_ = os.Chmod("/var/lib/panel/offsite", 0o750)
+	_ = exec.Command("/bin/chown", "panel-backup:panel", "/var/lib/panel/offsite").Run()
+	_ = os.Chmod("/var/lib/panel/offsite", 0o2770)
 	keyPath := root(c, "var/lib/panel/secrets/backup-sftp")
 	if _, err := os.Stat(keyPath); err != nil {
 		cmd := exec.Command("/usr/bin/ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "", "-C", "panel-offsite")
@@ -559,6 +559,7 @@ Match User panel-backup
 		return err
 	}
 	_ = exec.Command("/bin/chown", "-R", "panel-backup:panel-backup", sshDir).Run()
+	_ = os.Chmod(sshDir, 0o700)
 	fp := sshHostFingerprint()
 	if fp == "" {
 		return fmt.Errorf("ssh host key fingerprint missing")
@@ -895,6 +896,13 @@ func verifySecurity(c Config) error {
 	} {
 		if _, err := os.Stat(root(c, p)); err != nil {
 			return err
+		}
+	}
+	if !c.Dev {
+		if st, err := os.Stat(root(c, "var/lib/panel/offsite")); err != nil {
+			return err
+		} else if st.Mode()&0o020 == 0 {
+			return fmt.Errorf("offsite directory must be group-writable for SFTP backups")
 		}
 	}
 	if pub := netaddr.PublicIPv4(); pub != "" && pub != "127.0.0.1" {

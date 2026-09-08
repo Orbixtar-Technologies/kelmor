@@ -16,13 +16,8 @@ if [[ -r "$STATE/public.env" ]]; then
 elif [[ -f "$STATE/public.env" ]]; then
   eval "$(sudo grep -E '^PANEL_PUBLIC_IPV4=' "$STATE/public.env")"
 fi
-if [[ -r "$STATE/secrets/backup-sftp.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$STATE/secrets/backup-sftp.env"
-  set +a
-elif [[ -f "$STATE/secrets/backup-sftp.env" ]]; then
-  eval "$(sudo grep -E '^PANEL_SFTP_' "$STATE/secrets/backup-sftp.env")"
+if sudo test -f "$STATE/secrets/backup-sftp.env"; then
+  eval "$(sudo grep -E '^PANEL_SFTP_[A-Z0-9_]+=' "$STATE/secrets/backup-sftp.env")"
 fi
 export PANEL_STATE_DIR="$STATE"
 export PANEL_AGENT_SOCK="$SOCK"
