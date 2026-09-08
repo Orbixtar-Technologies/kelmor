@@ -578,7 +578,7 @@ func (p *PG) PutMailDomain(d *MailDomain) {
 	_, _ = p.pool.Exec(p.ctx(), `
 		INSERT INTO mail_domains (id, account_id, domain_id, catchall_policy, status)
 		VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status`,
+		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, catchall_policy=EXCLUDED.catchall_policy`,
 		d.ID, d.AccountID, d.DomainID, d.CatchallPolicy, d.Status)
 }
 
