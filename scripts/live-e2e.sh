@@ -358,8 +358,9 @@ wait_job "$ftpjob" ftp
 if sudo test -f /var/lib/panel/ftp/passwd; then
   sudo grep -q '^liveftp:' /var/lib/panel/ftp/passwd || { echo "ftp passwd missing liveftp" >&2; exit 1; }
 fi
-if ss -lnt | grep -q ':21 '; then
-  python3 - <<'PY'
+systemctl is-active vsftpd >/dev/null || { echo "vsftpd is not active" >&2; systemctl status vsftpd --no-pager >&2 || true; exit 1; }
+ss -lnt | grep -q ':21 ' || { echo "vsftpd is not listening on :21" >&2; exit 1; }
+python3 - <<'PY'
 from ftplib import FTP
 f = FTP()
 f.connect("127.0.0.1", 21, timeout=8)
@@ -367,7 +368,11 @@ f.login("liveftp", "FtpPass!2026")
 print("ftp", f.nlst()[:8])
 f.quit()
 PY
+if ! findmnt /var/lib/panel/homes >/dev/null; then
+  echo "quota homes volume is not mounted" >&2
+  exit 1
 fi
+echo "homes-volume ok"
 
 ensure_runtime_addon() {
   local fqdn="$1" runtime="$2" out="$3" needle="$4"

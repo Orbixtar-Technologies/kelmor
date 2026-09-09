@@ -499,6 +499,8 @@ hide_ids=YES
 pasv_min_port=40000
 pasv_max_port=40100
 pasv_address=` + netaddr.PublicIPv4() + `
+background=NO
+seccomp_sandbox=NO
 `
 	if err := os.WriteFile(root(c, "etc/vsftpd.conf"), []byte(conf), 0o644); err != nil {
 		return err

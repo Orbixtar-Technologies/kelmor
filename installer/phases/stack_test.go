@@ -149,6 +149,9 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(vsftpd), "pasv_address=203.0.113.10") {
 		t.Fatalf("vsftpd PASV should publish public IPv4: %s", vsftpd)
 	}
+	if !contains(string(vsftpd), "background=NO") {
+		t.Fatalf("vsftpd must stay in the foreground for systemd Type=simple: %s", vsftpd)
+	}
 	if !contains(string(maincf), "smtpd_sender_login_maps = hash:/var/lib/panel/mail/sender-login") {
 		t.Fatalf("postfix missing sender-login maps: %s", maincf)
 	}

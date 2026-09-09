@@ -57,7 +57,11 @@ func ensureQuotaHomes() error {
 		if mkfs == "" {
 			return fmt.Errorf("mkfs.ext4 missing")
 		}
-		cmd := exec.Command(mkfs, "-F", "-O", "quota", quotaImage)
+		// Do not enable the ext4 quota feature here. A quota-enabled
+		// filesystem refuses to mount (ESRCH / "No such process") when
+		// the running kernel cannot apply usrquota, which is common on
+		// TCG/cloud kernels that still advertise CONFIG_QUOTA=y.
+		cmd := exec.Command(mkfs, "-F", quotaImage)
 		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("mkfs.ext4: %s", strings.TrimSpace(string(out)))
@@ -67,23 +71,75 @@ func ensureQuotaHomes() error {
 		return err
 	}
 	if !pathMounted(quotaMount) {
-		cmd := exec.Command("/bin/mount", "-o", "loop,usrquota,grpquota", quotaImage, quotaMount)
-		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
-		if out, err := cmd.CombinedOutput(); err != nil {
-			// CONFIG_QUOTA in /boot/config does not mean the running
-			// kernel can mount usrquota (missing loop/quota, or TCG).
-			_ = os.WriteFile("/var/lib/panel/quota-unavailable", out, 0o644)
+		if err := mountQuotaImage(); err != nil {
+			_ = os.WriteFile("/var/lib/panel/quota-unavailable", []byte(err.Error()+"\n"), 0o644)
 			return os.MkdirAll(quotaMount, 0o755)
 		}
 	}
-	quotaon := firstBin("/sbin/quotaon", "/usr/sbin/quotaon")
-	if quotaon != "" {
-		_ = exec.Command(quotaon, "-ug", quotaMount).Run()
+	if err := enableKernelQuotaIfPossible(); err != nil {
+		_ = os.WriteFile("/var/lib/panel/quota-unavailable", []byte(err.Error()+"\n"), 0o644)
+	} else {
+		_ = os.Remove("/var/lib/panel/quota-unavailable")
 	}
 	if err := ensureQuotaFstab(); err != nil {
 		return err
 	}
 	return bindPanelHomes()
+}
+
+func mountQuotaImage() error {
+	clearExt4QuotaFeature(quotaImage)
+	cmd := exec.Command("/bin/mount", "-o", "loop", quotaImage, quotaMount)
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	if out, err := cmd.CombinedOutput(); err == nil {
+		return nil
+	} else {
+		loop := attachLoop(quotaImage)
+		if loop == "" {
+			return fmt.Errorf("mount loop: %s", strings.TrimSpace(string(out)))
+		}
+		cmd = exec.Command("/bin/mount", loop, quotaMount)
+		cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+		if out2, err2 := cmd.CombinedOutput(); err2 != nil {
+			return fmt.Errorf("mount %s: %s / %s", loop, strings.TrimSpace(string(out)), strings.TrimSpace(string(out2)))
+		}
+	}
+	return nil
+}
+
+func attachLoop(image string) string {
+	losetup := firstBin("/sbin/losetup", "/usr/sbin/losetup")
+	if losetup == "" {
+		return ""
+	}
+	out, err := exec.Command(losetup, "-f", "--show", image).CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func clearExt4QuotaFeature(image string) {
+	tune := firstBin("/sbin/tune2fs", "/usr/sbin/tune2fs")
+	if tune == "" {
+		return
+	}
+	cmd := exec.Command(tune, "-O", "^quota", image)
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	_ = cmd.Run()
+}
+
+func enableKernelQuotaIfPossible() error {
+	cmd := exec.Command("/bin/mount", "-o", "remount,usrquota,grpquota", quotaMount)
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("usrquota remount: %s", strings.TrimSpace(string(out)))
+	}
+	quotaon := firstBin("/sbin/quotaon", "/usr/sbin/quotaon")
+	if quotaon != "" {
+		_ = exec.Command(quotaon, "-ug", quotaMount).Run()
+	}
+	return nil
 }
 
 func bindPanelHomes() error {
@@ -157,8 +213,25 @@ func pathMounted(target string) bool {
 }
 
 func ensureQuotaFstab() error {
-	line := quotaImage + " " + quotaMount + " ext4 loop,usrquota,grpquota 0 2\n"
+	opts := "loop"
+	if kernelQuotaMounted() {
+		opts = "loop,usrquota,grpquota"
+	}
+	line := quotaImage + " " + quotaMount + " ext4 " + opts + " 0 2\n"
 	return appendFstabOnce(line)
+}
+
+func kernelQuotaMounted() bool {
+	b, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.Contains(line, " "+quotaMount+" ") && strings.Contains(line, "usrquota") {
+			return true
+		}
+	}
+	return false
 }
 
 func appendFstabOnce(line string) error {
