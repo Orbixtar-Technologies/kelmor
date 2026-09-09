@@ -21,6 +21,11 @@ paths:
       operationId: readyz
       responses:
         "200": { description: readiness }
+  /version:
+    get:
+      operationId: getVersion
+      responses:
+        "200": { description: control-plane version }
   /auth/login:
     post:
       operationId: login

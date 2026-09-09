@@ -807,4 +807,27 @@ missing=need-acts
 assert not missing, missing
 print("audit", len(items), "actions_ok")'
 
+mon=$(curl -sS "$BASE/api/v1/server/monitor" -H "$AUTH")
+echo "$mon" | python3 -c 'import json,sys; d=json.load(sys.stdin); accs=d.get("accounts") or []; assert isinstance(accs, list); print("monitor accounts", len(accs))'
+curl -sS -o /dev/null -w "openapi:%{http_code}\n" "$BASE/api/v1/openapi.yaml"
+curl -sS -o /dev/null -w "version:%{http_code}\n" "$BASE/api/v1/version"
+
+RUSER="rs$(date +%s)"
+rs=$(curl -sS -X POST "$BASE/api/v1/resellers" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"name\":\"LiveReseller ${RUSER}\",\"username\":\"$RUSER\",\"password\":\"ResellerPass!2026\"}")
+echo "$rs"
+rslogin=$(curl -sS -X POST "$BASE/api/v1/auth/login" -H 'content-type: application/json' \
+  -d "{\"username\":\"$RUSER\",\"password\":\"ResellerPass!2026\"}")
+rstok=$(echo "$rslogin" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
+[[ -n "$rstok" ]] || { echo "reseller login failed: $rslogin" >&2; exit 1; }
+RSAUTH="Authorization: Bearer $rstok"
+rscode=$(curl -sS -o /tmp/rs-foreign.json -w '%{http_code}' "$BASE/api/v1/accounts/$aid" -H "$RSAUTH")
+[[ "$rscode" == "403" ]] || { echo "reseller GET livehost expected 403 got $rscode" >&2; cat /tmp/rs-foreign.json >&2; exit 1; }
+rssus=$(curl -sS -o /tmp/rs-sus.json -w '%{http_code}' -X POST "$BASE/api/v1/accounts/$aid/suspend" -H "$RSAUTH")
+[[ "$rssus" == "403" ]] || { echo "reseller suspend livehost expected 403 got $rssus" >&2; cat /tmp/rs-sus.json >&2; exit 1; }
+rslist=$(curl -sS "$BASE/api/v1/accounts" -H "$RSAUTH")
+echo "$rslist" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or [];
+assert not any(i.get("username")=="livehost" for i in items), items
+print("reseller-isolation ok")'
+
 echo "LIVE_E2E_OK"

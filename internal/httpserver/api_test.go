@@ -166,6 +166,45 @@ func TestResellerCannotSeeForeignAccounts(t *testing.T) {
 	if items[0].(map[string]any)["reseller_id"] != rs["id"] {
 		t.Fatalf("account not attached to reseller: %v", items[0])
 	}
+	if code := statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+directID+"/suspend", rsTok, map[string]string{}); code != 403 {
+		t.Fatalf("foreign suspend %d", code)
+	}
+	if code := statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+directID+"/terminate", rsTok, map[string]string{}); code != 403 {
+		t.Fatalf("foreign terminate %d", code)
+	}
+	if code := statusOf(t, http.MethodGet, srv.URL+"/api/v1/accounts/"+directID+"/export", rsTok, nil); code != 403 {
+		t.Fatalf("foreign export %d", code)
+	}
+	if code := statusOf(t, http.MethodPatch, srv.URL+"/api/v1/accounts/"+directID, rsTok, map[string]string{"package_id": pkg}); code != 403 {
+		t.Fatalf("foreign modify %d", code)
+	}
+	if code := statusOf(t, http.MethodGet, srv.URL+"/api/v1/accounts/"+directID+"/usage", rsTok, nil); code != 403 {
+		t.Fatalf("foreign usage %d", code)
+	}
+	bulk := statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/bulk/suspend", rsTok, map[string]any{"ids": []string{directID}})
+	if bulk != 202 && bulk != 200 {
+		t.Fatalf("bulk status %d", bulk)
+	}
+	if got := st.GetAccount(directID); got == nil || got.Status == "suspended" {
+		t.Fatalf("bulk suspend crossed reseller boundary: %+v", got)
+	}
+	dump := get(t, srv.URL+"/api/v1/accounts/export", rsTok)
+	for _, raw := range dump["items"].([]any) {
+		if raw.(map[string]any)["username"] == "direct1" {
+			t.Fatal("bulk export leaked foreign account")
+		}
+	}
+	secretJob, err := st.EnqueueJob(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: directID,
+		Payload: map[string]any{"account_id": directID, "linux_password": "SecretPass!2026"},
+		State:   "queued",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := statusOf(t, http.MethodGet, srv.URL+"/api/v1/jobs/"+secretJob.ID, rsTok, nil); code != 404 {
+		t.Fatalf("foreign job should 404, got %d", code)
+	}
 }
 
 func statusOf(t *testing.T, method, url, token string, body any) int {

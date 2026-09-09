@@ -497,11 +497,32 @@ func (a *API) listJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"items": jobs})
 }
 
+func jobAccountID(j *store.Job) string {
+	if j == nil {
+		return ""
+	}
+	if j.ResourceType == "account" && j.ResourceID != "" {
+		return j.ResourceID
+	}
+	if v, ok := j.Payload["account_id"].(string); ok && v != "" {
+		return v
+	}
+	return ""
+}
+
 func (a *API) getJob(w http.ResponseWriter, r *http.Request) {
 	j := a.Store.GetJob(chi.URLParam(r, "jobID"))
 	if j == nil {
 		a.fail(w, r, 404, "NOT_FOUND", "Job not found", false)
 		return
+	}
+	ac := actor(r)
+	if !ac.IsServerScope {
+		aid := jobAccountID(j)
+		if aid == "" || !ac.CanAccount(aid) {
+			a.fail(w, r, 404, "NOT_FOUND", "Job not found", false)
+			return
+		}
 	}
 	writeJSON(w, 200, j)
 }
@@ -517,7 +538,18 @@ func (a *API) listPackages(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.PackagesRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListPackages()})
+	items := a.Store.ListPackages()
+	ac := actor(r)
+	if ac.ResellerID != "" && !ac.IsServerScope {
+		visible := make([]store.Package, 0, len(items))
+		for _, p := range items {
+			if p.ResellerID == "" || p.ResellerID == ac.ResellerID {
+				visible = append(visible, p)
+			}
+		}
+		items = visible
+	}
+	writeJSON(w, 200, map[string]any{"items": items})
 }
 
 func (a *API) createPackage(w http.ResponseWriter, r *http.Request) {
@@ -533,6 +565,10 @@ func (a *API) createPackage(w http.ResponseWriter, r *http.Request) {
 	if p.Name == "" {
 		a.fail(w, r, 400, "VALIDATION", "Name required", false)
 		return
+	}
+	who := actor(r)
+	if who.ResellerID != "" && !who.IsServerScope {
+		p.ResellerID = who.ResellerID
 	}
 	if p.FeatureSetID == "" {
 		if sets := a.Store.ListFeatureSets(); len(sets) > 0 {
@@ -633,7 +669,7 @@ func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
-	if !a.require(w, r, rbac.AccountsRead) {
+	if !a.requireAccount(w, r, aid, rbac.AccountsRead) {
 		return
 	}
 	exp, err := migration.Export(a.Store, aid)
@@ -748,7 +784,18 @@ func (a *API) exportAccounts(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.AccountsRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListAccounts("", ""), "exported_at": time.Now().UTC()})
+	items := a.Store.ListAccounts("", "")
+	ac := actor(r)
+	if !ac.IsServerScope {
+		visible := make([]store.Account, 0, len(items))
+		for _, acc := range items {
+			if ac.CanAccount(acc.ID) {
+				visible = append(visible, acc)
+			}
+		}
+		items = visible
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "exported_at": time.Now().UTC()})
 }
 
 func (a *API) getAccount(w http.ResponseWriter, r *http.Request) {
@@ -811,6 +858,10 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 	who := actor(r)
 	if who.ResellerID != "" && !who.IsServerScope {
 		in.ResellerID = who.ResellerID
+		if pkg.ResellerID != "" && pkg.ResellerID != who.ResellerID {
+			a.fail(w, r, 403, "FORBIDDEN", "Package is not available to this reseller", false)
+			return
+		}
 	}
 	if in.ResellerID != "" && a.Store.GetReseller(in.ResellerID) == nil {
 		a.fail(w, r, 400, "VALIDATION", "Unknown reseller", false)
@@ -855,7 +906,7 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 	accID := chi.URLParam(r, "accountID")
-	if !a.require(w, r, rbac.AccountsModify) {
+	if !a.requireAccount(w, r, accID, rbac.AccountsModify) {
 		return
 	}
 	acc := a.Store.GetAccount(accID)
@@ -869,7 +920,8 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 	if v, ok := in["package_id"].(string); ok && v != "" {
 		acc.PackageID = v
 	}
-	if v, ok := in["reseller_id"].(string); ok {
+	who := actor(r)
+	if v, ok := in["reseller_id"].(string); ok && who.IsServerScope {
 		acc.ResellerID = v
 	}
 	if v, ok := in["primary_domain"].(string); ok && v != "" {
@@ -904,10 +956,11 @@ func (a *API) terminateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) setAccountStatus(w http.ResponseWriter, r *http.Request, status, action, cap string) {
-	if !a.require(w, r, cap) {
+	accID := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, accID, cap) {
 		return
 	}
-	acc := a.Store.GetAccount(chi.URLParam(r, "accountID"))
+	acc := a.Store.GetAccount(accID)
 	if acc == nil {
 		a.fail(w, r, 404, "NOT_FOUND", "Account not found", false)
 		return
@@ -922,10 +975,11 @@ func (a *API) setAccountStatus(w http.ResponseWriter, r *http.Request, status, a
 }
 
 func (a *API) impersonate(w http.ResponseWriter, r *http.Request) {
-	if !a.require(w, r, rbac.AccountsImpersonate) {
+	accID := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, accID, rbac.AccountsImpersonate) {
 		return
 	}
-	acc := a.Store.GetAccount(chi.URLParam(r, "accountID"))
+	acc := a.Store.GetAccount(accID)
 	if acc == nil {
 		a.fail(w, r, 404, "NOT_FOUND", "Account not found", false)
 		return
@@ -951,7 +1005,13 @@ func (a *API) impersonate(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) accountUsage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "accountID")
-	if !a.requireAccount(w, r, id, rbac.BillingUsageRead) && !actor(r).Has(rbac.AccountsRead) {
+	ac := actor(r)
+	if !ac.CanAccount(id) {
+		a.fail(w, r, 403, "FORBIDDEN", "Not authorized for this account", false)
+		return
+	}
+	if !ac.Has(rbac.BillingUsageRead) && !ac.Has(rbac.AccountsRead) {
+		a.fail(w, r, 403, "FORBIDDEN", "Missing capability", false)
 		return
 	}
 	u := a.Store.GetUsage(id)
@@ -970,7 +1030,11 @@ func (a *API) bulkSuspend(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	ops := []string{}
+	who := actor(r)
 	for _, id := range in.IDs {
+		if !who.CanAccount(id) {
+			continue
+		}
 		if acc := a.Store.GetAccount(id); acc != nil {
 			acc.Status = "suspended"
 			acc.DesiredRevision++
