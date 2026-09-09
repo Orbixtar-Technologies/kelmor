@@ -708,7 +708,7 @@ fi
 BUSER="bw$(date +%s)"
 BDOM="${BUSER}.test"
 bwpkg=$(curl -sS -X POST "$BASE/api/v1/packages" -H "$AUTH" -H 'content-type: application/json' \
-  -d "{\"name\":\"BandwidthHold ${BUSER}\",\"disk_bytes\":10737418240,\"bandwidth_bytes_monthly\":200,\"domains\":10,\"subdomains\":20,\"alias_domains\":5,\"databases\":5,\"database_users\":5,\"mailboxes\":5,\"mailbox_storage_bytes\":1073741824,\"ftp_users\":5,\"cron_jobs\":5,\"application_instances\":2,\"backup_retention_days\":7,\"cpu_percent\":100,\"memory_bytes\":536870912,\"process_limit\":50,\"io_weight\":100,\"iops\":100,\"concurrent_web_requests\":50,\"email_daily_limit\":50}")
+  -d "{\"name\":\"BandwidthHold ${BUSER}\",\"disk_bytes\":10737418240,\"bandwidth_bytes_monthly\":8192,\"domains\":10,\"subdomains\":20,\"alias_domains\":5,\"databases\":5,\"database_users\":5,\"mailboxes\":5,\"mailbox_storage_bytes\":1073741824,\"ftp_users\":5,\"cron_jobs\":5,\"application_instances\":2,\"backup_retention_days\":7,\"cpu_percent\":100,\"memory_bytes\":536870912,\"process_limit\":50,\"io_weight\":100,\"iops\":100,\"concurrent_web_requests\":50,\"email_daily_limit\":50}")
 bwpkgid=$(echo "$bwpkg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')
 [[ -n "$bwpkgid" ]] || { echo "bandwidth package create failed: $bwpkg" >&2; exit 1; }
 bcreated=$(curl -sS -X POST "$BASE/api/v1/accounts" -H "$AUTH" -H 'content-type: application/json' \
@@ -740,14 +740,14 @@ sudo grep -q 'limit_conn_zone $panel_account' /etc/nginx/conf.d/panel-conn-limit
 sudo grep -q "$BDOM $BUSER" /etc/nginx/conf.d/panel-conn-limit.conf || { echo "conn map missing $BDOM" >&2; cat /etc/nginx/conf.d/panel-conn-limit.conf >&2; exit 1; }
 echo "conn-limit ok"
 now=$(date -u +'%d/%b/%Y:%H:%M:%S +0000')
-echo "127.0.0.1 - - [${now}] \"GET / HTTP/1.1\" 200 500 \"-\" \"live-e2e\"" | sudo tee "/var/log/nginx/${wid}.access.log" >/dev/null
+echo "127.0.0.1 - - [${now}] \"GET / HTTP/1.1\" 200 20000 \"-\" \"live-e2e\"" | sudo tee "/var/log/nginx/${wid}.access.log" >/dev/null
 sudo chmod 644 "/var/log/nginx/${wid}.access.log"
 patch=$(curl -sS -X PATCH "$BASE/api/v1/accounts/$bid" -H "$AUTH" -H 'content-type: application/json' \
   -d "{\"package_id\":\"$bwpkgid\"}")
 pop=$(echo "$patch" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
 wait_job "$pop" bw-reconcile
 usage=$(curl -sS "$BASE/api/v1/accounts/$bid/usage" -H "$AUTH")
-echo "$usage" | python3 -c 'import json,sys; u=json.load(sys.stdin); n=int(u.get("bandwidth_bytes") or 0); assert n>=500, u; print("bandwidth_bytes", n)'
+echo "$usage" | python3 -c 'import json,sys; u=json.load(sys.stdin); n=int(u.get("bandwidth_bytes") or 0); assert n>=20000, u; print("bandwidth_bytes", n)'
 hold=""
 for _ in $(seq 1 20); do
   hold=$(host_fetch "$BDOM" /tmp/bw-hold.html)
