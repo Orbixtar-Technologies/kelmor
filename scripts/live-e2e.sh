@@ -673,7 +673,15 @@ for i in $(seq 1 20); do
   sleep 1
 done
 [[ "$st" == "terminated" ]] || { echo "account not terminated" >&2; exit 1; }
-if getent passwd "$TUSER" >/dev/null; then
+left=1
+for _ in $(seq 1 20); do
+  if ! getent passwd "$TUSER" >/dev/null; then
+    left=0
+    break
+  fi
+  sleep 0.5
+done
+if [[ "$left" == "1" ]]; then
   echo "linux user $TUSER still exists" >&2
   exit 1
 fi
