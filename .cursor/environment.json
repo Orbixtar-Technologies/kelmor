@@ -1,0 +1,16 @@
+{
+  "name": "Kelmor dev preview",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "panel-api",
+      "command": "PANEL_DEV=1 PANEL_DATABASE_URL=\"postgres:///panel_control?host=/var/run/postgresql\" PANEL_STATE_DIR=\"$PWD/var/panel\" PANEL_PUBLIC_IPV4=127.0.0.1 PANEL_API_ADDR=127.0.0.1:18080 ./dist/bin/panel-dev"
+    },
+    {
+      "name": "portals",
+      "command": "npm run dev"
+    }
+  ],
+  "ports": [18080, 18443, 18444]
+}
