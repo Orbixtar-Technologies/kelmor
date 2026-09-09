@@ -113,11 +113,11 @@ func portalIsBuilt(html string) bool {
 }
 
 func portalChromeOK(html, title string) error {
-	if !strings.Contains(html, title) {
-		return fmt.Errorf("missing %q", title)
-	}
 	if got := brand.ContainsLegacyChrome(html); got != "" {
 		return fmt.Errorf("legacy chrome %q", got)
+	}
+	if !strings.Contains(html, title) {
+		return fmt.Errorf("missing %q", title)
 	}
 	return nil
 }
