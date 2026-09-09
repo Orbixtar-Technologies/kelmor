@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,6 +54,17 @@ func TestLoadEnvPairsReadsPanelKeys(t *testing.T) {
 	got := loadEnvPairs(p)
 	if len(got) != 1 || got[0] != "PANEL_S3_BUCKET=panel" {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestPid1IsSystemdMatchesProcComm(t *testing.T) {
+	b, err := os.ReadFile("/proc/1/comm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSpace(string(b)) == "systemd"
+	if got := pid1IsSystemd(); got != want {
+		t.Fatalf("pid1IsSystemd()=%v want %v (pid1=%q)", got, want, strings.TrimSpace(string(b)))
 	}
 }
 

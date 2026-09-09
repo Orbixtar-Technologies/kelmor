@@ -166,8 +166,17 @@ func startAccountApps() {
 	}
 }
 
+func pid1IsSystemd() bool {
+	b, err := os.ReadFile("/proc/1/comm")
+	return err == nil && strings.TrimSpace(string(b)) == "systemd"
+}
+
+func startPanelUnit(name string) {
+	_ = exec.Command("/bin/systemctl", "start", name+".service").Run()
+}
+
 func enablePanelUnits() {
-	if exec.Command("/bin/systemctl", "is-system-running").Run() != nil {
+	if !pid1IsSystemd() {
 		return
 	}
 	for _, name := range []string{
@@ -182,6 +191,13 @@ func startObjectStore() {
 	if _, err := os.Stat("/usr/local/panel/bin/panel-object-store"); err != nil {
 		return
 	}
+	_ = os.MkdirAll("/var/lib/panel/objects", 0o750)
+	_ = exec.Command("/bin/chown", "panel:panel", "/var/lib/panel/objects").Run()
+	if pid1IsSystemd() {
+		startPanelUnit("panel-object-store")
+		_ = waitListen("127.0.0.1:19090", 3*time.Second)
+		return
+	}
 	if con, err := net.DialTimeout("tcp", "127.0.0.1:19090", 150*time.Millisecond); err == nil {
 		_ = con.Close()
 		return
@@ -189,8 +205,6 @@ func startObjectStore() {
 	if exec.Command("/usr/bin/pgrep", "-f", "/panel-object-store").Run() == nil {
 		return
 	}
-	_ = os.MkdirAll("/var/lib/panel/objects", 0o750)
-	_ = exec.Command("/bin/chown", "panel:panel", "/var/lib/panel/objects").Run()
 	args := []string{"-u", "panel", "-g", "panel", "env"}
 	args = append(args, loadEnvPairs("/var/lib/panel/secrets/backup-s3.env")...)
 	args = append(args, "/usr/local/panel/bin/panel-object-store")
@@ -222,6 +236,10 @@ func startSMTPPolicy() {
 	if _, err := os.Stat("/usr/local/panel/bin/panel-smtp-policy"); err != nil {
 		return
 	}
+	if pid1IsSystemd() {
+		startPanelUnit("panel-smtp-policy")
+		return
+	}
 	if exec.Command("/usr/bin/pgrep", "-f", "/panel-smtp-policy").Run() == nil {
 		return
 	}
@@ -236,6 +254,12 @@ func startSMTPPolicy() {
 
 func startControlPlane() {
 	if _, err := os.Stat("/usr/local/panel/bin/panel-agent"); err != nil {
+		return
+	}
+	if pid1IsSystemd() {
+		for _, name := range []string{"panel-agent", "panel-api", "panel-worker"} {
+			startPanelUnit(name)
+		}
 		return
 	}
 	if exec.Command("/usr/bin/pgrep", "-x", "panel-agent").Run() != nil {
@@ -284,9 +308,15 @@ func verifyHostRuntime(c Config) error {
 	if exec.Command("/usr/bin/pgrep", "-f", "/panel-smtp-policy").Run() != nil {
 		return fmt.Errorf("panel-smtp-policy is not running")
 	}
+	if pid1IsSystemd() && exec.Command("/bin/systemctl", "is-active", "--quiet", "panel-smtp-policy.service").Run() != nil {
+		return fmt.Errorf("panel-smtp-policy.service is not active")
+	}
 	if _, err := os.Stat("/usr/local/panel/bin/panel-object-store"); err == nil {
 		if err := waitListen("127.0.0.1:19090", 2*time.Second); err != nil {
 			return fmt.Errorf("panel-object-store is not listening: %w", err)
+		}
+		if pid1IsSystemd() && exec.Command("/bin/systemctl", "is-active", "--quiet", "panel-object-store.service").Run() != nil {
+			return fmt.Errorf("panel-object-store.service is not active")
 		}
 	}
 	return nil

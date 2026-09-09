@@ -48,6 +48,8 @@ sudo ./panel-install --hostname panel.example.net --admin-email ops@example.net 
 
 The installer writes `/var/lib/panel/install-state.json` and resumes failed phases. It does not require Docker for the control plane. A live install fails unless built Server/Account SPAs are present (`make portals` or the Debian package). nginx serves them on **8443** and **8444**, proxying `/api` and `/healthz` to the control API.
 
+On a host with systemd as PID 1, the control plane and `panel-object-store` start only as systemd units (no forked duplicates). After install, `scripts/fresh-provision-smoke.sh` covers login → provision → HTTP/PHP isolation → mailbox → local backup → suspend → audit. Full path: `scripts/live-e2e.sh`.
+
 ## Layout
 
 See `cmd/`, `internal/`, `agent/`, `db/migrations/`, `portals/`, `installer/`, `api/openapi.yaml`, and `docs/` (install, mail, DNS, CLI, backup, migration, security).
