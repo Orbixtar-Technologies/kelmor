@@ -14,7 +14,7 @@ wait_job() {
   for _ in $(seq 1 "$iters"); do
     local body st
     body=$(curl -sS "$BASE/api/v1/jobs/$jid" -H "$AUTH")
-    st=$(echo "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+    st=$(echo "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state",""))')
     echo "$label $st"
     [[ "$st" == "succeeded" ]] && return 0
     if [[ "$st" == "failed" ]]; then
