@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountTabs, Dialog, EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, messageFrom, valueOf } from '../helpers'
+import { RequestSequence } from '../request-sequence'
 import { useCapabilities } from '../rbac'
 import type { Account, ResourceItem } from '../types'
 
@@ -42,80 +43,114 @@ const accountTokenCapabilities = [
 
 export function AccountServicesPage () {
 	const { id = '' } = useParams()
-	const [searchParams] = useSearchParams()
+	const [searchParams, setSearchParams] = useSearchParams()
 	const [account, setAccount] = useState<Account | null>(null)
-	const [active, setActive] = useState(searchParams.get('service') || 'websites')
+	const [requestAccountId, setRequestAccountId] = useState(id)
+	const [loadedAccountId, setLoadedAccountId] = useState('')
 	const [resources, setResources] = useState<Record<string, ResourceItem[]>>({})
 	const [errors, setErrors] = useState<Record<string, string>>({})
 	const [loading, setLoading] = useState(true)
 	const [message, setMessage] = useState('')
 	const [restoreBackup, setRestoreBackup] = useState<ResourceItem | null>(null)
+	const requests = useRef(new RequestSequence()).current
+	const currentAccountId = useRef(id)
+	currentAccountId.current = id
 	const capabilities = useCapabilities()
 	const visibleServices = useMemo(() => services.filter((service) => capabilities[service.readCapability]), [capabilities])
+	const requestedService = searchParams.get('service') || 'websites'
+	const definition = visibleServices.find((service) => service.id === requestedService) || visibleServices[0]
+	const active = definition?.id || requestedService
 
 	const load = useCallback(() => {
+		const requestedAccountId = id
+		const accountRequest = requests.begin('account')
+		const serviceRequests = visibleServices.map((service) => ({
+			service,
+			token: requests.begin(`service:${service.id}`),
+		}))
 		setLoading(true)
-		Promise.allSettled([
-			api<Account>(`/api/v1/accounts/${id}`),
-			...visibleServices.map((service) => api<{ items: ResourceItem[] }>(`/api/v1/accounts/${id}/${service.endpoint}`)),
-		]).then(([accountResult, ...results]) => {
-			if (accountResult.status === 'fulfilled') setAccount(accountResult.value)
-			else setErrors((current) => ({ ...current, account: messageFrom(accountResult.reason) }))
-			const nextResources: Record<string, ResourceItem[]> = {}
-			const nextErrors: Record<string, string> = {}
-			results.forEach((result, index) => {
-				const service = visibleServices[index]
-				if (!service) return
-				if (result.status === 'fulfilled') nextResources[service.id] = asList(result.value)
-				else nextErrors[service.id] = messageFrom(result.reason)
+		setRequestAccountId(requestedAccountId)
+		setAccount(null)
+		setLoadedAccountId('')
+		setResources({})
+		setErrors({})
+		setMessage('')
+		setRestoreBackup(null)
+
+		const accountLoad = api<Account>(`/api/v1/accounts/${requestedAccountId}`).then((result) => {
+			if (!requests.isCurrent(accountRequest) || currentAccountId.current !== requestedAccountId) return
+			setAccount(result)
+			setLoadedAccountId(requestedAccountId)
+		}).catch((error) => {
+			if (!requests.isCurrent(accountRequest) || currentAccountId.current !== requestedAccountId) return
+			setErrors((current) => ({ ...current, account: messageFrom(error) }))
+		})
+		const resourceLoads = serviceRequests.map(({ service, token }) => (
+			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/${service.endpoint}`).then((result) => {
+				if (!requests.isCurrent(token) || currentAccountId.current !== requestedAccountId) return
+				setResources((current) => ({ ...current, [service.id]: asList(result) }))
+			}).catch((error) => {
+				if (!requests.isCurrent(token) || currentAccountId.current !== requestedAccountId) return
+				setErrors((current) => ({ ...current, [service.id]: messageFrom(error) }))
 			})
-			setResources(nextResources)
-			setErrors((current) => ({ account: current.account, ...nextErrors }))
-		}).finally(() => setLoading(false))
-	}, [id, visibleServices])
+		))
+		Promise.allSettled([accountLoad, ...resourceLoads]).finally(() => {
+			if (requests.isCurrent(accountRequest) && currentAccountId.current === requestedAccountId) setLoading(false)
+		})
+	}, [id, requests, visibleServices])
 	useEffect(load, [load])
 
-	async function refreshActiveService () {
-		const service = visibleServices.find((entry) => entry.id === active)
+	async function refreshService (requestedAccountId: string, serviceId: string) {
+		const service = visibleServices.find((entry) => entry.id === serviceId)
 		if (!service) return
+		const request = requests.begin(`service:${service.id}`)
 		try {
-			const result = await api<{ items: ResourceItem[] }>(`/api/v1/accounts/${id}/${service.endpoint}`)
+			const result = await api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/${service.endpoint}`)
+			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			setResources((current) => ({ ...current, [service.id]: asList(result) }))
 			setErrors((current) => ({ ...current, [service.id]: '' }))
 		} catch (error) {
+			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			setErrors((current) => ({ ...current, [service.id]: messageFrom(error) }))
 		}
 	}
 	async function create (endpoint: string, body: Record<string, unknown>) {
+		const requestedAccountId = id
+		const serviceId = active
 		setMessage('')
 		try {
-			const result = await api<{ operation_id?: string; token?: string }>(`/api/v1/accounts/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(body) })
+			const result = await api<{ operation_id?: string; token?: string }>(`/api/v1/accounts/${requestedAccountId}/${endpoint}`, { method: 'POST', body: JSON.stringify(body) })
+			if (currentAccountId.current !== requestedAccountId) return
 			setMessage(result.token ? `Token created: ${result.token}. Copy it now.` : result.operation_id ? `Queued ${result.operation_id}.` : 'Resource created.')
-			await refreshActiveService()
-			if (endpoint === 'applications' && active !== 'applications') {
-				try {
-					const applications = await api<{ items: ResourceItem[] }>(`/api/v1/accounts/${id}/applications`)
-					setResources((current) => ({ ...current, applications: asList(applications) }))
-				} catch (error) {
-					setErrors((current) => ({ ...current, applications: messageFrom(error) }))
-				}
-			}
-		} catch (error) { setMessage(messageFrom(error)) }
+			await refreshService(requestedAccountId, serviceId)
+			if (endpoint === 'applications' && serviceId !== 'applications') await refreshService(requestedAccountId, 'applications')
+		} catch (error) {
+			if (currentAccountId.current === requestedAccountId) setMessage(messageFrom(error))
+		}
 	}
 	async function remove (segment: string, resourceId: string) {
 		if (!window.confirm('Delete this resource? Dependent resources may block removal.')) return
+		const requestedAccountId = id
+		const serviceId = active
 		try {
-			await api(`/api/v1/accounts/${id}/${segment}/${resourceId}`, { method: 'DELETE' })
+			await api(`/api/v1/accounts/${requestedAccountId}/${segment}/${resourceId}`, { method: 'DELETE' })
+			if (currentAccountId.current !== requestedAccountId) return
 			setMessage('Delete operation queued.')
-			await refreshActiveService()
-		} catch (error) { setMessage(messageFrom(error)) }
+			await refreshService(requestedAccountId, serviceId)
+		} catch (error) {
+			if (currentAccountId.current === requestedAccountId) setMessage(messageFrom(error))
+		}
 	}
 	async function patchMailDomain (mailDomainId: string, catchallPolicy: string) {
+		const requestedAccountId = id
 		try {
-			await api(`/api/v1/accounts/${id}/mail/domains/${mailDomainId}`, { method: 'PATCH', body: JSON.stringify({ catchall_policy: catchallPolicy }) })
+			await api(`/api/v1/accounts/${requestedAccountId}/mail/domains/${mailDomainId}`, { method: 'PATCH', body: JSON.stringify({ catchall_policy: catchallPolicy }) })
+			if (currentAccountId.current !== requestedAccountId) return
 			setMessage('Mail routing update queued.')
-			await refreshActiveService()
-		} catch (error) { setMessage(messageFrom(error)) }
+			await refreshService(requestedAccountId, 'mail-domains')
+		} catch (error) {
+			if (currentAccountId.current === requestedAccountId) setMessage(messageFrom(error))
+		}
 	}
 	async function restore () {
 		if (!restoreBackup) return
@@ -123,21 +158,22 @@ export function AccountServicesPage () {
 		setRestoreBackup(null)
 	}
 
-	if (!account && loading) return <><PageHeader title="Account Services" description="Loading account-linked services." /><LoadingState /></>
-	if (!account) return <><PageHeader title="Account Services" description="Account-linked operations." /><ErrorState error={errors.account || 'Account unavailable.'} onRetry={load} /></>
-	const definition = visibleServices.find((service) => service.id === active) || visibleServices[0]
+	const isCurrentRequest = requestAccountId === id
+	const currentAccount = isCurrentRequest && loadedAccountId === id ? account : null
+	if (!currentAccount && (loading || !isCurrentRequest)) return <><PageHeader title="Account Services" description="Loading account-linked services." /><LoadingState /></>
+	if (!currentAccount) return <><PageHeader title="Account Services" description="Account-linked operations." /><ErrorState error={errors.account || 'Account unavailable.'} onRetry={load} /></>
 	const items = definition ? resources[definition.id] || [] : []
 	return (
 		<>
-			<PageHeader title={`${account.username}: Account Services`} description="Websites, domains, databases, mail, certificates, files, access, backups, and automation." actions={capabilities['dns.read'] ? <Link className="button-link secondary-link" to={`/dns?account=${id}`}>Manage DNS</Link> : undefined} />
+			<PageHeader title={`${currentAccount.username}: Account Services`} description="Websites, domains, databases, mail, certificates, files, access, backups, and automation." actions={capabilities['dns.read'] ? <Link className="button-link secondary-link" to={`/dns?account=${id}`}>Manage DNS</Link> : undefined} />
 			<AccountTabs id={id} />
 			<div className="service-tabs" role="tablist" aria-label="Account service">
-				{visibleServices.map((service) => <button key={service.id} type="button" role="tab" aria-selected={definition?.id === service.id} onClick={() => setActive(service.id)}>{service.label}<span>{resources[service.id]?.length ?? '—'}</span></button>)}
+				{visibleServices.map((service) => <button key={service.id} type="button" role="tab" aria-selected={definition?.id === service.id} onClick={() => setSearchParams({ service: service.id }, { replace: true })}>{service.label}<span>{resources[service.id]?.length ?? '—'}</span></button>)}
 			</div>
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			<section className="panel service-panel">
 				<div className="section-heading"><div><h2>{definition?.label}</h2><p>Changes are queued through Kelmor’s capability-enforced API.</p></div></div>
-				{definition?.id === 'mail-domains' && capabilities['mail.write'] ? <MailDomainForm domains={items} onPatch={patchMailDomain} /> : definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} account={account} resources={resources} canListWebsites={Boolean(capabilities['websites.read'])} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
+				{definition?.id === 'mail-domains' && capabilities['mail.write'] ? <MailDomainForm domains={items} onPatch={patchMailDomain} /> : definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} account={currentAccount} resources={resources} canListWebsites={Boolean(capabilities['websites.read'])} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
 				{errors[active] ? <ErrorState title={`${definition?.label} unavailable`} error={errors[active]} onRetry={load} /> : null}
 				{loading ? <LoadingState /> : null}
 				{!loading && !errors[active] && definition ? <div className="table-wrap"><table className="dense-table"><thead><tr>{definition.columns.map((column) => <th key={column}>{column.replaceAll('_', ' ')}</th>)}<th>Actions</th></tr></thead>

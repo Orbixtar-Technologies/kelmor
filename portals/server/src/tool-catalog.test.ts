@@ -55,6 +55,25 @@ describe('tool discovery', () => {
 		expect(tools.map((tool) => tool.id)).not.toEqual(expect.arrayContaining(['dns', 'sql', 'email', 'ssl']))
 	})
 
+	test.each([
+		['over-quota', ['accounts.read', 'billing.usage.read', 'packages.read']],
+		['create-account', ['accounts.create', 'packages.read']],
+		['modify-account', ['accounts.read', 'accounts.modify']],
+		['change-package', ['accounts.read', 'accounts.modify']],
+		['suspend-account', ['accounts.read', 'accounts.suspend']],
+		['terminate-account', ['accounts.read', 'accounts.terminate']],
+		['force-password', ['accounts.read', 'accounts.modify']],
+		['usage', ['billing.usage.read', 'accounts.read', 'packages.read']],
+	] as const)('requires every capability for the %s tool', (toolId, requiredCapabilities) => {
+		for (const omittedCapability of requiredCapabilities) {
+			const capabilities = Object.fromEntries(requiredCapabilities.map((capability) => [capability, capability !== omittedCapability]))
+			expect(discoverTools(toolCatalog, capabilities).some((tool) => tool.id === toolId)).toBe(false)
+		}
+
+		const capabilities = Object.fromEntries(requiredCapabilities.map((capability) => [capability, true]))
+		expect(discoverTools(toolCatalog, capabilities).some((tool) => tool.id === toolId)).toBe(true)
+	})
+
 	test('routes account service tools to the selected account section', () => {
 		expect(accountTaskTarget('databases', 'account-1')).toBe('/accounts/account-1/services?service=databases')
 		expect(accountTaskTarget('email', 'account-1')).toBe('/accounts/account-1/services?service=mailboxes')

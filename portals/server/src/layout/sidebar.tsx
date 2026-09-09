@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { groupTools } from '../tool-catalog'
 import type { ToolDefinition } from '../types'
@@ -16,19 +16,48 @@ interface SidebarProps {
 	onCollapse: () => void
 	mobileOpen: boolean
 	onNavigate: () => void
+	onMobileDismiss: () => void
 }
 
-export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate }: SidebarProps) {
+export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate, onMobileDismiss }: SidebarProps) {
 	const [filter, setFilter] = useState('')
 	const [closedCategories, setClosedCategories] = useState<Set<string>>(new Set())
+	const [isMobile, setIsMobile] = useState(() => window.matchMedia?.('(max-width: 780px)').matches ?? false)
+	const sidebarRef = useRef<HTMLElement>(null)
 	const groups = useMemo(() => groupTools(tools.filter((tool) => `${tool.label} ${tool.category}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()))), [tools, filter])
+
+	useEffect(() => {
+		const media = window.matchMedia?.('(max-width: 780px)')
+		if (!media) return
+		const update = () => setIsMobile(media.matches)
+		update()
+		media.addEventListener('change', update)
+		return () => media.removeEventListener('change', update)
+	}, [])
+
+	useEffect(() => {
+		if (!isMobile || !mobileOpen) return
+		sidebarRef.current?.querySelector<HTMLElement>('input, button, a[href]')?.focus()
+	}, [isMobile, mobileOpen])
 
 	function setAll (closed: boolean) {
 		setClosedCategories(closed ? new Set(groups.keys()) : new Set())
 	}
 
 	return (
-		<aside id="director-sidebar" className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
+		<aside
+			ref={sidebarRef}
+			id="director-sidebar"
+			className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}
+			aria-hidden={isMobile && !mobileOpen ? true : undefined}
+			inert={isMobile && !mobileOpen ? true : undefined}
+			onKeyDown={(event) => {
+				if (isMobile && mobileOpen && event.key === 'Escape') {
+					event.preventDefault()
+					onMobileDismiss()
+				}
+			}}
+		>
 			<div className="sidebar-brand"><span className="brand-mark">K</span><strong>Kelmor Director</strong></div>
 			<div className="sidebar-controls">
 				<label className="sr-only" htmlFor="category-filter">Filter features</label>

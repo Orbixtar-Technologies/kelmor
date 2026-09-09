@@ -14,6 +14,10 @@ export function useCapabilities () {
 	return useContext(Caps)
 }
 
+export function hasCapabilities (capabilities: Record<string, boolean>, required: readonly string[]) {
+	return required.every((capability) => capabilities[capability])
+}
+
 export function Forbidden ({ title }: { title: string }) {
 	return (
 		<section>

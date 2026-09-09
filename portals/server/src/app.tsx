@@ -16,7 +16,7 @@ import { SecurityPage } from './pages/security-page'
 import { ServiceStatusPage } from './pages/service-status-page'
 import { TransfersPage } from './pages/transfers-page'
 import { UsagePage } from './pages/usage-page'
-import { CapProvider, Forbidden } from './rbac'
+import { CapProvider, Forbidden, hasCapabilities } from './rbac'
 import type { ReactNode } from 'react'
 import type { Me, User } from './types'
 
@@ -30,8 +30,9 @@ export function App () {
 	if (checking) return <main className="auth"><div className="loading-state" role="status"><span />Restoring Kelmor Director session…</div></main>
 	if (!me) return <LoginPage onLogin={setMe} />
 	const capabilities = me.actor.capabilities || {}
-	function allowed (capability: string, element: ReactNode) {
-		return capabilities[capability] ? element : <Forbidden title="Access restricted" />
+	function allowed (requiredCapabilities: string | readonly string[], element: ReactNode) {
+		const required = typeof requiredCapabilities === 'string' ? [requiredCapabilities] : requiredCapabilities
+		return hasCapabilities(capabilities, required) ? element : <Forbidden title="Access restricted" />
 	}
 	return (
 		<CapProvider caps={capabilities}>
@@ -39,7 +40,7 @@ export function App () {
 				<Route element={<DirectorShell me={me} onSignOut={() => { api('/api/v1/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined); clearToken(); setMe(null) }} />}>
 					<Route index element={(capabilities['server.read'] || capabilities['accounts.read']) ? <HomePage /> : <Forbidden title="Home" />} />
 					<Route path="accounts" element={allowed('accounts.read', <AccountsPage />)} />
-					<Route path="accounts/create" element={allowed('accounts.create', <CreateAccountPage />)} />
+					<Route path="accounts/create" element={allowed(['accounts.create', 'packages.read'], <CreateAccountPage />)} />
 					<Route path="accounts/:id" element={allowed('accounts.read', <AccountSummaryPage />)} />
 					<Route path="accounts/:id/services" element={allowed('accounts.read', <AccountServicesPage />)} />
 					<Route path="packages" element={allowed('packages.read', <PackagesPage />)} />
@@ -51,8 +52,8 @@ export function App () {
 					<Route path="import" element={(capabilities['accounts.create'] || capabilities['backups.create']) ? <TransfersPage /> : <Forbidden title="Transfers" />} />
 					<Route path="jobs" element={(capabilities['server.read'] || capabilities['accounts.read']) ? <JobsPage /> : <Forbidden title="Jobs" />} />
 					<Route path="audit" element={allowed('security.audit.read', <AuditPage />)} />
-					<Route path="usage" element={allowed('billing.usage.read', <UsagePage />)} />
-					<Route path="monitor" element={allowed('billing.usage.read', <UsagePage />)} />
+					<Route path="usage" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />
+					<Route path="monitor" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />
 					<Route path="*" element={<Navigate to="/" replace />} />
 				</Route>
 			</Routes>

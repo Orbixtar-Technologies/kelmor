@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { api, asList } from '../client'
 import { useCapabilities } from '../rbac'
@@ -27,6 +27,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const [hostname, setHostname] = useState('host')
 	const [notificationsOpen, setNotificationsOpen] = useState(false)
 	const [adminOpen, setAdminOpen] = useState(false)
+	const menuButtonRef = useRef<HTMLButtonElement>(null)
 	const location = useLocation()
 	const tools = discoverTools(toolCatalog, capabilities)
 
@@ -36,12 +37,17 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	}, [capabilities])
 
 	const parts = location.pathname.split('/').filter(Boolean)
+	function dismissMobileNavigation () {
+		setMobileOpen(false)
+		menuButtonRef.current?.focus()
+	}
+
 	return (
 		<div className={`director ${collapsed ? 'nav-collapsed' : ''}`}>
-			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
+			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} onMobileDismiss={dismissMobileNavigation} />
 			<div className="workspace">
 				<header className="topbar">
-					<button type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen(!mobileOpen)}>☰</button>
+					<button ref={menuButtonRef} type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen((open) => !open)}>☰</button>
 					<Link className="topbar-brand" to="/" aria-label="Kelmor Director home"><span>K</span><strong>Kelmor Director</strong></Link>
 					<GlobalFind tools={tools} accounts={accounts} />
 					<div className="top-actions">

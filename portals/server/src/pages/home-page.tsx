@@ -4,12 +4,12 @@ import { api, asList } from '../client'
 import { EmptyState, ErrorState, LoadingState, Metric, PageHeader, SectionHeading, StatusBadge } from '../components/ui'
 import { formatBytes, formatDate, messageFrom, percent } from '../helpers'
 import { discoverTools, groupTools, toolCatalog } from '../tool-catalog'
-import { useCan, useCapabilities } from '../rbac'
+import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, AuditEvent, Job, ServerOverview } from '../types'
 
 export function HomePage () {
 	const capabilities = useCapabilities()
-	const canCreate = useCan('accounts.create')
+	const canCreate = hasCapabilities(capabilities, ['accounts.create', 'packages.read'])
 	const [server, setServer] = useState<ServerOverview | null>(null)
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [jobs, setJobs] = useState<Job[]>([])
