@@ -188,8 +188,23 @@ paths:
       x-capability: accounts.create
       x-idempotency: required
       x-audit-action: account.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, primary_domain, package_id, owner_password]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 32 }
+                primary_domain: { type: string, format: hostname }
+                package_id: { type: string, format: uuid }
+                reseller_id: { type: string, format: uuid }
+                owner_email: { type: string, format: email, description: Defaults to username@normalized-primary-domain when omitted or blank. }
+                owner_password: { type: string, format: password, minLength: 12, writeOnly: true }
       responses:
         "202": { description: provisioning job accepted }
+        "400": { description: invalid account request or owner password }
     get:
       operationId: listAccounts
       x-capability: accounts.read
@@ -585,6 +600,7 @@ paths:
     post:
       operationId: importAccount
       x-capability: accounts.create
+      x-server-scope: true
       parameters:
         - in: query
           name: username

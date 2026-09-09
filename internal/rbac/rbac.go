@@ -63,7 +63,7 @@ var RoleCaps = map[string][]string{
 	"root_owner":             All,
 	"server_administrator":   All,
 	"server_operator":        {ServerRead, ServerServicesRead, ServerServicesRestart, AccountsRead, PackagesRead, DomainsRead, DNSRead, WebsitesRead, SecurityAuditRead, BillingUsageRead},
-	"reseller":               {AccountsRead, AccountsCreate, AccountsModify, AccountsSuspend, PackagesRead, PackagesWrite, DomainsRead, DomainsWrite, DNSRead, WebsitesRead, WebsitesWrite, BackupsRead, BackupsCreate, BackupsRestore, BillingUsageRead},
+	"reseller":               {AccountsRead, AccountsCreate, AccountsModify, AccountsSuspend, PackagesRead, PackagesWrite, DomainsRead, DomainsWrite, DNSRead, WebsitesRead, BackupsRead, BackupsCreate, BackupsRestore, BillingUsageRead},
 	"customer_owner":         {DomainsRead, DomainsWrite, DNSRead, DNSWrite, WebsitesRead, WebsitesWrite, ApplicationsRead, ApplicationsWrite, DatabasesRead, DatabasesWrite, MailRead, MailWrite, BackupsRead, BackupsCreate, BackupsRestore, FilesRead, FilesWrite, CronRead, CronWrite, APITokensRead, APITokensWrite, BillingUsageRead},
 	"customer_administrator": {DomainsRead, DomainsWrite, DNSRead, DNSWrite, WebsitesRead, WebsitesWrite, ApplicationsRead, ApplicationsWrite, DatabasesRead, DatabasesWrite, MailRead, MailWrite, FilesRead, FilesWrite, CronRead, CronWrite},
 	"customer_user":          {DomainsRead, WebsitesRead, MailRead, FilesRead, DatabasesRead, DNSRead},

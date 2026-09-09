@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +127,42 @@ func TestCPanelImportRequiresServerScope(t *testing.T) {
 	}, nil)
 	if code != http.StatusForbidden {
 		t.Fatalf("reseller cPanel import status %d", code)
+	}
+}
+
+func TestNativeImportRequiresServerScope(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	post(t, srv.URL+"/api/v1/resellers", admin, map[string]string{
+		"name": "Native Importer", "username": "native-importer", "password": "ResellerPass!2026",
+	})
+	reseller := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "native-importer", "password": "ResellerPass!2026",
+	})["token"].(string)
+
+	code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/import", reseller, map[string]any{}, nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("reseller native import status %d", code)
+	}
+
+	pkgID := st.ListPackages()[0].ID
+	source := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "native-source", "primary_domain": "native-source.test", "package_id": pkgID,
+		"owner_email": "owner@native-source.test", "owner_password": "TenantPass!2026",
+	})
+	exported := get(t, srv.URL+"/api/v1/accounts/"+source["resource_id"].(string)+"/export", admin)
+	code, imported := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/import?username=native-copy&domain=native-copy.test", admin, exported, nil)
+	if code != http.StatusAccepted || imported["resource_id"] == "" {
+		t.Fatalf("server native import: %d %v", code, imported)
 	}
 }
 
@@ -1045,6 +1083,12 @@ func TestPackageCreateAndUpdateRejectUnknownFeatureSet(t *testing.T) {
 	if defaultID == "" || defaultID != st.ListFeatureSets()[0].ID {
 		t.Fatalf("default feature set assignment: %v", created)
 	}
+
+	if code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/packages", admin, map[string]any{
+		"name": "Unknown reseller owner", "reseller_id": id.New(),
+	}, nil); code != http.StatusBadRequest {
+		t.Fatalf("unknown reseller package owner status %d", code)
+	}
 }
 
 func TestResellerUpdateRequiresServerScopeAndPersistsEditableFields(t *testing.T) {
@@ -1289,7 +1333,7 @@ func TestResellerPrivilegeMaskAndStatusAreEnforced(t *testing.T) {
 	legacy := st.GetReseller(resellerID)
 	legacy.PrivilegeMask = []string{}
 	st.PutReseller(legacy)
-	if code := statusOf(t, http.MethodPost, srv.URL+"/api/v1/packages", resellerToken, map[string]any{"name": "legacy-default"}); code != http.StatusCreated {
+	if code := statusOf(t, http.MethodPost, srv.URL+"/api/v1/packages", resellerToken, map[string]any{"name": "legacy-default"}); code != http.StatusForbidden {
 		t.Fatalf("legacy empty privilege mask status %d", code)
 	}
 
@@ -1309,6 +1353,15 @@ func TestResellerPrivilegeMaskAndStatusAreEnforced(t *testing.T) {
 	}
 	if code := statusOf(t, http.MethodPost, srv.URL+"/api/v1/packages", resellerToken, map[string]any{"name": "forbidden"}); code != http.StatusForbidden {
 		t.Fatalf("restricted reseller package create status %d", code)
+	}
+	code, emptied := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/resellers/"+resellerID, admin, map[string]any{
+		"privilege_mask": []string{}, "status": "active",
+	}, nil)
+	if code != http.StatusOK || !reflect.DeepEqual(emptied["privilege_mask"], []any{}) {
+		t.Fatalf("empty reseller privilege update: %d %v", code, emptied)
+	}
+	if code := statusOf(t, http.MethodGet, srv.URL+"/api/v1/accounts", resellerToken, nil); code != http.StatusForbidden {
+		t.Fatalf("empty privilege reseller account list status %d", code)
 	}
 	if code, body := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/resellers/"+resellerID, admin, map[string]any{
 		"status": "suspended",
@@ -1356,8 +1409,17 @@ func TestModifyAccountValidatesPackageAndReseller(t *testing.T) {
 		"reseller_id": firstReseller, "owner_email": "owner@package-account.test", "owner_password": "TenantPass!2026",
 	})["resource_id"].(string)
 	url := srv.URL + "/api/v1/accounts/" + accountID
+	if code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "mismatchacct", "primary_domain": "mismatch-account.test", "package_id": ownPackage.ID,
+		"reseller_id": secondReseller, "owner_email": "owner@mismatch-account.test", "owner_password": "TenantPass!2026",
+	}, nil); code != http.StatusForbidden {
+		t.Fatalf("mismatched private package create status %d", code)
+	}
 	if code, body := requestJSONStatus(t, http.MethodPatch, url, admin, map[string]any{"package_id": ownPackage.ID}, nil); code != http.StatusAccepted {
 		t.Fatalf("own package assignment: %d %v", code, body)
+	}
+	if code, _ := requestJSONStatus(t, http.MethodPatch, url, admin, map[string]any{"reseller_id": secondReseller}, nil); code != http.StatusForbidden {
+		t.Fatalf("reseller-only private package mismatch status %d", code)
 	}
 	if code, _ := requestJSONStatus(t, http.MethodPatch, url, admin, map[string]any{"package_id": foreignPackage.ID}, nil); code != http.StatusForbidden {
 		t.Fatalf("foreign package assignment status %d", code)
@@ -1373,6 +1435,63 @@ func TestModifyAccountValidatesPackageAndReseller(t *testing.T) {
 	}, nil); code != http.StatusAccepted {
 		t.Fatalf("clear reseller assignment: %d %v", code, body)
 	}
+}
+
+func TestCreateAccountRejectsWeakOwnerPassword(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	pkgID := st.ListPackages()[0].ID
+
+	code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "weakowner", "primary_domain": "weak-owner.test", "package_id": pkgID,
+		"owner_email": "owner@weak-owner.test", "owner_password": "12345678901",
+	}, nil)
+	assertAPIErrorCode(t, code, body, http.StatusBadRequest, "VALIDATION")
+	if st.AccountByUsername("weakowner") != nil || st.UserByUsername("weakowner") != nil {
+		t.Fatal("weak-password account creation persisted state")
+	}
+}
+
+func TestServerProcessesReportsOnlyTruthfulProcessIdentity(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+
+	items := get(t, srv.URL+"/api/v1/server/processes", admin)["processes"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("process count %d", len(items))
+	}
+	process := items[0].(map[string]any)
+	if !reflect.DeepEqual(sortedMapKeys(process), []string{"name", "pid", "scope"}) {
+		t.Fatalf("fabricated or missing process fields: %v", process)
+	}
+	if process["pid"] != float64(os.Getpid()) || process["name"] != "current control-plane process" || process["scope"] != "serving API instance" {
+		t.Fatalf("process identity: %v", process)
+	}
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func TestAccountOwnerPasswordRotation(t *testing.T) {
@@ -1531,7 +1650,7 @@ func TestFailedJobRetryClonesSafePayloadAndPreservesHistory(t *testing.T) {
 	}
 }
 
-func TestResellerCanAccessAndRetryOwnResourceJobs(t *testing.T) {
+func TestResellerCanAccessOwnResourceJobsButCannotRetryWithoutWrite(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
 		t.Fatal(err)
@@ -1599,8 +1718,8 @@ func TestResellerCanAccessAndRetryOwnResourceJobs(t *testing.T) {
 		if code, _ := requestJSONStatus(t, http.MethodGet, srv.URL+"/api/v1/jobs/"+job.ID, reseller, nil, nil); code != http.StatusOK {
 			t.Errorf("own %s job get status %d", job.ResourceType, code)
 		}
-		if code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+job.ID+"/retry", reseller, nil, nil); code != http.StatusAccepted {
-			t.Errorf("own %s job retry status %d: %v", job.ResourceType, code, body)
+		if code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+job.ID+"/retry", reseller, nil, nil); code != http.StatusForbidden {
+			t.Errorf("own %s job retry without websites.write status %d: %v", job.ResourceType, code, body)
 		}
 	}
 	for _, job := range foreignJobs {

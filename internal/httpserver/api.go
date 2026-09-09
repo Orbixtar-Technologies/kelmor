@@ -455,15 +455,13 @@ func (a *API) actorFromUser(u *store.User) rbac.Actor {
 			result.ResellerID = rid
 			return result
 		}
-		if len(rs.PrivilegeMask) > 0 {
-			masked := map[string]bool{}
-			for _, capability := range rs.PrivilegeMask {
-				if capabilities[capability] {
-					masked[capability] = true
-				}
+		masked := map[string]bool{}
+		for _, capability := range rs.PrivilegeMask {
+			if capabilities[capability] {
+				masked[capability] = true
 			}
-			capabilities = masked
 		}
+		capabilities = masked
 		seen := map[string]bool{}
 		for _, id := range ids {
 			seen[id] = true
@@ -621,7 +619,7 @@ func (a *API) serverProcesses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"processes": []map[string]any{
-		{"pid": os.Getpid(), "user": "panel", "cmd": "panel-api", "cpu": 0.2, "rss": 48},
+		{"pid": os.Getpid(), "name": "current control-plane process", "scope": "serving API instance"},
 	}})
 }
 
@@ -951,6 +949,10 @@ func (a *API) createPackage(w http.ResponseWriter, r *http.Request) {
 	if who.ResellerID != "" && !who.IsServerScope {
 		p.ResellerID = who.ResellerID
 	}
+	if p.ResellerID != "" && a.Store.GetReseller(p.ResellerID) == nil {
+		a.fail(w, r, 400, "VALIDATION", "Unknown reseller", false)
+		return
+	}
 	if p.FeatureSetID == "" {
 		if sets := a.Store.ListFeatureSets(); len(sets) > 0 {
 			p.FeatureSetID = sets[0].ID
@@ -1193,7 +1195,7 @@ func validResellerStatus(status string) bool {
 }
 
 func explicitResellerPrivileges(requested []string) ([]string, error) {
-	if len(requested) == 0 {
+	if requested == nil {
 		return append([]string(nil), rbac.RoleCaps["reseller"]...), nil
 	}
 	out := make([]string, 0, len(requested))
@@ -1291,6 +1293,10 @@ func (a *API) migrateAccount(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.AccountsCreate) {
+		return
+	}
+	if !actor(r).IsServerScope {
+		a.fail(w, r, 403, "FORBIDDEN", "Server scope required", false)
 		return
 	}
 	raw, err := io.ReadAll(r.Body)
@@ -1433,9 +1439,17 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", "Unknown reseller", false)
 		return
 	}
+	if pkg.ResellerID != "" && pkg.ResellerID != in.ResellerID {
+		a.fail(w, r, 403, "FORBIDDEN", "Package is not available to this reseller", false)
+		return
+	}
+	if len(in.OwnerPassword) < 12 {
+		a.fail(w, r, 400, "VALIDATION", "Owner password must be at least 12 characters", false)
+		return
+	}
 	hash, err := auth.HashPassword(in.OwnerPassword)
-	if err != nil || in.OwnerPassword == "" {
-		a.fail(w, r, 400, "VALIDATION", "Owner password required", false)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", "Invalid owner password", false)
 		return
 	}
 	owner := &store.User{
@@ -1507,16 +1521,16 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, r, 400, "VALIDATION", "Unknown package", false)
 			return
 		}
-		pkg := a.Store.GetPackage(value)
-		if pkg == nil {
-			a.fail(w, r, 400, "VALIDATION", "Unknown package", false)
-			return
-		}
-		if pkg.ResellerID != "" && pkg.ResellerID != resellerID {
-			a.fail(w, r, 403, "FORBIDDEN", "Package is not available to this reseller", false)
-			return
-		}
 		packageID = value
+	}
+	pkg := a.Store.GetPackage(packageID)
+	if pkg == nil {
+		a.fail(w, r, 400, "VALIDATION", "Unknown package", false)
+		return
+	}
+	if pkg.ResellerID != "" && pkg.ResellerID != resellerID {
+		a.fail(w, r, 403, "FORBIDDEN", "Package is not available to this reseller", false)
+		return
 	}
 	acc.PackageID = packageID
 	acc.ResellerID = resellerID
