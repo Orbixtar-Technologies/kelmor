@@ -104,6 +104,7 @@ func (a *API) Handler() http.Handler {
 				r.Delete("/websites/{websiteID}", a.deleteWebsite)
 				r.Get("/applications", a.listApps)
 				r.Post("/applications", a.createApp)
+				r.Delete("/applications/{applicationID}", a.deleteApp)
 				r.Post("/wordpress", a.installWordPress)
 				r.Get("/databases", a.listDBs)
 				r.Post("/databases", a.createDB)
@@ -132,6 +133,7 @@ func (a *API) Handler() http.Handler {
 				r.Post("/files", a.writeFile)
 				r.Get("/cron", a.listCron)
 				r.Post("/cron", a.createCron)
+				r.Delete("/cron/{cronID}", a.deleteCron)
 				r.Get("/ssh-keys", a.listSSH)
 				r.Post("/sftp-password", a.setSFTPPassword)
 				r.Post("/ssh-keys", a.createSSH)
@@ -141,6 +143,7 @@ func (a *API) Handler() http.Handler {
 				r.Delete("/ftp/{ftpID}", a.deleteFTP)
 				r.Get("/api-tokens", a.listTokens)
 				r.Post("/api-tokens", a.createToken)
+				r.Delete("/api-tokens/{tokenID}", a.deleteToken)
 			})
 		})
 	})
@@ -1231,6 +1234,21 @@ func (a *API) createApp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "application": in})
 }
 
+func (a *API) deleteApp(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.ApplicationsWrite) {
+		return
+	}
+	app := a.Store.GetApp(chi.URLParam(r, "applicationID"))
+	if app == nil || app.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "application missing", false)
+		return
+	}
+	a.Store.DeleteApp(app.ID)
+	a.audit(r, "application.delete", "application", app.ID, true, map[string]any{"runtime": app.Runtime}, nil)
+	writeJSON(w, 200, map[string]any{"deleted": app.ID})
+}
+
 func (a *API) installWordPress(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.ApplicationsWrite) {
@@ -2002,6 +2020,22 @@ func (a *API) createCron(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"cron": c, "operation_id": job.ID})
 }
 
+func (a *API) deleteCron(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.CronWrite) {
+		return
+	}
+	c := a.Store.GetCron(chi.URLParam(r, "cronID"))
+	if c == nil || c.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "cron job missing", false)
+		return
+	}
+	a.Store.DeleteCron(c.ID)
+	job, _ := a.Store.EnqueueJob(&store.Job{Type: "cron.apply", ResourceType: "account", ResourceID: aid, Payload: map[string]any{"account_id": aid}, State: "queued"})
+	a.audit(r, "cron.delete", "cron_job", c.ID, true, map[string]any{"schedule": c.Schedule, "command": c.Command}, nil)
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "deleted": c.ID})
+}
+
 func (a *API) listSSH(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.FilesRead) {
@@ -2252,6 +2286,21 @@ func (a *API) createToken(w http.ResponseWriter, r *http.Request) {
 	a.Store.PutToken(t)
 	a.audit(r, "api_token.create", "api_token", t.ID, true, nil, map[string]any{"prefix": t.Prefix, "scope": t.Scope})
 	writeJSON(w, 201, map[string]any{"token": plain, "prefix": t.Prefix, "id": t.ID})
+}
+
+func (a *API) deleteToken(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.APITokensWrite) {
+		return
+	}
+	t := a.Store.GetToken(chi.URLParam(r, "tokenID"))
+	aid := chi.URLParam(r, "accountID")
+	if t == nil || t.UserID != actor(r).UserID || (t.AccountID != "" && t.AccountID != aid) {
+		a.fail(w, r, 404, "NOT_FOUND", "api token missing", false)
+		return
+	}
+	a.Store.DeleteToken(t.ID)
+	a.audit(r, "api_token.delete", "api_token", t.ID, true, map[string]any{"prefix": t.Prefix}, nil)
+	writeJSON(w, 200, map[string]any{"deleted": t.ID})
 }
 
 func (a *API) notImplemented(name string) http.HandlerFunc {

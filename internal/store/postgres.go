@@ -457,6 +457,10 @@ func (p *PG) GetApp(aid string) *Application {
 	return a
 }
 
+func (p *PG) DeleteApp(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM applications WHERE id=$1`, id)
+}
+
 func (p *PG) ListApps(accountID string) []Application {
 	rows, err := p.pool.Query(p.ctx(), `SELECT id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status FROM applications WHERE $1='' OR account_id::text=$1`, accountID)
 	if err != nil {
@@ -918,6 +922,23 @@ func (p *PG) PutToken(t *APIToken) {
 		t.ID, t.UserID, t.Name, t.Prefix, t.TokenHash, t.Scope, t.AccountID, t.Capabilities)
 }
 
+func (p *PG) GetToken(id string) *APIToken {
+	t := &APIToken{}
+	var acc *string
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, user_id, name, prefix, token_hash, scope, account_id::text, capabilities, expires_at, revoked_at FROM api_tokens WHERE id=$1`, id).
+		Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.TokenHash, &t.Scope, &acc, &t.Capabilities, &t.ExpiresAt, &t.RevokedAt); err != nil {
+		return nil
+	}
+	if acc != nil {
+		t.AccountID = *acc
+	}
+	return t
+}
+
+func (p *PG) DeleteToken(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM api_tokens WHERE id=$1`, id)
+}
+
 func (p *PG) TokenByHash(hash []byte) *APIToken {
 	t := &APIToken{}
 	var acc *string
@@ -979,6 +1000,19 @@ func (p *PG) ListBackups(accountID string) []BackupRun {
 		out = append(out, b)
 	}
 	return out
+}
+
+func (p *PG) GetCron(id string) *CronJob {
+	c := &CronJob{}
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, schedule, command, working_directory, enabled FROM cron_jobs WHERE id=$1`, id).
+		Scan(&c.ID, &c.AccountID, &c.Schedule, &c.Command, &c.WorkingDirectory, &c.Enabled); err != nil {
+		return nil
+	}
+	return c
+}
+
+func (p *PG) DeleteCron(id string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM cron_jobs WHERE id=$1`, id)
 }
 
 func (p *PG) PutCron(c *CronJob) {

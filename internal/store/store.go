@@ -44,6 +44,7 @@ type Store interface {
 	PutApp(*Application)
 	GetApp(string) *Application
 	ListApps(accountID string) []Application
+	DeleteApp(id string)
 
 	PutDB(*HostedDatabase)
 	GetDB(string) *HostedDatabase
@@ -86,15 +87,19 @@ type Store interface {
 	ListAudit(limit int) []AuditEvent
 
 	PutToken(*APIToken)
+	GetToken(id string) *APIToken
 	TokenByHash([]byte) *APIToken
 	ListTokens(userID string) []APIToken
+	DeleteToken(id string)
 
 	PutBackup(*BackupRun)
 	GetBackup(string) *BackupRun
 	ListBackups(accountID string) []BackupRun
 
 	PutCron(*CronJob)
+	GetCron(id string) *CronJob
 	ListCrons(accountID string) []CronJob
+	DeleteCron(id string)
 	PutSSH(*SSHKey)
 	GetSSH(id string) *SSHKey
 	ListSSH(accountID string) []SSHKey

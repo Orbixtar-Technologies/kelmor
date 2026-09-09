@@ -231,6 +231,15 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: cron apply queued }
+  /accounts/{accountID}/cron/{cronID}:
+    delete:
+      operationId: deleteCron
+      x-capability: cron.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: cronID, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: cron removed and crontab reapplied }
   /accounts/{accountID}/applications:
     get:
       operationId: listApplications
@@ -246,6 +255,15 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: application deploy queued }
+  /accounts/{accountID}/applications/{applicationID}:
+    delete:
+      operationId: deleteApplication
+      x-capability: applications.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: applicationID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: application removed }
   /accounts/{accountID}/terminate:
     post:
       operationId: terminateAccount
@@ -774,6 +792,15 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "201": { description: token issued once }
+  /accounts/{accountID}/api-tokens/{tokenID}:
+    delete:
+      operationId: deleteAPIToken
+      x-capability: api_tokens.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: tokenID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: token revoked }
   /server/processes:
     get:
       operationId: serverProcesses

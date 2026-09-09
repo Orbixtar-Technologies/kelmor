@@ -60,6 +60,7 @@ func main() {
   monitor
   import-cpanel <root> <username>
   cron create <account_id> <schedule> <command>
+  cron delete <account_id> <cron_id>
   cert request <account_id> <hostname>
   reseller create <name> <username> <password>
   firewall apply
@@ -201,6 +202,8 @@ func main() {
 		post(base+"/api/v1/accounts/import/cpanel", token, map[string]any{"root": args[1], "username": args[2]})
 	case args[0] == "cron" && args[1] == "create" && len(args) >= 5:
 		post(base+"/api/v1/accounts/"+args[2]+"/cron", token, map[string]any{"schedule": args[3], "command": strings.Join(args[4:], " ")})
+	case args[0] == "cron" && args[1] == "delete" && len(args) == 4:
+		do(http.MethodDelete, base+"/api/v1/accounts/"+args[2]+"/cron/"+args[3], token, nil, true)
 	case args[0] == "cert" && args[1] == "request" && len(args) == 4:
 		post(base+"/api/v1/accounts/"+args[2]+"/certificates", token, map[string]any{"hostname": args[3]})
 	case args[0] == "reseller" && args[1] == "create" && len(args) == 5:

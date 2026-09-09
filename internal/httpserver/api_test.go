@@ -463,6 +463,50 @@ func TestWordPressInstallAPI(t *testing.T) {
 	if len(apps) != 1 || apps[0].Runtime != "wordpress" {
 		t.Fatalf("%v", apps)
 	}
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/applications/"+apps[0].ID, admin, nil) != 200 {
+		t.Fatal("delete application")
+	}
+	if len(st.ListApps(aid)) != 0 {
+		t.Fatal("application remained")
+	}
+}
+
+func TestCronAndTokenDelete(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "crondel1", "primary_domain": "crondel.test", "package_id": pkg,
+		"owner_email": "o@crondel.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	created := post(t, srv.URL+"/api/v1/accounts/"+aid+"/cron", admin, map[string]any{
+		"schedule": "0 * * * *", "command": "true",
+	})
+	cron := created["cron"].(map[string]any)
+	cid := cron["id"].(string)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/cron/"+cid, admin, nil) != 202 {
+		t.Fatal("delete cron")
+	}
+	if len(st.ListCrons(aid)) != 0 {
+		t.Fatal("cron remained")
+	}
+	tok := post(t, srv.URL+"/api/v1/accounts/"+aid+"/api-tokens", admin, map[string]any{
+		"name": "ci", "scope": "account", "account_id": aid,
+	})
+	tid := tok["id"].(string)
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/api-tokens/"+tid, admin, nil) != 200 {
+		t.Fatal("delete token")
+	}
+	if len(st.ListTokens(st.UserByUsername("admin").ID)) != 0 {
+		t.Fatal("token remained")
+	}
 }
 
 func TestDNSSECAndCatchallAPI(t *testing.T) {

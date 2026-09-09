@@ -751,7 +751,17 @@ function Cron ({ accountId }: { accountId: string }) {
 				<button type="submit">Add job</button>
 			</form>
 			</Can>
-			<ul>{items.map((c) => <li key={c.id}>{c.schedule} {c.command}</li>)}</ul>
+			<ul>{items.map((c) => (
+				<li key={c.id}>
+					{c.schedule} {c.command}
+					<Can cap="cron.write">
+						<button type="button" className="link" onClick={async () => {
+							await api(`/api/v1/accounts/${accountId}/cron/${c.id}`, { method: 'DELETE' })
+							setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/cron`)))
+						}}>Remove</button>
+					</Can>
+				</li>
+			))}</ul>
 		</>
 	)
 }

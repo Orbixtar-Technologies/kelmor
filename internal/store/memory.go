@@ -335,6 +335,12 @@ func (m *Memory) GetApp(id string) *Application {
 	}
 	return nil
 }
+func (m *Memory) DeleteApp(id string) {
+	m.mu.Lock()
+	delete(m.Apps, id)
+	m.mu.Unlock()
+}
+
 func (m *Memory) ListApps(accountID string) []Application {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -668,6 +674,20 @@ func (m *Memory) ListAudit(limit int) []AuditEvent {
 }
 
 func (m *Memory) PutToken(t *APIToken) { m.mu.Lock(); m.Tokens[t.ID] = t; m.mu.Unlock() }
+func (m *Memory) GetToken(id string) *APIToken {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if t := m.Tokens[id]; t != nil {
+		cp := *t
+		return &cp
+	}
+	return nil
+}
+func (m *Memory) DeleteToken(id string) {
+	m.mu.Lock()
+	delete(m.Tokens, id)
+	m.mu.Unlock()
+}
 func (m *Memory) TokenByHash(hash []byte) *APIToken {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -718,6 +738,20 @@ func (m *Memory) ListBackups(accountID string) []BackupRun {
 }
 
 func (m *Memory) PutCron(c *CronJob) { m.mu.Lock(); m.Crons[c.ID] = c; m.mu.Unlock() }
+func (m *Memory) GetCron(id string) *CronJob {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if c := m.Crons[id]; c != nil {
+		cp := *c
+		return &cp
+	}
+	return nil
+}
+func (m *Memory) DeleteCron(id string) {
+	m.mu.Lock()
+	delete(m.Crons, id)
+	m.mu.Unlock()
+}
 func (m *Memory) ListCrons(accountID string) []CronJob {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

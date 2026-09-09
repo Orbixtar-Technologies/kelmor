@@ -450,19 +450,53 @@ ensure_runtime_addon python.livehost.test python /tmp/py.out python
 ensure_runtime_addon node.livehost.test node /tmp/node.out node
 
 wdomains=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH")
-if echo "$wdomains" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; raise SystemExit(0 if any(i.get('ascii_fqdn')=='blog.livehost.test' for i in items) else 1)"; then
-  wpcode=""
-  for _ in $(seq 1 20); do
-    wpcode=$(host_fetch blog.livehost.test /tmp/wp.out)
-    echo "wordpress_http $wpcode"
-    if [[ "$wpcode" == "200" ]] && grep -q 'Live Blog' /tmp/wp.out; then
-      break
-    fi
-    sleep 0.5
-  done
-  [[ "$wpcode" == "200" ]] || { echo "wordpress site down: $wpcode" >&2; exit 1; }
-  grep -q 'Live Blog' /tmp/wp.out || { echo "wordpress title missing" >&2; head -c 200 /tmp/wp.out >&2; exit 1; }
+hasblog=$(echo "$wdomains" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('ascii_fqdn')=='blog.livehost.test' for i in items))")
+if [[ "$hasblog" != "True" ]]; then
+  blog=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"fqdn":"blog.livehost.test","type":"addon","runtime":"php"}')
+  echo "$blog"
+  wait_job "$(echo "$blog" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')" wordpress-domain
 fi
+bid=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
+print(next((i['id'] for i in items if i.get('ascii_fqdn')=='blog.livehost.test'), ''))")
+wsite=$(curl -sS "$BASE/api/v1/accounts/$aid/websites" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
+print(next((i['id'] for i in items if i.get('domain_id')=='$bid'), ''))")
+if [[ -z "$wsite" ]]; then
+  wsite=$(curl -sS "$BASE/api/v1/accounts/$aid/websites" -H "$AUTH" | python3 -c "
+import json,sys
+items=json.load(sys.stdin).get('items') or []
+print(next((i['id'] for i in items if 'blog.livehost' in (i.get('document_root') or '')), items[-1]['id'] if items else ''))
+")
+fi
+haswp=$(curl -sS "$BASE/api/v1/accounts/$aid/applications" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('runtime')=='wordpress' for i in items))")
+if [[ "$haswp" != "True" ]]; then
+  [[ -n "$wsite" ]] || { echo "wordpress website missing" >&2; exit 1; }
+  wp=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/wordpress" -H "$AUTH" -H 'content-type: application/json' \
+    -d "{\"website_id\":\"$wsite\",\"title\":\"Live Blog\",\"admin_user\":\"wpadmin\",\"admin_password\":\"WpAdmin!2026\",\"admin_email\":\"ops@livehost.test\"}")
+  echo "$wp"
+  wait_job "$(echo "$wp" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')" wordpress-install
+fi
+wpcode=""
+for _ in $(seq 1 40); do
+  wpcode=$(host_fetch blog.livehost.test /tmp/wp.out)
+  echo "wordpress_http $wpcode"
+  if [[ "$wpcode" == "200" ]] && grep -q 'Live Blog' /tmp/wp.out; then
+    break
+  fi
+  sleep 1
+done
+[[ "$wpcode" == "200" ]] || { echo "wordpress site down: $wpcode" >&2; head -c 200 /tmp/wp.out >&2; exit 1; }
+grep -q 'Live Blog' /tmp/wp.out || { echo "wordpress title missing" >&2; head -c 200 /tmp/wp.out >&2; exit 1; }
+
+cronj=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/cron" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"schedule":"7 * * * *","command":"true"}')
+cid=$(echo "$cronj" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("cron") or {}).get("id",""))')
+wait_job "$(echo "$cronj" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')" cron-create
+[[ -n "$cid" ]] || { echo "cron create failed: $cronj" >&2; exit 1; }
+cdel=$(curl -sS -X DELETE "$BASE/api/v1/accounts/$aid/cron/$cid" -H "$AUTH")
+wait_job "$(echo "$cdel" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')" cron-delete
+curl -sS "$BASE/api/v1/accounts/$aid/cron" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; assert all(i.get('id')!='$cid' for i in items), items"
+echo cron-delete-ok
 
 dbs=$(curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH")
 hasdb=$(echo "$dbs" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('name','').endswith('_e2e') for i in items))")
