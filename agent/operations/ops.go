@@ -568,6 +568,9 @@ func (h *Host) DeleteLinuxUser(username string) (Result, error) {
 		return Result{}, err
 	}
 	_ = os.RemoveAll(path)
+	if vol, err := h.resolve("/var/lib/panel/homes/" + username); err == nil {
+		_ = os.RemoveAll(vol)
+	}
 	return Result{OK: true, Message: "removed", ObservedState: "absent"}, nil
 }
 
