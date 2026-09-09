@@ -41,11 +41,6 @@ build:
 	$(GO) build -o dist/bin/panel-dev ./cmd/panel-dev
 	$(GO) build -o dist/bin/panel-smtp-policy ./cmd/panel-smtp-policy
 	$(GO) build -o dist/bin/panel-object-store ./cmd/panel-object-store
-
-# Lab ACME CA used by --acme pebble (HTTP-01, same protocol as Let's Encrypt).
-pebble:
-	mkdir -p dist/bin
-	GOBIN="$(CURDIR)/dist/bin" $(GO) install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.8.0
 	cp dist/bin/panel-api dist/bin/kelmor-api
 	cp dist/bin/panel-worker dist/bin/kelmor-worker
 	cp dist/bin/panel-agent dist/bin/kelmor-agent
@@ -56,6 +51,11 @@ pebble:
 	cp dist/bin/panel-dev dist/bin/kelmor-dev
 	cp dist/bin/panel-smtp-policy dist/bin/kelmor-smtp-policy
 	cp dist/bin/panel-object-store dist/bin/kelmor-object-store
+
+# Lab ACME CA used by --acme pebble (HTTP-01, same protocol as Let's Encrypt).
+pebble:
+	mkdir -p dist/bin
+	GOBIN="$(CURDIR)/dist/bin" $(GO) install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.8.0
 
 package: build
 	bash packaging/debian/build.sh
