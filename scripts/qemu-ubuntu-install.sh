@@ -203,7 +203,7 @@ ssh_cmd 'set -e
   echo PID1=$(cat /proc/1/comm)
 '
 
-ssh_cmd 'sudo mkdir -p /usr/local/panel/bin /tmp/panel-in'
+ssh_cmd 'mkdir -p /tmp/panel-in && sudo mkdir -p /usr/local/panel/bin && sudo chown ubuntu:ubuntu /tmp/panel-in'
 BIN_DIR="$SRC/dist/bin"
 if [[ ! -x "$BIN_DIR/panel-install" ]]; then
   BIN_DIR=/usr/local/panel/bin
