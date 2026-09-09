@@ -4,22 +4,32 @@
 set -euo pipefail
 DIR="${PANEL_QEMU_DIR:-/var/lib/panel/qemu}"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
+NAME="${PANEL_QEMU_NAME:-panel-noble}"
 IMG="$DIR/noble-minimal.img"
-DISK="$DIR/panel-noble.qcow2"
+CLOUD_IMG="${PANEL_QEMU_CLOUD_IMG:-/var/lib/panel/qemu/noble-minimal.img}"
+DISK="$DIR/${NAME}.qcow2"
 SEED="$DIR/seed.iso"
 KEY="$DIR/id_ed25519"
 SSH_PORT="${PANEL_QEMU_SSH:-2222}"
+API_FWD="${PANEL_QEMU_API_FWD:-28080}"
+MEM="${PANEL_QEMU_MEM:-3072}"
 HOST="${PANEL_FRESH_HOSTNAME:-panel.example.net}"
-RAW="$DIR/panel-noble.raw"
+RAW="$DIR/${NAME}.raw"
 
 if [[ "$(id -u)" -ne 0 ]]; then
-  exec sudo --preserve-env=PANEL_QEMU_DIR,PANEL_QEMU_SSH,PANEL_FRESH_HOSTNAME "$0" "$@"
+  exec sudo --preserve-env=PANEL_QEMU_DIR,PANEL_QEMU_SSH,PANEL_QEMU_NAME,PANEL_QEMU_CLOUD_IMG,PANEL_QEMU_API_FWD,PANEL_QEMU_MEM,PANEL_FRESH_HOSTNAME,PANEL_QEMU_ACCEL "$0" "$@"
 fi
 
 mkdir -p "$DIR"
+if [[ ! -f "$IMG" && -f "$CLOUD_IMG" && "$CLOUD_IMG" != "$IMG" ]]; then
+  cp -a "$CLOUD_IMG" "$IMG"
+fi
 if [[ ! -f "$IMG" ]]; then
   curl -fL --retry 3 -o "$IMG" \
     https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img
+fi
+if [[ ! -f "$KEY" && -f /var/lib/panel/qemu/id_ed25519 ]]; then
+  cp -a /var/lib/panel/qemu/id_ed25519 /var/lib/panel/qemu/id_ed25519.pub "$DIR/" || true
 fi
 if [[ ! -f "$KEY" ]]; then
   ssh-keygen -t ed25519 -f "$KEY" -N "" -C "panel-qemu"
@@ -37,7 +47,7 @@ users:
 ssh_pwauth: false
 package_update: false
 EOF
-printf 'instance-id: panel-noble\nlocal-hostname: %s\n' "$HOST" > "$DIR/meta-data"
+printf 'instance-id: %s\nlocal-hostname: %s\n' "$NAME" "$HOST" > "$DIR/meta-data"
 cloud-localds "$SEED" "$DIR/user-data" "$DIR/meta-data"
 if [[ ! -f "$DISK" && ! -f "$RAW" ]]; then
   qemu-img convert -O qcow2 "$IMG" "$DISK"
@@ -150,19 +160,19 @@ if [[ "${PANEL_QEMU_ACCEL:-}" == "tcg" ]]; then
 fi
 echo "qemu accel: ${ACCEL_ARGS[*]}"
 
-if ! pgrep -f 'qemu-system-x86_64.*panel-noble' >/dev/null; then
+if ! pgrep -f "qemu-system-x86_64.*${NAME}" >/dev/null; then
   : > "$DIR/serial.log"
   : > "$DIR/qemu.err"
   chmod 666 "$DIR/serial.log" "$DIR/qemu.err" || true
   # Noble cloud images are UEFI/GPT.
-  qemu-system-x86_64 -name panel-noble \
-    "${ACCEL_ARGS[@]}" -m 3072 -smp 2 \
+  qemu-system-x86_64 -name "$NAME" \
+    "${ACCEL_ARGS[@]}" -m "$MEM" -smp 2 \
     -display none -serial file:"$DIR/serial.log" \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$OVMF_VARS" \
     -drive file="$BOOT_DISK",if=virtio,format="$BOOT_FMT" \
     -cdrom "$SEED" \
-    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22,hostfwd=tcp:127.0.0.1:28080-:18080 \
+    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22,hostfwd=tcp:127.0.0.1:${API_FWD}-:18080 \
     -device virtio-net-pci,netdev=n0 \
     -object rng-random,filename=/dev/urandom,id=rng0 \
     -device virtio-rng-pci,rng=rng0 \
@@ -208,6 +218,19 @@ scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$S
   "$SRC/dist/bin/"panel-* "$SRC/dist/bin/pebble" \
   ubuntu@127.0.0.1:/tmp/panel-in/
 ssh_cmd 'sudo cp -a /tmp/panel-in/. /usr/local/panel/bin/; sudo chmod 0755 /usr/local/panel/bin/panel-* /usr/local/panel/bin/pebble || true'
+if [[ -f "$SRC/portals/server/dist/index.html" && -f "$SRC/portals/account/dist/index.html" ]]; then
+  ssh_cmd 'sudo mkdir -p /usr/local/panel/share/portals/server /usr/local/panel/share/portals/account && sudo chown -R ubuntu:ubuntu /usr/local/panel/share/portals'
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" -r \
+    "$SRC/portals/server/dist/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/server/
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" -r \
+    "$SRC/portals/account/dist/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/account/
+elif [[ -f "$SRC/dist/share/portals/server/index.html" && -f "$SRC/dist/share/portals/account/index.html" ]]; then
+  ssh_cmd 'sudo mkdir -p /usr/local/panel/share/portals/server /usr/local/panel/share/portals/account && sudo chown -R ubuntu:ubuntu /usr/local/panel/share/portals'
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" -r \
+    "$SRC/dist/share/portals/server/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/server/
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" -r \
+    "$SRC/dist/share/portals/account/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/account/
+fi
 
 ssh_cmd "sudo /usr/local/panel/bin/panel-install --non-interactive --hostname $HOST --admin-email admin@$HOST --acme pebble"
 ssh_cmd 'set -e
