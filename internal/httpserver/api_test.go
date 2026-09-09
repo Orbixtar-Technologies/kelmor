@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -468,6 +469,42 @@ func TestWordPressInstallAPI(t *testing.T) {
 	}
 	if len(st.ListApps(aid)) != 0 {
 		t.Fatal("application remained")
+	}
+}
+
+func TestCreateDBRejectsUnknownEngine(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "pgacct1", "primary_domain": "pgacct.test", "package_id": pkg,
+		"owner_email": "o@pgacct.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/databases", admin, map[string]any{
+		"name": "x", "engine": "oracle",
+	}) != 400 {
+		t.Fatal("expected unknown engine 400")
+	}
+	if statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/databases", admin, map[string]any{
+		"name": "app", "engine": "postgres",
+	}) != 202 {
+		t.Fatal("postgres database")
+	}
+	found := false
+	for _, d := range st.ListDBs(aid) {
+		if d.Engine == "postgres" && strings.HasSuffix(d.Name, "_app") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("%v", st.ListDBs(aid))
 	}
 }
 

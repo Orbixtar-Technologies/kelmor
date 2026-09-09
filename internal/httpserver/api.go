@@ -1336,6 +1336,12 @@ func (a *API) createDB(w http.ResponseWriter, r *http.Request) {
 	if in.Engine == "" {
 		in.Engine = "mariadb"
 	}
+	switch in.Engine {
+	case "mariadb", "mysql", "postgres":
+	default:
+		a.fail(w, r, 400, "VALIDATION", "engine must be mariadb, mysql, or postgres", false)
+		return
+	}
 	if acc == nil {
 		a.fail(w, r, 404, "NOT_FOUND", "account missing", false)
 		return

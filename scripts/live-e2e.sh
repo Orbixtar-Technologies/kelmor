@@ -506,6 +506,17 @@ if [[ "$hasdb" != "True" ]]; then
   sleep 3
 fi
 curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH" | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; print("databases", [(i.get("name"), i.get("status"), i.get("engine")) for i in items])'
+haspg=$(curl -sS "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(any(i.get('engine')=='postgres' for i in items))")
+if [[ "$haspg" != "True" ]]; then
+  pgdb=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/databases" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"name":"pgd","engine":"postgres"}')
+  echo "$pgdb"
+  wait_job "$(echo "$pgdb" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')" postgres-db
+fi
+PGNAME="${UNAME}_pgd"
+sudo -u postgres psql -d "$PGNAME" -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS panel_pg(k text); DELETE FROM panel_pg; INSERT INTO panel_pg VALUES ('postgres-ok');"
+sudo -u postgres psql -d "$PGNAME" -At -c "SELECT k FROM panel_pg;" | grep -q postgres-ok || { echo "postgres tenant db missing data" >&2; exit 1; }
+echo "postgres-db $PGNAME ok"
 DBNAME="${UNAME}_e2e"
 sudo mariadb "$DBNAME" -e "CREATE TABLE IF NOT EXISTS panel_restore(k varchar(32)); DELETE FROM panel_restore; INSERT INTO panel_restore VALUES ('before-backup');"
 echo before-backup | sudo tee "/var/vmail/$DOMAIN/info/Maildir/new/restore-marker" >/dev/null
