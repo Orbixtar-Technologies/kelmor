@@ -54,9 +54,17 @@ func TestMVPAcceptancePath(t *testing.T) {
 		t.Fatal("mail maps", err)
 	}
 
+	dbs := get(t, srv.URL+"/api/v1/accounts/"+aid+"/databases", token)["items"].([]any)
+	if len(dbs) == 0 {
+		t.Fatal("default mariadb missing")
+	}
 	mds := get(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/domains", token)["items"].([]any)
 	if len(mds) == 0 {
 		t.Fatal("mail domain missing")
+	}
+	boxes := get(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes", token)["items"].([]any)
+	if len(boxes) == 0 {
+		t.Fatal("login mailbox missing")
 	}
 	md := mds[0].(map[string]any)
 	post(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes", token, map[string]any{

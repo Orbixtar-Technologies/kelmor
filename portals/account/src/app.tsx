@@ -21,8 +21,8 @@ export function App () {
 		return (
 			<main className="auth">
 				<section>
-					<h1>Account Portal</h1>
-					<p>Manage websites, mail, DNS and files for your hosting account. Server hardware controls are not available here.</p>
+					<h1>Kelmor Control</h1>
+					<p>Manage websites, mail, DNS and files for your hosting account. Host hardware controls live in Kelmor Director.</p>
 					<form onSubmit={async (e) => {
 						e.preventDefault()
 						const fd = new FormData(e.currentTarget)
@@ -54,7 +54,7 @@ export function App () {
 		<CapProvider caps={caps}>
 		<div className="shell">
 			<header className="top">
-				<strong>Account Portal</strong>
+				<strong>Kelmor Control</strong>
 				<span>{me.user.username}</span>
 				<button type="button" onClick={() => { clearToken(); setMe(null) }}>Sign out</button>
 			</header>

@@ -11,6 +11,7 @@ import (
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/acme"
+	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/backup"
 	"github.com/hosting-panel/panel/internal/dns"
 	"github.com/hosting-panel/panel/internal/mail"
@@ -274,10 +275,11 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		w.Store.PutAccount(acc)
 		return err
 	}
-	if pw := str(j.Payload["linux_password"]); pw != "" {
+	ownerPass := str(j.Payload["linux_password"])
+	if ownerPass != "" {
 		_, err = w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "SetLinuxPassword",
-			Params: mustJSON(map[string]any{"username": acc.Username, "password": pw}),
+			Params: mustJSON(map[string]any{"username": acc.Username, "password": ownerPass}),
 		})
 		delete(j.Payload, "linux_password")
 		w.Store.UpdateJob(j)
@@ -306,7 +308,15 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		j.Progress = 20
 		w.Store.UpdateJob(j)
 	}
-	_ = w.applyMailStack(acc.ID)
+	if err := w.ensureDefaultMailbox(acc, ownerPass); err != nil {
+		return err
+	}
+	if err := w.ensureDefaultDatabase(acc); err != nil {
+		return err
+	}
+	if err := w.applyMailStack(acc.ID); err != nil {
+		return err
+	}
 	if latest := w.Store.GetAccount(acc.ID); latest != nil {
 		acc.Status = latest.Status
 		acc.DesiredRevision = latest.DesiredRevision
@@ -422,8 +432,8 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		w.republishPublicAddresses(w.Store.ZoneByDomain(d.ID), pubIP)
 	}
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
-		if err := w.writeZone(z); err != nil && w.liveACME() {
-			return fmt.Errorf("publish zone for ACME: %w", err)
+		if err := w.writeZone(z); err != nil {
+			return fmt.Errorf("publish zone: %w", err)
 		}
 	}
 	if d.Type == "alias" {
@@ -474,18 +484,14 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 	if w.Store.MailDomainByDomain(d.ID) == nil {
 		md := &store.MailDomain{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, CatchallPolicy: "reject", Status: "active"}
 		w.Store.PutMailDomain(md)
-		if len(w.Store.ListMailboxes(acc.ID)) == 0 {
-			w.Store.PutMailbox(&store.Mailbox{
-				ID: store.NewID(), AccountID: acc.ID, DomainID: md.ID,
-				LocalPart: "postmaster", QuotaBytes: 1 << 30, PasswordHash: "!", Status: "active",
-			})
-		}
 	}
 	if !skipMail {
 		_ = w.applyMailStack(acc.ID)
 	}
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
-		_ = w.writeZone(z)
+		if err := w.writeZone(z); err != nil {
+			return fmt.Errorf("publish zone: %w", err)
+		}
 	}
 	return nil
 }
@@ -1701,6 +1707,7 @@ func (w *Worker) applyWebsiteDispatch(acc *store.Account, site *store.Website, d
 		Params: mustJSON(map[string]any{
 			"website_id": site.ID, "account": acc.Username, "domain": d.ASCII,
 			"document_root": site.DocumentRoot, "runtime": site.Runtime,
+			"php_version":    site.RuntimeVersion,
 			"https_redirect": site.HTTPSRedirect, "enabled": w.websiteEnabled(acc),
 			"bandwidth_hold":          w.bandwidthHold(acc),
 			"concurrent_web_requests": w.concurrentWebRequests(acc),
@@ -1889,6 +1896,81 @@ func (w *Worker) collapseDomainWebsites(acc *store.Account, d *store.Domain, kee
 		}
 		w.Store.DeleteWebsite(s.ID)
 	}
+}
+
+func (w *Worker) ensureDefaultMailbox(acc *store.Account, password string) error {
+	if acc == nil || password == "" {
+		return nil
+	}
+	var md *store.MailDomain
+	for _, d := range w.Store.ListDomains(acc.ID) {
+		if d.Type != "primary" {
+			continue
+		}
+		md = w.Store.MailDomainByDomain(d.ID)
+		break
+	}
+	if md == nil {
+		return nil
+	}
+	for _, mb := range w.Store.ListMailboxes(acc.ID) {
+		if mb.DomainID == md.ID && mb.LocalPart == "info" && mb.PasswordHash != "" && mb.PasswordHash != "!" {
+			return nil
+		}
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	for _, mb := range w.Store.ListMailboxes(acc.ID) {
+		if mb.DomainID != md.ID {
+			continue
+		}
+		if mb.PasswordHash != "!" && mb.PasswordHash != "" {
+			continue
+		}
+		if mb.LocalPart == "postmaster" || mb.LocalPart == "info" {
+			mb.LocalPart = "info"
+			mb.PasswordHash = hash
+			mb.Status = "active"
+			w.Store.PutMailbox(&mb)
+			return nil
+		}
+	}
+	w.Store.PutMailbox(&store.Mailbox{
+		ID: store.NewID(), AccountID: acc.ID, DomainID: md.ID,
+		LocalPart: "info", QuotaBytes: 1 << 30, PasswordHash: hash, Status: "active",
+	})
+	return nil
+}
+
+func (w *Worker) ensureDefaultDatabase(acc *store.Account) error {
+	if acc == nil {
+		return nil
+	}
+	name := hostedIdent(acc.Username, "db")
+	for _, d := range w.Store.ListDBs(acc.ID) {
+		if d.Name == name && d.Status != "terminated" {
+			return nil
+		}
+	}
+	db := &store.HostedDatabase{
+		ID: store.NewID(), AccountID: acc.ID, Engine: "mariadb",
+		Name: name, Status: "queued",
+	}
+	w.Store.PutDB(db)
+	return w.provisionDB(&store.Job{Payload: map[string]any{"database_id": db.ID}})
+}
+
+func hostedIdent(username, suffix string) string {
+	s := strings.ReplaceAll(username, "-", "_")
+	if suffix != "" {
+		s = s + "_" + suffix
+	}
+	if len(s) > 63 {
+		s = s[:63]
+	}
+	return s
 }
 
 func publicIPv4() string {

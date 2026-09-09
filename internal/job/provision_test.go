@@ -31,7 +31,9 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	})
 	_, err := st.EnqueueJob(&store.Job{
 		Type: "account.provision", ResourceType: "account", ResourceID: acc.ID,
-		Payload: map[string]any{"account_id": acc.ID, "domain_id": "dom-1"}, State: "queued",
+		Payload: map[string]any{
+			"account_id": acc.ID, "domain_id": "dom-1", "linux_password": "TenantPass!2026",
+		}, State: "queued",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +65,17 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/certs/acme.test.crt")); err != nil {
 		t.Fatal(err)
+	}
+	boxes := st.ListMailboxes(acc.ID)
+	if len(boxes) != 1 || boxes[0].LocalPart != "info" || boxes[0].PasswordHash == "" || boxes[0].PasswordHash == "!" {
+		t.Fatalf("login mailbox %+v", boxes)
+	}
+	dbs := st.ListDBs(acc.ID)
+	if len(dbs) != 1 || dbs[0].Name != "acme42_db" || dbs[0].Engine != "mariadb" || dbs[0].Status != "active" {
+		t.Fatalf("default mariadb %+v", dbs)
+	}
+	if _, err := os.Stat(filepath.Join(root, "home/acme42/.panel-database.mariadb.acme42_db")); err != nil {
+		t.Fatal("db credentials", err)
 	}
 	certs := st.ListCerts(acc.ID)
 	if len(certs) != 1 || certs[0].Hostname != "acme.test" || certs[0].Issuer != "panel-dev" || certs[0].Status != "active" {
@@ -321,6 +334,24 @@ func TestHostedDatabaseReusesSharedPassword(t *testing.T) {
 	pass := bytes.SplitN(bytes.SplitN(one, []byte("password="), 2)[1], []byte("\n"), 2)[0]
 	if len(pass) == 0 || !bytes.Contains(two, pass) {
 		t.Fatalf("passwords diverged\n%s\n%s", one, two)
+	}
+}
+
+func TestWriteZoneRejectsInvalidName(t *testing.T) {
+	st := store.NewMemory()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: t.TempDir()}, logging.New("test"), box, "tester")
+	if err := w.writeZone(&store.DNSZone{ID: "z-bad", Name: "noleaf"}); err == nil {
+		t.Fatal("invalid zone name must fail publish")
+	}
+}
+
+func TestHostedIdentSanitizesHyphen(t *testing.T) {
+	if got := hostedIdent("acme-site", "db"); got != "acme_site_db" {
+		t.Fatalf("%q", got)
 	}
 }
 

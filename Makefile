@@ -41,6 +41,16 @@ build:
 	$(GO) build -o dist/bin/panel-dev ./cmd/panel-dev
 	$(GO) build -o dist/bin/panel-smtp-policy ./cmd/panel-smtp-policy
 	$(GO) build -o dist/bin/panel-object-store ./cmd/panel-object-store
+	cp dist/bin/panel-api dist/bin/kelmor-api
+	cp dist/bin/panel-worker dist/bin/kelmor-worker
+	cp dist/bin/panel-agent dist/bin/kelmor-agent
+	cp dist/bin/panel-cli dist/bin/kelmor-cli
+	cp dist/bin/panel-updater dist/bin/kelmor-updater
+	cp dist/bin/panel-backup dist/bin/kelmor-backup
+	cp dist/bin/panel-install dist/bin/kelmor-install
+	cp dist/bin/panel-dev dist/bin/kelmor-dev
+	cp dist/bin/panel-smtp-policy dist/bin/kelmor-smtp-policy
+	cp dist/bin/panel-object-store dist/bin/kelmor-object-store
 
 package: build
 	bash packaging/debian/build.sh

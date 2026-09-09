@@ -13,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println(`panel-cli <command>
+		fmt.Println(`kelmor-cli <command>  (panel-cli remains a compatibility name)
 
   version
   health

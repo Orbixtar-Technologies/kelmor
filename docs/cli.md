@@ -1,6 +1,6 @@
 # CLI
 
-`panel-cli` talks to the control API. It never applies host configuration itself.
+`kelmor-cli` (compatibility name `panel-cli`) talks to the control API. It never applies host configuration itself.
 
 ```bash
 export PANEL_API=http://127.0.0.1:18080

@@ -55,23 +55,35 @@ func (h *Host) applyPHPPool(account, version string, maxChildren int) (Result, e
 		return Result{}, err
 	}
 	if h.live() {
-		ensureFPM(version)
+		if err := ensureFPM(version); err != nil {
+			return Result{}, err
+		}
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
 }
 
-func ensureFPM(version string) {
+func ensureFPM(version string) error {
 	pidFile := "/run/php/php" + version + "-fpm.pid"
 	if b, err := os.ReadFile(pidFile); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 1 {
 			if err := syscall.Kill(pid, 0); err == nil {
 				reloadFPM(version)
-				return
+				return nil
 			}
 		}
 	}
+	unit := "php" + version + "-fpm"
+	if _, err := runFixed("/bin/systemctl", "reload-or-restart", unit); err == nil {
+		return nil
+	}
 	bin := "/usr/sbin/php-fpm" + version
-	_, _ = startDetached(bin, "/")
+	if _, err := os.Stat(bin); err != nil {
+		return fmt.Errorf("php-fpm %s is not installed", version)
+	}
+	if _, err := startDetached(bin, "/"); err != nil {
+		return fmt.Errorf("start php-fpm %s: %w", version, err)
+	}
+	return nil
 }
 
 func (h *Host) applySlice(username string, cpu int, memory int64, tasks, ioWeight, iops int) (Result, error) {

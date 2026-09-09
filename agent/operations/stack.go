@@ -351,7 +351,7 @@ func (h *Host) applyAccountCron(username, body string) (Result, error) {
 
 func renderSystemCron(username, body string) (string, error) {
 	var out strings.Builder
-	out.WriteString("# Managed by Hosting Panel — do not edit\n")
+	out.WriteString("# Managed by Kelmor — do not edit\n")
 	out.WriteString("SHELL=/bin/sh\nPATH=/usr/bin:/bin\n")
 	wrote := 0
 	for _, line := range strings.Split(body, "\n") {

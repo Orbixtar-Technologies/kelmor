@@ -1,5 +1,5 @@
 [Unit]
-Description=Hosting Panel S3-compatible backup object store
+Description=Kelmor S3-compatible backup object store
 After=network-online.target
 [Service]
 Type=simple

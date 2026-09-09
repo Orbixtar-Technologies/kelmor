@@ -1,5 +1,5 @@
 [Unit]
-Description=Hosting Panel Desired-State Worker
+Description=Kelmor desired-state worker (panel-worker)
 After=panel-api.service panel-agent.service postgresql.service
 Wants=panel-agent.service
 [Service]

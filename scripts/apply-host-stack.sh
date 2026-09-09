@@ -28,7 +28,7 @@ if [[ ! -f /var/lib/panel/certs/imap.panel.local.crt ]]; then
 fi
 
 sudo tee /etc/postfix/main.cf >/dev/null <<'EOF'
-# Managed by Hosting Panel — Postfix virtual mailbox host
+# Managed by Kelmor — Postfix virtual mailbox host
 compatibility_level = 3.6
 myhostname = panel.local
 mydestination =

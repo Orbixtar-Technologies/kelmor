@@ -15,6 +15,7 @@ cp "$ROOT/packaging/debian/control" "$STAGE/DEBIAN/control"
 sed -i "s/^Version:.*/Version: $VER/" "$STAGE/DEBIAN/control"
 make -C "$ROOT" build portals
 cp "$ROOT/dist/bin/"panel-{api,worker,agent,cli,updater,backup,install,smtp-policy,object-store} "$STAGE/usr/local/panel/bin/"
+cp "$ROOT/dist/bin/"kelmor-{api,worker,agent,cli,updater,backup,install,smtp-policy,object-store} "$STAGE/usr/local/panel/bin/"
 cp -a "$ROOT/dist/share/portals/." "$STAGE/usr/local/panel/share/portals/"
 cp -a "$ROOT/testdata/cpanel-acme42" "$STAGE/usr/local/panel/share/testdata/"
 cp "$ROOT/scripts/live-e2e.sh" "$ROOT/scripts/cli-mvp.sh" "$STAGE/usr/local/panel/share/scripts/"

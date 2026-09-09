@@ -117,7 +117,7 @@ func applyMail(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/dovecot/conf.d"), 0o755); err != nil {
 		return err
 	}
-	main := `# Managed by Hosting Panel — Postfix virtual mailbox host
+	main := `# Managed by Kelmor — Postfix virtual mailbox host
 compatibility_level = 3.6
 myhostname = ` + hostnameOr(c) + `
 mydestination =
@@ -337,7 +337,7 @@ func applyWAF(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/nginx/modsec"), 0o755); err != nil {
 		return err
 	}
-	body := `# Managed by Hosting Panel — ModSecurity
+	body := `# Managed by Kelmor — ModSecurity
 SecRuleEngine DetectionOnly
 SecRequestBodyAccess On
 SecDataDir /tmp
@@ -348,7 +348,7 @@ SecDataDir /tmp
 	if err := os.WriteFile(root(c, "etc/nginx/modsec/panel.conf"), []byte(body), 0o644); err != nil {
 		return err
 	}
-	enforce := `# Managed by Hosting Panel — enforced probe vhost only
+	enforce := `# Managed by Kelmor — enforced probe vhost only
 SecRuleEngine On
 SecRequestBodyAccess On
 SecDataDir /tmp
@@ -928,7 +928,7 @@ func applyHealth(c Config) error {
 }
 
 func applyAdministrator(c Config) error {
-	body := fmt.Sprintf("admin_email=%s hostname=%s channel=%s\nUse PANEL_ADMIN_PASSWORD for the first Server Portal login.\n",
+	body := fmt.Sprintf("admin_email=%s hostname=%s channel=%s\nUse PANEL_ADMIN_PASSWORD for the first Kelmor Director login.\n",
 		c.AdminEmail, c.Hostname, c.Channel)
 	return os.WriteFile(root(c, "var/lib/panel/administrator.txt"), []byte(body), 0o640)
 }

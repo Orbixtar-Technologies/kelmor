@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Drive Server Portal + Account Portal through the MVP surfaces in Chrome.
+// Drive Kelmor Director + Kelmor Control through the MVP surfaces in Chrome.
 import http from 'node:http'
 import https from 'node:https'
 import puppeteer from 'puppeteer-core'

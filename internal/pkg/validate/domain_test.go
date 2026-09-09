@@ -37,6 +37,9 @@ func TestUsername(t *testing.T) {
 	if err := Username("root"); err == nil {
 		t.Fatal("reserved")
 	}
+	if err := Username("kelmor"); err == nil {
+		t.Fatal("product identity reserved")
+	}
 	if err := Username("1bad"); err == nil {
 		t.Fatal("must start with letter")
 	}

@@ -21,10 +21,10 @@ func applyPortals(c Config) error {
 	if err := ensurePortalCertificate(c); err != nil {
 		return err
 	}
-	if err := installPortalApp(c, "server", "Server Portal"); err != nil {
+	if err := installPortalApp(c, "server", "Kelmor Director"); err != nil {
 		return err
 	}
-	if err := installPortalApp(c, "account", "Account Portal"); err != nil {
+	if err := installPortalApp(c, "account", "Kelmor Control"); err != nil {
 		return err
 	}
 	writePortalHostnameFile(c)
@@ -53,15 +53,15 @@ func verifyPortals(c Config) error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(server), "Server Portal") {
-		return fmt.Errorf("server portal index missing title")
+	if !strings.Contains(string(server), "Kelmor Director") {
+		return fmt.Errorf("director portal index missing title")
 	}
 	account, err := os.ReadFile(root(c, "usr/local/panel/share/portals/account/index.html"))
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(account), "Account Portal") {
-		return fmt.Errorf("account portal index missing title")
+	if !strings.Contains(string(account), "Kelmor Control") {
+		return fmt.Errorf("control portal index missing title")
 	}
 	if !c.Dev {
 		if !portalIsBuilt(string(server)) {
@@ -74,14 +74,14 @@ func verifyPortals(c Config) error {
 	if err := verifyPortalTLS(c); err != nil {
 		return err
 	}
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	if err := waitListen("127.0.0.1:8443", 2*time.Second); err != nil {
-		return fmt.Errorf("server portal is not listening: %w", err)
+		return fmt.Errorf("kelmor director is not listening: %w", err)
 	}
 	if err := waitListen("127.0.0.1:8444", 2*time.Second); err != nil {
-		return fmt.Errorf("account portal is not listening: %w", err)
+		return fmt.Errorf("kelmor control is not listening: %w", err)
 	}
 	return nil
 }

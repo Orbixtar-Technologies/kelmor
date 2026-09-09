@@ -23,6 +23,7 @@ import (
 	"github.com/hosting-panel/panel/agent/policy"
 	openapi "github.com/hosting-panel/panel/api"
 	"github.com/hosting-panel/panel/internal/auth"
+	"github.com/hosting-panel/panel/internal/brand"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/limits"
 	"github.com/hosting-panel/panel/internal/migration"
@@ -200,7 +201,10 @@ func (a *API) ready(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"status": "ready"})
 }
 func (a *API) version(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"version": a.Version, "api": "v1"})
+	writeJSON(w, 200, map[string]any{
+		"version": a.Version, "api": "v1", "product": brand.Product,
+		"director": brand.Director, "control": brand.Control,
+	})
 }
 
 func (a *API) openapi(w http.ResponseWriter, r *http.Request) {

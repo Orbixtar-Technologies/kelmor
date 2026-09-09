@@ -87,8 +87,8 @@ func main() {
 	}
 	fmt.Printf(`Installation successful
 
-Server Portal URL:  https://%s:8443/
-Account Portal URL: https://%s:8444/
+Kelmor Director URL: https://%s:8443/
+Kelmor Control URL:  https://%s:8444/
 Administrator:      admin
 Installation ID:    %s
 Go/arch:            %s/%s
