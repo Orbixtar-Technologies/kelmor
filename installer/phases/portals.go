@@ -136,9 +136,14 @@ func verifyPortalTLS(c Config) error {
 	}
 	if !c.Dev && installPrefix(c) == "" {
 		host := strings.TrimSpace(c.Hostname)
-		if host != "" && host != "localhost" && readACMEDirectory(c) != "" {
-			if _, err := os.Stat(portalHostnameACMEStatusPath(c)); err != nil {
-				return fmt.Errorf("portal hostname ACME not attempted")
+		if host != "" && host != "localhost" {
+			if _, err := os.Stat(root(c, "var/lib/panel/portal-hostname")); err != nil {
+				return fmt.Errorf("portal hostname file missing")
+			}
+			if readACMEDirectory(c) != "" {
+				if _, err := os.Stat(portalHostnameACMEStatusPath(c)); err != nil {
+					return fmt.Errorf("portal hostname ACME not attempted")
+				}
 			}
 		}
 	}
