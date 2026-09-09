@@ -298,10 +298,15 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	})
 	pubIP := publicIPv4()
 	for _, d := range w.Store.ListDomains(acc.ID) {
-		if err := w.ensureDomainStack(&d, acc, pubIP, ""); err != nil {
+		if err := w.ensureDomainStack(&d, acc, pubIP, "", true); err != nil {
 			return err
 		}
+		now := time.Now()
+		j.HeartbeatAt = &now
+		j.Progress = 20
+		w.Store.UpdateJob(j)
 	}
+	_ = w.applyMailStack(acc.ID)
 	if latest := w.Store.GetAccount(acc.ID); latest != nil {
 		acc.Status = latest.Status
 		acc.DesiredRevision = latest.DesiredRevision
@@ -395,7 +400,7 @@ func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
 	return nil
 }
 
-func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, runtime string) error {
+func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, runtime string, skipMail bool) error {
 	if pubIP == "" {
 		pubIP = publicIPv4()
 	}
@@ -476,7 +481,9 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 			})
 		}
 	}
-	_ = w.applyMailStack(acc.ID)
+	if !skipMail {
+		_ = w.applyMailStack(acc.ID)
+	}
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
 		_ = w.writeZone(z)
 	}
@@ -530,7 +537,7 @@ func (w *Worker) provisionDomain(j *store.Job) error {
 	if d == nil || acc == nil {
 		return fmt.Errorf("missing domain or account")
 	}
-	return w.ensureDomainStack(d, acc, publicIPv4(), str(j.Payload["runtime"]))
+	return w.ensureDomainStack(d, acc, publicIPv4(), str(j.Payload["runtime"]), false)
 }
 
 func (w *Worker) deleteWebsite(j *store.Job) error {
