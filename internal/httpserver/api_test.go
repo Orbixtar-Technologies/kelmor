@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -877,6 +878,275 @@ func TestDefaultServicesListsControlPlane(t *testing.T) {
 			t.Fatalf("missing service %s in %v", need, names)
 		}
 	}
+}
+
+func TestPackageUpdateAndSafeDelete(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := auth.HashPassword("AuditPass!2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.PutUser(&store.User{
+		ID: id.New(), Username: "package-auditor", Email: "audit@localhost", PasswordHash: hash,
+		DisplayName: "Auditor", Status: "active", Roles: []string{"auditor"},
+	})
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	auditor := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "package-auditor", "password": "AuditPass!2026"})["token"].(string)
+
+	original := &store.Package{ID: id.New(), ResellerID: id.New(), Name: "Original", FeatureSetID: "features-old"}
+	st.PutPackage(original)
+	updated := store.Package{
+		ID: "cannot-replace-id", ResellerID: id.New(), Name: "Updated", FeatureSetID: "features-new",
+		DiskBytes: 101, BandwidthBytesMonthly: 102, Domains: 3, Subdomains: 4, AliasDomains: 5,
+		Databases: 6, DatabaseUsers: 7, Mailboxes: 8, MailboxStorageBytes: 109, FTPUsers: 10,
+		CronJobs: 11, ApplicationInstances: 12, BackupRetentionDays: 13, CPUPercent: 14,
+		MemoryBytes: 115, ProcessLimit: 16, IOWeight: 17, IOPS: 18, ConcurrentWebRequests: 19,
+		EmailDailyLimit: 20,
+	}
+	if code, _ := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/packages/"+original.ID, auditor, updated, nil); code != http.StatusForbidden {
+		t.Fatalf("auditor package update status %d", code)
+	}
+	code, body := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/packages/"+original.ID, admin, updated, nil)
+	if code != http.StatusOK {
+		t.Fatalf("package update: %d %v", code, body)
+	}
+	expected := updated
+	expected.ID = original.ID
+	expected.ResellerID = original.ResellerID
+	if got := st.GetPackage(original.ID); !reflect.DeepEqual(got, &expected) {
+		t.Fatalf("package mismatch\n got: %+v\nwant: %+v", got, &expected)
+	}
+
+	st.PutAccount(&store.Account{ID: id.New(), Username: "assigned", PackageID: original.ID})
+	if code, _ := requestJSONStatus(t, http.MethodDelete, srv.URL+"/api/v1/packages/"+original.ID, admin, nil, nil); code != http.StatusConflict {
+		t.Fatalf("assigned package delete status %d", code)
+	}
+	unassigned := &store.Package{ID: id.New(), Name: "Disposable", FeatureSetID: "features-new"}
+	st.PutPackage(unassigned)
+	if code, _ := requestJSONStatus(t, http.MethodDelete, srv.URL+"/api/v1/packages/"+unassigned.ID, auditor, nil, nil); code != http.StatusForbidden {
+		t.Fatalf("auditor package delete status %d", code)
+	}
+	if code, body := requestJSONStatus(t, http.MethodDelete, srv.URL+"/api/v1/packages/"+unassigned.ID, admin, nil, nil); code != http.StatusOK {
+		t.Fatalf("unassigned package delete: %d %v", code, body)
+	}
+	if st.GetPackage(unassigned.ID) != nil {
+		t.Fatal("unassigned package remains")
+	}
+	foundAudit := false
+	for _, event := range st.ListAudit(20) {
+		if event.Action == "package.delete" && event.ResourceID == unassigned.ID {
+			foundAudit = true
+		}
+	}
+	if !foundAudit {
+		t.Fatal("package delete was not audited")
+	}
+}
+
+func TestResellerUpdateRequiresServerScopeAndPersistsEditableFields(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	created := post(t, srv.URL+"/api/v1/resellers", admin, map[string]any{
+		"name": "Original", "username": "scope-reseller", "password": "ResellerPass!2026",
+	})
+	resellerID := created["id"].(string)
+	ownerID := created["user_id"].(string)
+
+	scopedPlain := "hp_live_reseller_update_scope"
+	st.PutToken(&store.APIToken{
+		ID: id.New(), UserID: st.UserByUsername("admin").ID, Name: "scoped",
+		TokenHash: auth.HashToken(scopedPlain), Scope: "account", AccountID: id.New(),
+		Capabilities: []string{"resellers.modify"},
+	})
+	update := map[string]any{
+		"id": id.New(), "user_id": id.New(), "name": "Updated Reseller", "brand_name": "Updated Brand",
+		"privilege_mask": []string{"accounts.create", "packages.write"},
+		"nameservers":    []string{"ns1.updated.test", "ns2.updated.test"}, "status": "suspended",
+	}
+	if code, _ := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/resellers/"+resellerID, scopedPlain, update, nil); code != http.StatusForbidden {
+		t.Fatalf("account-scoped reseller update status %d", code)
+	}
+	code, body := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/resellers/"+resellerID, admin, update, nil)
+	if code != http.StatusOK {
+		t.Fatalf("reseller update: %d %v", code, body)
+	}
+	got := st.GetReseller(resellerID)
+	if got == nil || got.ID != resellerID || got.UserID != ownerID || got.Name != "Updated Reseller" ||
+		got.BrandName != "Updated Brand" || got.Status != "suspended" ||
+		!reflect.DeepEqual(got.PrivilegeMask, []string{"accounts.create", "packages.write"}) ||
+		!reflect.DeepEqual(got.Nameservers, []string{"ns1.updated.test", "ns2.updated.test"}) {
+		t.Fatalf("reseller mismatch: %+v", got)
+	}
+}
+
+func TestAccountOwnerPasswordRotation(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	created := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "rotate1", "primary_domain": "rotate.test", "package_id": pkg,
+		"owner_email": "o@rotate.test", "owner_password": "OriginalPass!2026",
+	})
+	accountID := created["resource_id"].(string)
+	if code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+accountID+"/password", admin, map[string]any{
+		"password": "short", "must_change_password": true,
+	}, nil); code != http.StatusBadRequest {
+		t.Fatalf("short password status %d", code)
+	}
+	code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+accountID+"/password", admin, map[string]any{
+		"password": "RotatedPass!2026", "must_change_password": true,
+	}, map[string]string{"X-Request-ID": id.New()})
+	if code != http.StatusAccepted {
+		t.Fatalf("password rotation: %d %v", code, body)
+	}
+	owner := st.UserByID(st.GetAccount(accountID).OwnerUserID)
+	if owner == nil || !auth.VerifyPassword(owner.PasswordHash, "RotatedPass!2026") ||
+		auth.VerifyPassword(owner.PasswordHash, "OriginalPass!2026") || !owner.MustChangePassword {
+		t.Fatalf("owner credentials were not rotated: %+v", owner)
+	}
+	operationID, _ := body["operation_id"].(string)
+	queued := st.GetJob(operationID)
+	if queued == nil || queued.Type != "account.reconcile" || queued.State != "queued" ||
+		queued.Payload["account_id"] != accountID || queued.Payload["linux_password"] != "RotatedPass!2026" {
+		t.Fatalf("password reconcile job: %+v", queued)
+	}
+	response, _ := json.Marshal(body)
+	if bytes.Contains(response, []byte("RotatedPass!2026")) || bytes.Contains(response, []byte("password_hash")) {
+		t.Fatalf("password response leaked credentials: %s", response)
+	}
+	jobResponse, _ := json.Marshal(get(t, srv.URL+"/api/v1/jobs/"+operationID, admin))
+	if bytes.Contains(jobResponse, []byte("RotatedPass!2026")) || bytes.Contains(jobResponse, []byte("linux_password")) {
+		t.Fatalf("job response leaked credentials: %s", jobResponse)
+	}
+	jobListResponse, _ := json.Marshal(get(t, srv.URL+"/api/v1/jobs", admin))
+	if bytes.Contains(jobListResponse, []byte("RotatedPass!2026")) || bytes.Contains(jobListResponse, []byte("linux_password")) {
+		t.Fatalf("job list response leaked credentials: %s", jobListResponse)
+	}
+}
+
+func TestFailedJobRetryClonesSafePayloadAndPreservesHistory(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	direct := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "retry1", "primary_domain": "retry.test", "package_id": pkg,
+		"owner_email": "o@retry.test", "owner_password": "OriginalPass!2026",
+	})
+	accountID := direct["resource_id"].(string)
+	failed, err := st.EnqueueJob(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: accountID,
+		Payload: map[string]any{
+			"account_id": accountID, "status": "active", "linux_password": "MustNotBeCloned!2026",
+			"nested": map[string]any{"api_token": "also-secret", "safe": "retained"},
+		},
+		State: "failed", Priority: 7, Attempts: 5, MaxAttempts: 5, LastError: "agent failed",
+		ActorID: st.UserByUsername("admin").ID, RequestID: id.New(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(st.GetJob(failed.ID))
+	requestID := id.New()
+	code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+failed.ID+"/retry", admin, nil, map[string]string{"X-Request-ID": requestID})
+	if code != http.StatusAccepted {
+		t.Fatalf("job retry: %d %v", code, body)
+	}
+	retryID, _ := body["operation_id"].(string)
+	retry := st.GetJob(retryID)
+	if retry == nil || retry.ID == failed.ID || retry.Type != failed.Type || retry.ResourceType != failed.ResourceType ||
+		retry.ResourceID != failed.ResourceID || retry.State != "queued" || retry.Priority != failed.Priority ||
+		retry.ActorID != st.UserByUsername("admin").ID || retry.RequestID != requestID ||
+		retry.Payload["account_id"] != accountID || retry.Payload["status"] != "active" || retry.Payload["retry_of"] != failed.ID {
+		t.Fatalf("retry job mismatch: %+v", retry)
+	}
+	payload, _ := json.Marshal(retry.Payload)
+	if bytes.Contains(payload, []byte("MustNotBeCloned!2026")) || bytes.Contains(payload, []byte("also-secret")) {
+		t.Fatalf("retry payload leaked a secret: %s", payload)
+	}
+	after, _ := json.Marshal(st.GetJob(failed.ID))
+	if !bytes.Equal(before, after) {
+		t.Fatalf("original job mutated\nbefore: %s\nafter:  %s", before, after)
+	}
+	if code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+retry.ID+"/retry", admin, nil, nil); code != http.StatusConflict {
+		t.Fatalf("queued job retry status %d", code)
+	}
+	foundAudit := false
+	for _, event := range st.ListAudit(20) {
+		if event.Action == "job.retry" && event.ResourceID == failed.ID && event.After["retry_job_id"] == retry.ID {
+			foundAudit = true
+		}
+	}
+	if !foundAudit {
+		t.Fatal("job retry was not audited")
+	}
+
+	reseller := post(t, srv.URL+"/api/v1/resellers", admin, map[string]string{
+		"name": "Retry Reseller", "username": "retry-reseller", "password": "ResellerPass!2026",
+	})
+	if reseller["id"] == "" {
+		t.Fatalf("reseller: %v", reseller)
+	}
+	resellerToken := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "retry-reseller", "password": "ResellerPass!2026",
+	})["token"].(string)
+	if code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+failed.ID+"/retry", resellerToken, nil, nil); code != http.StatusNotFound {
+		t.Fatalf("inaccessible job retry status %d", code)
+	}
+}
+
+func requestJSONStatus(t *testing.T, method, url, token string, body any, headers map[string]string) (int, map[string]any) {
+	t.Helper()
+	var requestBody io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestBody = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequest(method, url, requestBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(res.Body).Decode(&out)
+	return res.StatusCode, out
 }
 
 func get(t *testing.T, url, token string) map[string]any {

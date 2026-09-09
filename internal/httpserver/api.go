@@ -78,11 +78,15 @@ func (a *API) Handler() http.Handler {
 			r.Get("/server/firewall", a.getFirewall)
 			r.Get("/jobs", a.listJobs)
 			r.Get("/jobs/{jobID}", a.getJob)
+			r.Post("/jobs/{jobID}/retry", a.retryJob)
 			r.Get("/audit-events", a.listAudit)
 			r.Get("/packages", a.listPackages)
 			r.Post("/packages", a.createPackage)
+			r.Patch("/packages/{packageID}", a.updatePackage)
+			r.Delete("/packages/{packageID}", a.deletePackage)
 			r.Get("/resellers", a.listResellers)
 			r.Post("/resellers", a.createReseller)
+			r.Patch("/resellers/{resellerID}", a.updateReseller)
 			r.Get("/accounts", a.listAccounts)
 			r.Post("/accounts", a.createAccount)
 			r.Get("/accounts/{accountID}", a.getAccount)
@@ -148,6 +152,7 @@ func (a *API) Handler() http.Handler {
 				r.Get("/api-tokens", a.listTokens)
 				r.Post("/api-tokens", a.createToken)
 				r.Delete("/api-tokens/{tokenID}", a.deleteToken)
+				r.Post("/password", a.rotateAccountPassword)
 			})
 		})
 	})
@@ -519,7 +524,11 @@ func (a *API) listJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		jobs = visible
 	}
-	writeJSON(w, 200, map[string]any{"items": jobs})
+	items := make([]store.Job, 0, len(jobs))
+	for i := range jobs {
+		items = append(items, publicJob(&jobs[i]))
+	}
+	writeJSON(w, 200, map[string]any{"items": items})
 }
 
 func jobAccountID(j *store.Job) string {
@@ -535,6 +544,89 @@ func jobAccountID(j *store.Job) string {
 	return ""
 }
 
+func publicJob(j *store.Job) store.Job {
+	out := *j
+	out.Payload = safeJobPayload(j.Payload)
+	return out
+}
+
+func safeJobPayload(payload map[string]any) map[string]any {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return map[string]any{}
+	}
+	var copied map[string]any
+	if err := json.Unmarshal(raw, &copied); err != nil || copied == nil {
+		return map[string]any{}
+	}
+	scrubSensitiveJobFields(copied)
+	return copied
+}
+
+func scrubSensitiveJobFields(values map[string]any) {
+	for key, value := range values {
+		if sensitiveJobField(key) {
+			delete(values, key)
+			continue
+		}
+		switch nested := value.(type) {
+		case map[string]any:
+			scrubSensitiveJobFields(nested)
+		case []any:
+			for _, item := range nested {
+				if object, ok := item.(map[string]any); ok {
+					scrubSensitiveJobFields(object)
+				}
+			}
+		}
+	}
+}
+
+func sensitiveJobField(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+	for _, marker := range []string{"password", "secret", "token", "credential", "private_key", "hash"} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func retryCapability(jobType string) string {
+	switch jobType {
+	case "account.provision", "account.copy_homedir":
+		return rbac.AccountsCreate
+	case "account.reconcile":
+		return rbac.AccountsModify
+	case "domain.provision", "domain.delete":
+		return rbac.DomainsWrite
+	case "website.provision", "website.delete":
+		return rbac.WebsitesWrite
+	case "application.deploy", "wordpress.install":
+		return rbac.ApplicationsWrite
+	case "database.provision", "database.delete":
+		return rbac.DatabasesWrite
+	case "dns.sync", "dns.dnssec":
+		return rbac.DNSWrite
+	case "mailbox.provision", "mailbox.delete", "mail.alias", "mail.maps":
+		return rbac.MailWrite
+	case "certificate.provision":
+		return rbac.WebsitesWrite
+	case "certificate.portal":
+		return rbac.ServerSettingsWrite
+	case "backup.create":
+		return rbac.BackupsCreate
+	case "backup.restore":
+		return rbac.BackupsRestore
+	case "cron.apply":
+		return rbac.CronWrite
+	case "ftp.apply":
+		return rbac.FilesWrite
+	default:
+		return ""
+	}
+}
+
 func (a *API) getJob(w http.ResponseWriter, r *http.Request) {
 	j := a.Store.GetJob(chi.URLParam(r, "jobID"))
 	if j == nil {
@@ -542,6 +634,10 @@ func (a *API) getJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ac := actor(r)
+	if !ac.Has(rbac.ServerRead) && !ac.Has(rbac.AccountsRead) {
+		a.fail(w, r, 403, "FORBIDDEN", "Missing capability", false)
+		return
+	}
 	if !ac.IsServerScope {
 		aid := jobAccountID(j)
 		if aid == "" || !ac.CanAccount(aid) {
@@ -549,7 +645,63 @@ func (a *API) getJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, 200, j)
+	writeJSON(w, 200, publicJob(j))
+}
+
+func (a *API) retryJob(w http.ResponseWriter, r *http.Request) {
+	original := a.Store.GetJob(chi.URLParam(r, "jobID"))
+	if original == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Job not found", false)
+		return
+	}
+	ac := actor(r)
+	if !ac.Has(rbac.ServerRead) && !ac.Has(rbac.AccountsRead) {
+		a.fail(w, r, 403, "FORBIDDEN", "Missing capability", false)
+		return
+	}
+	if !ac.IsServerScope {
+		accountID := jobAccountID(original)
+		if accountID == "" || !ac.CanAccount(accountID) {
+			a.fail(w, r, 404, "NOT_FOUND", "Job not found", false)
+			return
+		}
+	}
+	if original.State != "failed" {
+		a.fail(w, r, 409, "NOT_FAILED", "Only failed jobs can be retried", false)
+		return
+	}
+	capability := retryCapability(original.Type)
+	if capability == "" {
+		a.fail(w, r, 409, "NOT_RETRYABLE", "Job type cannot be retried", false)
+		return
+	}
+	if !ac.Has(capability) {
+		a.fail(w, r, 403, "FORBIDDEN", "Missing capability "+capability, false)
+		return
+	}
+	payload := safeJobPayload(original.Payload)
+	payload["retry_of"] = original.ID
+	retry, err := a.Store.EnqueueJob(&store.Job{
+		Type: original.Type, ResourceType: original.ResourceType, ResourceID: original.ResourceID,
+		Payload: payload, State: "queued", Priority: original.Priority, MaxAttempts: original.MaxAttempts,
+		ActorID: ac.UserID, RequestID: logging.RequestID(r.Context()),
+	})
+	if err != nil {
+		a.fail(w, r, 500, "JOB_ERROR", "Could not queue job retry", false)
+		return
+	}
+	a.audit(r, "job.retry", "job", original.ID, true,
+		map[string]any{
+			"state": original.State, "type": original.Type,
+			"actor_id": original.ActorID, "request_id": original.RequestID,
+		},
+		map[string]any{
+			"retry_job_id": retry.ID, "state": retry.State,
+			"actor_id": retry.ActorID, "request_id": retry.RequestID,
+		})
+	writeJSON(w, 202, map[string]any{
+		"operation_id": retry.ID, "retried_job_id": original.ID, "status": retry.State,
+	})
 }
 
 func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
@@ -603,6 +755,66 @@ func (a *API) createPackage(w http.ResponseWriter, r *http.Request) {
 	a.Store.PutPackage(&p)
 	a.audit(r, "package.create", "package", p.ID, true, nil, map[string]any{"name": p.Name})
 	writeJSON(w, 201, p)
+}
+
+func (a *API) updatePackage(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.PackagesWrite) {
+		return
+	}
+	packageID := chi.URLParam(r, "packageID")
+	current := a.Store.GetPackage(packageID)
+	if current == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Package not found", false)
+		return
+	}
+	who := actor(r)
+	if !who.IsServerScope && (who.ResellerID == "" || current.ResellerID != who.ResellerID) {
+		a.fail(w, r, 403, "FORBIDDEN", "Not authorized for this package", false)
+		return
+	}
+	updated := *current
+	if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
+		a.fail(w, r, 400, "INVALID_JSON", "Invalid package", false)
+		return
+	}
+	updated.ID = current.ID
+	updated.ResellerID = current.ResellerID
+	updated.Name = strings.TrimSpace(updated.Name)
+	if updated.Name == "" {
+		a.fail(w, r, 400, "VALIDATION", "Name required", false)
+		return
+	}
+	a.Store.PutPackage(&updated)
+	a.audit(r, "package.update", "package", updated.ID, true,
+		map[string]any{"name": current.Name}, map[string]any{"name": updated.Name})
+	writeJSON(w, 200, updated)
+}
+
+func (a *API) deletePackage(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.PackagesWrite) {
+		return
+	}
+	packageID := chi.URLParam(r, "packageID")
+	pkg := a.Store.GetPackage(packageID)
+	if pkg == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Package not found", false)
+		return
+	}
+	who := actor(r)
+	if !who.IsServerScope && (who.ResellerID == "" || pkg.ResellerID != who.ResellerID) {
+		a.fail(w, r, 403, "FORBIDDEN", "Not authorized for this package", false)
+		return
+	}
+	for _, account := range a.Store.ListAccounts("", "") {
+		if account.PackageID == pkg.ID {
+			a.fail(w, r, 409, "IN_USE", "Package is assigned to an account", false)
+			return
+		}
+	}
+	a.Store.DeletePackage(pkg.ID)
+	a.audit(r, "package.delete", "package", pkg.ID, true,
+		map[string]any{"name": pkg.Name, "reseller_id": pkg.ResellerID}, nil)
+	writeJSON(w, 200, map[string]any{"deleted": pkg.ID})
 }
 
 func (a *API) listResellers(w http.ResponseWriter, r *http.Request) {
@@ -672,6 +884,51 @@ func (a *API) createReseller(w http.ResponseWriter, r *http.Request) {
 	a.Store.PutReseller(&rs)
 	a.audit(r, "reseller.create", "reseller", rs.ID, true, nil, map[string]any{"name": rs.Name})
 	writeJSON(w, 201, rs)
+}
+
+func (a *API) updateReseller(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ResellersModify) {
+		return
+	}
+	if !actor(r).IsServerScope {
+		a.fail(w, r, 403, "FORBIDDEN", "Server scope required", false)
+		return
+	}
+	resellerID := chi.URLParam(r, "resellerID")
+	current := a.Store.GetReseller(resellerID)
+	if current == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Reseller not found", false)
+		return
+	}
+	updated := *current
+	if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
+		a.fail(w, r, 400, "INVALID_JSON", "Invalid reseller", false)
+		return
+	}
+	updated.ID = current.ID
+	updated.UserID = current.UserID
+	updated.Name = strings.TrimSpace(updated.Name)
+	if updated.Name == "" {
+		a.fail(w, r, 400, "VALIDATION", "Name required", false)
+		return
+	}
+	if updated.PrivilegeMask == nil {
+		updated.PrivilegeMask = []string{}
+	}
+	if updated.Nameservers == nil {
+		updated.Nameservers = []string{}
+	}
+	a.Store.PutReseller(&updated)
+	a.audit(r, "reseller.update", "reseller", updated.ID, true,
+		map[string]any{
+			"name": current.Name, "brand_name": current.BrandName, "privilege_mask": current.PrivilegeMask,
+			"nameservers": current.Nameservers, "status": current.Status,
+		},
+		map[string]any{
+			"name": updated.Name, "brand_name": updated.BrandName, "privilege_mask": updated.PrivilegeMask,
+			"nameservers": updated.Nameservers, "status": updated.Status,
+		})
+	writeJSON(w, 200, updated)
 }
 
 func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
@@ -968,6 +1225,68 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 	job, _ := a.Store.EnqueueJob(&store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID}, State: "queued"})
 	a.audit(r, "account.modify", "account", acc.ID, true, map[string]any{"package_id": before.PackageID}, map[string]any{"package_id": acc.PackageID})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "account": acc})
+}
+
+func (a *API) rotateAccountPassword(w http.ResponseWriter, r *http.Request) {
+	accountID := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, accountID, rbac.AccountsModify) {
+		return
+	}
+	acc := a.Store.GetAccount(accountID)
+	if acc == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Account not found", false)
+		return
+	}
+	var in struct {
+		Password           string `json:"password"`
+		MustChangePassword *bool  `json:"must_change_password"`
+		ForceChange        *bool  `json:"force_change"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		a.fail(w, r, 400, "INVALID_JSON", "Invalid password request", false)
+		return
+	}
+	if len(in.Password) < 8 {
+		a.fail(w, r, 400, "VALIDATION", "Password must be at least 8 characters", false)
+		return
+	}
+	owner := a.Store.UserByID(acc.OwnerUserID)
+	if owner == nil {
+		a.fail(w, r, 409, "OWNER_MISSING", "Account owner is missing", false)
+		return
+	}
+	passwordHash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		a.fail(w, r, 500, "PASSWORD_ERROR", "Could not update password", false)
+		return
+	}
+	mustChange := false
+	if in.ForceChange != nil {
+		mustChange = *in.ForceChange
+	}
+	if in.MustChangePassword != nil {
+		mustChange = *in.MustChangePassword
+	}
+	beforeMustChange := owner.MustChangePassword
+	owner.PasswordHash = passwordHash
+	owner.MustChangePassword = mustChange
+	a.Store.PutUser(owner)
+	job, err := a.Store.EnqueueJob(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID, "linux_password": in.Password},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+	})
+	if err != nil {
+		a.fail(w, r, 500, "JOB_ERROR", "Could not queue password reconciliation", false)
+		return
+	}
+	a.audit(r, "account.password.rotate", "account", acc.ID, true,
+		map[string]any{"must_change_password": beforeMustChange},
+		map[string]any{"must_change_password": owner.MustChangePassword, "operation_id": job.ID})
+	writeJSON(w, 202, map[string]any{
+		"operation_id": job.ID, "account_id": acc.ID,
+		"must_change_password": owner.MustChangePassword, "status": job.State,
+	})
 }
 
 func (a *API) suspendAccount(w http.ResponseWriter, r *http.Request) {
