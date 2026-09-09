@@ -121,6 +121,8 @@ try {
 	await textIncludes(page, 'Kelmor Director')
 	await textIncludes(page, 'Host operations')
 	await page.click('a[href="/accounts"]')
+	await textIncludes(page, 'List Accounts')
+	await page.click('a[href="/accounts/create"]')
 	await page.waitForSelector('select[name="package_id"] option')
 	await page.evaluate(() => {
 		const sel = document.querySelector('select[name="package_id"]')

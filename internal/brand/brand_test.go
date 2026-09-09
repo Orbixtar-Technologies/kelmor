@@ -27,6 +27,12 @@ func TestUserVisibleChromeFiles(t *testing.T) {
 	files := []string{
 		"portals/server/index.html",
 		"portals/server/src/app.tsx",
+		"portals/server/src/nav.tsx",
+		"portals/server/src/dashboard.tsx",
+		"portals/server/src/accounts.tsx",
+		"portals/server/src/account-detail.tsx",
+		"portals/server/src/pages.tsx",
+		"portals/server/src/find.ts",
 		"portals/account/index.html",
 		"portals/account/src/app.tsx",
 		"api/openapi.yaml",
@@ -34,13 +40,14 @@ func TestUserVisibleChromeFiles(t *testing.T) {
 		"README.md",
 	}
 	needles := map[string][]string{
-		"portals/server/index.html":   {Director},
-		"portals/server/src/app.tsx":  {Director, Product},
-		"portals/account/index.html":  {Control},
+		"portals/server/index.html":  {Director},
+		"portals/server/src/app.tsx": {Director, Product},
+		"portals/server/src/nav.tsx": {Director},
+		"portals/account/index.html": {Control},
 		"portals/account/src/app.tsx": {Control, Director},
-		"api/openapi.yaml":            {APITitle},
-		"cmd/panel-install/main.go":   {Director, Control},
-		"README.md":                   {Director, Control},
+		"api/openapi.yaml":           {APITitle},
+		"cmd/panel-install/main.go":  {Director, Control},
+		"README.md":                  {Director, Control},
 	}
 	for _, rel := range files {
 		body, err := os.ReadFile(filepath.Join(root, rel))
@@ -55,6 +62,55 @@ func TestUserVisibleChromeFiles(t *testing.T) {
 			if !strings.Contains(text, need) {
 				t.Errorf("%s missing %q", rel, need)
 			}
+		}
+		if strings.HasPrefix(rel, "portals/") {
+			for _, banned := range []string{"WHM", "Jupiter"} {
+				if strings.Contains(text, banned) {
+					t.Errorf("%s has banned chrome %q", rel, banned)
+				}
+			}
+		}
+	}
+}
+
+func TestDirectorInformationArchitecture(t *testing.T) {
+	root := filepath.Join("..", "..", "portals", "server", "src")
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(root, e.Name()))
+		if err != nil {
+			t.Fatal(e.Name(), err)
+		}
+		b.Write(body)
+		b.WriteByte('\n')
+	}
+	text := b.String()
+	for _, need := range []string{
+		"Find",
+		"Account Functions",
+		"Packages",
+		"Host/Service Status",
+		"Jobs/Audit",
+		"Import",
+		"Usage",
+		"Resellers",
+		"List Accounts",
+		"Create Account",
+		"Host operations",
+		"Failed jobs",
+		"Quick links",
+		"/api/v1/jobs?state=failed",
+		"/api/v1/accounts?q=",
+	} {
+		if !strings.Contains(text, need) {
+			t.Errorf("Director IA missing %q", need)
 		}
 	}
 }
