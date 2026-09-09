@@ -64,6 +64,9 @@ func verifyPortals(c Config) error {
 			return fmt.Errorf("account portal is not a built SPA (run make portals)")
 		}
 	}
+	if err := verifyPortalTLS(c); err != nil {
+		return err
+	}
 	if c.Dev {
 		return nil
 	}
@@ -99,6 +102,32 @@ func installPortalApp(c Config, name, title string) error {
 
 func portalIsBuilt(html string) bool {
 	return strings.Contains(html, "/assets/") && strings.Contains(html, `id="root"`)
+}
+
+func verifyPortalTLS(c Config) error {
+	for _, rel := range []string{
+		"var/lib/panel/certs/panel-portals.crt",
+		"var/lib/panel/certs/panel-portals.key",
+	} {
+		if _, err := os.Stat(root(c, rel)); err != nil {
+			return fmt.Errorf("portal TLS material missing: %w", err)
+		}
+	}
+	server, err := os.ReadFile(root(c, "etc/nginx/panel-sites/90-server-portal.conf"))
+	if err != nil {
+		return err
+	}
+	account, err := os.ReadFile(root(c, "etc/nginx/panel-sites/91-account-portal.conf"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(server), "listen 8443 ssl") || !strings.Contains(string(server), "ssl_certificate") {
+		return fmt.Errorf("server portal nginx is not listening TLS on 8443")
+	}
+	if !strings.Contains(string(account), "listen 8444 ssl") || !strings.Contains(string(account), "ssl_certificate") {
+		return fmt.Errorf("account portal nginx is not listening TLS on 8444")
+	}
+	return nil
 }
 
 func writePortalNginx(c Config, name string, port int, rootRel string) error {

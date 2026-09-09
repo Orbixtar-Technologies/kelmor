@@ -61,3 +61,37 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 		t.Fatalf("portal nginx missing TLS: %s", conf)
 	}
 }
+
+func TestVerifyPortalsRequiresTLS(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{Hostname: "panel.example.net", Root: dir}
+	for _, rel := range []string{
+		"usr/local/panel/share/portals/server",
+		"usr/local/panel/share/portals/account",
+		"etc/nginx/panel-sites",
+	} {
+		if err := os.MkdirAll(filepath.Join(dir, rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serverHTML := `<!doctype html><html><head><title>Server Portal</title>
+<script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`
+	accountHTML := `<!doctype html><html><head><title>Account Portal</title>
+<script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`
+	if err := os.WriteFile(filepath.Join(dir, "usr/local/panel/share/portals/server/index.html"), []byte(serverHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "usr/local/panel/share/portals/account/index.html"), []byte(accountHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plain := "server {\n    listen 8443;\n    root /usr/local/panel/share/portals/server;\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/90-server-portal.conf"), []byte(plain), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/91-account-portal.conf"), []byte(strings.ReplaceAll(plain, "8443", "8444")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPortals(cfg); err == nil {
+		t.Fatal("HTTP-only portal nginx must fail verify")
+	}
+}
