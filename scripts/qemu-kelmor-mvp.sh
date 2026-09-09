@@ -24,8 +24,8 @@ scp_cmd() {
 
 ssh_cmd 'set -e
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bind9-dnsutils sshpass || true
-  sudo systemctl enable --now nginx php8.3-fpm postgresql postfix dovecot pdns mariadb || true
-  sudo systemctl start dovecot nginx php8.3-fpm pdns postfix mariadb || true
+  sudo systemctl enable --now nginx php8.3-fpm postgresql postfix dovecot pdns mariadb pebble || true
+  sudo systemctl start dovecot nginx php8.3-fpm pdns postfix mariadb pebble || true
   systemctl is-active panel-agent panel-api panel-worker nginx
 '
 ssh_cmd 'sudo mkdir -p /usr/local/panel/share/scripts && sudo chown -R ubuntu:ubuntu /usr/local/panel/share'

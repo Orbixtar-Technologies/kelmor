@@ -77,6 +77,32 @@ func TestMVPAcceptancePath(t *testing.T) {
 	if box0["local_part"] != "info" {
 		t.Fatalf("login mailbox %+v", box0)
 	}
+	certs := get(t, srv.URL+"/api/v1/accounts/"+aid+"/certificates", token)["items"].([]any)
+	if len(certs) == 0 {
+		t.Fatal("customer certificate missing from Control API")
+	}
+	cert0 := certs[0].(map[string]any)
+	if cert0["hostname"] != "acme.test" || cert0["status"] != "active" || cert0["issuer"] != "panel-dev" {
+		t.Fatalf("customer certificate %+v", cert0)
+	}
+	tlsSite := false
+	ents, err := os.ReadDir(filepath.Join(root, "etc/nginx/panel-sites"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		body, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(body, []byte("listen 443 ssl")) && bytes.Contains(body, []byte("acme.test.crt")) {
+			tlsSite = true
+			break
+		}
+	}
+	if !tlsSite {
+		t.Fatal("Control-facing site missing customer TLS after provision")
+	}
 	md := mds[0].(map[string]any)
 	post(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes", token, map[string]any{
 		"domain_id": md["id"], "local_part": "info", "password": "MailboxPass!2026",

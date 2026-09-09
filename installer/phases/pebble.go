@@ -132,6 +132,15 @@ func startLocalACME(c Config) error {
 	}
 	ensureLoopbackHost(c.Hostname)
 	ensureLoopbackHost("livehost.test")
+	if waitPebble(2 * time.Second) {
+		return nil
+	}
+	if pid1IsSystemd() {
+		_ = exec.Command("/bin/systemctl", "daemon-reload").Run()
+		_ = exec.Command("/bin/systemctl", "enable", "--now", "pebble.service").Run()
+		_ = waitPebble(4 * time.Second)
+		return nil
+	}
 	bin := pebbleBinary()
 	if bin == "" {
 		return nil
@@ -149,16 +158,21 @@ func startLocalACME(c Config) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(4 * time.Second)
+	_ = waitPebble(4 * time.Second)
+	return nil
+}
+
+func waitPebble(d time.Duration) bool {
+	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
 		con, err := net.DialTimeout("tcp", "127.0.0.1:14000", 200*time.Millisecond)
 		if err == nil {
 			_ = con.Close()
-			return nil
+			return true
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return nil
+	return false
 }
 
 func pebbleBinary() string {

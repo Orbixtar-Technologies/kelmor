@@ -1139,30 +1139,35 @@ func (w *Worker) issueStoredCertificate(c *store.Certificate) error {
 		c.Issuer = "panel-dev"
 	}
 	w.Store.PutCert(c)
+	return w.bindCertificateToSites(c)
+}
+
+func (w *Worker) bindCertificateToSites(c *store.Certificate) error {
+	if c == nil || w.Agent == nil {
+		return nil
+	}
+	acc := w.Store.GetAccount(c.AccountID)
+	if acc == nil {
+		return nil
+	}
+	for _, site := range w.Store.ListWebsites(acc.ID) {
+		d := w.Store.GetDomain(site.DomainID)
+		if d == nil || d.ASCII != c.Hostname {
+			continue
+		}
+		s := site
+		s.HTTPSRedirect = true
+		w.Store.PutWebsite(&s)
+		if err := w.applyWebsiteDispatch(acc, &s, d); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (w *Worker) provisionCert(j *store.Job) error {
 	c := w.Store.GetCert(str(j.Payload["certificate_id"]))
-	if err := w.issueStoredCertificate(c); err != nil {
-		return err
-	}
-	// Nginx only picks up a newly written certificate after ApplyWebsite.
-	if acc := w.Store.GetAccount(c.AccountID); acc != nil {
-		for _, site := range w.Store.ListWebsites(acc.ID) {
-			d := w.Store.GetDomain(site.DomainID)
-			if d == nil || d.ASCII != c.Hostname {
-				continue
-			}
-			s := site
-			s.HTTPSRedirect = true
-			w.Store.PutWebsite(&s)
-			if err := w.applyWebsiteDispatch(acc, &s, d); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return w.issueStoredCertificate(c)
 }
 
 func (w *Worker) syncFTPUsers() error {

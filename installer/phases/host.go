@@ -205,6 +205,7 @@ func enablePanelUnits() {
 	for _, name := range []string{
 		"panel-agent", "panel-api", "panel-worker", "panel-smtp-policy", "panel-object-store",
 		"nginx", "php8.3-fpm", "postgresql", "mariadb", "postfix", "dovecot", "pdns", "vsftpd",
+		"pebble",
 	} {
 		_ = exec.Command("/bin/systemctl", "enable", "--now", name+".service").Run()
 	}

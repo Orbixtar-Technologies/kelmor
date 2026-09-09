@@ -9,6 +9,28 @@ import (
 	"time"
 )
 
+func TestMailRestartPlanPrefersSystemd(t *testing.T) {
+	plan := mailRestartPlan(true)
+	joined := ""
+	for _, args := range plan {
+		joined += strings.Join(args, " ") + "\n"
+	}
+	if !strings.Contains(joined, "systemctl restart dovecot") {
+		t.Fatalf("systemd mail restart must use the unit: %q", joined)
+	}
+	if strings.Contains(joined, "/usr/sbin/dovecot") && !strings.Contains(joined, "systemctl") {
+		t.Fatal("must not hand-start dovecot when systemd is PID 1")
+	}
+	legacy := mailRestartPlan(false)
+	legacyJoined := ""
+	for _, args := range legacy {
+		legacyJoined += strings.Join(args, " ") + "\n"
+	}
+	if !strings.Contains(legacyJoined, "/usr/sbin/dovecot") {
+		t.Fatalf("non-systemd fallback missing: %q", legacyJoined)
+	}
+}
+
 func TestSystemdUnitForHost(t *testing.T) {
 	if got := systemdUnitForHost("pdns_server"); got != "pdns" {
 		t.Fatalf("pdns %q", got)

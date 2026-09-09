@@ -1,0 +1,17 @@
+[Unit]
+Description=Kelmor lab ACME CA (Pebble)
+Documentation=https://github.com/letsencrypt/pebble
+ConditionPathExists=/usr/local/panel/bin/pebble
+ConditionPathExists=/var/lib/panel/pebble/config.json
+After=network-online.target pdns.service
+Wants=pdns.service
+[Service]
+Type=simple
+Environment=PEBBLE_VA_NOSLEEP=1
+Environment=PEBBLE_WFE_NONCEREJECT=0
+ExecStartPre=-/usr/bin/pkill -x pebble
+ExecStart=/usr/local/panel/bin/pebble -config /var/lib/panel/pebble/config.json -dnsserver 127.0.0.1:53
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target

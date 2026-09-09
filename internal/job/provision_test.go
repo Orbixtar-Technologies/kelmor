@@ -66,6 +66,20 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/certs/acme.test.crt")); err != nil {
 		t.Fatal(err)
 	}
+	tlsSite := false
+	for _, e := range sites {
+		body, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(body, []byte("listen 443 ssl")) && bytes.Contains(body, []byte("ssl_certificate /var/lib/panel/certs/acme.test.crt")) {
+			tlsSite = true
+			break
+		}
+	}
+	if !tlsSite {
+		t.Fatal("provision must re-apply the vhost with the issued customer certificate")
+	}
 	boxes := st.ListMailboxes(acc.ID)
 	if len(boxes) != 1 || boxes[0].LocalPart != "info" || boxes[0].PasswordHash == "" || boxes[0].PasswordHash == "!" {
 		t.Fatalf("login mailbox %+v", boxes)
