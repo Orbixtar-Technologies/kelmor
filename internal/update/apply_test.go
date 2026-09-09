@@ -14,7 +14,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestApplyAndRollback(t *testing.T) {
@@ -176,10 +179,13 @@ func TestInstallRollsBackWhenHealthCheckFails(t *testing.T) {
 
 func TestInstallLockRejectsConcurrentOperation(t *testing.T) {
 	root := t.TempDir()
+	statusPath := filepath.Join(t.TempDir(), "update-status.json")
+	authoritative := []byte(`{"state":"installing","installed_release":"1.0.0"}`)
+	writeTestFile(t, statusPath, authoritative, 0o600)
 	config := Config{
 		FeedURL: "https://updates.example.test", Channel: "stable",
 		InstalledRelease: "1.0.0", InstallRoot: root,
-		StatusPath: filepath.Join(t.TempDir(), "update-status.json"),
+		StatusPath: statusPath,
 	}
 	lock, err := acquireInstallLock(root)
 	if err != nil {
@@ -190,6 +196,50 @@ func TestInstallLockRejectsConcurrentOperation(t *testing.T) {
 	_, err = Install(context.Background(), config, &recordingRunner{})
 	if err == nil || !strings.Contains(err.Error(), "already in progress") {
 		t.Fatalf("expected operation lock error, got %v", err)
+	}
+	got, readErr := os.ReadFile(statusPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != string(authoritative) {
+		t.Fatalf("lock rejection overwrote authoritative status: %s", got)
+	}
+}
+
+func TestCheckLockRejectionDoesNotContactNetworkOrOverwriteStatus(t *testing.T) {
+	root := t.TempDir()
+	statusPath := filepath.Join(t.TempDir(), "update-status.json")
+	authoritative := []byte(`{"state":"installing","installed_release":"1.0.0"}`)
+	writeTestFile(t, statusPath, authoritative, 0o600)
+	var hits atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		http.Error(w, "should not be reached", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	withHTTPClient(t, server.Client())
+	lock, err := acquireInstallLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	_, err = Check(context.Background(), Config{
+		FeedURL: server.URL, Channel: "stable", InstalledRelease: "1.0.0",
+		InstallRoot: root, StatusPath: statusPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "already in progress") {
+		t.Fatalf("expected check lock rejection, got %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("check contacted feed %d times before acquiring lock", hits.Load())
+	}
+	got, readErr := os.ReadFile(statusPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != string(authoritative) {
+		t.Fatalf("check lock rejection overwrote authoritative status: %s", got)
 	}
 }
 
@@ -245,6 +295,32 @@ func TestInstallRecoversInterruptedTransactionBeforeCheckingFeed(t *testing.T) {
 	if _, statErr := os.Stat(journal); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("recovered journal remains: %v", statErr)
 	}
+}
+
+func TestInstallReloadsRecoveredCurrentReleaseBeforeVersionCheck(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("interrupted-new"), 0o755)
+	writeTestFile(t, filepath.Join(root, "current-release"), []byte("2.0.0\n"), 0o644)
+	journal := filepath.Join(root, transactionDirectory)
+	writeTestFile(t, filepath.Join(journal, "targets", "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(journal, "current-release"), []byte("1.0.0\n"), 0o644)
+	writeTestFile(t, filepath.Join(journal, "metadata.json"), []byte(
+		`{"state":"applying","targets":[{"target":"bin/panel-api","exists":true}],"current_release_exists":true}`,
+	), 0o600)
+	config, cleanup := newInstallConfig(t, root, map[string]testArtifact{
+		"panel-api": {target: "bin/panel-api", content: []byte("complete-new"), mode: 0o755},
+	})
+	defer cleanup()
+	config.InstalledRelease = "2.0.0"
+
+	status, err := Install(context.Background(), config, &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.InstalledRelease != "2.0.0" {
+		t.Fatalf("unexpected installed release: %+v", status)
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "complete-new", 0o755)
 }
 
 func TestInstallRejectsSymlinkedInstallRootAncestor(t *testing.T) {
@@ -372,6 +448,54 @@ func TestInstallUsesFreshContextForRecoveryAfterCancellation(t *testing.T) {
 		t.Fatalf("fresh recovery context was not used: status=%+v err=%v", status, err)
 	}
 	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+}
+
+func TestInstallModesIgnoreRestrictiveUmask(t *testing.T) {
+	root := t.TempDir()
+	config, cleanup := newInstallConfig(t, root, map[string]testArtifact{
+		"panel-api": {
+			target: "bin/panel-api", content: []byte("executable"), mode: 0o755,
+		},
+		"server/index.html": {
+			target: "share/portals/server/index.html", content: []byte("readonly"), mode: 0o644,
+		},
+	})
+	defer cleanup()
+	previousUmask := unix.Umask(0o077)
+	defer unix.Umask(previousUmask)
+
+	if _, err := Install(context.Background(), config, &recordingRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "executable", 0o755)
+	assertTestFile(t, filepath.Join(root, "share", "portals", "server", "index.html"), "readonly", 0o644)
+}
+
+func TestRollbackModesIgnoreRestrictiveUmask(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(root, "share", "portals", "server", "index.html"), []byte("old-portal"), 0o644)
+	config, cleanup := newInstallConfig(t, root, map[string]testArtifact{
+		"panel-api": {
+			target: "bin/panel-api", content: []byte("bad-api"), mode: 0o755,
+		},
+		"server/index.html": {
+			target: "share/portals/server/index.html", content: []byte("bad-portal"), mode: 0o644,
+		},
+	})
+	defer cleanup()
+	previousUmask := unix.Umask(0o077)
+	defer unix.Umask(previousUmask)
+
+	if _, err := Install(
+		context.Background(),
+		config,
+		&recordingRunner{failOnceOn: "http://127.0.0.1:18080/healthz"},
+	); err == nil {
+		t.Fatal("expected health failure")
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+	assertTestFile(t, filepath.Join(root, "share", "portals", "server", "index.html"), "old-portal", 0o644)
 }
 
 type testArtifact struct {

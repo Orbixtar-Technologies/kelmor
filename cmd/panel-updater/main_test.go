@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/hosting-panel/panel/internal/update"
@@ -74,4 +78,33 @@ func TestProductionConfigRequiresStableChannel(t *testing.T) {
 	if err := validateProductionConfig(update.Config{Channel: "beta"}); err == nil {
 		t.Fatal("expected non-stable production channel to be rejected")
 	}
+}
+
+func TestRunWithAutomaticUpdatesDisabledDoesNotContactFeed(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	status, err := executeRemoteCommand(context.Background(), "run", update.Config{
+		FeedURL: server.URL, Channel: "stable", Automatic: false,
+		InstallRoot: t.TempDir(),
+	}, noOpRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "disabled" {
+		t.Fatalf("disabled run status = %+v", status)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("disabled run contacted feed %d times", hits.Load())
+	}
+}
+
+type noOpRunner struct{}
+
+func (noOpRunner) Run(context.Context, string, ...string) error {
+	return nil
 }

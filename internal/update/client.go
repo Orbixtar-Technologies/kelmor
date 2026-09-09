@@ -43,6 +43,25 @@ func Check(ctx context.Context, config Config) (*Status, error) {
 		Automatic: config.Automatic, Channel: config.Channel,
 		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
 	}
+	if config.InstallRoot == "" {
+		return &status, fmt.Errorf("install root is required")
+	}
+	lock, err := acquireInstallLock(config.InstallRoot)
+	if err != nil {
+		return &status, err
+	}
+	defer lock.Close()
+	if err := recoverInterruptedTransaction(lock.root, nil); err != nil {
+		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
+	}
+	if err := reloadInstalledRelease(lock.root, &config); err != nil {
+		return finishStatus(config.StatusPath, status, err)
+	}
+	status.InstalledRelease = config.InstalledRelease
+	return checkLocked(ctx, config, status)
+}
+
+func checkLocked(ctx context.Context, config Config, status Status) (*Status, error) {
 	manifest, err := fetchManifest(ctx, config)
 	if err != nil {
 		return finishStatus(config.StatusPath, status, err)

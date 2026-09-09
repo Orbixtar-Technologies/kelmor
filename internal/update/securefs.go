@@ -195,6 +195,11 @@ func (root *secureRoot) writeAtomic(relative string, content []byte, mode uint32
 	if err != nil {
 		return err
 	}
+	if err := unix.Fchmod(fd, mode); err != nil {
+		_ = unix.Close(fd)
+		_ = unix.Unlinkat(int(parent.Fd()), temporary, 0)
+		return err
+	}
 	file := os.NewFile(uintptr(fd), temporary)
 	cleanup := func() {
 		_ = file.Close()
@@ -249,6 +254,11 @@ func (root *secureRoot) copyReaderAtomic(input io.Reader, destination string, mo
 		mode,
 	)
 	if err != nil {
+		return err
+	}
+	if err := unix.Fchmod(fd, mode); err != nil {
+		_ = unix.Close(fd)
+		_ = unix.Unlinkat(int(parent.Fd()), temporary, 0)
 		return err
 	}
 	output := os.NewFile(uintptr(fd), temporary)

@@ -47,6 +47,7 @@ func TestCheckAcceptsNewerSignedStableRelease(t *testing.T) {
 		Channel:          "stable",
 		InstalledRelease: "1.9.0",
 		PublicKey:        pub,
+		InstallRoot:      t.TempDir(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +62,8 @@ func TestCheckAcceptsNewerSignedStableRelease(t *testing.T) {
 
 func TestCheckRejectsHTTPFeed(t *testing.T) {
 	_, err := Check(context.Background(), Config{
-		FeedURL: "http://updates.example.test",
-		Channel: "stable",
+		FeedURL: "http://updates.example.test", Channel: "stable",
+		InstallRoot: t.TempDir(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
 		t.Fatalf("expected HTTPS error, got %v", err)
@@ -121,6 +122,7 @@ func TestCheckRejectsTraversalAndOversizedArtifacts(t *testing.T) {
 			_, err = Check(context.Background(), Config{
 				FeedURL: server.URL, Channel: "stable",
 				InstalledRelease: "1.0.0", PublicKey: pub,
+				InstallRoot: t.TempDir(),
 			})
 			if err == nil || !strings.Contains(strings.ToLower(err.Error()), tt.want) {
 				t.Fatalf("expected %q error, got %v", tt.want, err)
@@ -145,6 +147,7 @@ func TestCheckRejectsNonIncreasingRelease(t *testing.T) {
 	_, err = Check(context.Background(), Config{
 		FeedURL: server.URL, Channel: "stable",
 		InstalledRelease: "1.10.0", PublicKey: pub,
+		InstallRoot: t.TempDir(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "newer") {
 		t.Fatalf("expected non-increasing release error, got %v", err)
@@ -178,6 +181,7 @@ func TestCheckAllowsSameHostRedirectAndRejectsDifferentHost(t *testing.T) {
 	if _, err := Check(context.Background(), Config{
 		FeedURL: sameHost.URL, Channel: "stable",
 		InstalledRelease: "1.0.0", PublicKey: pub,
+		InstallRoot: t.TempDir(),
 	}); err != nil {
 		t.Fatalf("same-host redirect rejected: %v", err)
 	}
@@ -194,6 +198,7 @@ func TestCheckAllowsSameHostRedirectAndRejectsDifferentHost(t *testing.T) {
 	if _, err := Check(context.Background(), Config{
 		FeedURL: redirector.URL, Channel: "stable",
 		InstalledRelease: "1.0.0", PublicKey: pub,
+		InstallRoot: t.TempDir(),
 	}); err == nil || !strings.Contains(err.Error(), "redirect") {
 		t.Fatalf("expected cross-host redirect error, got %v", err)
 	}
@@ -214,6 +219,7 @@ func TestCheckBoundsManifestRequest(t *testing.T) {
 
 	_, _ = Check(context.Background(), Config{
 		FeedURL: "https://updates.example.test", Channel: "stable",
+		InstallRoot: t.TempDir(),
 	})
 
 	select {

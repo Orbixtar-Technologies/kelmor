@@ -44,21 +44,7 @@ Unsigned manifests are refused.
 		if err != nil {
 			fatal(err.Error())
 		}
-		ctx := context.Background()
-		var status *update.Status
-		switch os.Args[1] {
-		case "check":
-			status, err = update.Check(ctx, config)
-		case "install":
-			status, err = update.Install(ctx, config, commandRunner{})
-		case "run":
-			status, err = update.Check(ctx, config)
-			if err == nil && config.Automatic {
-				status, err = update.Install(ctx, config, commandRunner{})
-			}
-		default:
-			panic("unreachable")
-		}
+		status, err := executeRemoteCommand(context.Background(), os.Args[1], config, commandRunner{})
 		if err != nil {
 			fatal(err.Error())
 		}
@@ -123,6 +109,30 @@ type commandRunner struct{}
 
 func (commandRunner) Run(ctx context.Context, name string, args ...string) error {
 	return exec.CommandContext(ctx, name, args...).Run()
+}
+
+func executeRemoteCommand(
+	ctx context.Context,
+	command string,
+	config update.Config,
+	runner update.Runner,
+) (*update.Status, error) {
+	switch command {
+	case "check":
+		return update.Check(ctx, config)
+	case "install":
+		return update.Install(ctx, config, runner)
+	case "run":
+		if !config.Automatic {
+			return &update.Status{
+				State: "disabled", InstalledRelease: config.InstalledRelease,
+				Automatic: false, Channel: config.Channel,
+			}, nil
+		}
+		return update.Install(ctx, config, runner)
+	default:
+		return nil, fmt.Errorf("unsupported remote command %q", command)
+	}
 }
 
 func loadUpdateConfig(path string) (update.Config, error) {

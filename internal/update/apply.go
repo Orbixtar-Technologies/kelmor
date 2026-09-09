@@ -298,12 +298,16 @@ func Install(ctx context.Context, config Config, runner Runner) (*Status, error)
 	}
 	lock, err := acquireInstallLock(config.InstallRoot)
 	if err != nil {
-		return finishStatus(config.StatusPath, status, err)
+		return &status, err
 	}
 	defer lock.Close()
 	if err := recoverInterruptedTransaction(lock.root, runner); err != nil {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
 	}
+	if err := reloadInstalledRelease(lock.root, &config); err != nil {
+		return finishStatus(config.StatusPath, status, err)
+	}
+	status.InstalledRelease = config.InstalledRelease
 	if err := lock.root.removeTree(stagingDirectory); err != nil {
 		return finishStatus(config.StatusPath, status, err)
 	}
@@ -361,6 +365,22 @@ func Install(ctx context.Context, config Config, runner Runner) (*Status, error)
 	}
 	_ = cleanupTransaction(lock.root)
 	return &status, nil
+}
+
+func reloadInstalledRelease(root *secureRoot, config *Config) error {
+	raw, err := root.readFile("current-release", 1024)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read installed release: %w", err)
+	}
+	release := strings.TrimSpace(string(raw))
+	if release == "" {
+		return fmt.Errorf("installed release marker is empty")
+	}
+	config.InstalledRelease = release
+	return nil
 }
 
 func downloadArtifacts(ctx context.Context, config Config, manifest *Manifest, root *secureRoot) error {
