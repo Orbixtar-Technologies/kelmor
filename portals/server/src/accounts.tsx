@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { api, asList } from './client'
 import { Can } from './rbac'
-import { act, Empty, fmtBytes, Notice, PageHeader } from './ui'
+import { pageSlice } from './pager'
+import { act, EmptyRow, fmtBytes, Notice, Pager, PageHeader } from './ui'
 import { validateCreateAccount } from './validate'
 
 interface AccountRow {
@@ -30,6 +31,7 @@ export function AccountList () {
 	const [disk, setDisk] = useState<Record<string, number>>({})
 	const [diskNote, setDiskNote] = useState('')
 	const [msg, setMsg] = useState('')
+	const [page, setPage] = useState(1)
 
 	async function reload () {
 		const qs = new URLSearchParams()
@@ -42,6 +44,7 @@ export function AccountList () {
 	}
 
 	useEffect(() => {
+		setPage(1)
 		reload().catch((e) => setMsg(e.message))
 	}, [q, status])
 
@@ -70,6 +73,8 @@ export function AccountList () {
 		if (!id) return '—'
 		return list.find((x) => x.id === id)?.name || id
 	}
+
+	const paged = pageSlice(items, page)
 
 	return (
 		<>
@@ -152,77 +157,82 @@ export function AccountList () {
 			</div>
 			<Notice>{msg}</Notice>
 			{diskNote ? <p className="muted">{diskNote}</p> : null}
-			{items.length === 0 ? (
-				<Empty
-					title="No accounts match"
-					detail="Create an account or clear the search filter."
-				/>
-			) : (
-				<table>
-					<thead>
-						<tr>
-							<th></th>
-							<th>User</th>
-							<th>Domain</th>
-							<th>Package</th>
-							<th>Disk</th>
-							<th>Status</th>
-							<th>UID</th>
-							<th>Reseller</th>
-							<th></th>
+			<Pager
+				page={paged.page}
+				pages={paged.pages}
+				total={paged.total}
+				onPage={setPage}
+				label="Accounts"
+			/>
+			<table>
+				<thead>
+					<tr>
+						<th></th>
+						<th>User</th>
+						<th>Domain</th>
+						<th>Package</th>
+						<th>Disk</th>
+						<th>Status</th>
+						<th>UID</th>
+						<th>Reseller</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					{paged.rows.length === 0 ? (
+						<EmptyRow
+							cols={9}
+							text="No accounts match. Create an account or clear the search filter."
+						/>
+					) : paged.rows.map((a) => (
+						<tr key={a.id}>
+							<td>
+								<input
+									type="checkbox"
+									checked={!!picked[a.id]}
+									aria-label={`Select ${a.username}`}
+									onChange={(e) => setPicked({
+										...picked,
+										[a.id]: e.target.checked,
+									})}
+								/>
+							</td>
+							<td>
+								<NavLink to={`/accounts/${a.id}`}>{a.username}</NavLink>
+							</td>
+							<td>{a.primary_domain}</td>
+							<td>{nameOf(packages, a.package_id)}</td>
+							<td>{a.id in disk ? fmtBytes(disk[a.id]) : '—'}</td>
+							<td>{a.status}</td>
+							<td>{a.linux_uid}</td>
+							<td>{nameOf(resellers, a.reseller_id)}</td>
+							<td className="row-actions">
+								<NavLink to={`/accounts/${a.id}`}>Open</NavLink>
+								<Can cap="accounts.modify">
+									<NavLink to="/accounts/package">Package</NavLink>
+								</Can>
+								<Can cap="accounts.suspend">
+									<button
+										type="button"
+										onClick={() => act(`/api/v1/accounts/${a.id}/suspend`, reload, setMsg)}
+									>
+										Suspend
+									</button>
+									<button
+										type="button"
+										onClick={() => act(`/api/v1/accounts/${a.id}/unsuspend`, reload, setMsg)}
+									>
+										Unsuspend
+									</button>
+								</Can>
+								<Can cap="accounts.terminate">
+									<NavLink to="/accounts/terminate">Terminate</NavLink>
+								</Can>
+							</td>
 						</tr>
-					</thead>
-					<tbody>
-						{items.map((a) => (
-							<tr key={a.id}>
-								<td>
-									<input
-										type="checkbox"
-										checked={!!picked[a.id]}
-										aria-label={`Select ${a.username}`}
-										onChange={(e) => setPicked({
-											...picked,
-											[a.id]: e.target.checked,
-										})}
-									/>
-								</td>
-								<td>
-									<NavLink to={`/accounts/${a.id}`}>{a.username}</NavLink>
-								</td>
-								<td>{a.primary_domain}</td>
-								<td>{nameOf(packages, a.package_id)}</td>
-								<td>{a.id in disk ? fmtBytes(disk[a.id]) : '—'}</td>
-								<td>{a.status}</td>
-								<td>{a.linux_uid}</td>
-								<td>{nameOf(resellers, a.reseller_id)}</td>
-								<td className="row-actions">
-									<NavLink to={`/accounts/${a.id}`}>Open</NavLink>
-									<Can cap="accounts.modify">
-										<NavLink to="/accounts/package">Package</NavLink>
-									</Can>
-									<Can cap="accounts.suspend">
-										<button
-											type="button"
-											onClick={() => act(`/api/v1/accounts/${a.id}/suspend`, reload, setMsg)}
-										>
-											Suspend
-										</button>
-										<button
-											type="button"
-											onClick={() => act(`/api/v1/accounts/${a.id}/unsuspend`, reload, setMsg)}
-										>
-											Unsuspend
-										</button>
-									</Can>
-									<Can cap="accounts.terminate">
-										<NavLink to="/accounts/terminate">Terminate</NavLink>
-									</Can>
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			)}
+					))}
+				</tbody>
+			</table>
 		</>
 	)
 }

@@ -237,6 +237,32 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #22314a; f
 .fail-banner a { color: #ffd0d0; }
 .row-failed { background: #2a151b; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.privileged-host {
+  margin: 20px 0 8px;
+  background: #121b2e;
+  border: 1px solid #24324d;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.privileged-host summary {
+  cursor: pointer;
+  color: #c5d2e6;
+  font-weight: 600;
+}
+.pager {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+.audit-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: #9aacc6;
+  margin: 0;
+}
+tr.expanded td { background: #152033; }
 .empty {
   padding: 18px;
   border: 1px dashed #334562;

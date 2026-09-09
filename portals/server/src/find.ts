@@ -98,7 +98,10 @@ export const DIRECTOR_FUNCTIONS: FindFunction[] = [
 		label: 'Host operations',
 		to: '/',
 		group: 'Service Status/Host',
-		keywords: ['dashboard', 'host', 'service status', 'metrics', 'agent'],
+		keywords: [
+			'dashboard', 'host', 'service status', 'metrics', 'agent',
+			'privileged host actions', 'firewall', 'reboot',
+		],
 		cap: 'server.read',
 		end: true,
 	},

@@ -144,38 +144,36 @@ export function Dashboard () {
 			</section>
 			<section className="failed-jobs">
 				<h2>Failed jobs</h2>
-				{failed.length === 0 ? (
-					<p className="muted">
-						No failed jobs in the queue
-						{failedCount ? ` (host counter still reports ${failedCount}).` : '.'}
-					</p>
-				) : (
-					<table>
-						<thead>
+				<table>
+					<thead>
+						<tr>
+							<th>Type</th>
+							<th>State</th>
+							<th>%</th>
+							<th>Error</th>
+						</tr>
+					</thead>
+					<tbody>
+						{failed.length === 0 ? (
 							<tr>
-								<th>Type</th>
-								<th>State</th>
-								<th>%</th>
-								<th>Error</th>
+								<td colSpan={4} className="muted">
+									No failed jobs in the queue
+									{failedCount
+										? ` (host counter still reports ${failedCount}).`
+										: '.'}
+								</td>
 							</tr>
-						</thead>
-						<tbody>
-							{failed.map((j) => (
-								<tr key={j.id}>
-									<td><NavLink to="/jobs">{j.type}</NavLink></td>
-									<td>{j.state}</td>
-									<td>{j.progress}</td>
-									<td>{j.last_error}</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				)}
+						) : failed.map((j) => (
+							<tr key={j.id}>
+								<td><NavLink to="/jobs?state=failed">{j.type}</NavLink></td>
+								<td>{j.state}</td>
+								<td>{j.progress}</td>
+								<td>{j.last_error}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
 			</section>
-			<div className="ops-split">
-				<FirewallPanel />
-				<RebootPanel />
-			</div>
 			<h2 id="agent-health">Service status / agent health</h2>
 			<p className="muted">
 				Kelmor Agent is observed as {agent?.observed_running ? 'running' : 'stopped'}
@@ -200,6 +198,17 @@ export function Dashboard () {
 					))}
 				</tbody>
 			</table>
+			<details className="privileged-host">
+				<summary>Privileged host actions</summary>
+				<p className="muted">
+					Firewall apply and host reboot sit here so they are not the
+					first actions on the home page. Both call real APIs.
+				</p>
+				<div className="ops-split">
+					<FirewallPanel />
+					<RebootPanel />
+				</div>
+			</details>
 		</>
 	)
 }

@@ -50,6 +50,52 @@ export function Metric ({
 	)
 }
 
+export function Pager ({
+	page,
+	pages,
+	total,
+	onPage,
+	label,
+}: {
+	page: number
+	pages: number
+	total: number
+	onPage: (n: number) => void
+	label: string
+}) {
+	return (
+		<div className="pager" role="navigation" aria-label={label}>
+			<button
+				type="button"
+				className="ghost-inline"
+				disabled={page <= 1}
+				onClick={() => onPage(page - 1)}
+			>
+				Previous
+			</button>
+			<span className="muted">
+				{label} {page}/{pages} ({total})
+			</span>
+			<button
+				type="button"
+				className="ghost-inline"
+				disabled={page >= pages || total === 0}
+				onClick={() => onPage(page + 1)}
+			>
+				Next
+			</button>
+		</div>
+	)
+}
+
+export function EmptyRow ({ cols, text }: { cols: number; text: string }) {
+	return (
+		<tr>
+			<td colSpan={cols} className="muted">{text}</td>
+		</tr>
+	)
+}
+
 export function fmtBytes (n: number) {
 	if (!n) return '0 B'
 	const u = ['B', 'KB', 'MB', 'GB', 'TB']

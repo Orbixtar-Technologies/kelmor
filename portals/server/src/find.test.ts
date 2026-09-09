@@ -51,4 +51,5 @@ test('Find locates dedicated account functions', () => {
 	assert.equal(matchFind('terminate', fns, [])[0]?.to, '/accounts/terminate')
 	assert.equal(matchFind('change package', fns, [])[0]?.to, '/accounts/package')
 	assert.equal(matchFind('dns', fns, [])[0]?.to, '/domains')
+	assert.equal(matchFind('privileged host', fns, [])[0]?.to, '/')
 })

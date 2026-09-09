@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, asList } from './client'
 import { Can } from './rbac'
-import { Empty, fmtBytes, Notice, PageHeader } from './ui'
+import { pageSlice } from './pager'
+import { Empty, EmptyRow, fmtBytes, Notice, Pager, PageHeader } from './ui'
 
 export function ImportAccount () {
 	const [msg, setMsg] = useState('')
@@ -74,17 +75,22 @@ export function ImportAccount () {
 export function Packages () {
 	const [items, setItems] = useState<any[]>([])
 	const [msg, setMsg] = useState('')
+	const [q, setQ] = useState('')
 	async function reload () {
 		setItems(asList(await api<{ items: any[] }>('/api/v1/packages')))
 	}
 	useEffect(() => {
 		reload().catch((e) => setMsg(e.message))
 	}, [])
+	const shown = items.filter((p) => {
+		const hay = `${p.name}`.toLowerCase()
+		return hay.includes(q.trim().toLowerCase())
+	})
 	return (
 		<>
 			<PageHeader
 				title="Packages"
-				detail="Reusable CPU, memory, I/O and feature limits enforced through slices and quotas."
+				detail="Reusable CPU, memory, I/O and feature limits enforced through slices and quotas. There is no package edit or delete API — create a new package and use Change Package on the account."
 			/>
 			<Can cap="packages.write">
 				<form
@@ -135,6 +141,12 @@ export function Packages () {
 				</form>
 			</Can>
 			<Notice>{msg}</Notice>
+			<input
+				className="search"
+				placeholder="Search package name"
+				value={q}
+				onChange={(e) => setQ(e.target.value)}
+			/>
 			<table>
 				<thead>
 					<tr>
@@ -149,7 +161,12 @@ export function Packages () {
 					</tr>
 				</thead>
 				<tbody>
-					{items.map((p) => (
+					{shown.length === 0 ? (
+						<EmptyRow
+							cols={8}
+							text="No packages match. Create one above or clear the search."
+						/>
+					) : shown.map((p) => (
 						<tr key={p.id}>
 							<td>{p.name}</td>
 							<td>{p.cpu_percent}</td>
@@ -207,42 +224,49 @@ export function Resellers () {
 				</form>
 			</Can>
 			<Notice>{msg}</Notice>
-			{items.length === 0 ? (
-				<Empty
-					title="No resellers yet"
-					detail="Create one to delegate packages and customer accounts."
-				/>
-			) : (
-				<table>
-					<thead>
-						<tr>
-							<th>Name</th>
-							<th>Brand</th>
-							<th>Status</th>
-							<th>Nameservers</th>
+			<table>
+				<thead>
+					<tr>
+						<th>Name</th>
+						<th>Brand</th>
+						<th>Status</th>
+						<th>Nameservers</th>
+					</tr>
+				</thead>
+				<tbody>
+					{items.length === 0 ? (
+						<EmptyRow
+							cols={4}
+							text="No resellers yet. Create one to delegate packages and customer accounts."
+						/>
+					) : items.map((r) => (
+						<tr key={r.id}>
+							<td>{r.name}</td>
+							<td>{r.brand_name || '—'}</td>
+							<td>{r.status}</td>
+							<td>{(r.nameservers || []).join(', ') || '—'}</td>
 						</tr>
-					</thead>
-					<tbody>
-						{items.map((r) => (
-							<tr key={r.id}>
-								<td>{r.name}</td>
-								<td>{r.brand_name || '—'}</td>
-								<td>{r.status}</td>
-								<td>{(r.nameservers || []).join(', ') || '—'}</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			)}
+					))}
+				</tbody>
+			</table>
 		</>
 	)
 }
 
 export function Monitor () {
 	const [data, setData] = useState<any>(null)
+	const [names, setNames] = useState<Record<string, string>>({})
 	const [err, setErr] = useState('')
+	const [q, setQ] = useState('')
 	useEffect(() => {
 		api('/api/v1/server/monitor').then(setData).catch((e) => setErr(e.message))
+		api<{ items: { id: string; username: string }[] }>('/api/v1/accounts')
+			.then((r) => {
+				const next: Record<string, string> = {}
+				for (const a of asList(r)) next[a.id] = a.username
+				setNames(next)
+			})
+			.catch(() => setNames({}))
 	}, [])
 	if (err) return <Empty title="Usage collector failed" detail={err} />
 	if (!data) {
@@ -253,46 +277,53 @@ export function Monitor () {
 			/>
 		)
 	}
-	const items = data.accounts || []
+	const items = (data.accounts || []).filter((u: any) => {
+		const label = names[u.account_id] || u.account_id || ''
+		return `${label} ${u.account_id}`.toLowerCase().includes(q.trim().toLowerCase())
+	})
 	return (
 		<>
 			<PageHeader
 				title="Usage / Quotas"
-				detail={`Disk, monthly nginx bandwidth, inodes, and process totals from Kelmor Agent. Failed jobs: ${data.failed_jobs}. Certificates expiring within 14 days: ${data.certs_expiring}. Package caps live on Packages; this page is observed usage.`}
+				detail={`Disk, monthly nginx bandwidth, inodes, and process totals from Kelmor Agent. Failed jobs: ${data.failed_jobs}. Certificates expiring within 14 days: ${data.certs_expiring}. Package caps live on Packages; this page is observed usage. Account names come from GET /accounts when that capability is present.`}
 			/>
-			{items.length === 0 ? (
-				<Empty
-					title="No account usage yet"
-					detail="Provision an account, then reload this page."
-				/>
-			) : (
-				<table>
-					<thead>
-						<tr>
-							<th>Account</th>
-							<th>Disk</th>
-							<th>Bandwidth</th>
-							<th>Inodes</th>
-							<th>Processes</th>
-							<th>Memory</th>
-							<th>Collected</th>
+			<input
+				className="search"
+				placeholder="Search username or account id"
+				value={q}
+				onChange={(e) => setQ(e.target.value)}
+			/>
+			<table>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Disk</th>
+						<th>Bandwidth</th>
+						<th>Inodes</th>
+						<th>Processes</th>
+						<th>Memory</th>
+						<th>Collected</th>
+					</tr>
+				</thead>
+				<tbody>
+					{items.length === 0 ? (
+						<EmptyRow
+							cols={7}
+							text="No account usage matches. Provision an account, then reload."
+						/>
+					) : items.map((u: any) => (
+						<tr key={u.account_id}>
+							<td>{names[u.account_id] || u.account_id}</td>
+							<td>{fmtBytes(u.disk_bytes)}</td>
+							<td>{fmtBytes(u.bandwidth_bytes)}</td>
+							<td>{u.inode_count}</td>
+							<td>{u.process_count}</td>
+							<td>{fmtBytes(u.memory_bytes)}</td>
+							<td>{u.collected_at}</td>
 						</tr>
-					</thead>
-					<tbody>
-						{items.map((u: any) => (
-							<tr key={u.account_id}>
-								<td>{u.account_id}</td>
-								<td>{fmtBytes(u.disk_bytes)}</td>
-								<td>{fmtBytes(u.bandwidth_bytes)}</td>
-								<td>{u.inode_count}</td>
-								<td>{u.process_count}</td>
-								<td>{fmtBytes(u.memory_bytes)}</td>
-								<td>{u.collected_at}</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			)}
+					))}
+				</tbody>
+			</table>
 		</>
 	)
 }
@@ -316,7 +347,7 @@ export function Jobs () {
 		<>
 			<PageHeader
 				title="Background jobs"
-				detail="Durable queue. Filter by observed state (API) and type (this view)."
+				detail="Durable queue table (shown even when idle). Filter by observed state (GET /jobs?state=) and type (this view). No retry or cancel API."
 			/>
 			<div className="toolbar">
 				<select
@@ -342,57 +373,113 @@ export function Jobs () {
 					onChange={(e) => setTypeQ(e.target.value)}
 				/>
 			</div>
-			{shown.length === 0 ? (
-				<Empty
-					title="Queue is idle"
-					detail="Provisioning, backups and certificate work will appear here."
-				/>
-			) : (
-				<table>
-					<thead>
-						<tr><th>Type</th><th>State</th><th>%</th><th>Error</th></tr>
-					</thead>
-					<tbody>
-						{shown.map((j) => (
-							<tr key={j.id} className={j.state === 'failed' ? 'row-failed' : undefined}>
-								<td>{j.type}</td>
-								<td>{j.state}</td>
-								<td>{j.progress}</td>
-								<td>{j.last_error}</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			)}
+			<table>
+				<thead>
+					<tr><th>Type</th><th>State</th><th>%</th><th>Error</th></tr>
+				</thead>
+				<tbody>
+					{shown.length === 0 ? (
+						<EmptyRow
+							cols={4}
+							text={items.length === 0
+								? 'Queue is idle — no jobs in this view. Provisioning, backups and certificate work will appear as rows here. Retry and cancel are not exposed (no job mutation API).'
+								: 'No jobs match this type filter.'}
+						/>
+					) : shown.map((j) => (
+						<tr key={j.id} className={j.state === 'failed' ? 'row-failed' : undefined}>
+							<td>{j.type}</td>
+							<td>{j.state}</td>
+							<td>{j.progress}</td>
+							<td>{j.last_error}</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
 		</>
 	)
+}
+
+function auditDetail (e: any) {
+	const body: Record<string, unknown> = {}
+	if (e.actor_type) body.actor_type = e.actor_type
+	if (e.actor_id) body.actor_id = e.actor_id
+	if (e.effective_actor_id) body.effective_actor_id = e.effective_actor_id
+	if (e.account_id) body.account_id = e.account_id
+	if (e.resource_id) body.resource_id = e.resource_id
+	if (e.request_id) body.request_id = e.request_id
+	if (e.user_agent) body.user_agent = e.user_agent
+	if (e.before_state) body.before_state = e.before_state
+	if (e.after_state) body.after_state = e.after_state
+	if (e.metadata) body.metadata = e.metadata
+	return JSON.stringify(body, null, 2)
 }
 
 export function Audit () {
 	const [items, setItems] = useState<any[]>([])
 	const [err, setErr] = useState('')
 	const [q, setQ] = useState('')
+	const [ok, setOk] = useState('')
+	const [action, setAction] = useState('')
+	const [page, setPage] = useState(1)
+	const [open, setOpen] = useState('')
 	useEffect(() => {
 		api<{ items: any[] }>('/api/v1/audit-events')
 			.then((r) => setItems(asList(r)))
 			.catch((e) => setErr(e.message))
 	}, [])
+	useEffect(() => { setPage(1) }, [q, ok, action])
 	if (err) return <Empty title="Audit unavailable" detail={err} />
+	const actions = Array.from(new Set(items.map((e) => String(e.action || ''))))
+		.filter(Boolean)
+		.sort()
 	const shown = items.filter((e) => {
-		const hay = `${e.action} ${e.resource_type} ${e.source_ip}`.toLowerCase()
-		return hay.includes(q.trim().toLowerCase())
+		const hay = `${e.action} ${e.resource_type} ${e.resource_id} ${e.source_ip} ${e.actor_id}`.toLowerCase()
+		if (!hay.includes(q.trim().toLowerCase())) return false
+		if (ok === 'yes' && !e.success) return false
+		if (ok === 'no' && e.success) return false
+		if (action && e.action !== action) return false
+		return true
 	})
+	const paged = pageSlice(shown, page)
 	return (
 		<>
 			<PageHeader
 				title="Privileged audit trail"
-				detail="Secrets are redacted. Impersonation keeps the original actor."
+				detail="GET /audit-events (200 most recent). Secrets are redacted. There is no get-by-id API; expand a row for actor, resource, and state payloads."
 			/>
-			<input
-				className="search"
-				placeholder="Filter action, resource, IP"
-				value={q}
-				onChange={(e) => setQ(e.target.value)}
+			<div className="toolbar">
+				<input
+					className="search"
+					placeholder="Search action, resource, IP, actor"
+					value={q}
+					onChange={(e) => setQ(e.target.value)}
+				/>
+				<select
+					aria-label="Action filter"
+					value={action}
+					onChange={(e) => setAction(e.target.value)}
+				>
+					<option value="">All actions</option>
+					{actions.map((a) => (
+						<option key={a} value={a}>{a}</option>
+					))}
+				</select>
+				<select
+					aria-label="Result filter"
+					value={ok}
+					onChange={(e) => setOk(e.target.value)}
+				>
+					<option value="">All results</option>
+					<option value="yes">OK</option>
+					<option value="no">Failed</option>
+				</select>
+			</div>
+			<Pager
+				page={paged.page}
+				pages={paged.pages}
+				total={paged.total}
+				onPage={setPage}
+				label="Audit"
 			/>
 			<table>
 				<thead>
@@ -402,17 +489,41 @@ export function Audit () {
 						<th>Resource</th>
 						<th>OK</th>
 						<th>IP</th>
+						<th></th>
 					</tr>
 				</thead>
 				<tbody>
-					{shown.map((e) => (
-						<tr key={e.id}>
-							<td>{e.occurred_at}</td>
-							<td>{e.action}</td>
-							<td>{e.resource_type}</td>
-							<td>{e.success ? 'yes' : 'no'}</td>
-							<td>{e.source_ip}</td>
-						</tr>
+					{paged.rows.length === 0 ? (
+						<EmptyRow
+							cols={6}
+							text="No audit events match this filter."
+						/>
+					) : paged.rows.map((e) => (
+						<Fragment key={e.id}>
+							<tr className={open === e.id ? 'expanded' : undefined}>
+								<td>{e.occurred_at}</td>
+								<td>{e.action}</td>
+								<td>{e.resource_type}</td>
+								<td>{e.success ? 'yes' : 'no'}</td>
+								<td>{e.source_ip}</td>
+								<td>
+									<button
+										type="button"
+										className="ghost-inline"
+										onClick={() => setOpen(open === e.id ? '' : e.id)}
+									>
+										{open === e.id ? 'Hide' : 'Details'}
+									</button>
+								</td>
+							</tr>
+							{open === e.id ? (
+								<tr>
+									<td colSpan={6}>
+										<pre className="audit-detail">{auditDetail(e)}</pre>
+									</td>
+								</tr>
+							) : null}
+						</Fragment>
 					))}
 				</tbody>
 			</table>
