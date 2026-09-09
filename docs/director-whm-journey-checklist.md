@@ -71,6 +71,14 @@ tool entries. Account operations remain scoped to `/accounts/:id/services`.
 
 - Package update/delete, reseller update, owner password rotation, and failed-job
   retry are real capability-gated API operations.
+- Forced password rotation is atomic with its reconciliation job. Kelmor Control
+  requires the owner to choose a different password before issuing a session.
+- Account API tokens are bound to the selected account and restricted to the
+  actor's account-safe capabilities.
+- Native and extracted host-path imports require server scope; reseller
+  migrations use the reviewed account-copy journey.
+- Account lifecycle writes use atomic state-and-job transactions and reject
+  stale reviewed revisions.
 - Host-impacting changes continue through API → durable job or typed agent.
 - Job list/detail payloads recursively redact password, secret, token,
   credential, key, and hash fields.
