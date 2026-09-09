@@ -48,6 +48,9 @@ api-key=panel-loopback
 	if err := writeUnlessExists(pdnsConf, []byte(body), 0o640); err != nil {
 		return err
 	}
+	if err := ensureFileContains(pdnsConf, "bind-config=/etc/powerdns/named.conf\n"); err != nil {
+		return err
+	}
 	if err := ensureFileContains(pdnsConf, "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3\n"); err != nil {
 		return err
 	}
@@ -87,7 +90,7 @@ include "/var/lib/panel/dns/named-zones.conf";
 }
 
 func reloadLivePowerDNS(c Config) {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return
 	}
 	if _, err := os.Stat("/usr/sbin/pdns_server"); err != nil {
@@ -95,6 +98,10 @@ func reloadLivePowerDNS(c Config) {
 	}
 	_ = exec.Command("/usr/bin/pkill", "-x", "pdns_server").Run()
 	time.Sleep(200 * time.Millisecond)
+	if err := exec.Command("/bin/systemctl", "restart", "pdns").Run(); err == nil {
+		_ = waitListen("127.0.0.1:53", 5*time.Second)
+		return
+	}
 	cmd := exec.Command("/usr/sbin/pdns_server", "--daemon=yes", "--guardian=no", "--config-dir=/etc/powerdns")
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin"}
 	_ = cmd.Start()
@@ -988,6 +995,8 @@ func verifyDNS(c Config) error {
 	if !strings.Contains(string(b), "bind-dnssec-db=") {
 		return fmt.Errorf("pdns.conf missing bind-dnssec-db")
 	}
+	// Ubuntu ships launch= (parent) plus pdns.d/bind.conf launch+=bind.
+	// Do not require launch=bind in the main file.
 	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}

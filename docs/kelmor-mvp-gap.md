@@ -1,4 +1,4 @@
-# Kelmor MVP gap (main @ 3f1fdd2 + QEMU path slice)
+# Kelmor MVP gap (PR #2 QEMU path @ this tree)
 
 Honest inventory of `main` against the product identity and the
 fresh-Ubuntu MVP path. Status words mean:
@@ -49,20 +49,20 @@ Ubuntu 24.04 native. No Docker/K8s required for the control plane.
 
 | Step | Status | Evidence |
 | --- | --- | --- |
-| Fresh Ubuntu 24.04 install | **PARTIAL** | `panel-install` phases + systemd units + `make package`. QEMU/rootfs scripts exist. Not proven in *this* agent VM (no Ubuntu host stack). |
-| Director admin login | **VERIFIED** | Session + RBAC + Server Portal login form calling `/api/v1/auth/login`. Default admin is a **dev seed**, not a production secret. |
-| Create hosting account | **VERIFIED** | `POST /accounts` → `account.provision` job; Director form and `panel-cli account create`. |
-| Linux tenant | **VERIFIED** (live) / **MOCK** (sandbox) | `CreateLinuxUser` → `useradd` + `panel-sftp` + home harden when `live()`; otherwise home tree + `.panel-identity` only. |
-| Nginx site | **VERIFIED** | `ApplyWebsite` writes `/etc/nginx/panel-sites/<id>.conf`, `nginx -t`, reload when live. Installer includes `panel-sites/*.conf`. |
-| PHP 8.3 | **PARTIAL** | Pool file `/etc/php/8.3/fpm/pool.d/panel-<user>.conf` + nginx `fastcgi_pass` to `/run/php/panel-<user>.sock`. `ApplyWebsite` dropped `php_version`. `ensureFPM` swallowed start failures. |
-| DNS | **PARTIAL** | Zone file + `named-zones.conf` + `pdns_control` when live. `ensureDomainStack` **ignored** `writeZone` errors unless ACME was live — account could go `active` with no published zone. |
-| TLS | **PARTIAL** | HTTP-01 via `PANEL_ACME_DIRECTORY` / installer ACME phase; sandbox/dev issues `panel-dev` self-signed. Lab Pebble is optional. |
-| MariaDB | **PARTIAL** | `CreateHostedDatabase` runs `mariadb -e` when live; **not** invoked from `account.provision`. Tenant must `POST /databases` or CLI. Sandbox is **MOCK** (`ObservedState=recorded`). |
-| SFTP | **PARTIAL** | Live: `chpasswd`, `Match Group panel-sftp`, home `0751` + ACL. Installer Match block now sets `PasswordAuthentication yes` (cloud images are key-only by default). `scripts/fresh-provision-smoke.sh` probes a real `sftp` session. Still PARTIAL until that guest path runs. |
-| Mailbox | **PARTIAL** | Maps + Maildir + Dovecot passwd-file are real. Provision created `postmaster` with hash `!` (Dovecot cannot authenticate). Usable mailbox required a later API/CLI call. |
-| Backup / restore | **VERIFIED** (local HPM1) / **PARTIAL** (offsite) | Worker `backup.create` / `backup.restore`; SFTP/S3 destinations need env. Restore must not unsuspend (tested). |
-| Control self-serve | **VERIFIED** | Account Portal calls the same API with tenant capabilities; no host firewall/reboot chrome. |
-| Reboot healthy | **PARTIAL** | `POST /server/reboot` + `confirm=REBOOT`; live `shutdown` only with `PANEL_ALLOW_REBOOT=1`. Installer enables units under `multi-user.target`. Full reboot loop is a host test, not CI. |
+| Fresh Ubuntu 24.04 install | **VERIFIED** (nested QEMU) | Official Noble cloud image, systemd PID 1, `panel-install --acme pebble`. Not a bare-metal ISO. First boot left a competing `pdns_server` daemon; this slice prefers `systemctl restart pdns`. |
+| Director admin login | **VERIFIED** | API login + Kelmor Director HTML on guest `:8443` (`director-ok`). Default admin is a **dev seed**. |
+| Create hosting account | **VERIFIED** | `POST /accounts` → `account.provision`; guest account `freshhost` became `active`. |
+| Linux tenant | **VERIFIED** (live) / **MOCK** (sandbox) | Guest `freshhost` UID 20000, home `0751 root:root`, shell `nologin`. |
+| Nginx site | **VERIFIED** | Guest `Host: freshhost.test` HTTP 200. |
+| PHP 8.3 | **VERIFIED** (live QEMU) | `GET /index.php` → `php 8.3.6 freshhost`; pool isolated; `/run/php/panel-freshhost.sock`; `php8.3-fpm` active. |
+| DNS | **VERIFIED** (after systemd pdns) | Zone file + `dig @127.0.0.1 freshhost.test A` → `10.0.2.15`. First installer pass answered empty until `systemctl restart pdns` (daemon vs unit). |
+| TLS | **PARTIAL** | Director `:8443` self-signed worked. Customer hostname ACME still lab/Pebble/`panel-dev`, not public DNS. |
+| MariaDB | **VERIFIED** (live) / **MOCK** (sandbox) | Provision created `freshhost_db`; `SHOW DATABASES` + credential file on the guest. |
+| SFTP | **VERIFIED** (live QEMU) | Match-scoped password auth; `sftp` as `freshhost` listed `public_html`. |
+| Mailbox | **VERIFIED** (auth) / **PARTIAL** (unit) | `doveadm auth test info@freshhost.test` succeeded with the owner password. Dovecot systemd unit was `failed` while a hand-started master still served IMAP. |
+| Backup / restore | **VERIFIED** (local HPM1) / **PARTIAL** (offsite) | Guest `backup.create` local succeeded. Offsite not run. |
+| Control self-serve | **VERIFIED** (API/SPA) | Same API as Director; this run did not click Control in a browser. |
+| Reboot healthy | **PARTIAL** | Guest was not rebooted. |
 
 ## Control plane (honest)
 
@@ -72,7 +72,7 @@ Ubuntu 24.04 native. No Docker/K8s required for the control plane.
 | Auth / RBAC / audit | **VERIFIED** | Argon2id, capabilities, IDOR tests under `tests/security`. |
 | Job engine | **VERIFIED** | Durable jobs, provision/reconcile/retire, suspend race tests. |
 | Typed agent dispatch | **VERIFIED** | Allow-listed methods; path policy; no arbitrary root shell. |
-| Installer phases | **PARTIAL** | Resumable; apt allow-list; writes stack files. Live apt/systemd needs a real 24.04 host. |
+| Installer phases | **VERIFIED** (QEMU guest) / **PARTIAL** (host-runtime vs systemd) | Live apt + units on nested Noble. Prefer systemd for pdns/dovecot so a daemon does not steal the port. |
 | Director / Control SPAs | **VERIFIED** | Real API forms (accounts, sites, DNS, mail, files, backups). Not placeholder screens. |
 | WordPress manager | **PARTIAL** / out of MVP | `InstallWordPress` exists; **do not expand** this run. |
 | Node / Python platform | **PARTIAL** / out of MVP | `ApplyAppUnit` stubs; **do not expand** this run. |
@@ -119,13 +119,14 @@ Do not treat that as the Kelmor MVP gate.
 
 ## Remaining MVP blockers (after this slice)
 
-- Prove the path on a **real Ubuntu 24.04** guest via
-  `scripts/qemu-kelmor-path.sh` (installer → Director → provision →
-  HTTP/PHP/DNS/TLS/IMAP/SFTP/MariaDB). Re-verify this file after that run.
-  Nested KVM may be available on a given agent VM; TCG is the fallback.
-- Live ACME for customer hostnames (needs public DNS to the node).
+- Re-run `qemu-kelmor-path.sh` on a **new** empty disk after the
+  systemd-pdns fix (this run repaired pdns on an already-installed guest).
+- Guest reboot → units come back healthy (`PANEL_ALLOW_REBOOT=1`).
+- Dovecot managed only by systemd (no leftover master.pid clash).
+- Live ACME for customer hostnames (public DNS to the node).
 - Offsite backup destinations configured and restored.
 - Production admin password / TLS for Director:8443 and Control:8444.
+- Browser pass of Kelmor Control (API path already used).
 - Optional: migrate on-disk `panel` paths to `kelmor` (separate, breaking).
 
 ## What this repo must not grow in an MVP run

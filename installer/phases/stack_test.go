@@ -3,6 +3,7 @@ package phases
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -192,6 +193,55 @@ func contains(s, sub string) bool {
 		}
 		return false
 	})()))
+}
+
+func TestApplyDNSForcesBindLaunchOnPackagedConf(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	cfg := Config{Hostname: "panel.example.net", AdminEmail: "ops@example.net", Dev: true}
+	packaged := filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf")
+	if err := os.MkdirAll(filepath.Dir(packaged), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub := "include-dir=/etc/powerdns/pdns.d\nlaunch=\nsecurity-poll-suffix=\n"
+	if err := os.WriteFile(packaged, []byte(stub), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyDNS(cfg); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(packaged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsExactLine(string(body), "launch=") {
+		t.Fatalf("Ubuntu packaged launch= parent must stay: %s", body)
+	}
+	if containsExactLine(string(body), "launch=bind") {
+		t.Fatalf("must not duplicate bind launch over pdns.d launch+=bind: %s", body)
+	}
+	if !contains(string(body), "bind-config=/etc/powerdns/named.conf") {
+		t.Fatalf("missing bind-config: %s", body)
+	}
+	if !contains(string(body), "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3") {
+		t.Fatalf("missing bind-dnssec-db: %s", body)
+	}
+}
+
+func containsExactLine(s, line string) bool {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.TrimSpace(l) == line {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWriteUnlessExistsKeepsExisting(t *testing.T) {
