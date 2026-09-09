@@ -6,6 +6,20 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: panel
+          POSTGRES_PASSWORD: panel
+          POSTGRES_DB: panel_control
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U panel -d panel_control"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -13,6 +27,8 @@ jobs:
           go-version: "1.22"
       - run: make lint
       - run: make test
+        env:
+          PANEL_DATABASE_URL: postgres://panel:panel@localhost:5432/panel_control?sslmode=disable
       - run: make test-security
       - run: make build
   frontend:
@@ -22,5 +38,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: cd portals/server && npm ci && npx tsc -b --pretty false
+      - run: cd portals/server && npm ci && npm test && npm run build
       - run: cd portals/account && npm ci && npx tsc -b --pretty false

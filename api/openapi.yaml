@@ -43,6 +43,28 @@ paths:
       responses:
         "200": { description: session issued }
         "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /auth/complete-password-change:
+    post:
+      operationId: completePasswordChange
+      x-audit-action: auth.password.complete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, current_password, new_password]
+              properties:
+                username: { type: string }
+                current_password: { type: string, writeOnly: true }
+                new_password: { type: string, minLength: 12, writeOnly: true }
+      responses:
+        "200": { description: password changed and Linux reconciliation queued }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /auth/logout:
     post:
       operationId: logout
@@ -83,6 +105,12 @@ paths:
       x-capability: server.read
       responses:
         "200": { description: per-account disk, bandwidth, inode, and process usage }
+  /server/dns/zones:
+    get:
+      operationId: listServerDNSZones
+      x-capability: server.read
+      responses:
+        "200": { description: server-wide zones joined to account usernames and record counts }
   /server/services:
     get:
       operationId: serverServices
@@ -119,35 +147,49 @@ paths:
       responses:
         "201": { description: created }
   /packages/{packageID}:
-    parameters:
-      - $ref: "#/components/parameters/packageID"
     get:
       operationId: getPackage
       x-capability: packages.read
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: package }
-        "404": { description: unknown, or owned by another reseller }
+        "200": { description: package visible to the actor }
+        "404": { description: package not found or outside reseller scope }
     put:
+      operationId: replacePackage
+      x-capability: packages.write
+      x-audit-action: package.update
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: package fully replaced while retaining immutable ownership }
+        "403": { description: package is outside the actor scope }
+        "404": { description: package not found }
+    patch:
       operationId: updatePackage
       x-capability: packages.write
-      x-audit-action: package.modify
-      description: Replaces every limit on the package. Reseller ownership is preserved from the stored record.
+      x-audit-action: package.update
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: saved }
-        "404": { description: unknown, or owned by another reseller }
+        "200": { description: package updated }
+        "403": { description: package is outside the actor scope }
+        "404": { description: package not found }
     delete:
       operationId: deletePackage
       x-capability: packages.write
       x-audit-action: package.delete
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: deleted }
-        "409": { description: an account still uses this package }
+        "200": { description: package deleted }
+        "409": { description: package is assigned to an account }
   /feature-sets:
     get:
       operationId: listFeatureSets
       x-capability: packages.read
       responses:
-        "200": { description: feature sets available to packages }
+        "200": { description: available package feature sets }
   /resellers:
     get:
       operationId: listResellers
@@ -160,23 +202,24 @@ paths:
       responses:
         "201": { description: created }
   /resellers/{resellerID}:
-    parameters:
-      - in: path
-        name: resellerID
-        required: true
-        schema: { type: string, format: uuid }
     get:
       operationId: getReseller
       x-capability: resellers.read
-      description: Reseller record with the accounts and packages it owns and its sign-in user.
+      description: Server-scoped reseller detail with owned accounts, packages, and a credential-safe owner identity.
+      parameters:
+        - { name: resellerID, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         "200": { description: reseller detail }
-        "404": { description: unknown reseller }
+        "403": { description: server scope required }
+        "404": { description: reseller not found }
     patch:
       operationId: updateReseller
       x-capability: resellers.modify
-      x-audit-action: reseller.modify
+      x-audit-action: reseller.update
+      parameters:
+        - { name: resellerID, in: path, required: true, schema: { type: string } }
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -184,23 +227,40 @@ paths:
               properties:
                 name: { type: string }
                 brand_name: { type: string }
-                status: { type: string, enum: [active, suspended] }
-                nameservers: { type: array, items: { type: string } }
+                status: { type: string, enum: [active, suspended, inactive] }
+                nameservers:
+                  type: array
+                  items: { type: string, format: hostname }
                 privilege_mask:
                   type: array
-                  description: Capabilities delegated to this reseller. Must be a subset of the reseller role.
                   items: { type: string }
       responses:
-        "200": { description: saved }
-        "400": { description: a privilege outside the reseller role was requested }
+        "200": { description: reseller updated }
+        "403": { description: server scope required }
+        "404": { description: reseller not found }
   /accounts:
     post:
       operationId: createAccount
       x-capability: accounts.create
       x-idempotency: required
       x-audit-action: account.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, primary_domain, package_id, owner_password]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 32 }
+                primary_domain: { type: string, format: hostname }
+                package_id: { type: string, format: uuid }
+                reseller_id: { type: string, format: uuid }
+                owner_email: { type: string, format: email, description: Defaults to username@normalized-primary-domain when omitted or blank. }
+                owner_password: { type: string, format: password, minLength: 12, writeOnly: true }
       responses:
         "202": { description: provisioning job accepted }
+        "400": { description: invalid account request or owner password }
     get:
       operationId: listAccounts
       x-capability: accounts.read
@@ -219,13 +279,10 @@ paths:
           schema: { type: string, format: uuid }
         - in: query
           name: over_quota
-          description: Only accounts at or above their package disk or monthly transfer limit.
-          schema: { type: string, enum: ["true"] }
+          schema: { type: boolean }
       responses:
-        "200":
-          description: >-
-            Accounts the caller may see, with `total` and a `usage` map keyed by account id so an
-            operator table can render disk and transfer without a request per row.
+        "200": { description: visible accounts with total and a usage map keyed only by visible account IDs }
+        "400": { description: invalid filter value }
   /accounts/{accountID}:
     get:
       operationId: getAccount
@@ -258,6 +315,25 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/{accountID}/password:
+    post:
+      operationId: rotateAccountPassword
+      x-capability: accounts.modify
+      x-audit-action: account.password.rotate
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 12, writeOnly: true }
+                must_change_password: { type: boolean, default: false }
+      responses:
+        "202": { description: owner password updated and Linux reconciliation queued }
   /accounts/{accountID}/migrate:
     post:
       operationId: migrateAccount
@@ -350,27 +426,6 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: retire queued }
-  /accounts/{accountID}/password:
-    post:
-      operationId: setAccountPassword
-      x-capability: accounts.modify
-      x-audit-action: account.password.reset
-      description: Rotates the account owner password and the SFTP credential, optionally forcing a change at next sign-in.
-      parameters:
-        - $ref: "#/components/parameters/accountID"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [password]
-              properties:
-                password: { type: string }
-                must_change_password: { type: boolean }
-      responses:
-        "202": { description: password rotated and reconcile queued }
-        "400": { description: a new password is required }
   /accounts/{accountID}/domains:
     get:
       operationId: listDomains
@@ -554,13 +609,41 @@ paths:
       operationId: listJobs
       responses:
         "200": { description: durable job queue }
-  /server/dns/zones:
+  /jobs/{jobID}:
     get:
-      operationId: listAllZones
-      x-capability: dns.read
-      description: Server-wide authoritative zone index joined with the owning account and its record count.
+      operationId: getJob
+      parameters:
+        - { name: jobID, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: zones served by this host }
+        "200":
+          description: Credential-redacted job detail. `retryable` reports whether the stored job type and payload are safe to clone for retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404": { description: job not found or outside the actor scope }
+  /jobs/{jobID}/retry:
+    post:
+      operationId: retryJob
+      x-audit-action: job.retry
+      parameters:
+        - { name: jobID, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: eligible failed job cloned into a new queued operation }
+        "403": { description: missing capability for the job operation }
+        "409": { description: job is not failed or its type is not retryable }
+  /jobs/{jobID}/cancel:
+    post:
+      operationId: cancelJob
+      x-audit-action: job.cancel
+      description: Atomically cancels a visible queued or failed job. Requires the write capability for that job type; server.read alone is insufficient.
+      parameters:
+        - { name: jobID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: credential-redacted cancelled job }
+        "403": { description: missing capability for the job operation }
+        "404": { description: job not found or outside the actor scope }
+        "409": { description: job is running, succeeded, cancelled, or otherwise not cancellable }
   /accounts/{accountID}/mail/domains:
     get:
       operationId: listMailDomains
@@ -595,6 +678,7 @@ paths:
     post:
       operationId: importAccount
       x-capability: accounts.create
+      x-server-scope: true
       parameters:
         - in: query
           name: username
@@ -608,6 +692,7 @@ paths:
     post:
       operationId: importCPanel
       x-capability: accounts.create
+      x-server-scope: true
       x-audit-action: account.import.cpanel
       requestBody:
         required: true
@@ -924,67 +1009,29 @@ paths:
       x-capability: accounts.read
       responses:
         "200": { description: account list export }
-  /jobs/{jobID}:
-    get:
-      operationId: getJob
-      parameters:
-        - in: path
-          name: jobID
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        "200": { description: job status }
-  /jobs/{jobID}/retry:
-    post:
-      operationId: retryJob
-      x-audit-action: job.retry
-      description: Re-queues a failed, cancelled or dead job and clears its last error.
-      parameters:
-        - $ref: "#/components/parameters/jobID"
-      responses:
-        "202": { description: job re-queued }
-        "409": { description: only failed or cancelled jobs can be retried }
-  /jobs/{jobID}/cancel:
-    post:
-      operationId: cancelJob
-      x-audit-action: job.cancel
-      parameters:
-        - $ref: "#/components/parameters/jobID"
-      responses:
-        "200": { description: job cancelled }
-        "409": { description: only queued or failed jobs can be cancelled }
   /audit-events:
     get:
       operationId: listAuditEvents
       x-capability: security.audit.read
       parameters:
-        - { in: query, name: q, schema: { type: string }, description: matches action, resource, source IP, request ID or actor }
-        - { in: query, name: action, schema: { type: string }, description: substring match on the action }
-        - { in: query, name: resource_type, schema: { type: string } }
-        - { in: query, name: account_id, schema: { type: string, format: uuid } }
-        - { in: query, name: actor_id, schema: { type: string, format: uuid } }
-        - { in: query, name: success, schema: { type: string, enum: ["true", "false"] } }
-        - { in: query, name: since, schema: { type: string, format: date-time } }
-        - { in: query, name: until, schema: { type: string, format: date-time } }
-        - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 500 } }
-        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: resource_type, in: query, schema: { type: string } }
+        - { name: account_id, in: query, schema: { type: string, format: uuid } }
+        - { name: actor_id, in: query, schema: { type: string, format: uuid } }
+        - { name: success, in: query, schema: { type: boolean } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
-        "200": { description: filtered audit trail with total, offset and limit }
+        "200": { description: filtered audit trail with total, limit, and offset }
+        "400": { description: invalid filter value }
 components:
   parameters:
     accountID:
       in: path
       name: accountID
-      required: true
-      schema: { type: string, format: uuid }
-    packageID:
-      in: path
-      name: packageID
-      required: true
-      schema: { type: string, format: uuid }
-    jobID:
-      in: path
-      name: jobID
       required: true
       schema: { type: string, format: uuid }
   responses:
@@ -995,6 +1042,19 @@ components:
           schema:
             $ref: "#/components/schemas/APIError"
   schemas:
+    Job:
+      type: object
+      required: [id, type, payload, state, retryable]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string, format: uuid }
+        payload: { type: object, description: Credential-redacted stored input }
+        state: { type: string }
+        retryable:
+          type: boolean
+          description: True only when the job type supports retry and its stored payload contains no sensitive fields.
     APIError:
       type: object
       properties:

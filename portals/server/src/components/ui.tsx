@@ -1,306 +1,148 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Icon, type IconName } from './icons'
-import { useFavorites } from '../lib/hooks'
-import { categoryOf, toolByPath } from '../nav/catalog'
+import type { ReactNode } from 'react'
+import { useCapabilities } from '../rbac'
 
-export interface Crumb {
-	label: string
-	to?: string
-}
-
-export interface PageHeaderProps {
+interface PageHeaderProps {
 	title: string
-	description?: ReactNode
-	crumbs?: Crumb[]
+	description: string
 	actions?: ReactNode
-	/** Tool path used for the favourite star. Defaults to the current route. */
-	favoritePath?: string
 }
 
-export function PageHeader ({ title, description, crumbs, actions, favoritePath }: PageHeaderProps) {
-	const path = favoritePath ?? window.location.pathname
-	const tool = toolByPath(path)
-	const category = categoryOf(path)
-	const { isFavorite, toggle } = useFavorites()
-	const leaf = tool?.name ?? title
-	const trail: Crumb[] = crumbs ?? [
-		...(category && category.name !== leaf ? [{ label: category.name }] : []),
-		{ label: leaf },
-	]
-
+export function PageHeader ({ title, description, actions }: PageHeaderProps) {
 	return (
-		<>
-			<Breadcrumbs crumbs={trail} />
-			<div className="page-head">
-				<div>
-					<h1>{title}</h1>
-					{description ? <p>{description}</p> : null}
-				</div>
-				<div className="head-actions">
-					{actions}
-					{tool ? (
-						<button
-							type="button"
-							className={isFavorite(path) ? 'star on' : 'star'}
-							aria-pressed={isFavorite(path)}
-							title={isFavorite(path) ? 'Remove from favourites' : 'Add to favourites'}
-							onClick={() => toggle(path)}
-						>
-							<Icon name="star" size={19} />
-						</button>
-					) : null}
-				</div>
-			</div>
-		</>
+		<header className="page-header">
+			<div><h1>{title}</h1><p>{description}</p></div>
+			{actions ? <div className="page-actions">{actions}</div> : null}
+		</header>
 	)
 }
 
-export function Breadcrumbs ({ crumbs }: { crumbs: Crumb[] }) {
+interface EmptyStateProps {
+	title: string
+	detail: string
+	action?: ReactNode
+}
+
+export function EmptyState ({ title, detail, action }: EmptyStateProps) {
+	return <div className="empty-state"><strong>{title}</strong><p>{detail}</p>{action}</div>
+}
+
+export function LoadingState ({ label = 'Loading data…' }: { label?: string }) {
+	return <div className="loading-state" role="status"><span aria-hidden="true" />{label}</div>
+}
+
+export function ErrorState ({ title = 'Could not load data', error, onRetry }: { title?: string; error: string; onRetry?: () => void }) {
+	return <div className="error-state" role="alert"><strong>{title}</strong><p>{error}</p>{onRetry ? <button type="button" className="secondary" onClick={onRetry}>Try again</button> : null}</div>
+}
+
+export function StatusBadge ({ value }: { value: string | boolean | undefined }) {
+	const text = typeof value === 'boolean' ? (value ? 'active' : 'inactive') : (value || 'unknown')
+	const normalized = text.toLocaleLowerCase()
+	const tone = ['active', 'healthy', 'succeeded', 'running', 'yes'].includes(normalized)
+		? 'good'
+		: ['failed', 'error', 'suspended', 'inactive', 'no'].includes(normalized) ? 'bad' : 'neutral'
+	return <span className={`status-badge ${tone}`}>{text}</span>
+}
+
+export function Metric ({ label, value, detail }: { label: string; value: ReactNode; detail?: string }) {
+	return <article className="metric"><span>{label}</span><strong>{value}</strong>{detail ? <small>{detail}</small> : null}</article>
+}
+
+interface DialogProps {
+	open: boolean
+	title: string
+	children: ReactNode
+	onClose: () => void
+	actions?: ReactNode
+}
+
+export function Dialog ({ open, title, children, onClose, actions }: DialogProps) {
+	const panelRef = useRef<HTMLDivElement>(null)
+	const openerRef = useRef<HTMLElement | null>(null)
+	const wasOpenRef = useRef(false)
+	const onCloseRef = useRef(onClose)
+	const titleId = useId()
+	onCloseRef.current = onClose
+	if (open && !wasOpenRef.current && typeof document !== 'undefined') {
+		openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+	}
+	wasOpenRef.current = open
+	useEffect(() => {
+		if (!open) return
+		const panel = panelRef.current
+		const focusables = panel?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
+		if (!panel?.contains(document.activeElement)) (focusables?.[0] || panel)?.focus()
+		function handleKeyDown (event: KeyboardEvent) {
+			if (event.key === 'Escape') {
+				onCloseRef.current()
+				return
+			}
+			if (event.key !== 'Tab' || !panel) return
+			const available = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+			if (!available.length) {
+				event.preventDefault()
+				panel.focus()
+				return
+			}
+			const first = available[0]
+			const last = available[available.length - 1]
+			if (!panel.contains(document.activeElement)) {
+				event.preventDefault()
+				;(event.shiftKey ? last : first).focus()
+				return
+			}
+			if (event.shiftKey && document.activeElement === first) {
+				event.preventDefault()
+				last.focus()
+			} else if (!event.shiftKey && document.activeElement === last) {
+				event.preventDefault()
+				first.focus()
+			}
+		}
+		document.addEventListener('keydown', handleKeyDown)
+		return () => {
+			document.removeEventListener('keydown', handleKeyDown)
+			openerRef.current?.focus()
+			openerRef.current = null
+		}
+	}, [open])
+	if (!open) return null
 	return (
-		<nav className="crumbs" aria-label="Breadcrumb">
-			<Link to="/">Home</Link>
-			{crumbs.map((crumb) => (
-				<span key={crumb.label} style={{ display: 'contents' }}>
-					<span className="sep">
-						<Icon name="chevronRight" size={11} />
-					</span>
-					{crumb.to ? <Link to={crumb.to}>{crumb.label}</Link> : <span>{crumb.label}</span>}
-				</span>
-			))}
+		<div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+			<div ref={panelRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+				<header><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button></header>
+				<div className="dialog-body">{children}</div>
+				{actions ? <footer>{actions}</footer> : null}
+			</div>
+		</div>
+	)
+}
+
+export function Pagination ({ page, pageCount, total, onPage }: { page: number; pageCount: number; total: number; onPage: (page: number) => void }) {
+	return (
+		<nav className="pagination" aria-label="Pagination">
+			<span>{total} results · Page {page} of {pageCount}</span>
+			<div>
+				<button type="button" className="secondary compact" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
+				<button type="button" className="secondary compact" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>Next</button>
+			</div>
 		</nav>
 	)
 }
 
-export interface PanelProps {
-	title?: ReactNode
-	subtitle?: ReactNode
-	icon?: IconName
-	actions?: ReactNode
-	tight?: boolean
-	children: ReactNode
+export function SectionHeading ({ title, detail, action }: { title: string; detail?: string; action?: ReactNode }) {
+	return <div className="section-heading"><div><h2>{title}</h2>{detail ? <p>{detail}</p> : null}</div>{action}</div>
 }
 
-export function Panel ({ title, subtitle, icon, actions, tight, children }: PanelProps) {
+export function AccountTabs ({ id }: { id: string }) {
+	const capabilities = useCapabilities()
 	return (
-		<section className="panel">
-			{title ? (
-				<header>
-					{icon ? <Icon name={icon} size={16} /> : null}
-					<h2>{title}</h2>
-					{subtitle ? <span className="sub">{subtitle}</span> : null}
-					{actions ? <div className="panel-actions">{actions}</div> : null}
-				</header>
-			) : null}
-			<div className={tight ? 'body tight' : 'body'}>{children}</div>
-		</section>
-	)
-}
-
-export type NoticeTone = 'info' | 'ok' | 'warn' | 'error'
-
-const noticeIcon: Record<NoticeTone, IconName> = {
-	info: 'info',
-	ok: 'check',
-	warn: 'alertTriangle',
-	error: 'alertCircle',
-}
-
-export function Notice ({ tone = 'info', children }: { tone?: NoticeTone; children: ReactNode }) {
-	return (
-		<div className={`notice ${tone}`} role={tone === 'error' ? 'alert' : undefined}>
-			<Icon name={noticeIcon[tone]} size={16} className="ico" />
-			<div>{children}</div>
-		</div>
-	)
-}
-
-export function EmptyState ({ icon = 'inbox', title, children, action }: { icon?: IconName; title: string; children?: ReactNode; action?: ReactNode }) {
-	return (
-		<div className="empty">
-			<Icon name={icon} size={30} className="ico" />
-			<h3>{title}</h3>
-			{children ? <p>{children}</p> : null}
-			{action}
-		</div>
-	)
-}
-
-export function Loading ({ label = 'Loading' }: { label?: string }) {
-	return (
-		<div className="loading">
-			<Icon name="refresh" size={16} className="spin" />
-			<span>{label}…</span>
-		</div>
-	)
-}
-
-export type PillTone = 'ok' | 'warn' | 'bad' | 'busy' | 'idle'
-
-export function Pill ({ tone, children }: { tone: PillTone; children: ReactNode }) {
-	return <span className={`pill ${tone}`}>{children}</span>
-}
-
-/** Maps the control-plane status vocabulary onto a consistent pill colour. */
-export function statusTone (status: string): PillTone {
-	switch (status) {
-		case 'active':
-		case 'succeeded':
-		case 'healthy':
-		case 'issued':
-			return 'ok'
-		case 'suspended':
-		case 'degraded':
-		case 'expiring':
-			return 'warn'
-		case 'failed':
-		case 'dead':
-		case 'terminated':
-		case 'stopped':
-			return 'bad'
-		case 'provisioning':
-		case 'running':
-		case 'queued':
-		case 'terminating':
-		case 'pending':
-			return 'busy'
-		default:
-			return 'idle'
-	}
-}
-
-export function StatusPill ({ status }: { status: string }) {
-	return <Pill tone={statusTone(status)}>{status || 'unknown'}</Pill>
-}
-
-export interface FieldProps {
-	label: string
-	hint?: ReactNode
-	error?: string
-	children: ReactNode
-}
-
-export function Field ({ label, hint, error, children }: FieldProps) {
-	return (
-		<div className="field">
-			<label>{label}</label>
-			{children}
-			{error ? <span className="bad">{error}</span> : null}
-			{hint && !error ? <span className="hint">{hint}</span> : null}
-		</div>
-	)
-}
-
-export function CheckField ({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
-	return (
-		<div>
-			<div className="field inline">
-				<input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-				<label>{label}</label>
-			</div>
-			{hint ? <span className="hint">{hint}</span> : null}
-		</div>
-	)
-}
-
-export interface ConfirmProps {
-	title: string
-	tone?: 'danger' | 'normal'
-	confirmLabel: string
-	/** When set, the operator must type this string before confirming. */
-	typeToConfirm?: string
-	busy?: boolean
-	onConfirm: () => void
-	onCancel: () => void
-	children: ReactNode
-}
-
-/** Modal gate in front of destructive actions. */
-export function ConfirmDialog ({ title, tone = 'danger', confirmLabel, typeToConfirm, busy, onConfirm, onCancel, children }: ConfirmProps) {
-	const [typed, setTyped] = useState('')
-	const blocked = !!typeToConfirm && typed.trim() !== typeToConfirm
-
-	useEffect(() => {
-		function onKey (event: KeyboardEvent) {
-			if (event.key === 'Escape') onCancel()
-		}
-		document.addEventListener('keydown', onKey)
-		return () => document.removeEventListener('keydown', onKey)
-	}, [onCancel])
-
-	return (
-		<div className="scrim" role="dialog" aria-modal="true" aria-label={title}>
-			<div className="modal">
-				<header>
-					<Icon name={tone === 'danger' ? 'alertTriangle' : 'info'} size={17} />
-					<h2>{title}</h2>
-				</header>
-				<div className="body">
-					{children}
-					{typeToConfirm ? (
-						<div style={{ marginTop: 14 }}>
-							<Field label={`Type ${typeToConfirm} to confirm`}>
-								<input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus spellCheck={false} />
-							</Field>
-						</div>
-					) : null}
-				</div>
-				<footer>
-					<button type="button" className="btn secondary" onClick={onCancel}>Cancel</button>
-					<button
-						type="button"
-						className={tone === 'danger' ? 'btn danger' : 'btn'}
-						disabled={blocked || busy}
-						onClick={onConfirm}
-					>
-						{busy ? 'Working…' : confirmLabel}
-					</button>
-				</footer>
-			</div>
-		</div>
-	)
-}
-
-export function Drawer ({ title, onClose, children }: { title: ReactNode; onClose: () => void; children: ReactNode }) {
-	useEffect(() => {
-		function onKey (event: KeyboardEvent) {
-			if (event.key === 'Escape') onClose()
-		}
-		document.addEventListener('keydown', onKey)
-		return () => document.removeEventListener('keydown', onKey)
-	}, [onClose])
-
-	return (
-		<aside className="drawer" role="dialog" aria-modal="false" aria-label={typeof title === 'string' ? title : 'Detail'}>
-			<header>
-				<h2>{title}</h2>
-				<button type="button" className="btn secondary small close" onClick={onClose}>
-					<Icon name="x" size={13} /> Close
-				</button>
-			</header>
-			<div className="body">{children}</div>
-		</aside>
-	)
-}
-
-export function KeyValues ({ rows }: { rows: Array<[string, ReactNode]> }) {
-	return (
-		<ul className="kv">
-			{rows.map(([key, value]) => (
-				<li key={key}>
-					<span className="k">{key}</span>
-					<span className="v">{value ?? '—'}</span>
-				</li>
-			))}
-		</ul>
-	)
-}
-
-export function Meter ({ used, limit, className }: { used: number; limit: number; className: string }) {
-	const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
-	return (
-		<span className={className} title={limit > 0 ? `${percent}% of limit` : 'Unmetered'}>
-			<span style={{ width: `${percent}%` }} />
-		</span>
+		<nav className="tabs" aria-label="Account sections">
+			<Link to={`/accounts/${id}`}>Summary</Link>
+			<Link to={`/accounts/${id}/services`}>Account services</Link>
+			{capabilities['dns.read'] ? <Link to={`/dns?account=${id}`}>DNS</Link> : null}
+			{capabilities['server.read'] || capabilities['accounts.read'] ? <Link to={`/jobs?account=${id}`}>Related jobs</Link> : null}
+		</nav>
 	)
 }

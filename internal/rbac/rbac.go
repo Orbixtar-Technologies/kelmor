@@ -82,17 +82,7 @@ type Actor struct {
 }
 
 func (a Actor) Has(cap string) bool {
-	if a.Capabilities[cap] {
-		return true
-	}
-	for _, r := range a.Roles {
-		for _, c := range RoleCaps[r] {
-			if c == cap {
-				return true
-			}
-		}
-	}
-	return false
+	return a.Capabilities[cap]
 }
 
 func (a Actor) CanAccount(accountID string) bool {
@@ -121,4 +111,17 @@ func Expand(roles []string, extra []string) map[string]bool {
 		}
 	}
 	return out
+}
+
+func RoleCapability(role, capability string) bool {
+	for _, allowed := range RoleCaps[role] {
+		if allowed == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func AccountSafe(capability string) bool {
+	return RoleCapability("customer_owner", capability)
 }

@@ -1,5 +1,29 @@
 package store
 
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrStaleAccount     = errors.New("stale account revision")
+	ErrJobNotFound      = errors.New("job not found")
+	ErrJobStateConflict = errors.New("job state does not allow cancellation")
+)
+
+type AuditFilter struct {
+	Query        string
+	Action       string
+	ResourceType string
+	AccountID    string
+	ActorID      string
+	Success      *bool
+	Since        *time.Time
+	Until        *time.Time
+	Limit        int
+	Offset       int
+}
+
 type Store interface {
 	PutUser(*User)
 	UserByUsername(string) *User
@@ -15,7 +39,7 @@ type Store interface {
 	PutPackage(*Package)
 	GetPackage(string) *Package
 	ListPackages() []Package
-	DeletePackage(string)
+	DeletePackageIfUnused(string) bool
 
 	PutReseller(*Reseller)
 	GetReseller(string) *Reseller
@@ -24,6 +48,8 @@ type Store interface {
 
 	AllocUID() int
 	PutAccount(*Account)
+	CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error)
+	UpdateAccountWithJob(account *Account, job *Job) (*Job, error)
 	GetAccount(string) *Account
 	AccountByUsername(string) *Account
 	ListAccounts(q, status string) []Account
@@ -63,6 +89,7 @@ type Store interface {
 	DeleteRecord(id string)
 
 	PutMailDomain(*MailDomain)
+	GetMailDomain(string) *MailDomain
 	MailDomainByDomain(domainID string) *MailDomain
 	ListMailDomains(accountID string) []MailDomain
 	PutMailbox(*Mailbox)
@@ -79,13 +106,16 @@ type Store interface {
 	ListCerts(accountID string) []Certificate
 
 	EnqueueJob(*Job) (*Job, error)
+	RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, job *Job) (*Job, error)
 	ClaimJob(worker string) *Job
 	UpdateJob(*Job)
 	GetJob(string) *Job
 	ListJobs(state string, limit int) []Job
+	CancelJob(jobID, actorID, requestID string) (*Job, error)
 
 	AppendAudit(AuditEvent)
 	ListAudit(limit int) []AuditEvent
+	QueryAudit(AuditFilter) ([]AuditEvent, int)
 
 	PutToken(*APIToken)
 	GetToken(id string) *APIToken

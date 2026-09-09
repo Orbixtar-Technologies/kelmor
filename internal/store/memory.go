@@ -144,7 +144,20 @@ func (m *Memory) ListPackages() []Package {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
-func (m *Memory) DeletePackage(id string) { m.mu.Lock(); delete(m.Packages, id); m.mu.Unlock() }
+func (m *Memory) DeletePackageIfUnused(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Packages[id] == nil {
+		return false
+	}
+	for _, account := range m.Accounts {
+		if account.PackageID == id {
+			return false
+		}
+	}
+	delete(m.Packages, id)
+	return true
+}
 
 func (m *Memory) PutReseller(r *Reseller) { m.mu.Lock(); m.Resellers[r.ID] = r; m.mu.Unlock() }
 func (m *Memory) GetReseller(id string) *Reseller {
@@ -179,6 +192,132 @@ func (m *Memory) ListResellers() []Reseller {
 }
 
 func (m *Memory) PutAccount(a *Account) { m.mu.Lock(); m.Accounts[a.ID] = a; m.mu.Unlock() }
+
+func (m *Memory) CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if owner == nil || account == nil || domain == nil || job == nil {
+		return nil, fmt.Errorf("owner, account, domain, and job are required")
+	}
+	if owner.ID == "" || account.ID == "" || domain.ID == "" {
+		return nil, fmt.Errorf("owner, account, and domain IDs are required")
+	}
+	if account.OwnerUserID != owner.ID {
+		return nil, fmt.Errorf("account owner %q does not match user %q", account.OwnerUserID, owner.ID)
+	}
+	if domain.AccountID != account.ID {
+		return nil, fmt.Errorf("domain account %q does not match account %q", domain.AccountID, account.ID)
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	if m.Packages[account.PackageID] == nil {
+		return nil, fmt.Errorf("package %q not found", account.PackageID)
+	}
+	if account.ResellerID != "" && m.Resellers[account.ResellerID] == nil {
+		return nil, fmt.Errorf("reseller %q not found", account.ResellerID)
+	}
+	if m.Users[owner.ID] != nil {
+		return nil, fmt.Errorf("user %q already exists", owner.ID)
+	}
+	for _, existing := range m.Users {
+		if existing.Username == owner.Username {
+			return nil, fmt.Errorf("username %q already exists", owner.Username)
+		}
+		if existing.Email == owner.Email {
+			return nil, fmt.Errorf("email %q already exists", owner.Email)
+		}
+	}
+	if m.Accounts[account.ID] != nil {
+		return nil, fmt.Errorf("account %q already exists", account.ID)
+	}
+	for _, existing := range m.Accounts {
+		if existing.Username == account.Username {
+			return nil, fmt.Errorf("account username %q already exists", account.Username)
+		}
+	}
+	if m.Domains[domain.ID] != nil {
+		return nil, fmt.Errorf("domain %q already exists", domain.ID)
+	}
+	for _, existing := range m.Domains {
+		if existing.ASCII == domain.ASCII {
+			return nil, fmt.Errorf("domain %q already exists", domain.ASCII)
+		}
+	}
+	for _, userID := range memberUserIDs {
+		if userID == "" || (userID != owner.ID && m.Users[userID] == nil) {
+			return nil, fmt.Errorf("member user %q not found", userID)
+		}
+	}
+	normalizeJob(job)
+	if err := m.validateNewJobLocked(job); err != nil {
+		return nil, err
+	}
+
+	ownerCopy := *owner
+	ownerCopy.Roles = append([]string(nil), owner.Roles...)
+	accountCopy := *account
+	domainCopy := *domain
+	jobCopy := *job
+	m.Users[owner.ID] = &ownerCopy
+	m.Accounts[account.ID] = &accountCopy
+	m.Members[account.ID] = unique(append([]string(nil), memberUserIDs...))
+	m.Domains[domain.ID] = &domainCopy
+	m.Jobs[job.ID] = &jobCopy
+	return &jobCopy, nil
+}
+
+func (m *Memory) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if account == nil || job == nil {
+		return nil, fmt.Errorf("account and job are required")
+	}
+	current := m.Accounts[account.ID]
+	if account.ID == "" || current == nil {
+		return nil, fmt.Errorf("account %q not found", account.ID)
+	}
+	if account.DesiredRevision != current.DesiredRevision+1 {
+		return nil, fmt.Errorf("%w: account %q", ErrStaleAccount, account.ID)
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	if m.Packages[account.PackageID] == nil {
+		return nil, fmt.Errorf("package %q not found", account.PackageID)
+	}
+	if account.ResellerID != "" && m.Resellers[account.ResellerID] == nil {
+		return nil, fmt.Errorf("reseller %q not found", account.ResellerID)
+	}
+	normalizeJob(job)
+	if err := m.validateNewJobLocked(job); err != nil {
+		return nil, err
+	}
+
+	accountCopy := *account
+	jobCopy := *job
+	m.Accounts[account.ID] = &accountCopy
+	m.Jobs[job.ID] = &jobCopy
+	return &jobCopy, nil
+}
+
+func (m *Memory) validateNewJobLocked(job *Job) error {
+	if m.Jobs[job.ID] != nil {
+		return fmt.Errorf("job %q already exists", job.ID)
+	}
+	if job.IdempotencyKey == "" {
+		return nil
+	}
+	for _, existing := range m.Jobs {
+		if existing.IdempotencyKey == job.IdempotencyKey {
+			return fmt.Errorf("job idempotency key %q already exists", job.IdempotencyKey)
+		}
+	}
+	return nil
+}
+
 func (m *Memory) GetAccount(id string) *Account {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -440,6 +579,15 @@ func (m *Memory) ListRecords(zoneID string) []DNSRecord {
 func (m *Memory) DeleteRecord(id string) { m.mu.Lock(); delete(m.Records, id); m.mu.Unlock() }
 
 func (m *Memory) PutMailDomain(d *MailDomain) { m.mu.Lock(); m.MailDom[d.ID] = d; m.mu.Unlock() }
+func (m *Memory) GetMailDomain(id string) *MailDomain {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if d := m.MailDom[id]; d != nil {
+		cp := *d
+		return &cp
+	}
+	return nil
+}
 func (m *Memory) MailDomainByDomain(domainID string) *MailDomain {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -558,6 +706,41 @@ func (m *Memory) EnqueueJob(j *Job) (*Job, error) {
 			}
 		}
 	}
+	normalizeJob(j)
+	cp := *j
+	m.Jobs[j.ID] = &cp
+	return &cp, nil
+}
+
+func (m *Memory) RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, j *Job) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	user := m.Users[userID]
+	if user == nil {
+		return nil, fmt.Errorf("user %q not found", userID)
+	}
+	normalizeJob(j)
+	if _, exists := m.Jobs[j.ID]; exists {
+		return nil, fmt.Errorf("job %q already exists", j.ID)
+	}
+	if j.IdempotencyKey != "" {
+		for _, existing := range m.Jobs {
+			if existing.IdempotencyKey == j.IdempotencyKey {
+				return nil, fmt.Errorf("job idempotency key %q already exists", j.IdempotencyKey)
+			}
+		}
+	}
+
+	user.PasswordHash = passwordHash
+	user.MustChangePassword = mustChange
+	cp := *j
+	m.Jobs[j.ID] = &cp
+	return &cp, nil
+}
+
+func normalizeJob(j *Job) {
+	j.Retryable = nil
 	if j.ID == "" {
 		j.ID = id.New()
 	}
@@ -573,9 +756,9 @@ func (m *Memory) EnqueueJob(j *Job) (*Job, error) {
 	if j.State == "" {
 		j.State = "queued"
 	}
-	cp := *j
-	m.Jobs[j.ID] = &cp
-	return &cp, nil
+	if j.Logs == nil {
+		j.Logs = []string{}
+	}
 }
 
 func (m *Memory) ClaimJob(worker string) *Job {
@@ -606,6 +789,7 @@ func (m *Memory) ClaimJob(worker string) *Job {
 func (m *Memory) UpdateJob(j *Job) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	j.Retryable = nil
 	m.Jobs[j.ID] = j
 }
 
@@ -634,6 +818,28 @@ func (m *Memory) ListJobs(state string, limit int) []Job {
 		out = out[:limit]
 	}
 	return out
+}
+
+func (m *Memory) CancelJob(jobID, actorID, requestID string) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	job := m.Jobs[jobID]
+	if job == nil {
+		return nil, ErrJobNotFound
+	}
+	if job.State != "queued" && job.State != "failed" {
+		return nil, ErrJobStateConflict
+	}
+	now := time.Now().UTC()
+	job.State = "cancelled"
+	job.FinishedAt = &now
+	job.LockedBy = ""
+	job.HeartbeatAt = nil
+	job.ActorID = actorID
+	job.RequestID = requestID
+	job.Retryable = nil
+	cp := *job
+	return &cp, nil
 }
 
 func (m *Memory) DriftedAccounts() []Account {
@@ -672,6 +878,66 @@ func (m *Memory) ListAudit(limit int) []AuditEvent {
 		out = out[:limit]
 	}
 	return out
+}
+
+func (m *Memory) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	query := strings.ToLower(filter.Query)
+	filtered := make([]AuditEvent, 0, len(m.Audit))
+	for _, event := range m.Audit {
+		if filter.Action != "" && !strings.Contains(event.Action, filter.Action) {
+			continue
+		}
+		if filter.ResourceType != "" && event.ResourceType != filter.ResourceType {
+			continue
+		}
+		if filter.AccountID != "" && event.AccountID != filter.AccountID {
+			continue
+		}
+		if filter.ActorID != "" && event.ActorID != filter.ActorID {
+			continue
+		}
+		if filter.Success != nil && event.Success != *filter.Success {
+			continue
+		}
+		if filter.Since != nil && event.OccurredAt.Before(*filter.Since) {
+			continue
+		}
+		if filter.Until != nil && event.OccurredAt.After(*filter.Until) {
+			continue
+		}
+		if query != "" {
+			haystack := strings.ToLower(strings.Join([]string{
+				event.Action, event.ResourceType, event.ResourceID, event.AccountID,
+				event.ActorID, event.SourceIP, event.RequestID,
+			}, " "))
+			if !strings.Contains(haystack, query) {
+				continue
+			}
+		}
+		filtered = append(filtered, *event)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].OccurredAt.After(filtered[j].OccurredAt)
+	})
+	total := len(filtered)
+	start := filter.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	return filtered[start:end], total
 }
 
 func (m *Memory) PutToken(t *APIToken) { m.mu.Lock(); m.Tokens[t.ID] = t; m.mu.Unlock() }

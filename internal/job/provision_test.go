@@ -125,6 +125,41 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	}
 }
 
+func TestProvisionRetainsPasswordWhenLinuxPasswordDispatchFails(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	acc := &store.Account{
+		ID: "acc-password-failure", Username: "passfail", PrimaryDomain: "passfail.test",
+		PackageID: st.ListPackages()[0].ID, Status: "provisioning", HomePath: "/home/passfail",
+		LinuxUID: 20090, LinuxGID: 20090, DesiredRevision: 1,
+	}
+	st.PutAccount(acc)
+	password := "RetainOn\nFailure!2026"
+	queued, err := st.EnqueueJob(&store.Job{
+		Type: "account.provision", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID, "linux_password": password},
+		State:   "queued", MaxAttempts: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	New(st, &operations.Host{Root: t.TempDir()}, logging.New("test"), box, "tester").Drain(context.Background())
+
+	failed := st.GetJob(queued.ID)
+	if failed == nil || failed.State != "failed" {
+		t.Fatalf("failed provision job: %+v", failed)
+	}
+	if failed.Payload["linux_password"] != password {
+		t.Fatalf("failed provision discarded password payload: %+v", failed.Payload)
+	}
+}
+
 func TestReconcileRewritesLoopbackARecords(t *testing.T) {
 	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.50")
 	st := store.NewMemory()

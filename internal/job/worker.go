@@ -281,11 +281,11 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 			Method: "SetLinuxPassword",
 			Params: mustJSON(map[string]any{"username": acc.Username, "password": ownerPass}),
 		})
-		delete(j.Payload, "linux_password")
-		w.Store.UpdateJob(j)
 		if err != nil {
 			return err
 		}
+		delete(j.Payload, "linux_password")
+		w.Store.UpdateJob(j)
 	}
 	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplySystemdSlice",

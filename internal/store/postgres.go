@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -152,14 +153,18 @@ func (p *PG) PutPackage(pkg *Package) {
 			ftp_users, cron_jobs, application_instances, backup_retention_days, cpu_percent, memory_bytes,
 			process_limit, io_weight, iops, concurrent_web_requests, email_daily_limit)
 		VALUES ($1, NULLIF($2,'')::uuid, $3, $4, $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
-		ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, reseller_id=EXCLUDED.reseller_id, feature_set_id=EXCLUDED.feature_set_id,
+		ON CONFLICT (id) DO UPDATE SET
+			name=EXCLUDED.name, feature_set_id=EXCLUDED.feature_set_id,
 			disk_bytes=EXCLUDED.disk_bytes, bandwidth_bytes_monthly=EXCLUDED.bandwidth_bytes_monthly,
 			domains=EXCLUDED.domains, subdomains=EXCLUDED.subdomains, alias_domains=EXCLUDED.alias_domains,
-			databases=EXCLUDED.databases, database_users=EXCLUDED.database_users, mailboxes=EXCLUDED.mailboxes,
-			mailbox_storage_bytes=EXCLUDED.mailbox_storage_bytes, ftp_users=EXCLUDED.ftp_users, cron_jobs=EXCLUDED.cron_jobs,
-			application_instances=EXCLUDED.application_instances, backup_retention_days=EXCLUDED.backup_retention_days,
-			cpu_percent=EXCLUDED.cpu_percent, memory_bytes=EXCLUDED.memory_bytes, process_limit=EXCLUDED.process_limit,
-			io_weight=EXCLUDED.io_weight, iops=EXCLUDED.iops, concurrent_web_requests=EXCLUDED.concurrent_web_requests,
+			databases=EXCLUDED.databases, database_users=EXCLUDED.database_users,
+			mailboxes=EXCLUDED.mailboxes, mailbox_storage_bytes=EXCLUDED.mailbox_storage_bytes,
+			ftp_users=EXCLUDED.ftp_users, cron_jobs=EXCLUDED.cron_jobs,
+			application_instances=EXCLUDED.application_instances,
+			backup_retention_days=EXCLUDED.backup_retention_days,
+			cpu_percent=EXCLUDED.cpu_percent, memory_bytes=EXCLUDED.memory_bytes,
+			process_limit=EXCLUDED.process_limit, io_weight=EXCLUDED.io_weight, iops=EXCLUDED.iops,
+			concurrent_web_requests=EXCLUDED.concurrent_web_requests,
 			email_daily_limit=EXCLUDED.email_daily_limit`,
 		pkg.ID, pkg.ResellerID, pkg.Name, pkg.FeatureSetID, pkg.DiskBytes, pkg.BandwidthBytesMonthly,
 		pkg.Domains, pkg.Subdomains, pkg.AliasDomains, pkg.Databases, pkg.DatabaseUsers, pkg.Mailboxes, pkg.MailboxStorageBytes,
@@ -211,8 +216,12 @@ func (p *PG) ListPackages() []Package {
 	return out
 }
 
-func (p *PG) DeletePackage(pid string) {
-	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM packages WHERE id=$1`, pid)
+func (p *PG) DeletePackageIfUnused(id string) bool {
+	result, err := p.pool.Exec(p.ctx(), `
+		DELETE FROM packages
+		WHERE id=$1
+		  AND NOT EXISTS (SELECT 1 FROM accounts WHERE package_id=$1)`, id)
+	return err == nil && result.RowsAffected() == 1
 }
 
 func (p *PG) PutReseller(r *Reseller) {
@@ -225,7 +234,10 @@ func (p *PG) PutReseller(r *Reseller) {
 	_, _ = p.pool.Exec(p.ctx(), `
 		INSERT INTO resellers (id, user_id, name, brand_name, privilege_mask, nameservers, status)
 		VALUES ($1,$2,$3,$4,$5,$6,COALESCE(NULLIF($7,''),'active'))
-		ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, status=EXCLUDED.status`,
+		ON CONFLICT (id) DO UPDATE SET
+			name=EXCLUDED.name, brand_name=EXCLUDED.brand_name,
+			privilege_mask=EXCLUDED.privilege_mask, nameservers=EXCLUDED.nameservers,
+			status=EXCLUDED.status`,
 		r.ID, r.UserID, r.Name, r.BrandName, r.PrivilegeMask, r.Nameservers, r.Status)
 }
 
@@ -280,6 +292,167 @@ func (p *PG) PutAccount(a *Account) {
 			primary_domain=EXCLUDED.primary_domain, ip_address=EXCLUDED.ip_address, login_disabled=EXCLUDED.login_disabled,
 			desired_revision=EXCLUDED.desired_revision, observed_revision=EXCLUDED.observed_revision, updated_at=now()`,
 		a.ID, a.ResellerID, a.OwnerUserID, a.Username, a.PrimaryDomain, a.LinuxUID, a.LinuxGID, a.PackageID, a.Status, a.HomePath, a.IPAddress, a.ShellClass, a.LoginDisabled, a.DesiredRevision, a.ObservedRevision)
+}
+
+func (p *PG) CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error) {
+	if owner == nil || account == nil || domain == nil || job == nil {
+		return nil, fmt.Errorf("owner, account, domain, and job are required")
+	}
+	if account.OwnerUserID != owner.ID {
+		return nil, fmt.Errorf("account owner %q does not match user %q", account.OwnerUserID, owner.ID)
+	}
+	if domain.AccountID != account.ID {
+		return nil, fmt.Errorf("domain account %q does not match account %q", domain.AccountID, account.ID)
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	normalizeJob(job)
+	payload, err := json.Marshal(job.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal account creation job payload: %w", err)
+	}
+
+	ctx := p.ctx()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin account creation: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := validateAccountReferences(ctx, tx, account); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, password_hash, display_name, status, totp_enabled, must_change_password, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())`,
+		owner.ID, owner.Username, owner.Email, owner.PasswordHash, owner.DisplayName, owner.Status,
+		owner.TOTPEnabled, owner.MustChangePassword, owner.CreatedAt); err != nil {
+		return nil, fmt.Errorf("insert account owner: %w", err)
+	}
+	for _, role := range owner.Roles {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO roles (id, name) VALUES ($1,$2)
+			ON CONFLICT (name) DO NOTHING`, id.New(), role); err != nil {
+			return nil, fmt.Errorf("ensure account owner role %q: %w", role, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO user_roles (user_id, role_id)
+			SELECT $1, id FROM roles WHERE name=$2`, owner.ID, role); err != nil {
+			return nil, fmt.Errorf("assign account owner role %q: %w", role, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO accounts (id, reseller_id, owner_user_id, username, primary_domain, linux_uid, linux_gid, package_id, status, home_path, ip_address, shell_class, login_disabled, desired_revision, observed_revision)
+		VALUES ($1,NULLIF($2,'')::uuid,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,'')::inet,$12,$13,$14,$15)`,
+		account.ID, account.ResellerID, account.OwnerUserID, account.Username, account.PrimaryDomain,
+		account.LinuxUID, account.LinuxGID, account.PackageID, account.Status, account.HomePath,
+		account.IPAddress, account.ShellClass, account.LoginDisabled, account.DesiredRevision,
+		account.ObservedRevision); err != nil {
+		return nil, fmt.Errorf("insert account: %w", err)
+	}
+	for _, userID := range unique(memberUserIDs) {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO account_members (account_id, user_id, role)
+			VALUES ($1,$2,'customer_owner')`, account.ID, userID); err != nil {
+			return nil, fmt.Errorf("insert account member %q: %w", userID, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO domains (id, account_id, fqdn, ascii_fqdn, type, document_root, dns_managed, status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		domain.ID, domain.AccountID, domain.FQDN, domain.ASCII, domain.Type,
+		domain.DocumentRoot, domain.DNSManaged, domain.Status); err != nil {
+		return nil, fmt.Errorf("insert primary domain: %w", err)
+	}
+	if err := insertJobTx(ctx, tx, job, payload); err != nil {
+		return nil, fmt.Errorf("insert account creation job: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit account creation: %w", err)
+	}
+	cp := *job
+	return &cp, nil
+}
+
+func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
+	if account == nil || job == nil {
+		return nil, fmt.Errorf("account and job are required")
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	normalizeJob(job)
+	payload, err := json.Marshal(job.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal account update job payload: %w", err)
+	}
+
+	ctx := p.ctx()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin account update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := validateAccountReferences(ctx, tx, account); err != nil {
+		return nil, err
+	}
+	result, err := tx.Exec(ctx, `
+		UPDATE accounts SET
+			reseller_id=NULLIF($2,'')::uuid, owner_user_id=$3, username=$4, primary_domain=$5,
+			linux_uid=$6, linux_gid=$7, package_id=$8, status=$9, home_path=$10,
+			ip_address=NULLIF($11,'')::inet, shell_class=$12, login_disabled=$13,
+			desired_revision=$14, observed_revision=$15, updated_at=now()
+		WHERE id=$1 AND desired_revision=$14 - 1`,
+		account.ID, account.ResellerID, account.OwnerUserID, account.Username, account.PrimaryDomain,
+		account.LinuxUID, account.LinuxGID, account.PackageID, account.Status, account.HomePath,
+		account.IPAddress, account.ShellClass, account.LoginDisabled, account.DesiredRevision,
+		account.ObservedRevision)
+	if err != nil {
+		return nil, fmt.Errorf("update account: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return nil, fmt.Errorf("%w: account %q", ErrStaleAccount, account.ID)
+	}
+	if err := insertJobTx(ctx, tx, job, payload); err != nil {
+		return nil, fmt.Errorf("insert account update job: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit account update: %w", err)
+	}
+	cp := *job
+	return &cp, nil
+}
+
+func validateAccountReferences(ctx context.Context, tx pgx.Tx, account *Account) error {
+	var packageID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM packages WHERE id=$1 FOR KEY SHARE`, account.PackageID).Scan(&packageID); errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("package %q not found", account.PackageID)
+	} else if err != nil {
+		return fmt.Errorf("validate account package: %w", err)
+	}
+	if account.ResellerID == "" {
+		return nil
+	}
+	var resellerExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM resellers WHERE id=$1)`, account.ResellerID).Scan(&resellerExists); err != nil {
+		return fmt.Errorf("validate account reseller: %w", err)
+	}
+	if !resellerExists {
+		return fmt.Errorf("reseller %q not found", account.ResellerID)
+	}
+	return nil
+}
+
+func insertJobTx(ctx context.Context, tx pgx.Tx, job *Job, payload []byte) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
+		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')::uuid,NULLIF($14,'')::uuid,$15,$16)`,
+		job.ID, job.Type, job.ResourceType, job.ResourceID, payload, job.State, job.Priority,
+		job.Attempts, job.MaxAttempts, job.Progress, job.RunAfter, job.IdempotencyKey,
+		job.ActorID, job.RequestID, job.CreatedAt, job.Logs)
+	return err
 }
 
 func (p *PG) scanAccount(row scanner) *Account {
@@ -628,6 +801,15 @@ func (p *PG) PutMailDomain(d *MailDomain) {
 		d.ID, d.AccountID, d.DomainID, d.CatchallPolicy, d.Status)
 }
 
+func (p *PG) GetMailDomain(id string) *MailDomain {
+	d := &MailDomain{}
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, catchall_policy, status FROM mail_domains WHERE id=$1`, id).
+		Scan(&d.ID, &d.AccountID, &d.DomainID, &d.CatchallPolicy, &d.Status); err != nil {
+		return nil
+	}
+	return d
+}
+
 func (p *PG) MailDomainByDomain(domainID string) *MailDomain {
 	d := &MailDomain{}
 	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, catchall_policy, status FROM mail_domains WHERE domain_id=$1`, domainID).
@@ -774,24 +956,7 @@ func (p *PG) EnqueueJob(j *Job) (*Job, error) {
 			return existing, nil
 		}
 	}
-	if j.ID == "" {
-		j.ID = id.New()
-	}
-	if j.CreatedAt.IsZero() {
-		j.CreatedAt = time.Now().UTC()
-	}
-	if j.RunAfter.IsZero() {
-		j.RunAfter = time.Now().UTC()
-	}
-	if j.MaxAttempts == 0 {
-		j.MaxAttempts = 5
-	}
-	if j.State == "" {
-		j.State = "queued"
-	}
-	if j.Logs == nil {
-		j.Logs = []string{}
-	}
+	normalizeJob(j)
 	payload, _ := json.Marshal(j.Payload)
 	_, err := p.pool.Exec(p.ctx(), `
 		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
@@ -807,6 +972,44 @@ func (p *PG) EnqueueJob(j *Job) (*Job, error) {
 	return &cp, nil
 }
 
+func (p *PG) RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, j *Job) (*Job, error) {
+	normalizeJob(j)
+	payload, err := json.Marshal(j.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal job payload: %w", err)
+	}
+
+	ctx := p.ctx()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin password rotation: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := tx.Exec(ctx, `
+		UPDATE users
+		SET password_hash=$2, must_change_password=$3, updated_at=now()
+		WHERE id=$1`, userID, passwordHash, mustChange)
+	if err != nil {
+		return nil, fmt.Errorf("update user password: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return nil, fmt.Errorf("user %q not found", userID)
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
+		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')::uuid,NULLIF($14,'')::uuid,$15,$16)`,
+		j.ID, j.Type, j.ResourceType, j.ResourceID, payload, j.State, j.Priority, j.Attempts, j.MaxAttempts, j.Progress, j.RunAfter, j.IdempotencyKey, j.ActorID, j.RequestID, j.CreatedAt, j.Logs)
+	if err != nil {
+		return nil, fmt.Errorf("insert password reconciliation job: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit password rotation: %w", err)
+	}
+	cp := *j
+	return &cp, nil
+}
+
 func (p *PG) jobByIdem(key string) *Job {
 	if key == "" {
 		return nil
@@ -817,13 +1020,21 @@ func (p *PG) jobByIdem(key string) *Job {
 const jobSelect = `SELECT id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload, state, priority, attempts, max_attempts, progress, run_after, COALESCE(locked_by,''), heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''), COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at, started_at, finished_at, logs FROM jobs`
 
 func (p *PG) scanJob(row scanner) *Job {
+	j, err := scanJobRow(row)
+	if err != nil {
+		return nil
+	}
+	return j
+}
+
+func scanJobRow(row scanner) (*Job, error) {
 	j := &Job{}
 	var payload []byte
 	if err := row.Scan(&j.ID, &j.Type, &j.ResourceType, &j.ResourceID, &payload, &j.State, &j.Priority, &j.Attempts, &j.MaxAttempts, &j.Progress, &j.RunAfter, &j.LockedBy, &j.HeartbeatAt, &j.IdempotencyKey, &j.LastError, &j.ActorID, &j.RequestID, &j.CreatedAt, &j.StartedAt, &j.FinishedAt, &j.Logs); err != nil {
-		return nil
+		return nil, err
 	}
 	_ = json.Unmarshal(payload, &j.Payload)
-	return j
+	return j, nil
 }
 
 func (p *PG) ClaimJob(worker string) *Job {
@@ -891,6 +1102,34 @@ func (p *PG) ListJobs(state string, limit int) []Job {
 	return out
 }
 
+func (p *PG) CancelJob(jobID, actorID, requestID string) (*Job, error) {
+	job, err := scanJobRow(p.pool.QueryRow(p.ctx(), `
+		UPDATE jobs
+		SET state='cancelled', finished_at=now(),
+			locked_by=NULL, locked_at=NULL, heartbeat_at=NULL,
+			actor_id=NULLIF($2,'')::uuid, request_id=NULLIF($3,'')::uuid
+		WHERE id=$1 AND state IN ('queued','failed')
+		RETURNING id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload,
+			state, priority, attempts, max_attempts, progress, run_after, COALESCE(locked_by,''),
+			heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''),
+			COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at,
+			started_at, finished_at, logs`, jobID, actorID, requestID))
+	if err == nil {
+		return job, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	var exists bool
+	if queryErr := p.pool.QueryRow(p.ctx(), `SELECT EXISTS (SELECT 1 FROM jobs WHERE id=$1)`, jobID).Scan(&exists); queryErr != nil {
+		return nil, queryErr
+	}
+	if !exists {
+		return nil, ErrJobNotFound
+	}
+	return nil, ErrJobStateConflict
+}
+
 func (p *PG) AppendAudit(e AuditEvent) {
 	if e.ID == "" {
 		e.ID = id.New()
@@ -908,12 +1147,21 @@ func (p *PG) AppendAudit(e AuditEvent) {
 }
 
 func (p *PG) ListAudit(limit int) []AuditEvent {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, occurred_at, actor_type, COALESCE(actor_id::text,''), COALESCE(effective_actor_id::text,''), COALESCE(account_id::text,''), action, COALESCE(resource_type,''), COALESCE(resource_id::text,''), COALESCE(source_ip::text,''), COALESCE(user_agent,''), request_id, success, before_state, after_state, metadata
+	rows, err := p.pool.Query(p.ctx(), `SELECT `+auditColumns+`
 		FROM audit_events ORDER BY occurred_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
+	return scanAuditRows(rows)
+}
+
+const auditColumns = `id, occurred_at, actor_type, COALESCE(actor_id::text,''),
+	COALESCE(effective_actor_id::text,''), COALESCE(account_id::text,''), action,
+	COALESCE(resource_type,''), COALESCE(resource_id::text,''), COALESCE(source_ip::text,''),
+	COALESCE(user_agent,''), request_id, success, before_state, after_state, metadata`
+
+func scanAuditRows(rows pgx.Rows) []AuditEvent {
 	var out []AuditEvent
 	for rows.Next() {
 		var e AuditEvent
@@ -925,6 +1173,45 @@ func (p *PG) ListAudit(limit int) []AuditEvent {
 		out = append(out, e)
 	}
 	return out
+}
+
+func (p *PG) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
+	const where = `
+		FROM audit_events
+		WHERE ($1='' OR concat_ws(' ', action, resource_type, resource_id::text, account_id::text,
+				actor_id::text, source_ip::text, request_id::text) ILIKE '%'||$1||'%')
+		  AND ($2='' OR strpos(action, $2) > 0)
+		  AND ($3='' OR resource_type=$3)
+		  AND ($4='' OR account_id::text=$4)
+		  AND ($5='' OR actor_id::text=$5)
+		  AND ($6::boolean IS NULL OR success=$6)
+		  AND ($7::timestamptz IS NULL OR occurred_at >= $7)
+		  AND ($8::timestamptz IS NULL OR occurred_at <= $8)`
+	var success, since, until any
+	if filter.Success != nil {
+		success = *filter.Success
+	}
+	if filter.Since != nil {
+		since = *filter.Since
+	}
+	if filter.Until != nil {
+		until = *filter.Until
+	}
+	args := []any{
+		filter.Query, filter.Action, filter.ResourceType, filter.AccountID, filter.ActorID,
+		success, since, until,
+	}
+	var total int
+	if err := p.pool.QueryRow(p.ctx(), `SELECT count(*)`+where, args...).Scan(&total); err != nil {
+		return nil, 0
+	}
+	rows, err := p.pool.Query(p.ctx(), `SELECT `+auditColumns+where+`
+		ORDER BY occurred_at DESC LIMIT $9 OFFSET $10`, append(args, filter.Limit, filter.Offset)...)
+	if err != nil {
+		return nil, 0
+	}
+	defer rows.Close()
+	return scanAuditRows(rows), total
 }
 
 func (p *PG) PutToken(t *APIToken) {

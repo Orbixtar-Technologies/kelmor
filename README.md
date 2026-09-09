@@ -48,6 +48,13 @@ make refresh-portals
 
 Default admin password is for development only. Change it before any real host.
 
+Kelmor Director's server-administration information architecture and supported
+operator flows are mapped in
+[`docs/director-whm-journey-checklist.md`](docs/director-whm-journey-checklist.md).
+The Director includes capability-aware global Find, reviewed account
+provisioning, dense operational histories, and account-linked DNS, SQL, email,
+SSL, backup, usage, and access tools.
+
 ## Production install (Ubuntu 24.04)
 
 ```bash
@@ -64,7 +71,7 @@ On a host with systemd as PID 1, the control plane and `panel-object-store` star
 See `cmd/`, `internal/`, `agent/`, `db/migrations/`, `portals/`, `installer/`, `api/openapi.yaml`, and `docs/` (install, mail, DNS, CLI, backup, migration, security, **director UI**, **validation**).
 
 Director's information architecture, its category-to-tool map and the places it
-deliberately departs from conventional hosting-panel conventions are documented in
+deliberately departs from conventional shared-hosting conventions are documented in
 `docs/director-ui.md`.
 
 Lab VM / DNS / SMTP relay credentials live in **`.run/validation/`** (gitignored). Copy `docs/validation/*.example` there, or `source scripts/load-validation-env.sh`. `panel-install` uses `TEST_DOMAIN` and `VM_PUBLIC_IPV4` when `--hostname` is omitted, and configures a Postfix SASL relay from `smtp.env`. SSH: `scripts/remote-vm.sh`. Details: `docs/validation.md`.

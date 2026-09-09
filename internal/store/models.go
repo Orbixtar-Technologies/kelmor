@@ -221,6 +221,7 @@ type Job struct {
 	StartedAt      *time.Time     `json:"started_at,omitempty"`
 	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
 	Logs           []string       `json:"logs,omitempty"`
+	Retryable      *bool          `json:"retryable,omitempty"`
 }
 
 type AuditEvent struct {

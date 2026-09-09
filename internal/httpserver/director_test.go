@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
+	"github.com/hosting-panel/panel/internal/rbac"
 	"github.com/hosting-panel/panel/internal/store"
 )
 
@@ -45,11 +47,23 @@ func firstPackageID(t *testing.T, srv *httptest.Server, token string) string {
 	return items[0].(map[string]any)["id"].(string)
 }
 
+func TestFeatureSetsIndex(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	items := get(t, srv.URL+"/api/v1/feature-sets", token)["items"].([]any)
+	if len(items) != len(st.ListFeatureSets()) || len(items) == 0 {
+		t.Fatalf("feature sets: %v", items)
+	}
+	if items[0].(map[string]any)["features"] == nil {
+		t.Fatalf("feature set omitted feature flags: %v", items[0])
+	}
+}
+
 func TestPackageLifecycleAndInUseGuard(t *testing.T) {
 	srv, _, token := directorFixture(t)
 
 	created := post(t, srv.URL+"/api/v1/packages", token, map[string]any{
 		"name": "Business", "disk_bytes": 1 << 30, "bandwidth_bytes_monthly": 10 << 30, "cpu_percent": 100,
+		"domains": 25,
 	})
 	pid := created["id"].(string)
 
@@ -70,6 +84,15 @@ func TestPackageLifecycleAndInUseGuard(t *testing.T) {
 	if updated["mailboxes"].(float64) != 250 || updated["process_limit"].(float64) != 512 {
 		t.Fatalf("update did not persist every limit: %v", updated)
 	}
+	if updated["domains"].(float64) != 0 {
+		t.Fatalf("PUT did not fully replace an omitted limit: %v", updated)
+	}
+	patched := doJSON(t, http.MethodPatch, srv.URL+"/api/v1/packages/"+pid, token, map[string]any{
+		"name": "Business Plus Patched",
+	})
+	if patched["mailboxes"].(float64) != 250 || patched["process_limit"].(float64) != 512 {
+		t.Fatalf("PATCH did not retain omitted limits: %v", patched)
+	}
 
 	seedAccount(t, srv, token, "inuse01", "inuse.test", pid)
 	status, body := doStatus(t, http.MethodDelete, srv.URL+"/api/v1/packages/"+pid, token, nil)
@@ -86,6 +109,31 @@ func TestPackageLifecycleAndInUseGuard(t *testing.T) {
 	}
 }
 
+func TestPackageDetailEnforcesResellerVisibility(t *testing.T) {
+	srv, _, admin := directorFixture(t)
+	first := post(t, srv.URL+"/api/v1/resellers", admin, map[string]any{
+		"name": "First Reseller", "username": "first-reseller", "password": "ResellerPass!2026",
+	})
+	second := post(t, srv.URL+"/api/v1/resellers", admin, map[string]any{
+		"name": "Second Reseller", "username": "second-reseller", "password": "ResellerPass!2026",
+	})
+	own := post(t, srv.URL+"/api/v1/packages", admin, map[string]any{
+		"name": "First Plan", "reseller_id": first["id"],
+	})
+	foreign := post(t, srv.URL+"/api/v1/packages", admin, map[string]any{
+		"name": "Second Plan", "reseller_id": second["id"],
+	})
+	resellerToken := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "first-reseller", "password": "ResellerPass!2026",
+	})["token"].(string)
+	if status, _ := doStatus(t, http.MethodGet, srv.URL+"/api/v1/packages/"+own["id"].(string), resellerToken, nil); status != http.StatusOK {
+		t.Fatalf("own package detail status: %d", status)
+	}
+	if status, _ := doStatus(t, http.MethodGet, srv.URL+"/api/v1/packages/"+foreign["id"].(string), resellerToken, nil); status != http.StatusNotFound {
+		t.Fatalf("foreign package detail should be hidden: %d", status)
+	}
+}
+
 func TestResellerDetailAndPrivilegeMask(t *testing.T) {
 	srv, _, token := directorFixture(t)
 
@@ -97,6 +145,9 @@ func TestResellerDetailAndPrivilegeMask(t *testing.T) {
 	pid := firstPackageID(t, srv, token)
 	aid := seedAccount(t, srv, token, "nwcust", "nwcust.test", pid)
 	doJSON(t, http.MethodPatch, srv.URL+"/api/v1/accounts/"+aid, token, map[string]any{"reseller_id": rid})
+	ownedPackage := post(t, srv.URL+"/api/v1/packages", token, map[string]any{
+		"name": "Northwind Plan", "reseller_id": rid,
+	})
 
 	detail := get(t, srv.URL+"/api/v1/resellers/"+rid, token)
 	if detail["reseller"].(map[string]any)["name"] != "Northwind" {
@@ -105,6 +156,18 @@ func TestResellerDetailAndPrivilegeMask(t *testing.T) {
 	owned := detail["accounts"].([]any)
 	if len(owned) != 1 || owned[0].(map[string]any)["username"] != "nwcust" {
 		t.Fatalf("owned accounts: %v", owned)
+	}
+	packages := detail["packages"].([]any)
+	if len(packages) != 1 || packages[0].(map[string]any)["id"] != ownedPackage["id"] {
+		t.Fatalf("owned packages: %v", packages)
+	}
+	owner := detail["owner"].(map[string]any)
+	if owner["username"] != "northwind" {
+		t.Fatalf("safe owner identity: %v", owner)
+	}
+	encoded, _ := json.Marshal(detail)
+	if bytes.Contains(encoded, []byte("password_hash")) || bytes.Contains(encoded, []byte("$2")) {
+		t.Fatalf("reseller detail leaked owner password hash: %s", encoded)
 	}
 
 	updated := doJSON(t, http.MethodPatch, srv.URL+"/api/v1/resellers/"+rid, token, map[string]any{
@@ -129,30 +192,55 @@ func TestResellerDetailAndPrivilegeMask(t *testing.T) {
 
 func TestJobRetryAndCancel(t *testing.T) {
 	srv, st, token := directorFixture(t)
+	pid := firstPackageID(t, srv, token)
+	accountID := seedAccount(t, srv, token, "jobowner", "jobowner.test", pid)
 
-	failed, _ := st.EnqueueJob(&store.Job{Type: "account.reconcile", State: "queued", MaxAttempts: 3})
-	failed.State = "failed"
-	failed.Attempts = 3
-	failed.LastError = "agent unreachable"
-	st.UpdateJob(failed)
+	failed, _ := st.EnqueueJob(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: accountID,
+		Payload: map[string]any{"account_id": accountID, "status": "active"},
+		State:   "failed", Attempts: 3, MaxAttempts: 3, LastError: "agent unreachable",
+	})
+	before, _ := json.Marshal(st.GetJob(failed.ID))
 
 	retried := post(t, srv.URL+"/api/v1/jobs/"+failed.ID+"/retry", token, nil)
-	if retried["state"] != "queued" {
-		t.Fatalf("retry state: %v", retried)
+	retryID, _ := retried["operation_id"].(string)
+	retry := st.GetJob(retryID)
+	if retry == nil || retry.ID == failed.ID || retry.State != "queued" ||
+		retry.ResourceID != accountID || retry.Payload["retry_of"] != failed.ID {
+		t.Fatalf("retry clone: response=%v job=%+v", retried, retry)
 	}
-	if retried["last_error"] != nil && retried["last_error"] != "" {
-		t.Fatalf("retry should clear the last error: %v", retried)
-	}
-	if retried["max_attempts"].(float64) <= retried["attempts"].(float64) {
-		t.Fatalf("retry must leave an attempt available: %v", retried)
+	after, _ := json.Marshal(st.GetJob(failed.ID))
+	if !bytes.Equal(before, after) {
+		t.Fatalf("retry mutated original\nbefore: %s\nafter: %s", before, after)
 	}
 
-	cancelled := post(t, srv.URL+"/api/v1/jobs/"+failed.ID+"/cancel", token, nil)
+	cancelTarget, _ := st.EnqueueJob(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: accountID,
+		Payload: map[string]any{"account_id": accountID, "linux_password": "DoNotExpose!2026"},
+		State:   "failed", Attempts: 2, LastError: "kept for history", LockedBy: "stale-worker",
+	})
+	cancelled := post(t, srv.URL+"/api/v1/jobs/"+cancelTarget.ID+"/cancel", token, nil)
 	if cancelled["state"] != "cancelled" {
 		t.Fatalf("cancel state: %v", cancelled)
 	}
+	cancelledJSON, _ := json.Marshal(cancelled)
+	if bytes.Contains(cancelledJSON, []byte("DoNotExpose")) ||
+		bytes.Contains(cancelledJSON, []byte("linux_password")) {
+		t.Fatalf("cancel response leaked sensitive payload: %s", cancelledJSON)
+	}
+	stored := st.GetJob(cancelTarget.ID)
+	if stored.State != "cancelled" || stored.FinishedAt == nil || stored.LockedBy != "" ||
+		stored.Attempts != 2 || stored.LastError != "kept for history" {
+		t.Fatalf("cancel did not atomically preserve history and clear lock: %+v", stored)
+	}
+	if status, _ := doStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+cancelTarget.ID+"/cancel", token, nil); status != http.StatusConflict {
+		t.Fatalf("cancelling an already cancelled job must conflict: %d", status)
+	}
 
-	running, _ := st.EnqueueJob(&store.Job{Type: "backup.create", State: "queued"})
+	running, _ := st.EnqueueJob(&store.Job{
+		Type: "backup.create", ResourceType: "account", ResourceID: accountID,
+		Payload: map[string]any{"account_id": accountID}, State: "queued",
+	})
 	running.State = "running"
 	st.UpdateJob(running)
 	if status, body := doStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+running.ID+"/cancel", token, nil); status != http.StatusConflict {
@@ -160,6 +248,63 @@ func TestJobRetryAndCancel(t *testing.T) {
 	}
 	if status, body := doStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+running.ID+"/retry", token, nil); status != http.StatusConflict {
 		t.Fatalf("retrying a running job must conflict: %d %v", status, body)
+	}
+	succeeded, _ := st.EnqueueJob(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: accountID,
+		Payload: map[string]any{"account_id": accountID}, State: "succeeded",
+	})
+	if status, _ := doStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+succeeded.ID+"/cancel", token, nil); status != http.StatusConflict {
+		t.Fatalf("cancelling a succeeded job must conflict: %d", status)
+	}
+}
+
+func TestJobCancelHidesForeignJobsBeforeCheckingWriteCapability(t *testing.T) {
+	srv, st, admin := directorFixture(t)
+	pid := firstPackageID(t, srv, admin)
+	reseller := post(t, srv.URL+"/api/v1/resellers", admin, map[string]any{
+		"name": "Read Only Jobs", "username": "readonly-jobs", "password": "ResellerPass!2026",
+	})
+	resellerID := reseller["id"].(string)
+	ownAccount := seedAccount(t, srv, admin, "cancelown", "cancel-own.test", pid)
+	doJSON(t, http.MethodPatch, srv.URL+"/api/v1/accounts/"+ownAccount, admin, map[string]any{"reseller_id": resellerID})
+	foreignAccount := seedAccount(t, srv, admin, "cancelforeign", "cancel-foreign.test", pid)
+	rs := st.GetReseller(resellerID)
+	rs.PrivilegeMask = []string{rbac.AccountsRead}
+	st.PutReseller(rs)
+	resellerToken := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "readonly-jobs", "password": "ResellerPass!2026",
+	})["token"].(string)
+
+	enqueue := func(accountID string) *store.Job {
+		job, err := st.EnqueueJob(&store.Job{
+			Type: "account.reconcile", ResourceType: "account", ResourceID: accountID,
+			Payload: map[string]any{"account_id": accountID}, State: "queued",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return job
+	}
+	ownJob := enqueue(ownAccount)
+	foreignJob := enqueue(foreignAccount)
+	if status, _ := doStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+ownJob.ID+"/cancel", resellerToken, nil); status != http.StatusForbidden {
+		t.Fatalf("own job cancellation without accounts.modify: %d", status)
+	}
+	if status, _ := doStatus(t, http.MethodPost, srv.URL+"/api/v1/jobs/"+foreignJob.ID+"/cancel", resellerToken, nil); status != http.StatusNotFound {
+		t.Fatalf("foreign job cancellation should be hidden before capability check: %d", status)
+	}
+	if st.GetJob(ownJob.ID).State != "queued" || st.GetJob(foreignJob.ID).State != "queued" {
+		t.Fatal("unauthorized cancellation changed job state")
+	}
+	st.PutUsage(&store.Usage{AccountID: ownAccount, DiskBytes: 10})
+	st.PutUsage(&store.Usage{AccountID: foreignAccount, DiskBytes: 20})
+	accountList := get(t, srv.URL+"/api/v1/accounts", resellerToken)
+	if accountList["total"].(float64) != 1 {
+		t.Fatalf("reseller account visibility: %v", accountList)
+	}
+	usage := accountList["usage"].(map[string]any)
+	if usage[ownAccount] == nil || usage[foreignAccount] != nil {
+		t.Fatalf("account list leaked foreign usage: %v", usage)
 	}
 }
 
@@ -205,6 +350,47 @@ func TestAuditFiltersAndPaging(t *testing.T) {
 	none := get(t, srv.URL+"/api/v1/audit-events?q=no-such-thing-anywhere", token)
 	if none["total"].(float64) != 0 {
 		t.Fatalf("search filter: %v", none)
+	}
+	if status, _ := doStatus(t, http.MethodGet, srv.URL+"/api/v1/audit-events?success=maybe", token, nil); status != http.StatusBadRequest {
+		t.Fatalf("invalid success filter status: %d", status)
+	}
+	occurred := time.Now().UTC().Add(-time.Minute)
+	actorID := st.UserByUsername("admin").ID
+	st.AppendAudit(store.AuditEvent{
+		ID: id.New(), OccurredAt: occurred, ActorType: "user", ActorID: actorID,
+		AccountID: aid, Action: "account.filter-target", ResourceType: "account",
+		RequestID: id.New(), Success: true,
+	})
+	scoped := get(t, srv.URL+"/api/v1/audit-events?account_id="+aid+
+		"&actor_id="+actorID+"&since="+occurred.Add(-time.Second).Format(time.RFC3339)+
+		"&until="+occurred.Add(time.Second).Format(time.RFC3339), token)
+	if scoped["total"].(float64) != 1 {
+		t.Fatalf("account, actor, and time filters: %v", scoped)
+	}
+	for _, invalid := range []string{
+		"account_id=not-an-id", "since=not-a-time", "limit=0", "offset=-1",
+	} {
+		if status, _ := doStatus(t, http.MethodGet, srv.URL+"/api/v1/audit-events?"+invalid, token, nil); status != http.StatusBadRequest {
+			t.Fatalf("invalid audit filter %q status: %d", invalid, status)
+		}
+	}
+}
+
+func TestAuditDefaultPreservesDirectorHistory(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	for index := 0; index < 60; index++ {
+		st.AppendAudit(store.AuditEvent{
+			ID: id.New(), Action: "account.inspect", ResourceType: "account",
+			Success: true,
+		})
+	}
+
+	result := get(t, srv.URL+"/api/v1/audit-events", token)
+	if total := result["total"].(float64); total < 60 {
+		t.Fatalf("audit total = %v, want at least 60", total)
+	}
+	if items := result["items"].([]any); len(items) < 60 {
+		t.Fatalf("default audit page truncated to %d events", len(items))
 	}
 }
 
