@@ -5,6 +5,8 @@ import (
 	"net"
 	"strings"
 	"unicode"
+
+	"github.com/hosting-panel/panel/internal/brand"
 )
 
 func NormalizeDomain(raw string) (ascii string, err error) {
@@ -59,6 +61,11 @@ func Username(s string) error {
 	switch s {
 	case "root", "panel", "panel-agent", "panel-backup", "www-data", "nobody", "postgres", "mysql":
 		return fmt.Errorf("reserved username")
+	}
+	for _, reserved := range brand.ReservedUsernames {
+		if s == reserved {
+			return fmt.Errorf("reserved username")
+		}
 	}
 	return nil
 }

@@ -25,7 +25,7 @@ type WebsiteSpec struct {
 
 func NginxSite(s WebsiteSpec) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Managed by Hosting Panel\n# resource: %s\n# revision: %d\n# template: nginx/%s-site/v3\n# DO NOT EDIT\n", s.WebsiteID, s.Revision, s.Runtime)
+	fmt.Fprintf(&b, "# Managed by Kelmor\n# resource: %s\n# revision: %d\n# template: nginx/%s-site/v3\n# DO NOT EDIT\n", s.WebsiteID, s.Revision, s.Runtime)
 	if !s.Enabled {
 		b.WriteString(limitedServer("80", s, 503, "account suspended\\n"))
 		if s.TLSCert != "" && s.TLSKey != "" {

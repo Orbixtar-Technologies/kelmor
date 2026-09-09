@@ -190,6 +190,7 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			Domain                string   `json:"domain"`
 			DocumentRoot          string   `json:"document_root"`
 			Runtime               string   `json:"runtime"`
+			PHPVersion            string   `json:"php_version"`
 			HTTPSRedirect         bool     `json:"https_redirect"`
 			Enabled               *bool    `json:"enabled"`
 			BandwidthHold         *bool    `json:"bandwidth_hold"`
@@ -205,7 +206,7 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		if p.BandwidthHold != nil {
 			hold = *p.BandwidthHold
 		}
-		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, "", "", p.HTTPSRedirect, enabled, hold, p.ConcurrentWebRequests, p.Aliases)
+		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, p.PHPVersion, "", p.HTTPSRedirect, enabled, hold, p.ConcurrentWebRequests, p.Aliases)
 	case "RetireWebsite":
 		var p struct {
 			WebsiteID string `json:"website_id"`

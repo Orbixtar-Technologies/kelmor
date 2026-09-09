@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/brand"
 	"github.com/hosting-panel/panel/internal/httpserver"
 	"github.com/hosting-panel/panel/internal/job"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
@@ -25,7 +26,7 @@ type Runtime struct {
 }
 
 func Boot(ctx context.Context, service string) (*Runtime, error) {
-	if (service == "panel-api" || service == "panel-worker") && os.Geteuid() == 0 && os.Getenv("PANEL_ALLOW_ROOT") != "1" {
+	if brand.ControlPlaneService(service) && os.Geteuid() == 0 && os.Getenv("PANEL_ALLOW_ROOT") != "1" {
 		return nil, fmt.Errorf("%s must run as the unprivileged panel user, not root", service)
 	}
 	root := os.Getenv("PANEL_STATE_DIR")

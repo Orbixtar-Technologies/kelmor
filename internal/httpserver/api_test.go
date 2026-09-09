@@ -775,7 +775,7 @@ func TestOpenAPIServesYAML(t *testing.T) {
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode != 200 || !bytes.Contains(body, []byte("Hosting Panel Control API")) {
+	if res.StatusCode != 200 || !bytes.Contains(body, []byte("Kelmor Control Plane API")) {
 		t.Fatalf("%d %s", res.StatusCode, body[:min(len(body), 200)])
 	}
 }

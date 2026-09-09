@@ -1,5 +1,5 @@
 [Unit]
-Description=Hosting Panel SMTP send-limit policy
+Description=Kelmor SMTP send-limit policy
 After=network-online.target
 [Service]
 Type=simple

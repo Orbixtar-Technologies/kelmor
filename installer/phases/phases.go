@@ -203,7 +203,7 @@ func applyControlPlane(c Config) error {
 	}
 	copied := 0
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "panel-") {
+		if e.IsDir() || !(strings.HasPrefix(e.Name(), "panel-") || strings.HasPrefix(e.Name(), "kelmor-")) {
 			continue
 		}
 		in := filepath.Join(src, e.Name())

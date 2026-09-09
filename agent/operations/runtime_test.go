@@ -1,22 +1,25 @@
 package operations
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"testing"
 )
 
 func TestProcessInDirSeesCurrentWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
-	wd, err := os.Getwd()
-	if err != nil {
+	cmd := exec.Command("/bin/sleep", "30")
+	cmd.Dir = dir
+	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(wd) })
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
 	if !processInDir(dir) {
-		t.Fatal("expected the test process in dir")
+		t.Fatal("expected a child process in dir")
 	}
 	other := t.TempDir()
 	if processInDir(other) {
@@ -41,6 +44,22 @@ func TestDropHostedDatabaseRejectsIdent(t *testing.T) {
 	res, err := h.dropHostedDatabase("mariadb", "okdb", "okuser", true)
 	if err != nil || !res.OK {
 		t.Fatalf("%v %#v", err, res)
+	}
+}
+
+func TestApplyPHPPoolWritesSandboxConfig(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Root: root}
+	res, err := h.applyPHPPool("acme42", "8.3", 6)
+	if err != nil || !res.OK {
+		t.Fatalf("%v %#v", err, res)
+	}
+	body, err := os.ReadFile(root + "/etc/php/8.3/fpm/pool.d/panel-acme42.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("listen = /run/php/panel-acme42.sock")) {
+		t.Fatalf("%s", body)
 	}
 }
 

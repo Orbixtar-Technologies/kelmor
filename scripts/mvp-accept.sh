@@ -25,8 +25,8 @@ curl -sk -o /dev/null -w 'server:%{http_code}\n' https://127.0.0.1:8443/ | grep 
   curl -sS -o /dev/null -w 'server:%{http_code}\n' http://127.0.0.1:8443/ | grep -q 200
 curl -sk -o /dev/null -w 'account:%{http_code}\n' https://127.0.0.1:8444/ | grep -q 200 || \
   curl -sS -o /dev/null -w 'account:%{http_code}\n' http://127.0.0.1:8444/ | grep -q 200
-curl -sk https://127.0.0.1:8443/ | grep -q 'Server Portal' || curl -sS http://127.0.0.1:8443/ | grep -q 'Server Portal'
-curl -sk https://127.0.0.1:8444/ | grep -q 'Account Portal' || curl -sS http://127.0.0.1:8444/ | grep -q 'Account Portal'
+curl -sk https://127.0.0.1:8443/ | grep -q 'Kelmor Director' || curl -sS http://127.0.0.1:8443/ | grep -q 'Kelmor Director'
+curl -sk https://127.0.0.1:8444/ | grep -q 'Kelmor Control' || curl -sS http://127.0.0.1:8444/ | grep -q 'Kelmor Control'
 curl -sk https://127.0.0.1:8443/healthz | grep -q ok || curl -sS http://127.0.0.1:8443/healthz | grep -q ok
 curl -sS -o /dev/null -w 'dev-server:%{http_code}\n' http://127.0.0.1:18443/ | grep -q 200 || true
 curl -sS -o /dev/null -w 'dev-account:%{http_code}\n' http://127.0.0.1:18444/ | grep -q 200 || true

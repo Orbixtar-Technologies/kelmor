@@ -2,9 +2,9 @@
 
 Privilege zones:
 
-1. Unprivileged control plane (`panel-api`, `panel-worker`, portals)
-2. Root-owned typed agent (`panel-agent`) on `/run/panel/agent.sock`
-3. Customer workloads as dedicated Linux users
+1. **A** — Unprivileged control plane (`panel-api` / `kelmor-api`, `panel-worker` / `kelmor-worker`, Kelmor Director and Kelmor Control)
+2. **B** — Root-owned typed agent (`panel-agent` / `kelmor-agent`) on `/run/panel/agent.sock`
+3. **C** — Customer workloads as dedicated Linux users
 
 The agent rejects paths outside approved prefixes, reserved usernames, and unknown operations. There is no `exec(string)` RPC.
 

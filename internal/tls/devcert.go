@@ -46,7 +46,7 @@ func SelfSignedNames(names []string, notAfter time.Time) (certPEM, keyPEM []byte
 	}
 	tpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: hostname, Organization: []string{"Hosting Panel"}},
+		Subject:      pkix.Name{CommonName: hostname, Organization: []string{"Kelmor"}},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     notAfter,
 		DNSNames:     dns,

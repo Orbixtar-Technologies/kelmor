@@ -1,5 +1,5 @@
 [Unit]
-Description=Hosting Panel Control API
+Description=Kelmor Director API (panel-api)
 After=network-online.target postgresql.service panel-agent.service
 Wants=panel-agent.service
 [Service]

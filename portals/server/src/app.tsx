@@ -22,9 +22,9 @@ export function App () {
 		return (
 			<main className="auth">
 				<section className="card">
-					<p className="eyebrow">Infrastructure console</p>
-					<h1>Server Portal</h1>
-					<p className="lede">Administer the host, resellers, packages and privileged jobs. Customer sites live in the Account Portal.</p>
+					<p className="eyebrow">Kelmor</p>
+					<h1>Kelmor Director</h1>
+					<p className="lede">Provider control plane for the host, resellers, packages and privileged jobs. Tenants use Kelmor Control.</p>
 					<form onSubmit={async (e) => {
 						e.preventDefault()
 						setError('')
@@ -55,7 +55,7 @@ export function App () {
 		<CapProvider caps={caps}>
 			<div className="shell">
 				<aside>
-					<p className="brand">Server Portal</p>
+					<p className="brand">Kelmor Director</p>
 					<nav>
 						{caps['server.read'] ? <NavLink to="/" end>Dashboard</NavLink> : null}
 						{caps['accounts.read'] ? <NavLink to="/accounts">Accounts</NavLink> : null}

@@ -8,14 +8,14 @@ import (
 )
 
 func TestPortalIsBuilt(t *testing.T) {
-	built := `<!doctype html><html><head><title>Server Portal</title>
+	built := `<!doctype html><html><head><title>Kelmor Director</title>
 <script type="module" src="/assets/index-abc.js"></script></head>
 <body><div id="root"></div></body></html>`
 	if !portalIsBuilt(built) {
 		t.Fatal("expected built SPA html")
 	}
-	placeholder := `<!doctype html><html><head><title>Server Portal</title></head>
-<body><h1>Server Portal</h1><p>Built portal assets were not found</p></body></html>`
+	placeholder := `<!doctype html><html><head><title>Kelmor Director</title></head>
+<body><h1>Kelmor Director</h1><p>Built portal assets were not found</p></body></html>`
 	if portalIsBuilt(placeholder) {
 		t.Fatal("placeholder must not count as built")
 	}
@@ -37,9 +37,9 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 		if err := os.MkdirAll(dest, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		title := "Server Portal"
+		title := "Kelmor Director"
 		if name == "account" {
-			title = "Account Portal"
+			title = "Kelmor Control"
 		}
 		html := `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>` + title + `</title>
 <script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`
@@ -95,9 +95,9 @@ func TestVerifyPortalsRequiresTLS(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	serverHTML := `<!doctype html><html><head><title>Server Portal</title>
+	serverHTML := `<!doctype html><html><head><title>Kelmor Director</title>
 <script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`
-	accountHTML := `<!doctype html><html><head><title>Account Portal</title>
+	accountHTML := `<!doctype html><html><head><title>Kelmor Control</title>
 <script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`
 	if err := os.WriteFile(filepath.Join(dir, "usr/local/panel/share/portals/server/index.html"), []byte(serverHTML), 0o644); err != nil {
 		t.Fatal(err)

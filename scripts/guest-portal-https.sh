@@ -3,9 +3,9 @@
 set -euo pipefail
 curl -sk -o /tmp/sp.html -w "https8443:%{http_code}\n" https://127.0.0.1:8443/
 grep -q 'id="root"' /tmp/sp.html
-grep -q 'Server Portal' /tmp/sp.html
+grep -q 'Kelmor Director' /tmp/sp.html
 curl -sk -o /tmp/ap.html -w "https8444:%{http_code}\n" https://127.0.0.1:8444/
-grep -q 'Account Portal' /tmp/ap.html
+grep -q 'Kelmor Control' /tmp/ap.html
 curl -sk -o /dev/null -w "healthz:%{http_code}\n" https://127.0.0.1:8443/healthz | grep -q 200
 sudo grep -q 'listen 8443 ssl' /etc/nginx/panel-sites/90-server-portal.conf
 sudo test -f /var/lib/panel/certs/panel-portals.crt
