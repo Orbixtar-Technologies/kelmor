@@ -10,15 +10,19 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	maxManifestSize = 1 << 20
-	maxArtifactSize = 256 << 20
-	maxDownloadSize = 1 << 30
+	maxManifestSize        = 1 << 20
+	maxArtifactSize        = 256 << 20
+	maxDownloadSize        = 1 << 30
+	checkTimeout           = 30 * time.Second
+	manifestRequestTimeout = 15 * time.Second
+	artifactRequestTimeout = 2 * time.Minute
+	installTimeout         = 15 * time.Minute
+	recoveryTimeout        = 30 * time.Second
 )
 
 type Config struct {
@@ -32,6 +36,8 @@ type Config struct {
 }
 
 func Check(ctx context.Context, config Config) (*Status, error) {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
 	status := Status{
 		State: "error", InstalledRelease: config.InstalledRelease,
 		Automatic: config.Automatic, Channel: config.Channel,
@@ -66,7 +72,13 @@ func fetchManifest(ctx context.Context, config Config) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
+	requestContext, cancel := context.WithTimeout(request.Context(), manifestRequestTimeout)
+	defer cancel()
+	request = request.WithContext(requestContext)
 	client := *http.DefaultClient
+	if client.Timeout == 0 || client.Timeout > manifestRequestTimeout {
+		client.Timeout = manifestRequestTimeout
+	}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
 			return fmt.Errorf("too many redirects")
@@ -168,7 +180,7 @@ func validateArtifacts(artifacts []Artifact) error {
 		if err != nil || len(hash) != 32 {
 			return fmt.Errorf("invalid SHA-256 for artifact %q", artifact.Path)
 		}
-		if artifact.Mode == 0 || artifact.Mode&^uint32(0o777) != 0 {
+		if artifact.Mode != 0o644 && artifact.Mode != 0o755 {
 			return fmt.Errorf("invalid mode for artifact %q", artifact.Path)
 		}
 	}
@@ -227,18 +239,19 @@ func finishStatus(path string, status Status, operationErr error) (*Status, erro
 }
 
 type semanticVersion struct {
-	core       [3]int64
+	core       [3]string
 	prerelease []string
 }
 
 func parseSemanticVersion(raw string) (semanticVersion, error) {
 	var version semanticVersion
 	raw = strings.TrimPrefix(raw, "v")
-	if build := strings.IndexByte(raw, '+'); build >= 0 {
-		if build == len(raw)-1 {
-			return version, fmt.Errorf("empty build metadata")
+	coreAndPre, buildMetadata, hasBuild := strings.Cut(raw, "+")
+	if hasBuild {
+		if strings.Contains(buildMetadata, "+") || !validVersionIdentifiers(buildMetadata, false) {
+			return version, fmt.Errorf("invalid build metadata")
 		}
-		raw = raw[:build]
+		raw = coreAndPre
 	}
 	if pre := strings.IndexByte(raw, '-'); pre >= 0 {
 		if pre == len(raw)-1 {
@@ -252,24 +265,14 @@ func parseSemanticVersion(raw string) (semanticVersion, error) {
 		return version, fmt.Errorf("%q is not major.minor.patch", raw)
 	}
 	for i, part := range parts {
-		if part == "" || (len(part) > 1 && part[0] == '0') {
+		if !isNumericIdentifier(part) || (len(part) > 1 && part[0] == '0') {
 			return version, fmt.Errorf("invalid numeric component %q", part)
 		}
-		number, err := strconv.ParseInt(part, 10, 64)
-		if err != nil || number < 0 {
-			return version, fmt.Errorf("invalid numeric component %q", part)
-		}
-		version.core[i] = number
+		version.core[i] = part
 	}
-	for _, identifier := range version.prerelease {
-		if identifier == "" {
-			return version, fmt.Errorf("empty prerelease identifier")
-		}
-		for _, char := range identifier {
-			if (char < '0' || char > '9') && (char < 'A' || char > 'Z') &&
-				(char < 'a' || char > 'z') && char != '-' {
-				return version, fmt.Errorf("invalid prerelease identifier %q", identifier)
-			}
+	if len(version.prerelease) > 0 {
+		if !validVersionIdentifiers(strings.Join(version.prerelease, "."), true) {
+			return version, fmt.Errorf("invalid prerelease")
 		}
 	}
 	return version, nil
@@ -277,11 +280,8 @@ func parseSemanticVersion(raw string) (semanticVersion, error) {
 
 func compareVersions(left, right semanticVersion) int {
 	for i := range left.core {
-		if left.core[i] < right.core[i] {
-			return -1
-		}
-		if left.core[i] > right.core[i] {
-			return 1
+		if comparison := compareNumericIdentifier(left.core[i], right.core[i]); comparison != 0 {
+			return comparison
 		}
 	}
 	if len(left.prerelease) == 0 && len(right.prerelease) == 0 {
@@ -308,20 +308,14 @@ func compareVersions(left, right semanticVersion) int {
 }
 
 func comparePrereleaseIdentifier(left, right string) int {
-	leftNumber, leftErr := strconv.ParseUint(left, 10, 64)
-	rightNumber, rightErr := strconv.ParseUint(right, 10, 64)
+	leftNumeric := isNumericIdentifier(left)
+	rightNumeric := isNumericIdentifier(right)
 	switch {
-	case leftErr == nil && rightErr == nil:
-		if leftNumber < rightNumber {
-			return -1
-		}
-		if leftNumber > rightNumber {
-			return 1
-		}
-		return 0
-	case leftErr == nil:
+	case leftNumeric && rightNumeric:
+		return compareNumericIdentifier(left, right)
+	case leftNumeric:
 		return -1
-	case rightErr == nil:
+	case rightNumeric:
 		return 1
 	case left < right:
 		return -1
@@ -330,4 +324,50 @@ func comparePrereleaseIdentifier(left, right string) int {
 	default:
 		return 0
 	}
+}
+
+func compareNumericIdentifier(left, right string) int {
+	if len(left) < len(right) {
+		return -1
+	}
+	if len(left) > len(right) {
+		return 1
+	}
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
+}
+
+func isNumericIdentifier(identifier string) bool {
+	if identifier == "" {
+		return false
+	}
+	for _, character := range identifier {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validVersionIdentifiers(value string, rejectLeadingZeroNumeric bool) bool {
+	for _, identifier := range strings.Split(value, ".") {
+		if identifier == "" || (rejectLeadingZeroNumeric && len(identifier) > 1 &&
+			identifier[0] == '0' && isNumericIdentifier(identifier)) {
+			return false
+		}
+		for _, character := range identifier {
+			if (character < '0' || character > '9') &&
+				(character < 'A' || character > 'Z') &&
+				(character < 'a' || character > 'z') &&
+				character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }

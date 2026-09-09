@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/hosting-panel/panel/internal/update"
 )
 
-func TestLoadUpdateConfigReadsPinnedPolicyAndInstalledRelease(t *testing.T) {
+func TestParseUpdateConfigReadsPinnedPolicyAndInstalledRelease(t *testing.T) {
 	root := t.TempDir()
 	statusPath := filepath.Join(t.TempDir(), "status.json")
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -35,7 +37,7 @@ func TestLoadUpdateConfigReadsPinnedPolicyAndInstalledRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config, err := loadUpdateConfig(configPath)
+	config, err := parseUpdateConfigFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,12 +54,24 @@ func TestLoadUpdateConfigReadsPinnedPolicyAndInstalledRelease(t *testing.T) {
 	}
 }
 
-func TestLoadUpdateConfigRejectsInvalidAutomaticSetting(t *testing.T) {
+func TestParseUpdateConfigRejectsInvalidAutomaticSetting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "update.env")
 	if err := os.WriteFile(path, []byte("PANEL_UPDATE_AUTOMATIC=sometimes\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadUpdateConfig(path); err == nil {
+	if _, err := parseUpdateConfigFile(path); err == nil {
 		t.Fatal("expected invalid automatic setting to be rejected")
+	}
+}
+
+func TestLoadUpdateConfigRejectsCallerControlledPath(t *testing.T) {
+	if _, err := loadUpdateConfig(filepath.Join(t.TempDir(), "update.env")); err == nil {
+		t.Fatal("expected non-production config path to be rejected")
+	}
+}
+
+func TestProductionConfigRequiresStableChannel(t *testing.T) {
+	if err := validateProductionConfig(update.Config{Channel: "beta"}); err == nil {
+		t.Fatal("expected non-stable production channel to be rejected")
 	}
 }

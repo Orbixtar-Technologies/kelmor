@@ -7,10 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCheckAcceptsNewerSignedStableRelease(t *testing.T) {
@@ -197,6 +199,88 @@ func TestCheckAllowsSameHostRedirectAndRejectsDifferentHost(t *testing.T) {
 	}
 }
 
+func TestCheckBoundsManifestRequest(t *testing.T) {
+	deadlineSeen := make(chan time.Time, 1)
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		if !ok {
+			return nil, errors.New("manifest request has no deadline")
+		}
+		deadlineSeen <- deadline
+		return nil, errors.New("stop after deadline inspection")
+	})}
+	withHTTPClient(t, client)
+	started := time.Now()
+
+	_, _ = Check(context.Background(), Config{
+		FeedURL: "https://updates.example.test", Channel: "stable",
+	})
+
+	select {
+	case deadline := <-deadlineSeen:
+		if deadline.After(started.Add(manifestRequestTimeout + time.Second)) {
+			t.Fatalf("manifest deadline %v exceeds bound", deadline)
+		}
+	default:
+		t.Fatal("transport did not observe a bounded request")
+	}
+}
+
+func TestSemanticVersionValidationAndArbitraryNumericOrdering(t *testing.T) {
+	if _, err := parseSemanticVersion("1.0.0-01"); err == nil {
+		t.Fatal("numeric prerelease identifier with a leading zero was accepted")
+	}
+	if _, err := parseSemanticVersion("1.0.0+bad_metadata"); err == nil {
+		t.Fatal("invalid build metadata was accepted")
+	}
+	left, err := parseSemanticVersion("999999999999999999999999999999999999999.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := parseSemanticVersion("1000000000000000000000000000000000000000.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compareVersions(left, right) >= 0 {
+		t.Fatal("arbitrary-size core identifiers were not ordered numerically")
+	}
+	prereleaseLeft, err := parseSemanticVersion("1.0.0-999999999999999999999999999999999999999")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prereleaseRight, err := parseSemanticVersion("1.0.0-1000000000000000000000000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compareVersions(prereleaseLeft, prereleaseRight) >= 0 {
+		t.Fatal("arbitrary-size prerelease identifiers were not ordered numerically")
+	}
+	if _, err := parseSemanticVersion("1.0.0-alpha.01a+build.7"); err != nil {
+		t.Fatalf("valid alphanumeric prerelease/build metadata rejected: %v", err)
+	}
+}
+
+func TestArtifactModesRejectWritableAndUnexpectedPermissions(t *testing.T) {
+	for _, mode := range []uint32{0o666, 0o775, 0o600, 0o700} {
+		artifact := Artifact{
+			Path: "panel-api", Target: "bin/panel-api", Size: 1,
+			SHA256: strings.Repeat("0", 64), Mode: mode,
+		}
+		if err := validateArtifacts([]Artifact{artifact}); err == nil {
+			t.Fatalf("unsafe or unexpected mode %o was accepted", mode)
+		}
+	}
+	for _, mode := range []uint32{0o644, 0o755} {
+		artifact := Artifact{
+			Path: "panel-api", Target: "bin/panel-api", Size: 1,
+			SHA256: strings.Repeat("0", 64), Mode: mode,
+		}
+		if err := validateArtifacts([]Artifact{artifact}); err != nil {
+			t.Fatalf("safe mode %o rejected: %v", mode, err)
+		}
+	}
+}
+
 func validManifest(release string) *Manifest {
 	return &Manifest{
 		Release: release, Channel: "stable", MinimumRelease: "1.0.0",
@@ -230,4 +314,10 @@ func withHTTPClient(t *testing.T, client *http.Client) {
 	t.Cleanup(func() {
 		http.DefaultClient = previous
 	})
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }

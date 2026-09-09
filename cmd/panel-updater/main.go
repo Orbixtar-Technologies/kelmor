@@ -126,6 +126,27 @@ func (commandRunner) Run(ctx context.Context, name string, args ...string) error
 }
 
 func loadUpdateConfig(path string) (update.Config, error) {
+	if path != "/etc/panel/update.env" {
+		return update.Config{}, fmt.Errorf("production config must be /etc/panel/update.env")
+	}
+	config, err := parseUpdateConfigFile(path)
+	if err != nil {
+		return update.Config{}, err
+	}
+	if err := validateProductionConfig(config); err != nil {
+		return update.Config{}, err
+	}
+	return config, nil
+}
+
+func validateProductionConfig(config update.Config) error {
+	if config.Channel != "stable" {
+		return fmt.Errorf("production update channel must be stable")
+	}
+	return nil
+}
+
+func parseUpdateConfigFile(path string) (update.Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return update.Config{}, err

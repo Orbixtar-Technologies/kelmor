@@ -6,15 +6,23 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
-	"strconv"
+	"path"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
+)
+
+const (
+	transactionDirectory = ".update-transaction"
+	stagingDirectory     = ".update-staging"
 )
 
 type Runner interface {
@@ -27,112 +35,253 @@ type snapshotEntry struct {
 }
 
 type snapshotMetadata struct {
+	State                string          `json:"state"`
 	Targets              []snapshotEntry `json:"targets"`
 	CurrentReleaseExists bool            `json:"current_release_exists"`
 }
 
-func Apply(bundleDir, installRoot string, pub ed25519.PublicKey) error {
-	m, err := Load(filepath.Join(bundleDir, "manifest.json"))
+type operationLock struct {
+	root *secureRoot
+	file *os.File
+}
+
+func acquireInstallLock(installRoot string) (*operationLock, error) {
+	root, err := openSecureRoot(installRoot, "install root")
+	if err != nil {
+		return nil, err
+	}
+	file, err := root.open(".update.lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW, 0o600)
+	if err != nil {
+		_ = root.Close()
+		return nil, err
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		_ = file.Close()
+		_ = root.Close()
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, fmt.Errorf("update operation already in progress")
+		}
+		return nil, err
+	}
+	return &operationLock{root: root, file: file}, nil
+}
+
+func (lock *operationLock) Close() error {
+	unlockErr := unix.Flock(int(lock.file.Fd()), unix.LOCK_UN)
+	fileErr := lock.file.Close()
+	rootErr := lock.root.Close()
+	return errors.Join(unlockErr, fileErr, rootErr)
+}
+
+func Apply(bundleDir, installRoot string, publicKey ed25519.PublicKey) error {
+	if err := createSecureRoot(installRoot, "install root"); err != nil {
+		return err
+	}
+	lock, err := acquireInstallLock(installRoot)
 	if err != nil {
 		return err
 	}
-	if err := Verify(m, pub); err != nil {
+	defer lock.Close()
+	if err := recoverInterruptedTransaction(lock.root, nil); err != nil {
+		return fmt.Errorf("recover interrupted update: %w", err)
+	}
+	if err := lock.root.removeTree(stagingDirectory); err != nil {
 		return err
 	}
-	if err := VerifyFileHashes(m, bundleDir); err != nil {
+	bundle, err := openSecureRoot(bundleDir, "bundle root")
+	if err != nil {
 		return err
 	}
-	relDir := filepath.Join(installRoot, "releases", m.Release)
-	if err := os.MkdirAll(relDir, 0o755); err != nil {
+	defer bundle.Close()
+
+	raw, err := bundle.readFile("manifest.json", maxManifestSize)
+	if err != nil {
 		return err
 	}
-	binDir := filepath.Join(installRoot, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
+	var manifest Manifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return err
 	}
-	rbDir := filepath.Join(installRoot, "rollback")
-	_ = os.RemoveAll(rbDir)
-	if err := os.MkdirAll(rbDir, 0o755); err != nil {
+	if err := Verify(&manifest, publicKey); err != nil {
 		return err
 	}
-	for rel := range m.Files {
-		if strings.Contains(rel, "..") {
-			return fmt.Errorf("illegal path %s", rel)
+	if !validRelativePath(manifest.Release) || strings.Contains(manifest.Release, "/") {
+		return fmt.Errorf("invalid release path")
+	}
+	artifacts, err := openVerifiedLegacyBundle(bundle, &manifest)
+	if err != nil {
+		return err
+	}
+	defer closeFiles(artifacts)
+	return applyLegacyLocked(lock.root, artifacts, &manifest)
+}
+
+func openVerifiedLegacyBundle(bundle *secureRoot, manifest *Manifest) (map[string]*os.File, error) {
+	artifacts := make(map[string]*os.File, len(manifest.Files))
+	for relative, want := range manifest.Files {
+		if !validRelativePath(relative) {
+			closeFiles(artifacts)
+			return nil, fmt.Errorf("illegal path %s", relative)
 		}
-		src := filepath.Join(bundleDir, rel)
-		if err := copyFile(src, filepath.Join(relDir, rel)); err != nil {
+		file, err := bundle.open(relative, unix.O_RDONLY|unix.O_NOFOLLOW, 0)
+		if err != nil {
+			closeFiles(artifacts)
+			if errors.Is(err, unix.ELOOP) {
+				return nil, fmt.Errorf("artifact path %q is a symlink: %w", relative, err)
+			}
+			return nil, err
+		}
+		info, statErr := file.Stat()
+		if statErr != nil {
+			_ = file.Close()
+			closeFiles(artifacts)
+			return nil, statErr
+		}
+		if !info.Mode().IsRegular() {
+			_ = file.Close()
+			closeFiles(artifacts)
+			return nil, fmt.Errorf("artifact %q is not a regular file", relative)
+		}
+		sum := sha256.New()
+		_, copyErr := io.Copy(sum, file)
+		if copyErr != nil {
+			_ = file.Close()
+			closeFiles(artifacts)
+			return nil, copyErr
+		}
+		if !strings.EqualFold(hex.EncodeToString(sum.Sum(nil)), want) {
+			_ = file.Close()
+			closeFiles(artifacts)
+			return nil, fmt.Errorf("hash mismatch for %s", relative)
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			_ = file.Close()
+			closeFiles(artifacts)
+			return nil, err
+		}
+		artifacts[relative] = file
+	}
+	return artifacts, nil
+}
+
+func closeFiles(files map[string]*os.File) {
+	for _, file := range files {
+		_ = file.Close()
+	}
+}
+
+func applyLegacyLocked(root *secureRoot, artifacts map[string]*os.File, manifest *Manifest) error {
+	if err := root.removeTree("rollback"); err != nil {
+		return err
+	}
+	if err := root.mkdirAll("rollback", 0o700); err != nil {
+		return err
+	}
+	if err := root.mkdirAll(stagingDirectory, 0o700); err != nil {
+		return err
+	}
+	transactionArtifacts := make([]Artifact, 0, len(manifest.Files))
+	for relative := range manifest.Files {
+		source := artifacts[relative]
+		releaseTarget := path.Join("releases", manifest.Release, relative)
+		if err := root.copyReaderAtomic(source, releaseTarget, 0o755); err != nil {
 			return err
 		}
-		cur := filepath.Join(binDir, filepath.Base(rel))
-		if _, err := os.Stat(cur); err == nil {
-			if err := copyFile(cur, filepath.Join(rbDir, filepath.Base(rel))); err != nil {
+		if _, err := source.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		target := path.Join("bin", path.Base(relative))
+		if err := root.copyReaderAtomic(source, path.Join(stagingDirectory, target), 0o755); err != nil {
+			return err
+		}
+		transactionArtifacts = append(transactionArtifacts, Artifact{Target: target})
+		if info, err := root.stat(target); err == nil {
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("target %q is not a regular file", target)
+			}
+			if err := root.copyAtomic(target, path.Join("rollback", path.Base(relative)), uint32(info.Mode().Perm())); err != nil {
 				return err
 			}
-		}
-		if err := copyFile(src, cur); err != nil {
-			_ = Rollback(installRoot)
+		} else if !errors.Is(err, unix.ENOENT) {
 			return err
 		}
 	}
-	return os.WriteFile(filepath.Join(installRoot, "current-release"), []byte(m.Release+"\n"), 0o644)
+	metadata, err := beginTransaction(root, transactionArtifacts)
+	if err != nil {
+		_ = cleanupTransaction(root)
+		return err
+	}
+	metadata.State = "applying"
+	if err := writeTransactionMetadata(root, metadata); err != nil {
+		return rollbackLegacyTransaction(root, err)
+	}
+	if err := installStagedArtifacts(root, transactionArtifacts); err != nil {
+		return rollbackLegacyTransaction(root, err)
+	}
+	if err := root.writeAtomic("current-release", []byte(manifest.Release+"\n"), 0o644); err != nil {
+		return rollbackLegacyTransaction(root, err)
+	}
+	metadata.State = "committed"
+	if err := writeTransactionMetadata(root, metadata); err != nil {
+		return rollbackLegacyTransaction(root, err)
+	}
+	return cleanupTransaction(root)
+}
+
+func rollbackLegacyTransaction(root *secureRoot, applyErr error) error {
+	if rollbackErr := rollbackTransaction(root); rollbackErr != nil {
+		return fmt.Errorf("%w; rollback failed: %v", applyErr, rollbackErr)
+	}
+	if cleanupErr := cleanupTransaction(root); cleanupErr != nil {
+		return fmt.Errorf("%w; rollback cleanup failed: %v", applyErr, cleanupErr)
+	}
+	return applyErr
 }
 
 func Rollback(installRoot string) error {
-	rbDir := filepath.Join(installRoot, "rollback")
-	metadataPath := filepath.Join(rbDir, "metadata.json")
-	if raw, err := os.ReadFile(metadataPath); err == nil {
-		var metadata snapshotMetadata
-		if err := json.Unmarshal(raw, &metadata); err != nil {
-			return fmt.Errorf("invalid rollback metadata: %w", err)
-		}
-		for _, entry := range metadata.Targets {
-			target := filepath.Join(installRoot, filepath.FromSlash(entry.Target))
-			if !entry.Exists {
-				if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-					return err
-				}
-				continue
-			}
-			source := filepath.Join(rbDir, "targets", filepath.FromSlash(entry.Target))
-			info, err := os.Stat(source)
-			if err != nil {
-				return err
-			}
-			if err := copyFileWithMode(source, target, info.Mode().Perm()); err != nil {
-				return err
-			}
-		}
-		currentRelease := filepath.Join(installRoot, "current-release")
-		if metadata.CurrentReleaseExists {
-			info, err := os.Stat(filepath.Join(rbDir, "current-release"))
-			if err != nil {
-				return err
-			}
-			return copyFileWithMode(filepath.Join(rbDir, "current-release"), currentRelease, info.Mode().Perm())
-		}
-		if err := os.Remove(currentRelease); err != nil && !os.IsNotExist(err) {
+	lock, err := acquireInstallLock(installRoot)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if exists, err := transactionExists(lock.root); err != nil {
+		return err
+	} else if exists {
+		if err := rollbackTransaction(lock.root); err != nil {
 			return err
 		}
-		return nil
+		return cleanupTransaction(lock.root)
 	}
+	return rollbackLegacyLocked(lock.root)
+}
 
-	binDir := filepath.Join(installRoot, "bin")
-	entries, err := os.ReadDir(rbDir)
+func rollbackLegacyLocked(root *secureRoot) error {
+	directory, err := root.open("rollback", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return fmt.Errorf("no rollback snapshot: %w", err)
 	}
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
+	defer directory.Close()
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		if e.IsDir() {
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
 			continue
 		}
-		if err := copyFile(filepath.Join(rbDir, e.Name()), filepath.Join(binDir, e.Name())); err != nil {
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if err := root.copyAtomic(
+			path.Join("rollback", entry.Name()),
+			path.Join("bin", entry.Name()),
+			uint32(info.Mode().Perm()),
+		); err != nil {
 			return err
 		}
 	}
-	return os.WriteFile(filepath.Join(installRoot, "current-release"), []byte("rolled-back\n"), 0o644)
+	return root.writeAtomic("current-release", []byte("rolled-back\n"), 0o644)
 }
 
 func Install(ctx context.Context, config Config, runner Runner) (*Status, error) {
@@ -141,18 +290,26 @@ func Install(ctx context.Context, config Config, runner Runner) (*Status, error)
 		Automatic: config.Automatic, Channel: config.Channel,
 		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	unlock, err := acquireInstallLock(config)
-	if err != nil {
-		return finishStatus(config.StatusPath, status, err)
-	}
-	defer unlock()
 	if config.InstallRoot == "" {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("install root is required"))
 	}
 	if runner == nil {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("update runner is required"))
 	}
+	lock, err := acquireInstallLock(config.InstallRoot)
+	if err != nil {
+		return finishStatus(config.StatusPath, status, err)
+	}
+	defer lock.Close()
+	if err := recoverInterruptedTransaction(lock.root, runner); err != nil {
+		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
+	}
+	if err := lock.root.removeTree(stagingDirectory); err != nil {
+		return finishStatus(config.StatusPath, status, err)
+	}
 
+	ctx, cancel := context.WithTimeout(ctx, installTimeout)
+	defer cancel()
 	manifest, err := fetchManifest(ctx, config)
 	if err != nil {
 		return finishStatus(config.StatusPath, status, err)
@@ -161,122 +318,117 @@ func Install(ctx context.Context, config Config, runner Runner) (*Status, error)
 		return finishStatus(config.StatusPath, status, err)
 	}
 	status.AvailableRelease = manifest.Release
-
-	staging, err := os.MkdirTemp(config.InstallRoot, ".update-staging-")
+	if err := lock.root.mkdirAll(stagingDirectory, 0o700); err != nil {
+		return finishStatus(config.StatusPath, status, err)
+	}
+	if err := downloadArtifacts(ctx, config, manifest, lock.root); err != nil {
+		return finishStatus(config.StatusPath, status, err)
+	}
+	metadata, err := beginTransaction(lock.root, manifest.Artifacts)
 	if err != nil {
+		_ = cleanupTransaction(lock.root)
 		return finishStatus(config.StatusPath, status, err)
 	}
-	defer os.RemoveAll(staging)
-	if err := os.Chmod(staging, 0o700); err != nil {
-		return finishStatus(config.StatusPath, status, err)
+	metadata.State = "applying"
+	if err := writeTransactionMetadata(lock.root, metadata); err != nil {
+		return rollbackFailedInstall(config, runner, lock.root, status, err)
 	}
-	if err := downloadArtifacts(ctx, config, manifest, staging); err != nil {
-		return finishStatus(config.StatusPath, status, err)
-	}
-	if err := createSnapshot(config.InstallRoot, manifest.Artifacts); err != nil {
-		return finishStatus(config.StatusPath, status, err)
-	}
-	if err := installStagedArtifacts(config.InstallRoot, staging, manifest.Artifacts); err != nil {
-		return rollbackFailedInstall(ctx, config, runner, status, err)
+	if err := installStagedArtifacts(lock.root, manifest.Artifacts); err != nil {
+		return rollbackFailedInstall(config, runner, lock.root, status, err)
 	}
 	if err := runActivationAndHealthChecks(ctx, runner); err != nil {
-		return rollbackFailedInstall(ctx, config, runner, status, err)
+		return rollbackFailedInstall(config, runner, lock.root, status, err)
 	}
-	if err := writeCurrentRelease(config.InstallRoot, manifest.Release); err != nil {
-		return rollbackFailedInstall(ctx, config, runner, status, err)
+	if err := lock.root.writeAtomic("current-release", []byte(manifest.Release+"\n"), 0o644); err != nil {
+		return rollbackFailedInstall(config, runner, lock.root, status, err)
+	}
+	metadata.State = "activated"
+	if err := writeTransactionMetadata(lock.root, metadata); err != nil {
+		return rollbackFailedInstall(config, runner, lock.root, status, err)
 	}
 
 	status.State = "installed"
 	status.InstalledRelease = manifest.Release
 	status.Error = ""
-	return finishStatus(config.StatusPath, status, nil)
-}
-
-func installLockPath(config Config) string {
 	if config.StatusPath != "" {
-		return filepath.Join(filepath.Dir(config.StatusPath), "update.lock")
+		if err := WriteStatus(config.StatusPath, status); err != nil {
+			return rollbackFailedInstall(config, runner, lock.root, status, fmt.Errorf("persist success status: %w", err))
+		}
 	}
-	return filepath.Join(config.InstallRoot, ".update.lock")
+	metadata.State = "committed"
+	if err := writeTransactionMetadata(lock.root, metadata); err != nil {
+		return rollbackFailedInstall(config, runner, lock.root, status, fmt.Errorf("commit update journal: %w", err))
+	}
+	_ = cleanupTransaction(lock.root)
+	return &status, nil
 }
 
-func acquireInstallLock(config Config) (func(), error) {
-	path := installLockPath(config)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if os.IsExist(err) {
-		return nil, fmt.Errorf("update operation already in progress")
-	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := file.WriteString(strconv.Itoa(os.Getpid()) + "\n"); err != nil {
-		_ = file.Close()
-		_ = os.Remove(path)
-		return nil, err
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return nil, err
-	}
-	return func() {
-		_ = os.Remove(path)
-	}, nil
-}
-
-func downloadArtifacts(ctx context.Context, config Config, manifest *Manifest, staging string) error {
+func downloadArtifacts(ctx context.Context, config Config, manifest *Manifest, root *secureRoot) error {
 	base, err := validateFeedURL(config.FeedURL)
 	if err != nil {
 		return err
 	}
 	client := *http.DefaultClient
 	client.CheckRedirect = sameHostRedirectPolicy(base)
+	if client.Timeout == 0 || client.Timeout > artifactRequestTimeout {
+		client.Timeout = artifactRequestTimeout
+	}
 	for _, artifact := range manifest.Artifacts {
 		artifactURL, err := url.JoinPath(base.String(), config.Channel, manifest.Release, artifact.Path)
 		if err != nil {
 			return err
 		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifactURL, nil)
+		requestContext, cancel := context.WithTimeout(ctx, artifactRequestTimeout)
+		request, err := http.NewRequestWithContext(requestContext, http.MethodGet, artifactURL, nil)
 		if err != nil {
+			cancel()
 			return err
 		}
 		response, err := client.Do(request)
 		if err != nil {
+			cancel()
 			return fmt.Errorf("download artifact %q: %w", artifact.Path, err)
 		}
 		if response.StatusCode != http.StatusOK {
 			_ = response.Body.Close()
+			cancel()
 			return fmt.Errorf("download artifact %q: HTTP %d", artifact.Path, response.StatusCode)
 		}
-		target := filepath.Join(staging, filepath.FromSlash(artifact.Target))
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			_ = response.Body.Close()
-			return err
+		reader := &hashingReader{
+			reader: io.LimitReader(response.Body, artifact.Size+1),
+			hash:   sha256.New(),
 		}
-		file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(artifact.Mode))
-		if err != nil {
-			_ = response.Body.Close()
-			return err
-		}
-		hash := sha256.New()
-		written, copyErr := io.Copy(io.MultiWriter(file, hash), io.LimitReader(response.Body, artifact.Size+1))
-		closeErr := file.Close()
+		target := path.Join(stagingDirectory, artifact.Target)
+		copyErr := root.copyReaderAtomic(reader, target, artifact.Mode)
 		bodyCloseErr := response.Body.Close()
+		cancel()
 		switch {
 		case copyErr != nil:
 			return fmt.Errorf("download artifact %q: %w", artifact.Path, copyErr)
-		case closeErr != nil:
-			return closeErr
 		case bodyCloseErr != nil:
 			return bodyCloseErr
-		case written != artifact.Size:
-			return fmt.Errorf("artifact %q size mismatch: got %d, want %d", artifact.Path, written, artifact.Size)
-		case !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), artifact.SHA256):
+		case reader.count != artifact.Size:
+			return fmt.Errorf("artifact %q size mismatch: got %d, want %d", artifact.Path, reader.count, artifact.Size)
+		case !strings.EqualFold(hex.EncodeToString(reader.hash.Sum(nil)), artifact.SHA256):
 			return fmt.Errorf("artifact %q hash mismatch", artifact.Path)
 		}
 	}
 	return nil
+}
+
+type hashingReader struct {
+	reader io.Reader
+	hash   hash.Hash
+	count  int64
+}
+
+func (reader *hashingReader) Read(buffer []byte) (int, error) {
+	count, err := reader.reader.Read(buffer)
+	if count > 0 {
+		_, _ = reader.hash.Write(buffer[:count])
+		reader.count += int64(count)
+	}
+	return count, err
 }
 
 func sameHostRedirectPolicy(base *url.URL) func(*http.Request, []*http.Request) error {
@@ -291,89 +443,171 @@ func sameHostRedirectPolicy(base *url.URL) func(*http.Request, []*http.Request) 
 	}
 }
 
-func createSnapshot(root string, artifacts []Artifact) error {
-	rollback := filepath.Join(root, "rollback")
-	if err := os.RemoveAll(rollback); err != nil {
-		return err
+func beginTransaction(root *secureRoot, artifacts []Artifact) (snapshotMetadata, error) {
+	if err := root.removeTree(transactionDirectory); err != nil {
+		return snapshotMetadata{}, err
 	}
-	if err := os.MkdirAll(filepath.Join(rollback, "targets"), 0o700); err != nil {
-		return err
+	if err := root.mkdirAll(path.Join(transactionDirectory, "targets"), 0o700); err != nil {
+		return snapshotMetadata{}, err
 	}
-	metadata := snapshotMetadata{Targets: make([]snapshotEntry, 0, len(artifacts))}
+	metadata := snapshotMetadata{
+		State:   "prepared",
+		Targets: make([]snapshotEntry, 0, len(artifacts)),
+	}
 	for _, artifact := range artifacts {
-		if err := rejectSymlinks(root, artifact.Target); err != nil {
-			return err
-		}
-		target := filepath.Join(root, filepath.FromSlash(artifact.Target))
-		info, err := os.Lstat(target)
-		if os.IsNotExist(err) {
+		info, err := root.stat(artifact.Target)
+		if errors.Is(err, unix.ENOENT) {
 			metadata.Targets = append(metadata.Targets, snapshotEntry{Target: artifact.Target})
 			continue
 		}
 		if err != nil {
-			return err
+			return snapshotMetadata{}, err
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("target %q is not a regular file", artifact.Target)
+			return snapshotMetadata{}, fmt.Errorf("target %q is not a regular file", artifact.Target)
 		}
 		metadata.Targets = append(metadata.Targets, snapshotEntry{Target: artifact.Target, Exists: true})
-		snapshot := filepath.Join(rollback, "targets", filepath.FromSlash(artifact.Target))
-		if err := copyFileWithMode(target, snapshot, info.Mode().Perm()); err != nil {
-			return err
+		if err := root.copyAtomic(
+			artifact.Target,
+			path.Join(transactionDirectory, "targets", artifact.Target),
+			uint32(info.Mode().Perm()),
+		); err != nil {
+			return snapshotMetadata{}, err
 		}
 	}
-	currentRelease := filepath.Join(root, "current-release")
-	if info, err := os.Stat(currentRelease); err == nil {
+	if info, err := root.stat("current-release"); err == nil {
 		metadata.CurrentReleaseExists = true
-		if err := copyFileWithMode(currentRelease, filepath.Join(rollback, "current-release"), info.Mode().Perm()); err != nil {
-			return err
+		if err := root.copyAtomic(
+			"current-release",
+			path.Join(transactionDirectory, "current-release"),
+			uint32(info.Mode().Perm()),
+		); err != nil {
+			return snapshotMetadata{}, err
 		}
-	} else if !os.IsNotExist(err) {
-		return err
+	} else if !errors.Is(err, unix.ENOENT) {
+		return snapshotMetadata{}, err
 	}
+	if err := writeTransactionMetadata(root, metadata); err != nil {
+		return snapshotMetadata{}, err
+	}
+	return metadata, nil
+}
+
+func writeTransactionMetadata(root *secureRoot, metadata snapshotMetadata) error {
 	raw, err := json.Marshal(metadata)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(rollback, "metadata.json"), raw, 0o600)
+	return root.writeAtomic(path.Join(transactionDirectory, "metadata.json"), raw, 0o600)
 }
 
-func installStagedArtifacts(root, staging string, artifacts []Artifact) error {
+func installStagedArtifacts(root *secureRoot, artifacts []Artifact) error {
 	for _, artifact := range artifacts {
-		if err := rejectSymlinks(root, artifact.Target); err != nil {
-			return err
-		}
-		source := filepath.Join(staging, filepath.FromSlash(artifact.Target))
-		target := filepath.Join(root, filepath.FromSlash(artifact.Target))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		if err := os.Chmod(source, os.FileMode(artifact.Mode)); err != nil {
-			return err
-		}
-		if err := os.Rename(source, target); err != nil {
+		if err := root.rename(path.Join(stagingDirectory, artifact.Target), artifact.Target); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func rejectSymlinks(root, target string) error {
-	current := root
-	for _, component := range strings.Split(filepath.FromSlash(target), string(filepath.Separator)) {
-		current = filepath.Join(current, component)
-		info, err := os.Lstat(current)
-		if os.IsNotExist(err) {
+func transactionExists(root *secureRoot) (bool, error) {
+	file, err := root.open(transactionDirectory, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, file.Close()
+}
+
+func recoverInterruptedTransaction(root *secureRoot, runner Runner) error {
+	exists, err := transactionExists(root)
+	if err != nil || !exists {
+		return err
+	}
+	raw, err := root.readFile(path.Join(transactionDirectory, "metadata.json"), maxManifestSize)
+	if errors.Is(err, unix.ENOENT) {
+		return cleanupTransaction(root)
+	}
+	if err != nil {
+		return err
+	}
+	var metadata snapshotMetadata
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return err
+	}
+	if metadata.State == "committed" {
+		return cleanupTransaction(root)
+	}
+	if err := rollbackTransactionWithMetadata(root, metadata); err != nil {
+		return err
+	}
+	if runner != nil {
+		recoveryContext, cancel := context.WithTimeout(context.Background(), recoveryTimeout)
+		defer cancel()
+		if err := runActivationAndHealthChecks(recoveryContext, runner); err != nil {
+			return err
+		}
+	}
+	return cleanupTransaction(root)
+}
+
+func rollbackTransaction(root *secureRoot) error {
+	raw, err := root.readFile(path.Join(transactionDirectory, "metadata.json"), maxManifestSize)
+	if err != nil {
+		return err
+	}
+	var metadata snapshotMetadata
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return err
+	}
+	return rollbackTransactionWithMetadata(root, metadata)
+}
+
+func rollbackTransactionWithMetadata(root *secureRoot, metadata snapshotMetadata) error {
+	metadata.State = "rolling-back"
+	if err := writeTransactionMetadata(root, metadata); err != nil {
+		return err
+	}
+	for _, entry := range metadata.Targets {
+		if !validTarget(entry.Target) {
+			return fmt.Errorf("invalid rollback target %q", entry.Target)
+		}
+		if !entry.Exists {
+			if err := root.remove(entry.Target); err != nil {
+				return err
+			}
 			continue
 		}
+		snapshot := path.Join(transactionDirectory, "targets", entry.Target)
+		info, err := root.stat(snapshot)
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("target %q contains a symlink", target)
+		if err := root.copyAtomic(snapshot, entry.Target, uint32(info.Mode().Perm())); err != nil {
+			return err
 		}
 	}
-	return nil
+	if metadata.CurrentReleaseExists {
+		info, err := root.stat(path.Join(transactionDirectory, "current-release"))
+		if err != nil {
+			return err
+		}
+		return root.copyAtomic(
+			path.Join(transactionDirectory, "current-release"),
+			"current-release",
+			uint32(info.Mode().Perm()),
+		)
+	}
+	return root.remove("current-release")
+}
+
+func cleanupTransaction(root *secureRoot) error {
+	if err := root.removeTree(stagingDirectory); err != nil {
+		return err
+	}
+	return root.removeTree(transactionDirectory)
 }
 
 func runActivationAndHealthChecks(ctx context.Context, runner Runner) error {
@@ -397,94 +631,37 @@ func runActivationAndHealthChecks(ctx context.Context, runner Runner) error {
 	return nil
 }
 
-func writeCurrentRelease(root, release string) error {
-	path := filepath.Join(root, "current-release")
-	tmp := path + ".staging"
-	if err := os.WriteFile(tmp, []byte(release+"\n"), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
 func rollbackFailedInstall(
-	ctx context.Context,
 	config Config,
 	runner Runner,
+	root *secureRoot,
 	status Status,
 	installErr error,
 ) (*Status, error) {
-	rollbackErr := Rollback(config.InstallRoot)
+	recoveryContext, cancel := context.WithTimeout(context.Background(), recoveryTimeout)
+	defer cancel()
+	rollbackErr := rollbackTransaction(root)
 	if rollbackErr == nil {
-		rollbackErr = runActivationAndHealthChecks(ctx, runner)
+		rollbackErr = runActivationAndHealthChecks(recoveryContext, runner)
+	}
+	if rollbackErr == nil {
+		rollbackErr = cleanupTransaction(root)
 	}
 	if rollbackErr != nil {
 		status.State = "critical"
 		status.Error = fmt.Sprintf("%v; rollback failed: %v", installErr, rollbackErr)
 		if config.StatusPath != "" {
-			if err := WriteStatus(config.StatusPath, status); err != nil {
-				return &status, fmt.Errorf("%s; write status: %v", status.Error, err)
-			}
+			_ = WriteStatus(config.StatusPath, status)
 		}
-		return &status, fmt.Errorf("%s", status.Error)
+		return &status, errors.New(status.Error)
 	}
 	status.State = "rolled-back"
+	status.InstalledRelease = config.InstalledRelease
 	status.Error = installErr.Error()
 	if config.StatusPath != "" {
 		if err := WriteStatus(config.StatusPath, status); err != nil {
-			return &status, fmt.Errorf("%w; write status: %v", installErr, err)
+			return &status, fmt.Errorf("%w; rollback succeeded but status persistence failed: %v", installErr, err)
 		}
 	}
 	return &status, installErr
-}
-
-func copyFile(src, dest string) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	tmp := dest + ".staging"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(out, in)
-	_ = out.Close()
-	if err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, dest)
-}
-
-func copyFileWithMode(src, dest string, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	input, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	tmp, err := os.CreateTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := io.Copy(tmp, input); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, dest)
 }

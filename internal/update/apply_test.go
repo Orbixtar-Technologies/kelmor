@@ -61,6 +61,53 @@ func TestApplyAndRollback(t *testing.T) {
 	}
 }
 
+func TestApplyCreatesMissingInstallRoot(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := t.TempDir()
+	payload := []byte("new-bin")
+	writeTestFile(t, filepath.Join(bundle, "panel-api"), payload, 0o644)
+	sum := sha256.Sum256(payload)
+	manifest := &Manifest{
+		Release: "1.2.0", Channel: "stable",
+		Files: map[string]string{"panel-api": hex.EncodeToString(sum[:])},
+	}
+	if err := Sign(manifest, priv); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(bundle, "manifest.json"), raw, 0o644)
+	root := filepath.Join(t.TempDir(), "missing", "panel")
+
+	if err := Apply(bundle, root, pub); err != nil {
+		t.Fatal(err)
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "new-bin", 0o755)
+}
+
+func TestApplyRecoversInterruptedTransactionBeforeReadingBundle(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("mixed-new"), 0o755)
+	journal := filepath.Join(root, transactionDirectory)
+	writeTestFile(t, filepath.Join(journal, "targets", "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(journal, "metadata.json"), []byte(
+		`{"state":"applying","targets":[{"target":"bin/panel-api","exists":true}],"current_release_exists":false}`,
+	), 0o600)
+
+	if err := Apply(t.TempDir(), root, nil); err == nil {
+		t.Fatal("expected missing manifest error after recovery")
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+	if _, err := os.Stat(journal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy apply did not clean recovered journal: %v", err)
+	}
+}
+
 func TestInstallUpdatesBinariesAndPortals(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("old-api"), 0o755)
@@ -134,13 +181,197 @@ func TestInstallLockRejectsConcurrentOperation(t *testing.T) {
 		InstalledRelease: "1.0.0", InstallRoot: root,
 		StatusPath: filepath.Join(t.TempDir(), "update-status.json"),
 	}
-	lock := installLockPath(config)
-	writeTestFile(t, lock, []byte("other updater\n"), 0o600)
+	lock, err := acquireInstallLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
 
-	_, err := Install(context.Background(), config, &recordingRunner{})
+	_, err = Install(context.Background(), config, &recordingRunner{})
 	if err == nil || !strings.Contains(err.Error(), "already in progress") {
 		t.Fatalf("expected operation lock error, got %v", err)
 	}
+}
+
+func TestLegacyApplyAndRollbackShareInstallLock(t *testing.T) {
+	root := t.TempDir()
+	lock, err := acquireInstallLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	if err := Apply(t.TempDir(), root, nil); err == nil || !strings.Contains(err.Error(), "already in progress") {
+		t.Fatalf("legacy apply did not share advisory lock: %v", err)
+	}
+	if err := Rollback(root); err == nil || !strings.Contains(err.Error(), "already in progress") {
+		t.Fatalf("legacy rollback did not share advisory lock: %v", err)
+	}
+}
+
+func TestInstallLockUsesCanonicalInstallRootOnly(t *testing.T) {
+	root := t.TempDir()
+	lock, err := acquireInstallLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	equivalent := filepath.Join(root, "..", filepath.Base(root))
+	if _, err := acquireInstallLock(equivalent); err == nil || !strings.Contains(err.Error(), "already in progress") {
+		t.Fatalf("equivalent install root did not contend on the same lock: %v", err)
+	}
+}
+
+func TestInstallRecoversInterruptedTransactionBeforeCheckingFeed(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("mixed-new"), 0o755)
+	writeTestFile(t, filepath.Join(root, "current-release"), []byte("2.0.0\n"), 0o644)
+	journal := filepath.Join(root, ".update-transaction")
+	writeTestFile(t, filepath.Join(journal, "targets", "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(journal, "current-release"), []byte("1.0.0\n"), 0o644)
+	writeTestFile(t, filepath.Join(journal, "metadata.json"), []byte(
+		`{"state":"applying","targets":[{"target":"bin/panel-api","exists":true}],"current_release_exists":true}`,
+	), 0o600)
+
+	_, err := Install(context.Background(), Config{
+		FeedURL: "http://invalid.example.test", Channel: "stable",
+		InstalledRelease: "1.0.0", InstallRoot: root,
+	}, &recordingRunner{})
+	if err == nil {
+		t.Fatal("expected feed validation failure after recovery")
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+	assertTestFile(t, filepath.Join(root, "current-release"), "1.0.0\n", 0o644)
+	if _, statErr := os.Stat(journal); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("recovered journal remains: %v", statErr)
+	}
+}
+
+func TestInstallRejectsSymlinkedInstallRootAncestor(t *testing.T) {
+	realParent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(realParent, "panel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasParent := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(realParent, aliasParent); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Install(context.Background(), Config{
+		FeedURL: "https://updates.example.test", Channel: "stable",
+		InstalledRelease: "1.0.0", InstallRoot: filepath.Join(aliasParent, "panel"),
+	}, &recordingRunner{})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("expected symlinked ancestor rejection, got %v", err)
+	}
+}
+
+func TestApplyAndRollbackRejectSymlinkedPaths(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	writeTestFile(t, outside, []byte("payload"), 0o755)
+	if err := os.Symlink(outside, filepath.Join(bundle, "panel-api")); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("payload"))
+	manifest := &Manifest{
+		Release: "1.2.0", Channel: "stable",
+		Files: map[string]string{"panel-api": hex.EncodeToString(sum[:])},
+	}
+	if err := Sign(manifest, priv); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(bundle, "manifest.json"), raw, 0o644)
+	if err := Apply(bundle, t.TempDir(), pub); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("apply followed artifact symlink: %v", err)
+	}
+
+	realRoot := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "panel")
+	if err := os.Symlink(realRoot, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := Rollback(alias); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("rollback accepted symlinked root: %v", err)
+	}
+}
+
+func TestInstallRejectsSymlinkTargetWithoutLeavingTransaction(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	writeTestFile(t, outside, []byte("outside"), 0o755)
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "bin", "panel-api")); err != nil {
+		t.Fatal(err)
+	}
+	config, cleanup := newInstallConfig(t, root, map[string]testArtifact{
+		"panel-api": {target: "bin/panel-api", content: []byte("new-api"), mode: 0o755},
+	})
+	defer cleanup()
+
+	if _, err := Install(context.Background(), config, &recordingRunner{}); err == nil ||
+		!strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("expected symlink target rejection, got %v", err)
+	}
+	assertTestFile(t, outside, "outside", 0o755)
+	if _, err := os.Stat(filepath.Join(root, transactionDirectory)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed pre-apply transaction was not cleaned up: %v", err)
+	}
+}
+
+func TestInstallRollsBackWhenSuccessStatusCannotPersist(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(root, "current-release"), []byte("1.0.0\n"), 0o644)
+	config, cleanup := newInstallConfig(t, root, map[string]testArtifact{
+		"panel-api": {target: "bin/panel-api", content: []byte("new-api"), mode: 0o755},
+	})
+	defer cleanup()
+	config.StatusPath = filepath.Join(t.TempDir(), "status-as-directory")
+	if err := os.Mkdir(config.StatusPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(config.StatusPath, "keep"), []byte("not empty"), 0o600)
+
+	status, err := Install(context.Background(), config, &recordingRunner{})
+	if err == nil {
+		t.Fatal("expected final status persistence failure")
+	}
+	if status.State != "rolled-back" {
+		t.Fatalf("status persistence failure did not roll back: %+v, %v", status, err)
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+	assertTestFile(t, filepath.Join(root, "current-release"), "1.0.0\n", 0o644)
+}
+
+func TestInstallUsesFreshContextForRecoveryAfterCancellation(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("old-api"), 0o755)
+	config, cleanup := newInstallConfig(t, root, map[string]testArtifact{
+		"panel-api": {target: "bin/panel-api", content: []byte("new-api"), mode: 0o755},
+	})
+	defer cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	runner := &cancelThenRecoverRunner{cancel: cancel}
+
+	status, err := Install(ctx, config, runner)
+	if err == nil {
+		t.Fatal("expected canceled activation")
+	}
+	if status.State != "rolled-back" {
+		t.Fatalf("fresh recovery context was not used: status=%+v err=%v", status, err)
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
 }
 
 type testArtifact struct {
@@ -153,6 +384,25 @@ type recordingRunner struct {
 	calls      [][]string
 	failOnceOn string
 	failed     bool
+}
+
+type cancelThenRecoverRunner struct {
+	cancel          context.CancelFunc
+	calls           int
+	recoveryWasLive bool
+}
+
+func (r *cancelThenRecoverRunner) Run(ctx context.Context, _ string, _ ...string) error {
+	r.calls++
+	if r.calls == 1 {
+		r.cancel()
+		return context.Canceled
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("recovery context is canceled: %w", ctx.Err())
+	}
+	r.recoveryWasLive = true
+	return nil
 }
 
 func (r *recordingRunner) Run(_ context.Context, name string, args ...string) error {
