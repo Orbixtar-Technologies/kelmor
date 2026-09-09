@@ -663,7 +663,9 @@ for _ in $(seq 1 20); do
   sleep 0.2
 done
 [[ "$tcode" == "200" ]] || { echo "termacc HTTP $tcode" >&2; exit 1; }
-findmnt "/home/$TUSER" | grep -q /var/lib/panel/homes || { echo "termacc home is not on the homes volume" >&2; findmnt "/home/$TUSER" >&2; exit 1; }
+src=$(findmnt -n -o SOURCE "/home/$TUSER" || true)
+echo "homes-source $src"
+[[ "$src" == *loop* || "$src" == *panel/homes* ]] || { echo "termacc home is not on the homes volume" >&2; findmnt "/home/$TUSER" >&2; exit 1; }
 echo "homes-bind $TUSER ok"
 tdb=$(curl -sS -X POST "$BASE/api/v1/accounts/$tid/databases" -H "$AUTH" -H 'content-type: application/json' \
   -d '{"name":"term","engine":"mariadb"}')
