@@ -23,8 +23,11 @@ export PANEL_QEMU_API_FWD="${PANEL_QEMU_API_FWD:-29080}"
 export PANEL_QEMU_KEY="${PANEL_QEMU_KEY:-$PANEL_QEMU_DIR/id_ed25519}"
 export PANEL_QEMU_MEM="${PANEL_QEMU_MEM:-3072}"
 export PANEL_FRESH_HOSTNAME="${PANEL_FRESH_HOSTNAME:-fresh.example.net}"
-# Prefer KVM when this host's probe accepts it; qemu-ubuntu-install.sh
-# still falls back to TCG if the 3s KVM probe fails.
+# qemu-fresh-guest.sh defaults to TCG (older hosts BUG'd KVM). Prefer KVM
+# here when kvm-ok says the device works.
+if [[ -z "${PANEL_QEMU_ACCEL:-}" ]] && command -v kvm-ok >/dev/null && kvm-ok >/dev/null 2>&1; then
+  export PANEL_QEMU_ACCEL=kvm
+fi
 export PANEL_QEMU_ACCEL="${PANEL_QEMU_ACCEL:-}"
 
 bash "$ROOT/scripts/qemu-fresh-guest.sh"
