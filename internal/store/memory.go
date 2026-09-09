@@ -144,6 +144,7 @@ func (m *Memory) ListPackages() []Package {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
+func (m *Memory) DeletePackage(id string) { m.mu.Lock(); delete(m.Packages, id); m.mu.Unlock() }
 
 func (m *Memory) PutReseller(r *Reseller) { m.mu.Lock(); m.Resellers[r.ID] = r; m.mu.Unlock() }
 func (m *Memory) GetReseller(id string) *Reseller {

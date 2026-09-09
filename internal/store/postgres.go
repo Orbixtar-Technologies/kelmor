@@ -152,7 +152,15 @@ func (p *PG) PutPackage(pkg *Package) {
 			ftp_users, cron_jobs, application_instances, backup_retention_days, cpu_percent, memory_bytes,
 			process_limit, io_weight, iops, concurrent_web_requests, email_daily_limit)
 		VALUES ($1, NULLIF($2,'')::uuid, $3, $4, $5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
-		ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, disk_bytes=EXCLUDED.disk_bytes, cpu_percent=EXCLUDED.cpu_percent, memory_bytes=EXCLUDED.memory_bytes`,
+		ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, reseller_id=EXCLUDED.reseller_id, feature_set_id=EXCLUDED.feature_set_id,
+			disk_bytes=EXCLUDED.disk_bytes, bandwidth_bytes_monthly=EXCLUDED.bandwidth_bytes_monthly,
+			domains=EXCLUDED.domains, subdomains=EXCLUDED.subdomains, alias_domains=EXCLUDED.alias_domains,
+			databases=EXCLUDED.databases, database_users=EXCLUDED.database_users, mailboxes=EXCLUDED.mailboxes,
+			mailbox_storage_bytes=EXCLUDED.mailbox_storage_bytes, ftp_users=EXCLUDED.ftp_users, cron_jobs=EXCLUDED.cron_jobs,
+			application_instances=EXCLUDED.application_instances, backup_retention_days=EXCLUDED.backup_retention_days,
+			cpu_percent=EXCLUDED.cpu_percent, memory_bytes=EXCLUDED.memory_bytes, process_limit=EXCLUDED.process_limit,
+			io_weight=EXCLUDED.io_weight, iops=EXCLUDED.iops, concurrent_web_requests=EXCLUDED.concurrent_web_requests,
+			email_daily_limit=EXCLUDED.email_daily_limit`,
 		pkg.ID, pkg.ResellerID, pkg.Name, pkg.FeatureSetID, pkg.DiskBytes, pkg.BandwidthBytesMonthly,
 		pkg.Domains, pkg.Subdomains, pkg.AliasDomains, pkg.Databases, pkg.DatabaseUsers, pkg.Mailboxes, pkg.MailboxStorageBytes,
 		pkg.FTPUsers, pkg.CronJobs, pkg.ApplicationInstances, pkg.BackupRetentionDays, pkg.CPUPercent, pkg.MemoryBytes,
@@ -201,6 +209,10 @@ func (p *PG) ListPackages() []Package {
 		}
 	}
 	return out
+}
+
+func (p *PG) DeletePackage(pid string) {
+	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM packages WHERE id=$1`, pid)
 }
 
 func (p *PG) PutReseller(r *Reseller) {
