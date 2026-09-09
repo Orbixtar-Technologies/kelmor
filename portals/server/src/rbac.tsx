@@ -10,6 +10,10 @@ export function useCan (cap: string) {
 	return !!useContext(Caps)[cap]
 }
 
+export function useCapabilities () {
+	return useContext(Caps)
+}
+
 export function Can ({ cap, children }: { cap: string; children: React.ReactNode }) {
 	if (!useCan(cap)) return null
 	return <>{children}</>
