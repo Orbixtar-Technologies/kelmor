@@ -235,7 +235,10 @@ func applyControlPlane(c Config) error {
 		return err
 	}
 	if installPrefix(c) == "" {
-		for _, d := range []string{"/var/lib/panel/secrets", "/var/lib/panel/control", "/var/lib/panel/jobs"} {
+		for _, d := range []string{
+			"/var/lib/panel/secrets", "/var/lib/panel/control", "/var/lib/panel/jobs",
+			"/var/lib/panel/backups",
+		} {
 			_ = exec.Command("/usr/bin/chown", "-R", "panel:panel", d).Run()
 		}
 		_ = os.Chmod("/var/lib/panel", 0o755)
