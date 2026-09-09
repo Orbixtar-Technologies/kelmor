@@ -93,6 +93,17 @@ phpcode=$(host_fetch "$DOMAIN" /tmp/live-php.html /index.php)
 php=$(cat /tmp/live-php.html || true)
 echo "php $phpcode $php"
 [[ "$code" == "200" ]] || { echo "expected HTTP 200 for $DOMAIN, got $code" >&2; exit 1; }
+zid=$(curl -sS "$BASE/api/v1/accounts/$aid/dns/zones" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
+print(next((i['id'] for i in items if i.get('name')=='$DOMAIN'), ''))")
+if [[ -n "$zid" ]]; then
+  sec=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/dns/zones/$zid/dnssec" -H "$AUTH" -H 'content-type: application/json' \
+    -d '{"enabled":true}')
+  sj=$(echo "$sec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  wait_job "$sj" dnssec
+  curl -sS "$BASE/api/v1/accounts/$aid/dns/zones/$zid/ds" -H "$AUTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or [];
+assert items, d
+print("dnssec-ds", len(items), items[0].get("content","")[:48])'
+fi
 ADOM="www.$DOMAIN"
 existing_alias=$(curl -sS "$BASE/api/v1/accounts/$aid/domains" -H "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); items=d.get('items') or [];
 print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$ADOM'), ''))")
@@ -373,6 +384,30 @@ if ! findmnt /var/lib/panel/homes >/dev/null; then
   exit 1
 fi
 echo "homes-volume ok"
+
+DUSER="dq$(date +%s)"
+DDOM="${DUSER}.test"
+dpkg=$(curl -sS -X POST "$BASE/api/v1/packages" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"name\":\"TinyDisk ${DUSER}\",\"disk_bytes\":256,\"bandwidth_bytes_monthly\":1073741824,\"domains\":2,\"subdomains\":2,\"alias_domains\":1,\"databases\":1,\"database_users\":1,\"mailboxes\":1,\"mailbox_storage_bytes\":1048576,\"ftp_users\":1,\"cron_jobs\":1,\"application_instances\":1,\"backup_retention_days\":1,\"cpu_percent\":50,\"memory_bytes\":134217728,\"process_limit\":20,\"io_weight\":100,\"iops\":50,\"concurrent_web_requests\":10,\"email_daily_limit\":10}")
+dpkgid=$(echo "$dpkg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')
+[[ -n "$dpkgid" ]] || { echo "tiny disk package failed: $dpkg" >&2; exit 1; }
+dcreated=$(curl -sS -X POST "$BASE/api/v1/accounts" -H "$AUTH" -H 'content-type: application/json' \
+  -d "{\"username\":\"$DUSER\",\"primary_domain\":\"$DDOM\",\"package_id\":\"$dpkgid\",\"owner_email\":\"ops@$DDOM\",\"owner_password\":\"TenantPass!2026\"}")
+did=$(echo "$dcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
+dop=$(echo "$dcreated" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$dop" tiny-disk-provision
+for i in $(seq 1 40); do
+  st=$(curl -sS "$BASE/api/v1/accounts/$did" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+  [[ "$st" == "active" ]] && break
+  sleep 1
+done
+dcode=$(curl -sS -o /tmp/disk-deny.json -w '%{http_code}' -X POST "$BASE/api/v1/accounts/$did/files" -H "$AUTH" -H 'content-type: application/json' \
+  -d '{"path":"/public_html/too-big.txt","content":"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"}')
+[[ "$dcode" == "403" ]] || { echo "expected PACKAGE_LIMIT 403, got $dcode" >&2; cat /tmp/disk-deny.json >&2; exit 1; }
+python3 -c 'import json; d=json.load(open("/tmp/disk-deny.json")); e=d.get("error") or {}; assert e.get("code")=="PACKAGE_LIMIT", d; print("disk-quota", e.get("code"))'
+dterm=$(curl -sS -X POST "$BASE/api/v1/accounts/$did/terminate" -H "$AUTH")
+dtop=$(echo "$dterm" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+wait_job "$dtop" tiny-disk-terminate
 
 ensure_runtime_addon() {
   local fqdn="$1" runtime="$2" out="$3" needle="$4"
