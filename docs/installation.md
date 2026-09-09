@@ -8,7 +8,10 @@ Minimum production: 4 vCPU, 8 GB RAM, 100 GB SSD.
 # from this tree:
 make package   # dist/deb/hosting-panel_*.deb (binaries, portals, systemd units)
 sudo dpkg -i dist/deb/hosting-panel_*.deb
+# optional: source .run/validation so hostname + public IPv4 + SMTP relay apply
+# source scripts/load-validation-env.sh
 sudo panel-install --hostname panel.example.net --admin-email ops@example.net --non-interactive --channel stable
+# omit --hostname to use TEST_DOMAIN from .run/validation/domain.env
 # Live installs refuse placeholder portal HTML. `make package` ships the built SPAs;
 # a binary-only copy must place them at /usr/local/panel/share/portals/{server,account}.
 # default ACME is Let's Encrypt HTTP-01. Lab/Pebble:

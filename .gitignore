@@ -3,5 +3,9 @@ var/
 node_modules/
 *.log
 .DS_Store
+.run/*
+!.run/validation/
+.run/validation/*
+!.run/validation/README.md
 portals/server/dist
 portals/account/dist

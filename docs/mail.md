@@ -2,7 +2,7 @@
 
 Virtual mailboxes are desired state in PostgreSQL. The worker renders Postfix `virtual`/`vdomains` maps and a Dovecot passwd-file under `/var/lib/panel/mail`. The privileged agent writes those files and, when running as root, runs `postmap` and reloads Postfix and Dovecot. Mailbox homes are `/var/vmail/<domain>/<local>/Maildir`.
 
-The installer writes `etc/postfix/main.cf` and `etc/dovecot/dovecot.conf` for a virtual-only host (no local Unix delivery). Port 25 may be blocked on cloud networks; configure an authenticated relay if the provider requires it.
+The installer writes `etc/postfix/main.cf` and `etc/dovecot/dovecot.conf` for a virtual-only host (no local Unix delivery). Port 25 may be blocked on cloud networks. When `.run/validation/smtp.env` (or `/var/lib/panel/validation/smtp.env`) is present, the mail phase writes `relayhost` and a `0600` `/etc/postfix/sasl_passwd` map for that authenticated relay. See `docs/validation.md`.
 
 IMAP is Dovecot on 993. Authenticated submission is Postfix on **587** (STARTTLS required) using Dovecot SASL against `/var/lib/panel/mail/passwd` (`info@domain` + mailbox password). Port 25 stays inbound MX only (`permit_mynetworks`, `reject_unauth_destination`) so the host is not an open relay. Package `email_daily_limit` is enforced by `panel-smtp-policy` on `127.0.0.1:10031` (Postfix `check_policy_service`). Unknown senders are `DUNNO`; hosted mailbox senders increment `/var/lib/panel/mail/send-counts/<date>/<account>` and are rejected at the cap. If the policy process is down, Postfix uses `smtpd_policy_service_default_action = DUNNO`. There is no arbitrary `exec` of mail commands from the API.
 

@@ -23,6 +23,7 @@ func main() {
 	acme := flag.String("acme", "", "letsencrypt, staging, pebble/lab (default: keep an existing lab directory, otherwise Let's Encrypt)")
 	installRoot := flag.String("root", os.Getenv("PANEL_INSTALL_ROOT"), "filesystem prefix for packaged file writes")
 	flag.Parse()
+	phases.LoadValidationEnv()
 
 	statePath := "/var/lib/panel/install-state.json"
 	if *dev || os.Getenv("PANEL_DEV") == "1" {
@@ -41,7 +42,11 @@ func main() {
 		ConfigPath: *config, ACMEMode: *acme, Root: strings.TrimSpace(*installRoot),
 	}
 	if cfg.Hostname == "" {
-		cfg.Hostname, _ = os.Hostname()
+		if h := phases.ValidationHostname(); h != "" {
+			cfg.Hostname = h
+		} else {
+			cfg.Hostname, _ = os.Hostname()
+		}
 	}
 	if cfg.AdminEmail == "" {
 		cfg.AdminEmail = "admin@" + cfg.Hostname
@@ -90,7 +95,7 @@ Go/arch:            %s/%s
 Channel:            %s
 Firewall:           table inet panel (dev sandbox)
 DNS nameservers:    ns1.%s ns2.%s
-Mail:               configure SMTP relay if port 25 is blocked
+Mail:               SMTP relay from .run/validation/smtp.env when present; otherwise configure a relay if port 25 is blocked
 
 Administrator password was generated or taken from PANEL_ADMIN_PASSWORD and is not written to this report.
 `, cfg.Hostname, cfg.Hostname, st.InstallationID, runtime.Version(), runtime.GOARCH, cfg.Channel, cfg.Hostname, cfg.Hostname)

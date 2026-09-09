@@ -208,6 +208,9 @@ mail_location = maildir:~/Maildir
 			}
 		}
 	}
+	if err := applySMTPRelay(c); err != nil {
+		return err
+	}
 	reloadLiveMail(c)
 	return nil
 }
@@ -777,7 +780,7 @@ func writeUnlessExists(path string, body []byte, mode os.FileMode) error {
 
 func writePublicEnv(c Config) error {
 	pub := netaddr.PublicIPv4()
-	body := "PANEL_PUBLIC_IPV4=" + pub + "\n"
+	body := writeValidationPublicLines(pub)
 	path := root(c, "var/lib/panel/public.env")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return err
@@ -955,6 +958,11 @@ func verifyMail(c Config) error {
 	}
 	if !strings.Contains(string(mainb), "smtpd_sender_login_maps") {
 		return fmt.Errorf("postfix missing sender-login maps")
+	}
+	if _, _, _, _, _, ok := smtpRelaySettings(); ok {
+		if !strings.Contains(string(mainb), "relayhost") {
+			return fmt.Errorf("postfix missing SMTP relayhost from validation smtp.env")
+		}
 	}
 	if _, err := os.Stat(root(c, "etc/dovecot/conf.d/99-panel-sasl.conf")); err != nil {
 		return err
