@@ -82,8 +82,8 @@ func main() {
 	}
 	fmt.Printf(`Installation successful
 
-Server Portal URL:  http://%s:8443/
-Account Portal URL: http://%s:8444/
+Server Portal URL:  https://%s:8443/
+Account Portal URL: https://%s:8444/
 Administrator:      admin
 Installation ID:    %s
 Go/arch:            %s/%s

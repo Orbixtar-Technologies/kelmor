@@ -5,8 +5,8 @@ KEY="${PANEL_QEMU_KEY:-/var/lib/panel/qemu/id_ed25519}"
 PORT="${PANEL_QEMU_SSH:-2222}"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 
-export PANEL_SERVER_PORTAL="http://127.0.0.1:38443"
-export PANEL_ACCOUNT_PORTAL="http://127.0.0.1:38444"
+export PANEL_SERVER_PORTAL="${PANEL_SERVER_PORTAL:-https://127.0.0.1:38443}"
+export PANEL_ACCOUNT_PORTAL="${PANEL_ACCOUNT_PORTAL:-https://127.0.0.1:38444}"
 export PANEL_API="http://127.0.0.1:38080"
 export PANEL_TENANT_HTTP_PORT=38081
 export PANEL_TENANT_HTTPS_PORT=38445

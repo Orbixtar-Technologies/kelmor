@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
 	"strings"
 	"time"
 )
@@ -19,10 +20,22 @@ func SelfSigned(hostname string, notAfter time.Time) (certPEM, keyPEM []byte, er
 
 func SelfSignedNames(names []string, notAfter time.Time) (certPEM, keyPEM []byte, err error) {
 	names = uniqueHostnames(names)
-	if len(names) == 0 {
+	var dns []string
+	var ips []net.IP
+	for _, n := range names {
+		if ip := net.ParseIP(n); ip != nil {
+			ips = append(ips, ip)
+			continue
+		}
+		dns = append(dns, n)
+	}
+	if len(dns) == 0 && len(ips) == 0 {
 		return nil, nil, fmt.Errorf("hostname required")
 	}
 	hostname := names[0]
+	if len(dns) > 0 {
+		hostname = dns[0]
+	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -36,7 +49,8 @@ func SelfSignedNames(names []string, notAfter time.Time) (certPEM, keyPEM []byte
 		Subject:      pkix.Name{CommonName: hostname, Organization: []string{"Hosting Panel"}},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     notAfter,
-		DNSNames:     names,
+		DNSNames:     dns,
+		IPAddresses:  ips,
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}

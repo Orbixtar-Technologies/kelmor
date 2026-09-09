@@ -33,8 +33,8 @@ cd portals/account && npm install && npm run dev
 ```
 
 - API: `http://127.0.0.1:18080`
-- Server Portal (installed): `http://127.0.0.1:8443` — `admin` / `ChangeMeOnce!2026`
-- Account Portal (installed): `http://127.0.0.1:8444` — sign in as a provisioned account username
+- Server Portal (installed): `https://127.0.0.1:8443` — `admin` / `ChangeMeOnce!2026` (self-signed portal cert)
+- Account Portal (installed): `https://127.0.0.1:8444` — sign in as a provisioned account username
 - Vite HMR (optional): `18443` / `18444`
 
 Default admin password is for development only. Change it before any real host.

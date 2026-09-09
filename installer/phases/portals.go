@@ -8,9 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
 
 func applyPortals(c Config) error {
+	if err := ensurePortalCertificate(c); err != nil {
+		return err
+	}
 	if err := installPortalApp(c, "server", "Server Portal"); err != nil {
 		return err
 	}
@@ -104,10 +109,19 @@ func writePortalNginx(c Config, name string, port int, rootRel string) error {
 	if !c.Dev {
 		abs = "/" + strings.TrimPrefix(rootRel, "/")
 	}
+	cert := root(c, "var/lib/panel/certs/panel-portals.crt")
+	key := root(c, "var/lib/panel/certs/panel-portals.key")
+	if !c.Dev && installPrefix(c) == "" {
+		cert = "/var/lib/panel/certs/panel-portals.crt"
+		key = "/var/lib/panel/certs/panel-portals.key"
+	}
 	body := fmt.Sprintf(`server {
-    listen %d;
-    listen [::]:%d;
+    listen %d ssl;
+    listen [::]:%d ssl;
     server_name _;
+    ssl_certificate %s;
+    ssl_certificate_key %s;
+    ssl_protocols TLSv1.2 TLSv1.3;
     root %s;
     index index.html;
     location /api/ {
@@ -124,8 +138,37 @@ func writePortalNginx(c Config, name string, port int, rootRel string) error {
         try_files $uri $uri/ /index.html;
     }
 }
-`, port, port, abs)
+`, port, port, cert, key, abs)
 	return os.WriteFile(root(c, "etc/nginx/panel-sites/"+name), []byte(body), 0o644)
+}
+
+func ensurePortalCertificate(c Config) error {
+	dir := root(c, "var/lib/panel/certs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	certPath := filepath.Join(dir, "panel-portals.crt")
+	keyPath := filepath.Join(dir, "panel-portals.key")
+	if _, err := os.Stat(certPath); err == nil {
+		if _, err := os.Stat(keyPath); err == nil {
+			return nil
+		}
+	}
+	host := strings.TrimSpace(c.Hostname)
+	if host == "" {
+		host = "panel.local"
+	}
+	cert, key, err := paneltls.SelfSignedNames(
+		[]string{host, "localhost", "127.0.0.1"},
+		time.Now().Add(10*365*24*time.Hour),
+	)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(certPath, cert, 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(keyPath, key, 0o600)
 }
 
 func portalAssetRoot(c Config, name string) string {

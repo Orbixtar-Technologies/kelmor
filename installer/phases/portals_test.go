@@ -3,6 +3,7 @@ package phases
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +52,12 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 	}
 	if err := verifyPortals(cfg); err != nil {
 		t.Fatalf("verify: %v", err)
+	}
+	conf, err := os.ReadFile(filepath.Join(dir, "etc/nginx/panel-sites/90-server-portal.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(conf), "ssl_certificate") || !strings.Contains(string(conf), "listen 8443 ssl") {
+		t.Fatalf("portal nginx missing TLS: %s", conf)
 	}
 }

@@ -105,6 +105,7 @@ async function waitSiteBody (host, path, needle, tries = HTTP_TRIES) {
 const browser = await puppeteer.launch({
 	executablePath: CHROME,
 	headless: true,
+	ignoreHTTPSErrors: true,
 	args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
 })
 const page = await browser.newPage()
