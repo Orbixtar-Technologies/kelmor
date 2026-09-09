@@ -473,6 +473,12 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.applyFTPUsers(p.Users)
+	case "ManagePanelUpdate":
+		request, err := decodePanelUpdateRequest(req.Params)
+		if err != nil {
+			return nil, err
+		}
+		return h.ManagePanelUpdate(ctx, request)
 	case "RebootHost":
 		return h.rebootHost()
 	default:
