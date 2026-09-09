@@ -62,12 +62,39 @@ func readPublicEnvFile() string {
 	return ""
 }
 
-// DNSListenIPv4 is 127.0.0.1 plus PublicIPv4 when that address is
-// non-loopback, so the resolver stays reachable locally and on the NIC.
+// AddressIsLocal reports whether ipv4 is assigned to a local interface.
+func AddressIsLocal(ipv4 string) bool {
+	ip := net.ParseIP(strings.TrimSpace(ipv4))
+	if ip == nil || ip.To4() == nil {
+		return false
+	}
+	want := ip.To4().String()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok || n.IP == nil || n.IP.To4() == nil {
+			continue
+		}
+		if n.IP.To4().String() == want {
+			return true
+		}
+	}
+	return false
+}
+
+// DNSListenIPv4 is the PowerDNS local-address list. Loopback plus
+// PublicIPv4 when that address is on a NIC. A floating / 1:1 NAT
+// address is not bindable, so listen on 0.0.0.0 instead.
 func DNSListenIPv4() []string {
 	pub := PublicIPv4()
 	if pub == "127.0.0.1" {
 		return []string{"127.0.0.1"}
 	}
-	return []string{"127.0.0.1", pub}
+	if AddressIsLocal(pub) {
+		return []string{"127.0.0.1", pub}
+	}
+	return []string{"0.0.0.0"}
 }

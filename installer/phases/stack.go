@@ -1030,7 +1030,7 @@ func verifyDNS(c Config) error {
 	if err := waitListen("127.0.0.1:53", 2*time.Second); err != nil {
 		return fmt.Errorf("powerdns is not listening: %w", err)
 	}
-	if pub := netaddr.PublicIPv4(); pub != "127.0.0.1" {
+	if pub := netaddr.PublicIPv4(); pub != "127.0.0.1" && netaddr.AddressIsLocal(pub) {
 		if err := waitListen(net.JoinHostPort(pub, "53"), 2*time.Second); err != nil {
 			return fmt.Errorf("powerdns is not listening on public %s: %w", pub, err)
 		}

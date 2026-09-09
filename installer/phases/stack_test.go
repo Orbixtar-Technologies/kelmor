@@ -121,8 +121,8 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(pdns), "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3") {
 		t.Fatalf("pdns.conf missing DNSSEC db: %s", pdns)
 	}
-	if !contains(string(pdns), "local-address=127.0.0.1,203.0.113.10") {
-		t.Fatalf("pdns.conf missing public listen: %s", pdns)
+	if !contains(string(pdns), "local-address=0.0.0.0") {
+		t.Fatalf("pdns.conf missing NAT listen: %s", pdns)
 	}
 	pubenv, err := os.ReadFile(filepath.Join(dir, "var/panel/host/var/lib/panel/public.env"))
 	if err != nil {
