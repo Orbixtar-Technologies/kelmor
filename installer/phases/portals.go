@@ -133,6 +133,14 @@ func verifyPortalTLS(c Config) error {
 	if !strings.Contains(string(account), "listen 8444 ssl") || !strings.Contains(string(account), "ssl_certificate") {
 		return fmt.Errorf("account portal nginx is not listening TLS on 8444")
 	}
+	if !c.Dev && installPrefix(c) == "" {
+		host := strings.TrimSpace(c.Hostname)
+		if host != "" && host != "localhost" && readACMEDirectory(c) != "" {
+			if _, err := os.Stat(portalHostnameACMEStatusPath(c)); err != nil {
+				return fmt.Errorf("portal hostname ACME not attempted")
+			}
+		}
+	}
 	return nil
 }
 
@@ -204,6 +212,10 @@ func hostnamePortalCertPaths(c Config) (cert, key string, ok bool) {
 	return cert, key, true
 }
 
+func portalHostnameACMEStatusPath(c Config) string {
+	return root(c, "var/lib/panel/certs/portal-hostname-acme.status")
+}
+
 func tryIssuePortalHostnameCertificate(c Config) {
 	if c.Dev || installPrefix(c) != "" {
 		return
@@ -216,7 +228,10 @@ func tryIssuePortalHostnameCertificate(c Config) {
 	if directory == "" {
 		return
 	}
-	_ = publishPanelHostnameZone(host)
+	status := "issued"
+	if err := publishPanelHostnameZone(host); err != nil {
+		status = "dns: " + err.Error()
+	}
 	ensureLoopbackHost(host)
 	contact := strings.TrimSpace(c.AdminEmail)
 	if contact == "" {
@@ -224,7 +239,14 @@ func tryIssuePortalHostnameCertificate(c Config) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	_, _ = acme.Issue(ctx, &operations.Host{}, host, contact, directory)
+	if _, err := acme.Issue(ctx, &operations.Host{}, host, contact, directory); err != nil {
+		if status == "issued" {
+			status = "acme: " + err.Error()
+		} else {
+			status += "; acme: " + err.Error()
+		}
+	}
+	_ = os.WriteFile(portalHostnameACMEStatusPath(c), []byte(status+"\n"), 0o644)
 }
 
 func publishPanelHostnameZone(host string) error {
