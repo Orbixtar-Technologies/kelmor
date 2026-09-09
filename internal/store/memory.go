@@ -453,6 +453,15 @@ func (m *Memory) ListRecords(zoneID string) []DNSRecord {
 func (m *Memory) DeleteRecord(id string) { m.mu.Lock(); delete(m.Records, id); m.mu.Unlock() }
 
 func (m *Memory) PutMailDomain(d *MailDomain) { m.mu.Lock(); m.MailDom[d.ID] = d; m.mu.Unlock() }
+func (m *Memory) GetMailDomain(id string) *MailDomain {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if d := m.MailDom[id]; d != nil {
+		cp := *d
+		return &cp
+	}
+	return nil
+}
 func (m *Memory) MailDomainByDomain(domainID string) *MailDomain {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -571,6 +580,41 @@ func (m *Memory) EnqueueJob(j *Job) (*Job, error) {
 			}
 		}
 	}
+	normalizeJob(j)
+	cp := *j
+	m.Jobs[j.ID] = &cp
+	return &cp, nil
+}
+
+func (m *Memory) RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, j *Job) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	user := m.Users[userID]
+	if user == nil {
+		return nil, fmt.Errorf("user %q not found", userID)
+	}
+	normalizeJob(j)
+	if _, exists := m.Jobs[j.ID]; exists {
+		return nil, fmt.Errorf("job %q already exists", j.ID)
+	}
+	if j.IdempotencyKey != "" {
+		for _, existing := range m.Jobs {
+			if existing.IdempotencyKey == j.IdempotencyKey {
+				return nil, fmt.Errorf("job idempotency key %q already exists", j.IdempotencyKey)
+			}
+		}
+	}
+
+	user.PasswordHash = passwordHash
+	user.MustChangePassword = mustChange
+	cp := *j
+	m.Jobs[j.ID] = &cp
+	return &cp, nil
+}
+
+func normalizeJob(j *Job) {
+	j.Retryable = nil
 	if j.ID == "" {
 		j.ID = id.New()
 	}
@@ -586,9 +630,9 @@ func (m *Memory) EnqueueJob(j *Job) (*Job, error) {
 	if j.State == "" {
 		j.State = "queued"
 	}
-	cp := *j
-	m.Jobs[j.ID] = &cp
-	return &cp, nil
+	if j.Logs == nil {
+		j.Logs = []string{}
+	}
 }
 
 func (m *Memory) ClaimJob(worker string) *Job {
@@ -619,6 +663,7 @@ func (m *Memory) ClaimJob(worker string) *Job {
 func (m *Memory) UpdateJob(j *Job) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	j.Retryable = nil
 	m.Jobs[j.ID] = j
 }
 

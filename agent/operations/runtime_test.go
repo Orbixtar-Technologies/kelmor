@@ -63,6 +63,33 @@ func TestApplyPHPPoolWritesSandboxConfig(t *testing.T) {
 	}
 }
 
+func TestApplyAppUnitRejectsBoundaryAndSystemdInjection(t *testing.T) {
+	h := &Host{Root: t.TempDir()}
+	tests := []struct {
+		name      string
+		websiteID string
+		runtime   string
+		workDir   string
+		command   string
+	}{
+		{name: "outside account", websiteID: "site-1", runtime: "node", workDir: "/home/other/app", command: "npm start"},
+		{name: "noncanonical path", websiteID: "site-1", runtime: "node", workDir: "/home/acme/app/../escape", command: "npm start"},
+		{name: "website newline", websiteID: "site-1\n[Service]", runtime: "node", workDir: "/home/acme/app", command: "npm start"},
+		{name: "runtime newline", websiteID: "site-1", runtime: "node\nUser=root", workDir: "/home/acme/app", command: "npm start"},
+		{name: "command newline", websiteID: "site-1", runtime: "node", workDir: "/home/acme/app", command: "npm start\nUser=root"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := h.applyAppUnit(tt.websiteID, "acme", tt.runtime, tt.workDir, tt.command); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+	if result, err := h.applyAppUnit("site-1", "acme", "node", "/home/acme/app", "npm start"); err != nil || !result.OK {
+		t.Fatalf("valid app unit: result=%+v err=%v", result, err)
+	}
+}
+
 func TestCreateHostedDatabaseRejectsIdent(t *testing.T) {
 	h := &Host{}
 	if _, err := h.createHostedDatabase("mariadb", "bad-name", "okuser", "pw", false); err == nil {

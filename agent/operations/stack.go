@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hosting-panel/panel/agent/policy"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
@@ -98,18 +99,32 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 	if err := validate.Username(account); err != nil {
 		return Result{}, err
 	}
+	if websiteID == "" || strings.ContainsAny(websiteID, `/\`) || containsSystemdControl(websiteID) {
+		return Result{}, fmt.Errorf("invalid website ID")
+	}
+	if runtime != "node" && runtime != "python" {
+		return Result{}, fmt.Errorf("runtime must be node or python")
+	}
+	if containsSystemdControl(runtime) || containsSystemdControl(workDir) || containsSystemdControl(command) {
+		return Result{}, fmt.Errorf("systemd fields cannot contain control characters")
+	}
 	if command == "" {
 		switch runtime {
 		case "node":
 			command = "/usr/bin/node server.js"
 		case "python":
 			command = "/usr/bin/python3 -m http.server 8080"
-		default:
-			return Result{OK: true, Message: "no unit for runtime"}, nil
 		}
 	}
 	if workDir == "" {
 		workDir = "/home/" + account + "/apps/" + websiteID
+	}
+	canonicalWorkDir, err := policy.WithinAccount(account, workDir)
+	if err != nil {
+		return Result{}, err
+	}
+	if canonicalWorkDir != workDir {
+		return Result{}, fmt.Errorf("working directory must be canonical")
 	}
 	if _, err := h.CreateDirectoryTree(workDir, 0o750); err != nil {
 		return Result{}, err
@@ -146,6 +161,15 @@ func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string
 		_ = startAccountProcess(account, workDir, runtime)
 	}
 	return Result{OK: true, ObservedState: "applied"}, nil
+}
+
+func containsSystemdControl(value string) bool {
+	for _, char := range value {
+		if char < 0x20 || char == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Host) stopAppProcess(websiteID, workDir string) {

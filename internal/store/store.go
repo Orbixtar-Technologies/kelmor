@@ -63,6 +63,7 @@ type Store interface {
 	DeleteRecord(id string)
 
 	PutMailDomain(*MailDomain)
+	GetMailDomain(string) *MailDomain
 	MailDomainByDomain(domainID string) *MailDomain
 	ListMailDomains(accountID string) []MailDomain
 	PutMailbox(*Mailbox)
@@ -79,6 +80,7 @@ type Store interface {
 	ListCerts(accountID string) []Certificate
 
 	EnqueueJob(*Job) (*Job, error)
+	RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, job *Job) (*Job, error)
 	ClaimJob(worker string) *Job
 	UpdateJob(*Job)
 	GetJob(string) *Job

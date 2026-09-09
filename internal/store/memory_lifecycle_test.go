@@ -23,3 +23,24 @@ func TestDeletePackageIfUnusedIsAtomicWithAccountAssignment(t *testing.T) {
 		t.Fatal("unassigned package remains")
 	}
 }
+
+func TestJobRetryableIsNotPersisted(t *testing.T) {
+	data := NewMemory()
+	retryable := true
+	job, err := data.EnqueueJob(&Job{Type: "website.provision", Retryable: &retryable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Retryable != nil {
+		t.Fatalf("enqueue returned persisted retry eligibility: %v", *job.Retryable)
+	}
+	stored := data.GetJob(job.ID)
+	if stored.Retryable != nil {
+		t.Fatalf("stored retry eligibility: %v", *stored.Retryable)
+	}
+	stored.Retryable = &retryable
+	data.UpdateJob(stored)
+	if updated := data.GetJob(job.ID); updated.Retryable != nil {
+		t.Fatalf("updated retry eligibility: %v", *updated.Retryable)
+	}
+}

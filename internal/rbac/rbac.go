@@ -63,7 +63,7 @@ var RoleCaps = map[string][]string{
 	"root_owner":             All,
 	"server_administrator":   All,
 	"server_operator":        {ServerRead, ServerServicesRead, ServerServicesRestart, AccountsRead, PackagesRead, DomainsRead, DNSRead, WebsitesRead, SecurityAuditRead, BillingUsageRead},
-	"reseller":               {AccountsRead, AccountsCreate, AccountsModify, AccountsSuspend, PackagesRead, PackagesWrite, DomainsRead, DomainsWrite, DNSRead, WebsitesRead, BackupsRead, BackupsCreate, BackupsRestore, BillingUsageRead},
+	"reseller":               {AccountsRead, AccountsCreate, AccountsModify, AccountsSuspend, PackagesRead, PackagesWrite, DomainsRead, DomainsWrite, DNSRead, WebsitesRead, WebsitesWrite, BackupsRead, BackupsCreate, BackupsRestore, BillingUsageRead},
 	"customer_owner":         {DomainsRead, DomainsWrite, DNSRead, DNSWrite, WebsitesRead, WebsitesWrite, ApplicationsRead, ApplicationsWrite, DatabasesRead, DatabasesWrite, MailRead, MailWrite, BackupsRead, BackupsCreate, BackupsRestore, FilesRead, FilesWrite, CronRead, CronWrite, APITokensRead, APITokensWrite, BillingUsageRead},
 	"customer_administrator": {DomainsRead, DomainsWrite, DNSRead, DNSWrite, WebsitesRead, WebsitesWrite, ApplicationsRead, ApplicationsWrite, DatabasesRead, DatabasesWrite, MailRead, MailWrite, FilesRead, FilesWrite, CronRead, CronWrite},
 	"customer_user":          {DomainsRead, WebsitesRead, MailRead, FilesRead, DatabasesRead, DNSRead},
@@ -82,17 +82,7 @@ type Actor struct {
 }
 
 func (a Actor) Has(cap string) bool {
-	if a.Capabilities[cap] {
-		return true
-	}
-	for _, r := range a.Roles {
-		for _, c := range RoleCaps[r] {
-			if c == cap {
-				return true
-			}
-		}
-	}
-	return false
+	return a.Capabilities[cap]
 }
 
 func (a Actor) CanAccount(accountID string) bool {
@@ -121,4 +111,17 @@ func Expand(roles []string, extra []string) map[string]bool {
 		}
 	}
 	return out
+}
+
+func RoleCapability(role, capability string) bool {
+	for _, allowed := range RoleCaps[role] {
+		if allowed == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func AccountSafe(capability string) bool {
+	return RoleCapability("customer_owner", capability)
 }

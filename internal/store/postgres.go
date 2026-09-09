@@ -639,6 +639,15 @@ func (p *PG) PutMailDomain(d *MailDomain) {
 		d.ID, d.AccountID, d.DomainID, d.CatchallPolicy, d.Status)
 }
 
+func (p *PG) GetMailDomain(id string) *MailDomain {
+	d := &MailDomain{}
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, catchall_policy, status FROM mail_domains WHERE id=$1`, id).
+		Scan(&d.ID, &d.AccountID, &d.DomainID, &d.CatchallPolicy, &d.Status); err != nil {
+		return nil
+	}
+	return d
+}
+
 func (p *PG) MailDomainByDomain(domainID string) *MailDomain {
 	d := &MailDomain{}
 	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, domain_id, catchall_policy, status FROM mail_domains WHERE domain_id=$1`, domainID).
@@ -785,24 +794,7 @@ func (p *PG) EnqueueJob(j *Job) (*Job, error) {
 			return existing, nil
 		}
 	}
-	if j.ID == "" {
-		j.ID = id.New()
-	}
-	if j.CreatedAt.IsZero() {
-		j.CreatedAt = time.Now().UTC()
-	}
-	if j.RunAfter.IsZero() {
-		j.RunAfter = time.Now().UTC()
-	}
-	if j.MaxAttempts == 0 {
-		j.MaxAttempts = 5
-	}
-	if j.State == "" {
-		j.State = "queued"
-	}
-	if j.Logs == nil {
-		j.Logs = []string{}
-	}
+	normalizeJob(j)
 	payload, _ := json.Marshal(j.Payload)
 	_, err := p.pool.Exec(p.ctx(), `
 		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
@@ -813,6 +805,44 @@ func (p *PG) EnqueueJob(j *Job) (*Job, error) {
 			return existing, nil
 		}
 		return nil, err
+	}
+	cp := *j
+	return &cp, nil
+}
+
+func (p *PG) RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, j *Job) (*Job, error) {
+	normalizeJob(j)
+	payload, err := json.Marshal(j.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal job payload: %w", err)
+	}
+
+	ctx := p.ctx()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin password rotation: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := tx.Exec(ctx, `
+		UPDATE users
+		SET password_hash=$2, must_change_password=$3, updated_at=now()
+		WHERE id=$1`, userID, passwordHash, mustChange)
+	if err != nil {
+		return nil, fmt.Errorf("update user password: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return nil, fmt.Errorf("user %q not found", userID)
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
+		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')::uuid,NULLIF($14,'')::uuid,$15,$16)`,
+		j.ID, j.Type, j.ResourceType, j.ResourceID, payload, j.State, j.Priority, j.Attempts, j.MaxAttempts, j.Progress, j.RunAfter, j.IdempotencyKey, j.ActorID, j.RequestID, j.CreatedAt, j.Logs)
+	if err != nil {
+		return nil, fmt.Errorf("insert password reconciliation job: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit password rotation: %w", err)
 	}
 	cp := *j
 	return &cp, nil

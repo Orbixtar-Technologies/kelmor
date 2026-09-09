@@ -43,6 +43,28 @@ paths:
       responses:
         "200": { description: session issued }
         "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /auth/complete-password-change:
+    post:
+      operationId: completePasswordChange
+      x-audit-action: auth.password.complete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, current_password, new_password]
+              properties:
+                username: { type: string }
+                current_password: { type: string, writeOnly: true }
+                new_password: { type: string, minLength: 12, writeOnly: true }
+      responses:
+        "200": { description: password changed and Linux reconciliation queued }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /auth/logout:
     post:
       operationId: logout
@@ -227,7 +249,7 @@ paths:
               type: object
               required: [password]
               properties:
-                password: { type: string, minLength: 8, writeOnly: true }
+                password: { type: string, minLength: 12, writeOnly: true }
                 must_change_password: { type: boolean, default: false }
       responses:
         "202": { description: owner password updated and Linux reconciliation queued }
@@ -512,7 +534,12 @@ paths:
       parameters:
         - { name: jobID, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: credential-redacted job detail }
+        "200":
+          description: Credential-redacted job detail. `retryable` reports whether the stored job type and payload are safe to clone for retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
         "404": { description: job not found or outside the actor scope }
   /jobs/{jobID}/retry:
     post:
@@ -571,6 +598,7 @@ paths:
     post:
       operationId: importCPanel
       x-capability: accounts.create
+      x-server-scope: true
       x-audit-action: account.import.cpanel
       requestBody:
         required: true
@@ -887,16 +915,6 @@ paths:
       x-capability: accounts.read
       responses:
         "200": { description: account list export }
-  /jobs/{jobID}:
-    get:
-      operationId: getJob
-      parameters:
-        - in: path
-          name: jobID
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        "200": { description: job status }
   /audit-events:
     get:
       operationId: listAuditEvents
@@ -918,6 +936,19 @@ components:
           schema:
             $ref: "#/components/schemas/APIError"
   schemas:
+    Job:
+      type: object
+      required: [id, type, payload, state, retryable]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string, format: uuid }
+        payload: { type: object, description: Credential-redacted stored input }
+        state: { type: string }
+        retryable:
+          type: boolean
+          description: True only when the job type supports retry and its stored payload contains no sensitive fields.
     APIError:
       type: object
       properties:
