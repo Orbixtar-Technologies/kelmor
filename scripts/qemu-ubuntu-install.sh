@@ -203,19 +203,13 @@ ssh_cmd 'set -e
   echo PID1=$(cat /proc/1/comm)
 '
 
-INSTALLER=/usr/local/panel/bin/panel-install
-if [[ ! -x "$INSTALLER" ]]; then
-  INSTALLER="$SRC/dist/bin/panel-install"
-fi
 ssh_cmd 'sudo mkdir -p /usr/local/panel/bin /tmp/panel-in'
+BIN_DIR="$SRC/dist/bin"
+if [[ ! -x "$BIN_DIR/panel-install" ]]; then
+  BIN_DIR=/usr/local/panel/bin
+fi
 scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" \
-  "$INSTALLER" /usr/local/panel/bin/panel-agent /usr/local/panel/bin/panel-api \
-  /usr/local/panel/bin/panel-worker /usr/local/panel/bin/panel-cli \
-  /usr/local/panel/bin/panel-smtp-policy /usr/local/panel/bin/panel-object-store \
-  /usr/local/panel/bin/panel-backup /usr/local/panel/bin/pebble \
-  ubuntu@127.0.0.1:/tmp/panel-in/ 2>/dev/null || \
-scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" \
-  "$SRC/dist/bin/"panel-* "$SRC/dist/bin/pebble" \
+  "$BIN_DIR/"panel-* "$BIN_DIR/pebble" \
   ubuntu@127.0.0.1:/tmp/panel-in/
 ssh_cmd 'sudo cp -a /tmp/panel-in/. /usr/local/panel/bin/; sudo chmod 0755 /usr/local/panel/bin/panel-* /usr/local/panel/bin/pebble || true'
 if [[ -f "$SRC/portals/server/dist/index.html" && -f "$SRC/portals/account/dist/index.html" ]]; then
@@ -238,5 +232,7 @@ ssh_cmd 'set -e
   systemctl is-enabled panel-agent panel-api panel-worker
   systemctl is-active panel-agent panel-api panel-worker
   curl -sS -o /dev/null -w "health:%{http_code}\n" http://127.0.0.1:18080/healthz
+  curl -sk -o /dev/null -w "portal_https:%{http_code}\n" https://127.0.0.1:8443/healthz
+  grep -q "listen 8443 ssl" /etc/nginx/panel-sites/90-server-portal.conf
   echo QEMU_UBUNTU_INSTALL_OK
 '
