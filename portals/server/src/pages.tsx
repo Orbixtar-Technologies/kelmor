@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, asList } from './client'
 import { Can } from './rbac'
 import { Empty, fmtBytes, Notice, PageHeader } from './ui'
@@ -8,8 +9,8 @@ export function ImportAccount () {
 	return (
 		<>
 			<PageHeader
-				title="Import"
-				detail="Restore a native Kelmor export, or an extracted cpmove tree. Colliding usernames and domains are refused, then reconcile is queued."
+				title="Import / Migration"
+				detail="Native Kelmor export, extracted cpmove, or migrate-from-account on the operations hub. Colliding usernames and domains are refused."
 			/>
 			<form
 				className="stack-form"
@@ -141,7 +142,9 @@ export function Packages () {
 						<th>CPU %</th>
 						<th>Memory</th>
 						<th>Disk</th>
+						<th>Bandwidth</th>
 						<th>Domains</th>
+						<th>DBs</th>
 						<th>Mailboxes</th>
 					</tr>
 				</thead>
@@ -152,7 +155,9 @@ export function Packages () {
 							<td>{p.cpu_percent}</td>
 							<td>{fmtBytes(p.memory_bytes)}</td>
 							<td>{fmtBytes(p.disk_bytes)}</td>
+							<td>{fmtBytes(p.bandwidth_bytes_monthly)}</td>
 							<td>{p.domains}</td>
+							<td>{p.databases}</td>
 							<td>{p.mailboxes}</td>
 						</tr>
 					))}
@@ -210,13 +215,20 @@ export function Resellers () {
 			) : (
 				<table>
 					<thead>
-						<tr><th>Name</th><th>Status</th></tr>
+						<tr>
+							<th>Name</th>
+							<th>Brand</th>
+							<th>Status</th>
+							<th>Nameservers</th>
+						</tr>
 					</thead>
 					<tbody>
 						{items.map((r) => (
 							<tr key={r.id}>
 								<td>{r.name}</td>
+								<td>{r.brand_name || '—'}</td>
 								<td>{r.status}</td>
+								<td>{(r.nameservers || []).join(', ') || '—'}</td>
 							</tr>
 						))}
 					</tbody>
@@ -245,8 +257,8 @@ export function Monitor () {
 	return (
 		<>
 			<PageHeader
-				title="Account usage"
-				detail={`Disk, monthly nginx bandwidth, inodes, and process totals from Kelmor Agent. Failed jobs: ${data.failed_jobs}. Certificates expiring within 14 days: ${data.certs_expiring}.`}
+				title="Usage / Quotas"
+				detail={`Disk, monthly nginx bandwidth, inodes, and process totals from Kelmor Agent. Failed jobs: ${data.failed_jobs}. Certificates expiring within 14 days: ${data.certs_expiring}. Package caps live on Packages; this page is observed usage.`}
 			/>
 			{items.length === 0 ? (
 				<Empty
@@ -287,19 +299,50 @@ export function Monitor () {
 
 export function Jobs () {
 	const [items, setItems] = useState<any[]>([])
+	const [params, setParams] = useSearchParams()
+	const state = params.get('state') || ''
+	const [typeQ, setTypeQ] = useState('')
 	useEffect(() => {
-		const load = () => api<{ items: any[] }>('/api/v1/jobs').then((r) => setItems(asList(r)))
+		const qs = state ? `?state=${encodeURIComponent(state)}` : ''
+		const load = () => api<{ items: any[] }>(`/api/v1/jobs${qs}`).then((r) => setItems(asList(r)))
 		load()
 		const id = setInterval(load, 1500)
 		return () => clearInterval(id)
-	}, [])
+	}, [state])
+	const shown = items.filter((j) =>
+		!typeQ.trim() || String(j.type || '').toLowerCase().includes(typeQ.trim().toLowerCase()),
+	)
 	return (
 		<>
 			<PageHeader
 				title="Background jobs"
-				detail="Durable PostgreSQL-style queue. Progress is observed, not guessed."
+				detail="Durable queue. Filter by observed state (API) and type (this view)."
 			/>
-			{items.length === 0 ? (
+			<div className="toolbar">
+				<select
+					aria-label="Job state"
+					value={state}
+					onChange={(e) => {
+						const next = new URLSearchParams(params)
+						if (e.target.value) next.set('state', e.target.value)
+						else next.delete('state')
+						setParams(next)
+					}}
+				>
+					<option value="">All states</option>
+					<option value="queued">queued</option>
+					<option value="running">running</option>
+					<option value="succeeded">succeeded</option>
+					<option value="failed">failed</option>
+				</select>
+				<input
+					className="search"
+					placeholder="Filter type"
+					value={typeQ}
+					onChange={(e) => setTypeQ(e.target.value)}
+				/>
+			</div>
+			{shown.length === 0 ? (
 				<Empty
 					title="Queue is idle"
 					detail="Provisioning, backups and certificate work will appear here."
@@ -310,8 +353,8 @@ export function Jobs () {
 						<tr><th>Type</th><th>State</th><th>%</th><th>Error</th></tr>
 					</thead>
 					<tbody>
-						{items.map((j) => (
-							<tr key={j.id}>
+						{shown.map((j) => (
+							<tr key={j.id} className={j.state === 'failed' ? 'row-failed' : undefined}>
 								<td>{j.type}</td>
 								<td>{j.state}</td>
 								<td>{j.progress}</td>
@@ -328,17 +371,28 @@ export function Jobs () {
 export function Audit () {
 	const [items, setItems] = useState<any[]>([])
 	const [err, setErr] = useState('')
+	const [q, setQ] = useState('')
 	useEffect(() => {
 		api<{ items: any[] }>('/api/v1/audit-events')
 			.then((r) => setItems(asList(r)))
 			.catch((e) => setErr(e.message))
 	}, [])
 	if (err) return <Empty title="Audit unavailable" detail={err} />
+	const shown = items.filter((e) => {
+		const hay = `${e.action} ${e.resource_type} ${e.source_ip}`.toLowerCase()
+		return hay.includes(q.trim().toLowerCase())
+	})
 	return (
 		<>
 			<PageHeader
 				title="Privileged audit trail"
 				detail="Secrets are redacted. Impersonation keeps the original actor."
+			/>
+			<input
+				className="search"
+				placeholder="Filter action, resource, IP"
+				value={q}
+				onChange={(e) => setQ(e.target.value)}
 			/>
 			<table>
 				<thead>
@@ -351,7 +405,7 @@ export function Audit () {
 					</tr>
 				</thead>
 				<tbody>
-					{items.map((e) => (
+					{shown.map((e) => (
 						<tr key={e.id}>
 							<td>{e.occurred_at}</td>
 							<td>{e.action}</td>

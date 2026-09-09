@@ -68,12 +68,25 @@ export function Dashboard () {
 
 	const s = data.system
 	const failedCount = data.stats.failedJobs ?? failed.length
+	const agent = data.services.find((svc) =>
+		svc.name === 'panel-agent' || svc.name === 'kelmor-agent',
+	)
+	const apiSvc = data.services.find((svc) =>
+		svc.name === 'panel-api' || svc.name === 'kelmor-api',
+	)
 	return (
 		<>
 			<PageHeader
 				title="Host operations"
 				detail="Live observed state from Kelmor Agent, not decorative charts."
 			/>
+			{failedCount > 0 ? (
+				<p className="fail-banner" role="status">
+					<strong>{failedCount} failed job{failedCount === 1 ? '' : 's'}</strong>
+					{' — '}
+					<NavLink to="/jobs?state=failed">Open failed jobs</NavLink>
+				</p>
+			) : null}
 			<section className="metrics">
 				<Metric label="Hostname" value={s.hostname || '—'} />
 				<Metric label="Load 1" value={Number(s.load1 || 0).toFixed(2)} />
@@ -95,20 +108,29 @@ export function Dashboard () {
 				/>
 				<Metric label="Accounts" value={String(data.stats.accounts || 0)} />
 				<Metric label="Failed jobs" value={String(failedCount)} />
+				<Metric
+					label="Kelmor Agent"
+					value={agent?.observed_running ? 'healthy' : 'stopped'}
+				/>
+				<Metric
+					label="Control API"
+					value={apiSvc?.observed_running ? 'healthy' : 'stopped'}
+				/>
 			</section>
 			<section className="quick-links" aria-label="Quick links">
 				<h2>Quick links</h2>
 				<div className="quick-grid">
-					<Can cap="accounts.read">
-						<NavLink to="/accounts">List Accounts</NavLink>
-					</Can>
 					<Can cap="accounts.create">
 						<NavLink to="/accounts/create">Create Account</NavLink>
 					</Can>
+					<Can cap="accounts.read">
+						<NavLink to="/accounts">List Accounts</NavLink>
+					</Can>
+					<NavLink to="/jobs?state=failed">Failed Jobs</NavLink>
+					<a href="#agent-health">Agent health</a>
 					<Can cap="packages.read">
 						<NavLink to="/packages">Packages</NavLink>
 					</Can>
-					<NavLink to="/jobs">Jobs</NavLink>
 					<Can cap="security.audit.read">
 						<NavLink to="/audit">Audit</NavLink>
 					</Can>
@@ -116,10 +138,7 @@ export function Dashboard () {
 						<NavLink to="/import">Import</NavLink>
 					</Can>
 					<Can cap="billing.usage.read">
-						<NavLink to="/monitor">Usage</NavLink>
-					</Can>
-					<Can cap="resellers.read">
-						<NavLink to="/resellers">Resellers</NavLink>
+						<NavLink to="/monitor">Usage / Quotas</NavLink>
 					</Can>
 				</div>
 			</section>
@@ -157,7 +176,12 @@ export function Dashboard () {
 				<FirewallPanel />
 				<RebootPanel />
 			</div>
-			<h2>Service status</h2>
+			<h2 id="agent-health">Service status / agent health</h2>
+			<p className="muted">
+				Kelmor Agent is observed as {agent?.observed_running ? 'running' : 'stopped'}
+				{agent ? ` (${agent.name}, ${agent.health})` : ''}.
+				GET /server/processes is a placeholder process list and is not shown.
+			</p>
 			<table>
 				<thead>
 					<tr>

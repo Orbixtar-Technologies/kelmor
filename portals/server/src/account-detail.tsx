@@ -124,42 +124,79 @@ export function AccountDetail () {
 		<>
 			<PageHeader
 				title={acc.username}
-				detail={`${acc.primary_domain} · UID ${acc.linux_uid} · ${acc.status} · ${acc.home_path}`}
+				detail="Account operations hub — summary, actions, then resource forms."
 			/>
 			<p className="hub-crumb">
 				<NavLink to="/accounts">List Accounts</NavLink>
-				{' · operations hub'}
+				{' · '}
+				<NavLink to="/accounts/summary">Account Summary</NavLink>
 			</p>
+			<section className="summary-strip" aria-label="Account summary">
+				<dl>
+					<div><dt>Domain</dt><dd>{acc.primary_domain}</dd></div>
+					<div><dt>Status</dt><dd>{acc.status}</dd></div>
+					<div><dt>UID</dt><dd>{acc.linux_uid}</dd></div>
+					<div><dt>Home</dt><dd>{acc.home_path}</dd></div>
+					<div><dt>Package</dt><dd>{packages.find((p) => p.id === acc.package_id)?.name || acc.package_id || '—'}</dd></div>
+					<div><dt>Disk</dt><dd>{usage ? fmtBytes(usage.disk_bytes || 0) : '—'}</dd></div>
+				</dl>
+			</section>
 			<Notice>{msg}</Notice>
 			<nav className="hub-jump" aria-label="Account operations">
 				{HUB.map((h) => (
 					<a key={h.id} href={`#${h.id}`}>{h.label}</a>
 				))}
 			</nav>
+			<section className="action-groups" aria-label="Action groups">
+				<div>
+					<h2>Lifecycle</h2>
+					<div className="row">
+						<Can cap="accounts.suspend">
+							<button type="button" onClick={() => act(`/api/v1/accounts/${id}/suspend`, reload, setMsg)}>
+								Suspend
+							</button>
+							<button type="button" onClick={() => act(`/api/v1/accounts/${id}/unsuspend`, reload, setMsg)}>
+								Unsuspend
+							</button>
+						</Can>
+						<Can cap="accounts.terminate">
+							<button
+								type="button"
+								onClick={() => {
+									if (!window.confirm(`Terminate ${acc.username}? This removes the Linux user, websites, and mail.`))
+										return
+									act(`/api/v1/accounts/${id}/terminate`, reload, setMsg)
+								}}
+							>
+								Terminate
+							</button>
+						</Can>
+					</div>
+				</div>
+				<div>
+					<h2>Recent jobs</h2>
+					{jobs.length === 0 ? <p className="muted">No jobs yet.</p> : (
+						<table>
+							<thead>
+								<tr><th>Type</th><th>State</th><th>%</th></tr>
+							</thead>
+							<tbody>
+								{jobs.slice(0, 5).map((j) => (
+									<tr key={j.id}>
+										<td>{j.type}</td>
+										<td>{j.state}</td>
+										<td>{j.progress}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</div>
+			</section>
 
 			<section id="lifecycle">
-				<h2>Lifecycle</h2>
+				<h2>Export and migrate</h2>
 				<div className="row">
-					<Can cap="accounts.suspend">
-						<button type="button" onClick={() => act(`/api/v1/accounts/${id}/suspend`, reload, setMsg)}>
-							Suspend
-						</button>
-						<button type="button" onClick={() => act(`/api/v1/accounts/${id}/unsuspend`, reload, setMsg)}>
-							Unsuspend
-						</button>
-					</Can>
-					<Can cap="accounts.terminate">
-						<button
-							type="button"
-							onClick={() => {
-								if (!window.confirm(`Terminate ${acc.username}? This removes the Linux user, websites, and mail.`))
-									return
-								act(`/api/v1/accounts/${id}/terminate`, reload, setMsg)
-							}}
-						>
-							Terminate
-						</button>
-					</Can>
 					<button
 						type="button"
 						onClick={async () => {

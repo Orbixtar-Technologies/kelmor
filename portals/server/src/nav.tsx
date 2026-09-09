@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { api, asList } from './client'
 import {
 	matchFind,
@@ -8,6 +8,20 @@ import {
 	type FindAccount,
 	type FindHit,
 } from './find'
+
+const COLLAPSE_KEY = 'director_nav_collapsed'
+
+function loadCollapsed (): Record<string, boolean> {
+	try {
+		const raw = localStorage.getItem(COLLAPSE_KEY)
+		if (!raw) return {}
+		const parsed = JSON.parse(raw)
+		if (parsed && typeof parsed === 'object') return parsed
+	} catch {
+		// keep defaults
+	}
+	return {}
+}
 
 export function DirectorNav ({
 	caps,
@@ -19,6 +33,8 @@ export function DirectorNav ({
 	onSignOut: () => void
 }) {
 	const functions = useMemo(() => visibleFunctions(caps), [caps])
+	const loc = useLocation()
+	const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed)
 	const grouped = NAV_GROUPS
 		.map((group) => ({
 			group,
@@ -26,25 +42,49 @@ export function DirectorNav ({
 		}))
 		.filter((g) => g.items.length > 0)
 
+	function toggle (group: string) {
+		setCollapsed((prev) => {
+			const next = { ...prev, [group]: !prev[group] }
+			localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next))
+			return next
+		})
+	}
+
 	return (
 		<aside>
 			<p className="brand">Kelmor Director</p>
 			<FindBox caps={caps} />
 			<nav>
-				{grouped.map((g) => (
-					<div className="nav-group" key={g.group}>
-						<h2>{g.group}</h2>
-						{g.items.map((fn) => (
-							<NavLink
-								key={fn.to}
-								to={fn.to}
-								end={fn.to === '/' || fn.to === '/accounts'}
+				{grouped.map((g) => {
+					const isOpen = !collapsed[g.group]
+					const hasActive = g.items.some((fn) =>
+						fn.end
+							? loc.pathname === fn.to
+							: loc.pathname === fn.to || loc.pathname.startsWith(fn.to + '/'),
+					)
+					return (
+						<div className="nav-group" key={g.group}>
+							<button
+								type="button"
+								className="nav-group-toggle"
+								aria-expanded={isOpen}
+								onClick={() => toggle(g.group)}
 							>
-								{fn.label}
-							</NavLink>
-						))}
-					</div>
-				))}
+								{g.group}
+								<span>{isOpen ? '−' : '+'}</span>
+							</button>
+							{isOpen || hasActive ? (
+								<div className="nav-group-items" hidden={!isOpen && !hasActive}>
+									{g.items.map((fn) => (
+										<NavLink key={fn.to} to={fn.to} end={!!fn.end}>
+											{fn.label}
+										</NavLink>
+									))}
+								</div>
+							) : null}
+						</div>
+					)
+				})}
 			</nav>
 			<button className="ghost" type="button" onClick={onSignOut}>
 				Sign out {username}

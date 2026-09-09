@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { api, asList } from './client'
 import { Can } from './rbac'
-import { act, Empty, Notice, PageHeader } from './ui'
+import { act, Empty, fmtBytes, Notice, PageHeader } from './ui'
+import { validateCreateAccount } from './validate'
 
 interface AccountRow {
 	id: string
@@ -26,6 +27,8 @@ export function AccountList () {
 	const [q, setQ] = useState('')
 	const [status, setStatus] = useState('')
 	const [picked, setPicked] = useState<Record<string, boolean>>({})
+	const [disk, setDisk] = useState<Record<string, number>>({})
+	const [diskNote, setDiskNote] = useState('')
 	const [msg, setMsg] = useState('')
 
 	async function reload () {
@@ -49,6 +52,18 @@ export function AccountList () {
 		api<{ items: Named[] }>('/api/v1/resellers')
 			.then((r) => setResellers(asList(r)))
 			.catch(() => setResellers([]))
+		api<{ accounts?: Array<{ account_id: string; disk_bytes?: number }> }>('/api/v1/server/monitor')
+			.then((r) => {
+				const next: Record<string, number> = {}
+				for (const u of r.accounts || [])
+					next[u.account_id] = u.disk_bytes || 0
+				setDisk(next)
+				setDiskNote('')
+			})
+			.catch(() => {
+				setDisk({})
+				setDiskNote('Disk column needs GET /server/monitor (billing.usage.read). Shown as — when that capability is missing.')
+			})
 	}, [])
 
 	function nameOf (list: Named[], id?: string) {
@@ -136,6 +151,7 @@ export function AccountList () {
 				</Can>
 			</div>
 			<Notice>{msg}</Notice>
+			{diskNote ? <p className="muted">{diskNote}</p> : null}
 			{items.length === 0 ? (
 				<Empty
 					title="No accounts match"
@@ -148,9 +164,10 @@ export function AccountList () {
 							<th></th>
 							<th>User</th>
 							<th>Domain</th>
+							<th>Package</th>
+							<th>Disk</th>
 							<th>Status</th>
 							<th>UID</th>
-							<th>Package</th>
 							<th>Reseller</th>
 							<th></th>
 						</tr>
@@ -173,12 +190,16 @@ export function AccountList () {
 									<NavLink to={`/accounts/${a.id}`}>{a.username}</NavLink>
 								</td>
 								<td>{a.primary_domain}</td>
+								<td>{nameOf(packages, a.package_id)}</td>
+								<td>{a.id in disk ? fmtBytes(disk[a.id]) : '—'}</td>
 								<td>{a.status}</td>
 								<td>{a.linux_uid}</td>
-								<td>{nameOf(packages, a.package_id)}</td>
 								<td>{nameOf(resellers, a.reseller_id)}</td>
 								<td className="row-actions">
 									<NavLink to={`/accounts/${a.id}`}>Open</NavLink>
+									<Can cap="accounts.modify">
+										<NavLink to="/accounts/package">Package</NavLink>
+									</Can>
 									<Can cap="accounts.suspend">
 										<button
 											type="button"
@@ -192,6 +213,9 @@ export function AccountList () {
 										>
 											Unsuspend
 										</button>
+									</Can>
+									<Can cap="accounts.terminate">
+										<NavLink to="/accounts/terminate">Terminate</NavLink>
 									</Can>
 								</td>
 							</tr>
@@ -207,6 +231,7 @@ export function CreateAccount () {
 	const [packages, setPackages] = useState<Named[]>([])
 	const [resellers, setResellers] = useState<Named[]>([])
 	const [msg, setMsg] = useState('')
+	const [errors, setErrors] = useState<Record<string, string>>({})
 	const nav = useNavigate()
 
 	useEffect(() => {
@@ -222,26 +247,39 @@ export function CreateAccount () {
 		<>
 			<PageHeader
 				title="Create Account"
-				detail="Provisions a Linux tenant, primary domain, and a reconcile job. This is not a decorative wizard."
+				detail="Guided provision: identity, package, then owner credentials. Fields match POST /accounts."
 			/>
 			<Can cap="accounts.create">
 				<form
-					className="stack-form"
+					className="guided-form"
 					onSubmit={async (e) => {
 						e.preventDefault()
 						const fd = new FormData(e.currentTarget)
+						const input = {
+							username: String(fd.get('username') || ''),
+							domain: String(fd.get('domain') || ''),
+							email: String(fd.get('email') || ''),
+							password: String(fd.get('password') || ''),
+							package_id: String(fd.get('package_id') || ''),
+						}
+						const next = validateCreateAccount(input)
+						setErrors(next)
+						if (Object.keys(next).length) {
+							setMsg('Fix the highlighted fields before provisioning.')
+							return
+						}
 						setMsg('')
 						try {
 							const r = await api<any>('/api/v1/accounts', {
 								method: 'POST',
 								headers: { 'Idempotency-Key': crypto.randomUUID() },
 								body: JSON.stringify({
-									username: fd.get('username'),
-									primary_domain: fd.get('domain'),
-									package_id: fd.get('package_id'),
+									username: input.username,
+									primary_domain: input.domain,
+									package_id: input.package_id,
 									reseller_id: fd.get('reseller_id') || undefined,
-									owner_email: fd.get('email'),
-									owner_password: fd.get('password'),
+									owner_email: input.email,
+									owner_password: input.password,
 								}),
 							})
 							setMsg(`Queued ${r.operation_id}`)
@@ -251,39 +289,53 @@ export function CreateAccount () {
 						}
 					}}
 				>
-					<label>
-						Username
-						<input name="username" required autoComplete="off" />
-					</label>
-					<label>
-						Primary domain
-						<input name="domain" placeholder="example.test" required />
-					</label>
-					<label>
-						Owner email
-						<input name="email" type="email" />
-					</label>
-					<label>
-						Owner password
-						<input name="password" type="password" required />
-					</label>
-					<label>
-						Package
-						<select name="package_id" required>
-							{packages.map((p) => (
-								<option key={p.id} value={p.id}>{p.name}</option>
-							))}
-						</select>
-					</label>
-					<label>
-						Reseller
-						<select name="reseller_id">
-							<option value="">Direct (no reseller)</option>
-							{resellers.map((r) => (
-								<option key={r.id} value={r.id}>{r.name}</option>
-							))}
-						</select>
-					</label>
+					<fieldset>
+						<legend>1. Identity</legend>
+						<label>
+							Username
+							<input name="username" required autoComplete="off" aria-invalid={!!errors.username} />
+							{errors.username ? <span className="field-error">{errors.username}</span> : null}
+						</label>
+						<label>
+							Primary domain
+							<input name="domain" placeholder="example.test" required aria-invalid={!!errors.domain} />
+							{errors.domain ? <span className="field-error">{errors.domain}</span> : null}
+						</label>
+					</fieldset>
+					<fieldset>
+						<legend>2. Package</legend>
+						<label>
+							Package
+							<select name="package_id" required aria-invalid={!!errors.package_id}>
+								{packages.map((p) => (
+									<option key={p.id} value={p.id}>{p.name}</option>
+								))}
+							</select>
+							{errors.package_id ? <span className="field-error">{errors.package_id}</span> : null}
+						</label>
+						<label>
+							Reseller
+							<select name="reseller_id">
+								<option value="">Direct (no reseller)</option>
+								{resellers.map((r) => (
+									<option key={r.id} value={r.id}>{r.name}</option>
+								))}
+							</select>
+						</label>
+					</fieldset>
+					<fieldset>
+						<legend>3. Owner</legend>
+						<label>
+							Owner email
+							<input name="email" type="email" aria-invalid={!!errors.email} />
+							{errors.email ? <span className="field-error">{errors.email}</span> : null}
+						</label>
+						<label>
+							Owner password
+							<input name="password" type="password" required aria-invalid={!!errors.password} />
+							{errors.password ? <span className="field-error">{errors.password}</span> : null}
+						</label>
+					</fieldset>
 					<div className="toolbar">
 						<button type="submit">Provision account</button>
 						<NavLink to="/accounts">Back to List Accounts</NavLink>

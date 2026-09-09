@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { AccountDetail } from './account-detail'
+import {
+	AccountSummary,
+	ChangePackage,
+	ModifyAccount,
+	SuspendAccount,
+	TerminateAccount,
+} from './account-functions'
 import { AccountList, CreateAccount } from './accounts'
 import { api, clearToken, getToken, setToken } from './client'
 import { Dashboard } from './dashboard'
+import { Domains } from './domains'
 import { DirectorNav } from './nav'
 import { Audit, ImportAccount, Jobs, Monitor, Packages, Resellers } from './pages'
 import { CapProvider, Forbidden } from './rbac'
@@ -75,7 +83,13 @@ export function App () {
 						<Route path="/" element={caps['server.read'] ? <Dashboard /> : <Forbidden title="Dashboard" />} />
 						<Route path="/accounts" element={caps['accounts.read'] ? <AccountList /> : <Forbidden title="List Accounts" />} />
 						<Route path="/accounts/create" element={caps['accounts.create'] ? <CreateAccount /> : <Forbidden title="Create Account" />} />
+						<Route path="/accounts/suspend" element={caps['accounts.suspend'] ? <SuspendAccount /> : <Forbidden title="Suspend / Unsuspend" />} />
+						<Route path="/accounts/terminate" element={caps['accounts.terminate'] ? <TerminateAccount /> : <Forbidden title="Terminate" />} />
+						<Route path="/accounts/package" element={caps['accounts.modify'] ? <ChangePackage /> : <Forbidden title="Change Package" />} />
+						<Route path="/accounts/modify" element={caps['accounts.modify'] ? <ModifyAccount /> : <Forbidden title="Modify Account" />} />
+						<Route path="/accounts/summary" element={caps['accounts.read'] ? <AccountSummary /> : <Forbidden title="Account Summary" />} />
 						<Route path="/accounts/:id" element={caps['accounts.read'] ? <AccountDetail /> : <Forbidden title="Account" />} />
+						<Route path="/domains" element={(caps['accounts.read'] || caps['domains.read'] || caps['dns.read']) ? <Domains /> : <Forbidden title="DNS / Domains" />} />
 						<Route path="/import" element={caps['accounts.create'] ? <ImportAccount /> : <Forbidden title="Import" />} />
 						<Route path="/resellers" element={caps['resellers.read'] ? <Resellers /> : <Forbidden title="Resellers" />} />
 						<Route path="/packages" element={caps['packages.read'] ? <Packages /> : <Forbidden title="Packages" />} />
