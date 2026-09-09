@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+
+	"github.com/hosting-panel/panel/internal/update"
 )
 
 func TestManagePanelUpdateAcceptsFixedActions(t *testing.T) {
@@ -82,6 +87,156 @@ func TestManagePanelUpdateRejectsCommandsURLsAndPaths(t *testing.T) {
 				t.Fatalf("accepted unsafe request: %#v", params)
 			}
 		})
+	}
+}
+
+func TestPanelUpdateActionsSelectFixedAsynchronousUnits(t *testing.T) {
+	tests := []struct {
+		action string
+		unit   string
+	}{
+		{action: "check", unit: "panel-update@check.service"},
+		{action: "install", unit: "panel-update@install.service"},
+	}
+	for _, test := range tests {
+		t.Run(test.action, func(t *testing.T) {
+			args, err := panelUpdateStartArgs(test.action)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"start", "--no-block", test.unit}
+			if !slices.Equal(args, want) {
+				t.Fatalf("systemctl args = %q, want %q", args, want)
+			}
+		})
+	}
+	if _, err := panelUpdateStartArgs("panel-update@attacker.service"); err == nil {
+		t.Fatal("caller-controlled unit was accepted")
+	}
+}
+
+func TestManagePanelUpdateSettingsPreservesMetadataAndUpdatesStatus(t *testing.T) {
+	root := t.TempDir()
+	host := &Host{Root: root}
+	configPath := filepath.Join(root, "etc/panel/update.env")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("PANEL_UPDATE_CHANNEL=stable\nPANEL_UPDATE_AUTOMATIC=true\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeStat := before.Sys().(*syscall.Stat_t)
+
+	statusPath := filepath.Join(root, "var/lib/panel/update-status.json")
+	wantStatus := update.Status{
+		State: "available", InstalledRelease: "1.0.0", AvailableRelease: "1.1.0",
+		LastCheckedAt: "2026-09-09T16:00:00Z", Automatic: true, Channel: "stable",
+	}
+	if err := update.WriteStatus(statusPath, wantStatus); err != nil {
+		t.Fatal(err)
+	}
+
+	automatic := false
+	if _, err := host.ManagePanelUpdate(context.Background(), PanelUpdateRequest{
+		Action: "settings", Automatic: &automatic,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterStat := after.Sys().(*syscall.Stat_t)
+	if after.Mode().Perm() != before.Mode().Perm() ||
+		afterStat.Uid != beforeStat.Uid || afterStat.Gid != beforeStat.Gid {
+		t.Fatalf(
+			"config metadata changed: mode %o uid %d gid %d -> mode %o uid %d gid %d",
+			before.Mode().Perm(), beforeStat.Uid, beforeStat.Gid,
+			after.Mode().Perm(), afterStat.Uid, afterStat.Gid,
+		)
+	}
+	rawStatus, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotStatus update.Status
+	if err := json.Unmarshal(rawStatus, &gotStatus); err != nil {
+		t.Fatal(err)
+	}
+	wantStatus.Automatic = false
+	if gotStatus != wantStatus {
+		t.Fatalf("status = %+v, want %+v", gotStatus, wantStatus)
+	}
+}
+
+func TestManagePanelUpdateSettingsSerializesConfigAndStatus(t *testing.T) {
+	root := t.TempDir()
+	host := &Host{Root: root}
+	configPath := filepath.Join(root, "etc/panel/update.env")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("PANEL_UPDATE_CHANNEL=stable\nPANEL_UPDATE_AUTOMATIC=true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statusPath := filepath.Join(root, "var/lib/panel/update-status.json")
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "idle", InstalledRelease: "1.0.0", Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	const writers = 32
+	start := make(chan struct{})
+	errors := make(chan error, writers)
+	var group sync.WaitGroup
+	for index := 0; index < writers; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			automatic := false
+			_, err := host.ManagePanelUpdate(context.Background(), PanelUpdateRequest{
+				Action: "settings", Automatic: &automatic,
+			})
+			errors <- err
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(config), "PANEL_UPDATE_AUTOMATIC=false") != 1 {
+		t.Fatalf("concurrent config = %q", config)
+	}
+	status, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got update.Status
+	if err := json.Unmarshal(status, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Automatic {
+		t.Fatalf("concurrent status did not reflect config: %+v", got)
+	}
+	lockPath := filepath.Join(root, "run/panel/update-settings.lock")
+	if info, err := os.Stat(lockPath); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("advisory lock missing: %v", err)
 	}
 }
 

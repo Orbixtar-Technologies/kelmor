@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hosting-panel/panel/agent/operations"
+	openapi "github.com/hosting-panel/panel/api"
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
@@ -36,6 +38,20 @@ func TestUpdateStatusRequiresServerRead(t *testing.T) {
 	assertAPIErrorCode(t, code, body, http.StatusForbidden, "FORBIDDEN")
 	code, body = requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates", "", nil, nil)
 	assertAPIErrorCode(t, code, body, http.StatusUnauthorized, "UNAUTHENTICATED")
+
+	cookieRequest, err := http.NewRequest(http.MethodGet, server.url+"/api/v1/server/updates", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookieRequest.AddCookie(loginUpdateTestCookie(t, server.url))
+	cookieResponse, err := http.DefaultClient.Do(cookieRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cookieResponse.Body.Close()
+	if cookieResponse.StatusCode != http.StatusOK {
+		t.Fatalf("cookie-authenticated status GET = %d", cookieResponse.StatusCode)
+	}
 }
 
 func TestUpdateMutationsRequireServerSettingsWrite(t *testing.T) {
@@ -93,8 +109,17 @@ func TestUpdateMutationIsAudited(t *testing.T) {
 		t.Fatalf("check update: %d %v", code, body)
 	}
 
+	var intent *store.AuditEvent
+	var completion *store.AuditEvent
 	for _, event := range server.store.ListAudit(20) {
-		if event.Action != "server.update.check" {
+		switch event.Action {
+		case "server.update.check.intent":
+			candidate := event
+			intent = &candidate
+		case "server.update.check":
+			candidate := event
+			completion = &candidate
+		default:
 			continue
 		}
 		encoded, err := json.Marshal(event)
@@ -112,9 +137,151 @@ func TestUpdateMutationIsAudited(t *testing.T) {
 		if !event.Success || event.ResourceType != "server_update" || event.RequestID != "update-audit-request" {
 			t.Fatalf("audit event: %+v", event)
 		}
-		return
 	}
-	t.Fatal("successful update mutation was not audited")
+	if intent == nil || completion == nil {
+		t.Fatalf("intent and completion audits are required: %+v", server.store.ListAudit(20))
+	}
+	if intent.OccurredAt.After(completion.OccurredAt) {
+		t.Fatalf("intent audit occurred after completion: intent=%s completion=%s", intent.OccurredAt, completion.OccurredAt)
+	}
+}
+
+func TestUpdateMutationIntentIsAuditedBeforeAgentFailure(t *testing.T) {
+	server := newUpdateTestServer(t)
+	code, body := requestJSONStatus(
+		t,
+		http.MethodPatch,
+		server.url+"/api/v1/server/updates/settings",
+		server.admin,
+		map[string]any{"automatic": false},
+		map[string]string{"X-Request-ID": "failed-update-request"},
+	)
+	assertAPIErrorCode(t, code, body, http.StatusInternalServerError, "AGENT_ERROR")
+
+	foundIntent := false
+	for _, event := range server.store.ListAudit(20) {
+		if event.Action == "server.update.settings.intent" &&
+			event.RequestID == "failed-update-request" && event.Success {
+			foundIntent = true
+		}
+		if event.Action == "server.update.settings" &&
+			event.RequestID == "failed-update-request" && event.Success {
+			t.Fatal("failed privileged mutation has a completion audit")
+		}
+	}
+	if !foundIntent {
+		t.Fatal("privileged mutation failure has no prior intent audit")
+	}
+}
+
+func TestUpdateMutationsRequireBearerAndSameOrigin(t *testing.T) {
+	server := newUpdateTestServer(t)
+	sessionCookie := loginUpdateTestCookie(t, server.url)
+	if sessionCookie.Secure {
+		t.Fatal("HTTP development login issued a Secure cookie")
+	}
+
+	cookieOnly, err := http.NewRequest(http.MethodPost, server.url+"/api/v1/server/updates/check", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookieOnly.AddCookie(sessionCookie)
+	cookieOnly.Header.Set("Origin", "https://attacker.invalid")
+	response, err := http.DefaultClient.Do(cookieOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var body map[string]any
+	_ = json.NewDecoder(response.Body).Decode(&body)
+	assertAPIErrorCode(t, response.StatusCode, body, http.StatusUnauthorized, "BEARER_REQUIRED")
+
+	code, body := requestJSONStatus(
+		t,
+		http.MethodPost,
+		server.url+"/api/v1/server/updates/check",
+		server.admin,
+		nil,
+		map[string]string{"Origin": server.url},
+	)
+	if code != http.StatusAccepted {
+		t.Fatalf("same-origin bearer update: %d %v", code, body)
+	}
+	code, body = requestJSONStatus(
+		t,
+		http.MethodPost,
+		server.url+"/api/v1/server/updates/check",
+		server.admin,
+		nil,
+		map[string]string{"Origin": "https://attacker.invalid"},
+	)
+	assertAPIErrorCode(t, code, body, http.StatusForbidden, "ORIGIN_FORBIDDEN")
+}
+
+func TestUpdateSettingsAreReflectedInStatus(t *testing.T) {
+	server := newUpdateTestServer(t)
+	configPath := filepath.Join(server.root, "etc/panel/update.env")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("PANEL_UPDATE_CHANNEL=stable\nPANEL_UPDATE_AUTOMATIC=true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statusPath := filepath.Join(server.root, "var/lib/panel/update-status.json")
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "idle", InstalledRelease: "1.0.0", Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := requestJSONStatus(
+		t,
+		http.MethodPatch,
+		server.url+"/api/v1/server/updates/settings",
+		server.admin,
+		map[string]any{"automatic": false},
+		nil,
+	)
+	if code != http.StatusOK {
+		t.Fatalf("settings update: %d %v", code, body)
+	}
+	code, body = requestJSONStatus(
+		t,
+		http.MethodGet,
+		server.url+"/api/v1/server/updates",
+		server.auditor,
+		nil,
+		nil,
+	)
+	if code != http.StatusOK || body["automatic"] != false {
+		t.Fatalf("status after settings update: %d %v", code, body)
+	}
+}
+
+func TestLoginCookieIsSecureForHTTPS(t *testing.T) {
+	data := store.NewMemory()
+	if err := store.SeedDev(data, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(data, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	body, err := json.Marshal(map[string]string{
+		"username": "admin",
+		"password": "ChangeMeOnce!2026",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "https://panel.test/api/v1/auth/login", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("login status %d: %s", response.Code, response.Body.String())
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) == 0 || !cookies[0].Secure {
+		t.Fatalf("HTTPS login cookie is not Secure: %+v", cookies)
+	}
 }
 
 func TestUpdateAPIRejectsCallerControlledPrivilegedInputs(t *testing.T) {
@@ -144,6 +311,56 @@ func TestUpdateAPIRejectsCallerControlledPrivilegedInputs(t *testing.T) {
 		code, body := requestJSONStatus(t, request.method, server.url+request.path, server.admin, request.body, nil)
 		assertAPIErrorCode(t, code, body, http.StatusBadRequest, "INVALID_JSON")
 	}
+}
+
+func TestUpdateOpenAPIDocumentsSecurityAndAsyncResponses(t *testing.T) {
+	document := string(openapi.YAML)
+	if !strings.Contains(document, "securitySchemes:") ||
+		!strings.Contains(document, "bearerAuth:") ||
+		!strings.Contains(document, "cookieAuth:") {
+		t.Fatal("OpenAPI is missing bearer and cookie security schemes")
+	}
+
+	status := openAPIPathBlock(document, "/server/updates")
+	if !strings.Contains(status, "bearerAuth: []") ||
+		!strings.Contains(status, "cookieAuth: []") ||
+		!strings.Contains(status, `"401": { $ref: "#/components/responses/Error" }`) ||
+		!strings.Contains(status, `$ref: "#/components/schemas/UpdateStatus"`) {
+		t.Fatalf("update status security/schema is incomplete:\n%s", status)
+	}
+
+	for _, path := range []string{"/server/updates/check", "/server/updates/install"} {
+		block := openAPIPathBlock(document, path)
+		if !strings.Contains(block, "security:\n        - bearerAuth: []") ||
+			strings.Contains(block, "cookieAuth: []") ||
+			!strings.Contains(block, `"202":`) ||
+			!strings.Contains(block, `$ref: "#/components/schemas/PanelUpdateResult"`) ||
+			!strings.Contains(block, `"401": { $ref: "#/components/responses/Error" }`) {
+			t.Fatalf("%s security/202 schema is incomplete:\n%s", path, block)
+		}
+	}
+
+	settings := openAPIPathBlock(document, "/server/updates/settings")
+	if !strings.Contains(settings, "security:\n        - bearerAuth: []") ||
+		strings.Contains(settings, "cookieAuth: []") ||
+		!strings.Contains(settings, `"200":`) ||
+		!strings.Contains(settings, `$ref: "#/components/schemas/PanelUpdateResult"`) ||
+		!strings.Contains(settings, `"401": { $ref: "#/components/responses/Error" }`) {
+		t.Fatalf("update settings security/schema is incomplete:\n%s", settings)
+	}
+}
+
+func openAPIPathBlock(document, path string) string {
+	start := strings.Index(document, "  "+path+":\n")
+	if start < 0 {
+		return ""
+	}
+	remaining := document[start+1:]
+	end := strings.Index(remaining, "\n  /")
+	if end < 0 {
+		return remaining
+	}
+	return remaining[:end]
 }
 
 type updateTestServer struct {
@@ -197,4 +414,36 @@ func loginUpdateTestUser(t *testing.T, url, username, password string) string {
 		"username": username,
 		"password": password,
 	})["token"].(string)
+}
+
+func loginUpdateTestCookie(t *testing.T, url string) *http.Cookie {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{
+		"username": "admin",
+		"password": "ChangeMeOnce!2026",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(
+		http.MethodPost,
+		url+"/api/v1/auth/login",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == "panel_session" {
+			return cookie
+		}
+	}
+	t.Fatal("login did not issue session cookie")
+	return nil
 }

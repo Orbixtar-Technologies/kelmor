@@ -90,6 +90,9 @@ paths:
     get:
       operationId: getServerUpdates
       x-capability: server.read
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: Fixed-path updater status
@@ -97,6 +100,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UpdateStatus"
+        "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "500": { $ref: "#/components/responses/Error" }
   /server/updates/check:
@@ -106,9 +110,17 @@ paths:
       x-server-scope: true
       x-audit-action: server.update.check
       description: Starts the configured update checker. This operation accepts no caller-supplied update configuration.
+      security:
+        - bearerAuth: []
       responses:
-        "202": { description: configured update check requested }
+        "202":
+          description: configured update check accepted asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PanelUpdateResult"
         "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "500": { $ref: "#/components/responses/Error" }
   /server/updates/install:
@@ -118,9 +130,17 @@ paths:
       x-server-scope: true
       x-audit-action: server.update.install
       description: Starts installation of the already verified configured release. This operation accepts no caller-supplied update configuration.
+      security:
+        - bearerAuth: []
       responses:
-        "202": { description: configured update installation requested }
+        "202":
+          description: configured update installation accepted asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PanelUpdateResult"
         "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "500": { $ref: "#/components/responses/Error" }
   /server/updates/settings:
@@ -129,6 +149,8 @@ paths:
       x-capability: server.settings.write
       x-server-scope: true
       x-audit-action: server.update.settings
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -140,8 +162,14 @@ paths:
               properties:
                 automatic: { type: boolean }
       responses:
-        "200": { description: automatic update setting changed }
+        "200":
+          description: automatic update setting changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PanelUpdateResult"
         "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "500": { $ref: "#/components/responses/Error" }
   /server/firewall:
@@ -1086,6 +1114,14 @@ paths:
         "200": { description: filtered audit trail with total, limit, and offset }
         "400": { description: invalid filter value }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: panel_session
   parameters:
     accountID:
       in: path
@@ -1102,6 +1138,7 @@ components:
   schemas:
     UpdateStatus:
       type: object
+      additionalProperties: false
       required: [state, installed_release, automatic, channel]
       properties:
         state: { type: string }
@@ -1111,6 +1148,14 @@ components:
         error: { type: string }
         automatic: { type: boolean }
         channel: { type: string }
+    PanelUpdateResult:
+      type: object
+      additionalProperties: false
+      required: [ok, message, observed_state]
+      properties:
+        ok: { type: boolean }
+        message: { type: string }
+        observed_state: { type: string }
     Job:
       type: object
       required: [id, type, payload, state, retryable]

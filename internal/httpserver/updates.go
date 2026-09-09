@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/rbac"
@@ -77,6 +79,14 @@ func (a *API) mutateUpdate(w http.ResponseWriter, r *http.Request, action string
 }
 
 func (a *API) requireUpdateMutation(w http.ResponseWriter, r *http.Request) bool {
+	if bearer(r) == "" {
+		a.fail(w, r, http.StatusUnauthorized, "BEARER_REQUIRED", "Update mutations require bearer authentication", false)
+		return false
+	}
+	if !updateMutationOriginAllowed(r) {
+		a.fail(w, r, http.StatusForbidden, "ORIGIN_FORBIDDEN", "Update mutation origin is not allowed", false)
+		return false
+	}
 	if !a.require(w, r, rbac.ServerSettingsWrite) {
 		return false
 	}
@@ -87,6 +97,22 @@ func (a *API) requireUpdateMutation(w http.ResponseWriter, r *http.Request) bool
 	return true
 }
 
+func updateMutationOriginAllowed(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	scheme := "http"
+	if requestIsHTTPS(r) {
+		scheme = "https"
+	}
+	return parsed.Scheme == scheme && strings.EqualFold(parsed.Host, r.Host)
+}
+
 func (a *API) runUpdateMutation(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -94,6 +120,8 @@ func (a *API) runUpdateMutation(
 	status int,
 	auditAfter map[string]any,
 ) {
+	action := "server.update." + request.Action
+	a.audit(r, action+".intent", "server_update", "", true, nil, auditAfter)
 	if a.Agent == nil {
 		a.fail(w, r, http.StatusInternalServerError, "AGENT_ERROR", "Update agent is unavailable", false)
 		return
@@ -103,7 +131,7 @@ func (a *API) runUpdateMutation(
 		a.fail(w, r, http.StatusInternalServerError, "AGENT_ERROR", "Could not manage server update", false)
 		return
 	}
-	a.audit(r, "server.update."+request.Action, "server_update", "", true, nil, auditAfter)
+	a.audit(r, action, "server_update", "", true, nil, auditAfter)
 	writeJSON(w, status, result)
 }
 

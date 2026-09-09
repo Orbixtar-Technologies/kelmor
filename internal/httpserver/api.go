@@ -285,7 +285,10 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := &store.Session{ID: id.New(), UserID: u.ID, TokenHash: hash, ExpiresAt: time.Now().Add(12 * time.Hour), SourceIP: ip, UserAgent: r.UserAgent()}
 	a.Store.PutSession(sess)
-	http.SetCookie(w, &http.Cookie{Name: "panel_session", Value: plain, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600})
+	http.SetCookie(w, &http.Cookie{
+		Name: "panel_session", Value: plain, Path: "/", HttpOnly: true,
+		Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600,
+	})
 	writeJSON(w, 200, map[string]any{"token": plain, "user": publicUser(u), "expires_at": sess.ExpiresAt})
 }
 
@@ -364,7 +367,10 @@ func (a *API) logout(w http.ResponseWriter, r *http.Request) {
 			a.Store.RevokeSession(s.ID)
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: "panel_session", Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{
+		Name: "panel_session", Value: "", Path: "/",
+		Secure: requestIsHTTPS(r), MaxAge: -1,
+	})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -3483,6 +3489,14 @@ func bearer(r *http.Request) string {
 		return strings.TrimSpace(h[7:])
 	}
 	return ""
+}
+
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	return strings.EqualFold(forwarded, "https")
 }
 
 func clientIP(r *http.Request) string {

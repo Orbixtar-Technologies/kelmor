@@ -8,11 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+
+	"github.com/hosting-panel/panel/internal/update"
+	"golang.org/x/sys/unix"
 )
 
 const (
 	panelUpdateConfigPath = "/etc/panel/update.env"
-	panelUpdateService    = "panel-update.service"
+	panelUpdateStatusPath = "/var/lib/panel/update-status.json"
+	panelUpdateLockPath   = "/run/panel/update-settings.lock"
 )
 
 type PanelUpdateRequest struct {
@@ -41,20 +46,16 @@ func (h *Host) ManagePanelUpdate(ctx context.Context, request PanelUpdateRequest
 	}
 
 	switch request.Action {
-	case "check", "install":
+	case "check":
 		if request.Automatic != nil {
 			return Result{}, fmt.Errorf("automatic is only valid for settings")
 		}
-		if h.live() {
-			if output, err := runFixed("/bin/systemctl", "start", panelUpdateService); err != nil {
-				return Result{}, fmt.Errorf("start %s: %s", panelUpdateService, strings.TrimSpace(string(output)))
-			}
+		return h.startPanelUpdate("check")
+	case "install":
+		if request.Automatic != nil {
+			return Result{}, fmt.Errorf("automatic is only valid for settings")
 		}
-		return Result{
-			OK:            true,
-			Message:       request.Action + " requested through " + panelUpdateService,
-			ObservedState: request.Action + "-requested",
-		}, nil
+		return h.startPanelUpdate("install")
 	case "settings":
 		if request.Automatic == nil {
 			return Result{}, fmt.Errorf("automatic is required for settings")
@@ -72,6 +73,34 @@ func (h *Host) ManagePanelUpdate(ctx context.Context, request PanelUpdateRequest
 	}
 }
 
+func panelUpdateStartArgs(action string) ([]string, error) {
+	switch action {
+	case "check":
+		return []string{"start", "--no-block", "panel-update@check.service"}, nil
+	case "install":
+		return []string{"start", "--no-block", "panel-update@install.service"}, nil
+	default:
+		return nil, fmt.Errorf("unsupported panel update action %q", action)
+	}
+}
+
+func (h *Host) startPanelUpdate(action string) (Result, error) {
+	args, err := panelUpdateStartArgs(action)
+	if err != nil {
+		return Result{}, err
+	}
+	if h.live() {
+		if output, err := runFixed("/bin/systemctl", args...); err != nil {
+			return Result{}, fmt.Errorf("start update service: %s", strings.TrimSpace(string(output)))
+		}
+	}
+	return Result{
+		OK:            true,
+		Message:       action + " requested through " + args[len(args)-1],
+		ObservedState: action + "-requested",
+	}, nil
+}
+
 func decodePanelUpdateRequest(raw json.RawMessage) (PanelUpdateRequest, error) {
 	var request PanelUpdateRequest
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
@@ -86,6 +115,27 @@ func decodePanelUpdateRequest(raw json.RawMessage) (PanelUpdateRequest, error) {
 }
 
 func (h *Host) writeAutomaticUpdateSetting(automatic bool) error {
+	lockPath, err := h.resolve(panelUpdateLockPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o750); err != nil {
+		return fmt.Errorf("create update settings lock directory: %w", err)
+	}
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open update settings lock: %w", err)
+	}
+	defer lock.Close()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		return fmt.Errorf("lock update settings: %w", err)
+	}
+	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+
+	return h.writeAutomaticUpdateSettingLocked(automatic)
+}
+
+func (h *Host) writeAutomaticUpdateSettingLocked(automatic bool) error {
 	path, err := h.resolve(panelUpdateConfigPath)
 	if err != nil {
 		return err
@@ -96,6 +146,10 @@ func (h *Host) writeAutomaticUpdateSetting(automatic bool) error {
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("update settings must be a regular file")
+	}
+	metadata, err := updateFileMetadataFromInfo(info)
+	if err != nil {
+		return err
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -119,11 +173,83 @@ func (h *Host) writeAutomaticUpdateSetting(automatic bool) error {
 		return fmt.Errorf("PANEL_UPDATE_AUTOMATIC setting is missing")
 	}
 
-	return writeUpdateConfigAtomic(path, []byte(strings.Join(lines, "\n")))
+	statusPath, err := h.resolve(panelUpdateStatusPath)
+	if err != nil {
+		return err
+	}
+	status, statusMetadata, err := readPanelUpdateStatus(statusPath)
+	if err != nil {
+		return err
+	}
+	status.Automatic = automatic
+	statusContent, err := json.Marshal(status)
+	if err != nil {
+		return fmt.Errorf("encode update status: %w", err)
+	}
+	statusContent = append(statusContent, '\n')
+
+	if err := writeUpdateFileAtomic(path, []byte(strings.Join(lines, "\n")), metadata); err != nil {
+		return fmt.Errorf("write update settings: %w", err)
+	}
+	if err := writeUpdateFileAtomic(statusPath, statusContent, statusMetadata); err != nil {
+		return fmt.Errorf("write update status: %w", err)
+	}
+	return nil
 }
 
-func writeUpdateConfigAtomic(path string, content []byte) error {
+type updateFileMetadata struct {
+	mode os.FileMode
+	uid  int
+	gid  int
+}
+
+func updateFileMetadataFromInfo(info os.FileInfo) (updateFileMetadata, error) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return updateFileMetadata{}, fmt.Errorf("unsupported update file metadata")
+	}
+	return updateFileMetadata{
+		mode: info.Mode().Perm(),
+		uid:  int(stat.Uid),
+		gid:  int(stat.Gid),
+	}, nil
+}
+
+func readPanelUpdateStatus(path string) (update.Status, updateFileMetadata, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return update.Status{}, updateFileMetadata{}, fmt.Errorf("read update status: %w", err)
+		}
+		return update.Status{State: "unknown"}, updateFileMetadata{
+			mode: 0o600,
+			uid:  os.Geteuid(),
+			gid:  os.Getegid(),
+		}, nil
+	}
+	if !info.Mode().IsRegular() {
+		return update.Status{}, updateFileMetadata{}, fmt.Errorf("update status must be a regular file")
+	}
+	metadata, err := updateFileMetadataFromInfo(info)
+	if err != nil {
+		return update.Status{}, updateFileMetadata{}, err
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return update.Status{}, updateFileMetadata{}, fmt.Errorf("read update status: %w", err)
+	}
+	var status update.Status
+	if err := json.Unmarshal(content, &status); err != nil {
+		return update.Status{}, updateFileMetadata{}, fmt.Errorf("decode update status: %w", err)
+	}
+	return status, metadata, nil
+}
+
+func writeUpdateFileAtomic(path string, content []byte, metadata updateFileMetadata) error {
 	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return err
+	}
 	temp, err := os.CreateTemp(directory, "."+filepath.Base(path)+".*")
 	if err != nil {
 		return err
@@ -131,7 +257,11 @@ func writeUpdateConfigAtomic(path string, content []byte) error {
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
 
-	if err := temp.Chmod(0o600); err != nil {
+	if err := temp.Chown(metadata.uid, metadata.gid); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Chmod(metadata.mode); err != nil {
 		_ = temp.Close()
 		return err
 	}
