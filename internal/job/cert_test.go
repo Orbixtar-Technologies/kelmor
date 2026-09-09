@@ -1,11 +1,14 @@
 package job
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/store"
+	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
 
 func TestScanCertRenewalsQueuesExpiring(t *testing.T) {
@@ -32,5 +35,59 @@ func TestScanCertRenewalsQueuesExpiring(t *testing.T) {
 	got := st.GetCert("c-soon")
 	if got == nil || got.Status != "renewing" {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestScanPortalHostnameCertQueuesExpiring(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PANEL_STATE_DIR", dir)
+	t.Setenv("PANEL_HOSTNAME", "panel.example.net")
+	t.Setenv("PANEL_ACME_DIRECTORY", "https://127.0.0.1:14000/dir")
+	if err := os.MkdirAll(filepath.Join(dir, "certs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cert, _, err := paneltls.SelfSigned("panel.example.net", time.Now().Add(5*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "certs", "panel.example.net.crt"), cert, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := store.NewMemory()
+	w := New(st, nil, logging.New("test"), nil, "w1")
+	w.scanPortalHostnameCert()
+	found := false
+	for _, j := range st.ListJobs("queued", 20) {
+		if j.Type == "certificate.portal" && j.ResourceID == "panel.example.net" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expiring portal hostname cert not queued")
+	}
+}
+
+func TestScanPortalHostnameCertSkipsFresh(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PANEL_STATE_DIR", dir)
+	t.Setenv("PANEL_HOSTNAME", "panel.example.net")
+	t.Setenv("PANEL_ACME_DIRECTORY", "https://127.0.0.1:14000/dir")
+	if err := os.MkdirAll(filepath.Join(dir, "certs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cert, _, err := paneltls.SelfSigned("panel.example.net", time.Now().Add(80*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "certs", "panel.example.net.crt"), cert, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := store.NewMemory()
+	w := New(st, nil, logging.New("test"), nil, "w1")
+	w.scanPortalHostnameCert()
+	for _, j := range st.ListJobs("queued", 20) {
+		if j.Type == "certificate.portal" {
+			t.Fatal("fresh portal cert must not queue")
+		}
 	}
 }

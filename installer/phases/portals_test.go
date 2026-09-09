@@ -60,6 +60,9 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 	if !strings.Contains(string(conf), "ssl_certificate") || !strings.Contains(string(conf), "listen 8443 ssl") {
 		t.Fatalf("portal nginx missing TLS: %s", conf)
 	}
+	if b, err := os.ReadFile(filepath.Join(dir, "var/lib/panel/portal-hostname")); err != nil || string(b) != "panel.example.net\n" {
+		t.Fatalf("portal-hostname: %s %v", b, err)
+	}
 	hostCert := filepath.Join(dir, "var/lib/panel/certs/panel.example.net.crt")
 	hostKey := filepath.Join(dir, "var/lib/panel/certs/panel.example.net.key")
 	if err := os.WriteFile(hostCert, []byte("CERT"), 0o644); err != nil {

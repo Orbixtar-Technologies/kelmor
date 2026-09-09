@@ -27,6 +27,7 @@ func applyPortals(c Config) error {
 	if err := installPortalApp(c, "account", "Account Portal"); err != nil {
 		return err
 	}
+	writePortalHostnameFile(c)
 	tryIssuePortalHostnameCertificate(c)
 	if err := writePortalNginx(c, "90-server-portal.conf", 8443, "usr/local/panel/share/portals/server"); err != nil {
 		return err
@@ -214,6 +215,18 @@ func hostnamePortalCertPaths(c Config) (cert, key string, ok bool) {
 
 func portalHostnameACMEStatusPath(c Config) string {
 	return root(c, "var/lib/panel/certs/portal-hostname-acme.status")
+}
+
+func writePortalHostnameFile(c Config) {
+	host := strings.TrimSpace(c.Hostname)
+	if host == "" {
+		return
+	}
+	path := root(c, "var/lib/panel/portal-hostname")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(host+"\n"), 0o644)
 }
 
 func tryIssuePortalHostnameCertificate(c Config) {

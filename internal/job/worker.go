@@ -101,6 +101,69 @@ func (w *Worker) scanCertRenewals() {
 			IdempotencyKey: fmt.Sprintf("cert-renew:%s:%s", c.ID, c.NotAfter.UTC().Format("20060102")),
 		})
 	}
+	w.scanPortalHostnameCert()
+}
+
+func panelStatePath(name string) string {
+	if d := strings.TrimSpace(os.Getenv("PANEL_STATE_DIR")); d != "" {
+		return filepath.Join(d, name)
+	}
+	return filepath.Join("/var/lib/panel", name)
+}
+
+func readPortalHostname() string {
+	if v := strings.TrimSpace(os.Getenv("PANEL_HOSTNAME")); v != "" {
+		return v
+	}
+	if b, err := os.ReadFile(panelStatePath("portal-hostname")); err == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return ""
+}
+
+func (w *Worker) scanPortalHostnameCert() {
+	host := readPortalHostname()
+	if host == "" || host == "localhost" {
+		return
+	}
+	if acme.Directory() == "" {
+		return
+	}
+	certPath := filepath.Join(filepath.Dir(panelStatePath("portal-hostname")), "certs", host+".crt")
+	stamp := "missing"
+	if b, err := os.ReadFile(certPath); err == nil {
+		if leaf := acme.ParseLeafNotAfter(b); leaf != nil {
+			if time.Until(leaf.NotAfter) > 30*24*time.Hour {
+				return
+			}
+			stamp = leaf.NotAfter.UTC().Format("20060102")
+		}
+	}
+	_, _ = w.Store.EnqueueJob(&store.Job{
+		Type: "certificate.portal", ResourceType: "host", ResourceID: host,
+		Payload: map[string]any{"hostname": host}, State: "queued",
+		IdempotencyKey: fmt.Sprintf("portal-cert:%s:%s", host, stamp),
+	})
+}
+
+func (w *Worker) provisionPortalHostnameCert(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent required")
+	}
+	host := str(j.Payload["hostname"])
+	if host == "" {
+		host = j.ResourceID
+	}
+	if host == "" || host == "localhost" {
+		return fmt.Errorf("portal hostname required")
+	}
+	directory := acme.Directory()
+	if directory == "" {
+		return fmt.Errorf("ACME directory missing")
+	}
+	contact := "admin@" + host
+	_, err := acme.Issue(context.Background(), w.Agent, host, contact, directory)
+	return err
 }
 
 func (w *Worker) execute(ctx context.Context, j *store.Job) {
@@ -163,6 +226,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.applyZoneDNSSEC(j)
 	case "certificate.provision":
 		return w.provisionCert(j)
+	case "certificate.portal":
+		return w.provisionPortalHostnameCert(j)
 	case "backup.create":
 		return w.createBackup(j)
 	case "backup.restore":
