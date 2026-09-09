@@ -820,6 +820,28 @@ func (m *Memory) ListJobs(state string, limit int) []Job {
 	return out
 }
 
+func (m *Memory) CancelJob(jobID, actorID, requestID string) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	job := m.Jobs[jobID]
+	if job == nil {
+		return nil, ErrJobNotFound
+	}
+	if job.State != "queued" && job.State != "failed" {
+		return nil, ErrJobStateConflict
+	}
+	now := time.Now().UTC()
+	job.State = "cancelled"
+	job.FinishedAt = &now
+	job.LockedBy = ""
+	job.HeartbeatAt = nil
+	job.ActorID = actorID
+	job.RequestID = requestID
+	job.Retryable = nil
+	cp := *job
+	return &cp, nil
+}
+
 func (m *Memory) DriftedAccounts() []Account {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -856,6 +878,66 @@ func (m *Memory) ListAudit(limit int) []AuditEvent {
 		out = out[:limit]
 	}
 	return out
+}
+
+func (m *Memory) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	query := strings.ToLower(filter.Query)
+	filtered := make([]AuditEvent, 0, len(m.Audit))
+	for _, event := range m.Audit {
+		if filter.Action != "" && !strings.Contains(event.Action, filter.Action) {
+			continue
+		}
+		if filter.ResourceType != "" && event.ResourceType != filter.ResourceType {
+			continue
+		}
+		if filter.AccountID != "" && event.AccountID != filter.AccountID {
+			continue
+		}
+		if filter.ActorID != "" && event.ActorID != filter.ActorID {
+			continue
+		}
+		if filter.Success != nil && event.Success != *filter.Success {
+			continue
+		}
+		if filter.Since != nil && event.OccurredAt.Before(*filter.Since) {
+			continue
+		}
+		if filter.Until != nil && event.OccurredAt.After(*filter.Until) {
+			continue
+		}
+		if query != "" {
+			haystack := strings.ToLower(strings.Join([]string{
+				event.Action, event.ResourceType, event.ResourceID, event.AccountID,
+				event.ActorID, event.SourceIP, event.RequestID,
+			}, " "))
+			if !strings.Contains(haystack, query) {
+				continue
+			}
+		}
+		filtered = append(filtered, *event)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].OccurredAt.After(filtered[j].OccurredAt)
+	})
+	total := len(filtered)
+	start := filter.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	return filtered[start:end], total
 }
 
 func (m *Memory) PutToken(t *APIToken) { m.mu.Lock(); m.Tokens[t.ID] = t; m.mu.Unlock() }

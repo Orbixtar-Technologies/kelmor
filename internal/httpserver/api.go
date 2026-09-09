@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,16 +78,22 @@ func (a *API) Handler() http.Handler {
 			r.Post("/server/reboot", a.rebootHost)
 			r.Post("/server/firewall/apply", a.applyFirewall)
 			r.Get("/server/firewall", a.getFirewall)
+			r.Get("/server/dns/zones", a.listAllZones)
 			r.Get("/jobs", a.listJobs)
 			r.Get("/jobs/{jobID}", a.getJob)
 			r.Post("/jobs/{jobID}/retry", a.retryJob)
+			r.Post("/jobs/{jobID}/cancel", a.cancelJob)
 			r.Get("/audit-events", a.listAudit)
 			r.Get("/packages", a.listPackages)
 			r.Post("/packages", a.createPackage)
+			r.Get("/packages/{packageID}", a.getPackage)
+			r.Put("/packages/{packageID}", a.updatePackage)
 			r.Patch("/packages/{packageID}", a.updatePackage)
 			r.Delete("/packages/{packageID}", a.deletePackage)
+			r.Get("/feature-sets", a.listFeatureSets)
 			r.Get("/resellers", a.listResellers)
 			r.Post("/resellers", a.createReseller)
+			r.Get("/resellers/{resellerID}", a.getReseller)
 			r.Patch("/resellers/{resellerID}", a.updateReseller)
 			r.Get("/accounts", a.listAccounts)
 			r.Post("/accounts", a.createAccount)
@@ -906,11 +913,176 @@ func (a *API) retryJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *API) cancelJob(w http.ResponseWriter, r *http.Request) {
+	original := a.Store.GetJob(chi.URLParam(r, "jobID"))
+	if original == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Job not found", false)
+		return
+	}
+	ac := actor(r)
+	if !ac.Has(rbac.ServerRead) && !ac.Has(rbac.AccountsRead) {
+		a.fail(w, r, 403, "FORBIDDEN", "Missing capability", false)
+		return
+	}
+	if !ac.IsServerScope {
+		accountID := a.jobAccountID(original)
+		if accountID == "" || !ac.CanAccount(accountID) {
+			a.fail(w, r, 404, "NOT_FOUND", "Job not found", false)
+			return
+		}
+	}
+	capability := retryCapability(original.Type)
+	if capability == "" {
+		a.fail(w, r, 409, "NOT_CANCELLABLE", "Job type cannot be cancelled", false)
+		return
+	}
+	if !ac.Has(capability) {
+		a.fail(w, r, 403, "FORBIDDEN", "Missing capability "+capability, false)
+		return
+	}
+	cancelled, err := a.Store.CancelJob(
+		original.ID, ac.UserID, logging.RequestID(r.Context()),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrJobNotFound):
+			a.fail(w, r, 404, "NOT_FOUND", "Job not found", false)
+		case errors.Is(err, store.ErrJobStateConflict):
+			a.fail(w, r, 409, "STATE_CONFLICT", "Only queued or failed jobs can be cancelled", false)
+		default:
+			a.fail(w, r, 500, "JOB_ERROR", "Could not cancel job", false)
+		}
+		return
+	}
+	a.audit(r, "job.cancel", "job", original.ID, true,
+		map[string]any{
+			"state": original.State, "actor_id": original.ActorID,
+			"request_id": original.RequestID,
+		},
+		map[string]any{
+			"state": cancelled.State, "actor_id": cancelled.ActorID,
+			"request_id": cancelled.RequestID,
+		})
+	writeJSON(w, 200, publicJob(cancelled))
+}
+
 func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.SecurityAuditRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListAudit(200)})
+	filter, err := auditFilter(r)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	items, total := a.Store.QueryAudit(filter)
+	writeJSON(w, 200, map[string]any{
+		"items": items, "total": total, "limit": filter.Limit, "offset": filter.Offset,
+	})
+}
+
+func auditFilter(r *http.Request) (store.AuditFilter, error) {
+	query := r.URL.Query()
+	filter := store.AuditFilter{
+		Query: strings.TrimSpace(query.Get("q")), Action: strings.TrimSpace(query.Get("action")),
+		ResourceType: strings.TrimSpace(query.Get("resource_type")),
+		AccountID:    strings.TrimSpace(query.Get("account_id")),
+		ActorID:      strings.TrimSpace(query.Get("actor_id")),
+		Limit:        200,
+	}
+	for name, value := range map[string]*string{
+		"account_id": &filter.AccountID,
+		"actor_id":   &filter.ActorID,
+	} {
+		if *value == "" {
+			continue
+		}
+		parsed, err := id.Parse(*value)
+		if err != nil {
+			return store.AuditFilter{}, fmt.Errorf("%s must be a valid ID", name)
+		}
+		*value = parsed
+	}
+	if value := strings.TrimSpace(query.Get("success")); value != "" {
+		switch value {
+		case "true":
+			success := true
+			filter.Success = &success
+		case "false":
+			success := false
+			filter.Success = &success
+		default:
+			return store.AuditFilter{}, fmt.Errorf("success must be true or false")
+		}
+	}
+	parseTime := func(name string) (*time.Time, error) {
+		value := strings.TrimSpace(query.Get(name))
+		if value == "" {
+			return nil, nil
+		}
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be an RFC3339 timestamp", name)
+		}
+		return &parsed, nil
+	}
+	var err error
+	if filter.Since, err = parseTime("since"); err != nil {
+		return store.AuditFilter{}, err
+	}
+	if filter.Until, err = parseTime("until"); err != nil {
+		return store.AuditFilter{}, err
+	}
+	if filter.Since != nil && filter.Until != nil && filter.Since.After(*filter.Until) {
+		return store.AuditFilter{}, fmt.Errorf("since must not be after until")
+	}
+	if value := strings.TrimSpace(query.Get("limit")); value != "" {
+		filter.Limit, err = strconv.Atoi(value)
+		if err != nil || filter.Limit < 1 || filter.Limit > 500 {
+			return store.AuditFilter{}, fmt.Errorf("limit must be an integer from 1 to 500")
+		}
+	}
+	if value := strings.TrimSpace(query.Get("offset")); value != "" {
+		filter.Offset, err = strconv.Atoi(value)
+		if err != nil || filter.Offset < 0 {
+			return store.AuditFilter{}, fmt.Errorf("offset must be a non-negative integer")
+		}
+	}
+	return filter, nil
+}
+
+func (a *API) listAllZones(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ServerRead) {
+		return
+	}
+	accounts := map[string]store.Account{}
+	for _, account := range a.Store.ListAccounts("", "") {
+		accounts[account.ID] = account
+	}
+	items := make([]map[string]any, 0)
+	for _, zone := range a.Store.ListZones("") {
+		account, ok := accounts[zone.AccountID]
+		if !ok {
+			continue
+		}
+		items = append(items, map[string]any{
+			"id": zone.ID, "account_id": zone.AccountID, "domain_id": zone.DomainID,
+			"name": zone.Name, "dnssec_enabled": zone.DNSSECEnabled, "provider": zone.Provider,
+			"desired_revision": zone.DesiredRevision, "observed_revision": zone.ObservedRevision,
+			"account_username": account.Username, "records": len(a.Store.ListRecords(zone.ID)),
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return fmt.Sprint(items[i]["name"]) < fmt.Sprint(items[j]["name"])
+	})
+	writeJSON(w, 200, map[string]any{"items": items})
+}
+
+func (a *API) listFeatureSets(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.PackagesRead) {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"items": a.Store.ListFeatureSets()})
 }
 
 func (a *API) listPackages(w http.ResponseWriter, r *http.Request) {
@@ -967,6 +1139,32 @@ func (a *API) createPackage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, p)
 }
 
+func (a *API) getPackage(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.PackagesRead) {
+		return
+	}
+	pkg := a.visiblePackage(w, r)
+	if pkg == nil {
+		return
+	}
+	writeJSON(w, 200, pkg)
+}
+
+func (a *API) visiblePackage(w http.ResponseWriter, r *http.Request) *store.Package {
+	pkg := a.Store.GetPackage(chi.URLParam(r, "packageID"))
+	if pkg == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Package not found", false)
+		return nil
+	}
+	who := actor(r)
+	if !who.IsServerScope && who.ResellerID != "" &&
+		pkg.ResellerID != "" && pkg.ResellerID != who.ResellerID {
+		a.fail(w, r, 404, "NOT_FOUND", "Package not found", false)
+		return nil
+	}
+	return pkg
+}
+
 func (a *API) updatePackage(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.PackagesWrite) {
 		return
@@ -982,13 +1180,19 @@ func (a *API) updatePackage(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 403, "FORBIDDEN", "Not authorized for this package", false)
 		return
 	}
-	updated := *current
+	updated := store.Package{}
+	if r.Method == http.MethodPatch {
+		updated = *current
+	}
 	if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
 		a.fail(w, r, 400, "INVALID_JSON", "Invalid package", false)
 		return
 	}
 	updated.ID = current.ID
 	updated.ResellerID = current.ResellerID
+	if updated.FeatureSetID == "" {
+		updated.FeatureSetID = current.FeatureSetID
+	}
 	if err := validatePackage(&updated); err != nil {
 		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
 		return
@@ -1061,6 +1265,37 @@ func (a *API) listResellers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"items": a.Store.ListResellers()})
+}
+
+func (a *API) getReseller(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ResellersRead) {
+		return
+	}
+	if !actor(r).IsServerScope {
+		a.fail(w, r, 403, "FORBIDDEN", "Server scope required", false)
+		return
+	}
+	reseller := a.Store.GetReseller(chi.URLParam(r, "resellerID"))
+	if reseller == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Reseller not found", false)
+		return
+	}
+	accounts := make([]store.Account, 0)
+	for _, account := range a.Store.ListAccounts("", "") {
+		if account.ResellerID == reseller.ID {
+			accounts = append(accounts, account)
+		}
+	}
+	packages := make([]store.Package, 0)
+	for _, pkg := range a.Store.ListPackages() {
+		if pkg.ResellerID == reseller.ID {
+			packages = append(packages, pkg)
+		}
+	}
+	writeJSON(w, 200, map[string]any{
+		"reseller": reseller, "accounts": accounts, "packages": packages,
+		"owner": publicUser(a.Store.UserByID(reseller.UserID)),
+	})
 }
 
 func (a *API) createReseller(w http.ResponseWriter, r *http.Request) {
@@ -1218,17 +1453,75 @@ func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ac := actor(r)
-	items := a.Store.ListAccounts(r.URL.Query().Get("q"), r.URL.Query().Get("status"))
-	if !ac.IsServerScope {
-		visible := make([]store.Account, 0, len(items))
-		for _, acc := range items {
-			if ac.CanAccount(acc.ID) {
-				visible = append(visible, acc)
-			}
+	query := r.URL.Query()
+	packageID := strings.TrimSpace(query.Get("package_id"))
+	resellerID := strings.TrimSpace(query.Get("reseller_id"))
+	for name, value := range map[string]*string{
+		"package_id":  &packageID,
+		"reseller_id": &resellerID,
+	} {
+		if *value == "" {
+			continue
 		}
-		items = visible
+		parsed, err := id.Parse(*value)
+		if err != nil {
+			a.fail(w, r, 400, "VALIDATION", name+" must be a valid ID", false)
+			return
+		}
+		*value = parsed
 	}
-	writeJSON(w, 200, map[string]any{"items": items})
+	overQuota := false
+	if value := strings.TrimSpace(query.Get("over_quota")); value != "" {
+		switch value {
+		case "true":
+			overQuota = true
+		case "false":
+		default:
+			a.fail(w, r, 400, "VALIDATION", "over_quota must be true or false", false)
+			return
+		}
+	}
+	packages := map[string]store.Package{}
+	for _, pkg := range a.Store.ListPackages() {
+		packages[pkg.ID] = pkg
+	}
+	items := a.Store.ListAccounts(query.Get("q"), query.Get("status"))
+	visible := make([]store.Account, 0, len(items))
+	usage := map[string]*store.Usage{}
+	for _, account := range items {
+		if !ac.IsServerScope && !ac.CanAccount(account.ID) {
+			continue
+		}
+		if packageID != "" && account.PackageID != packageID {
+			continue
+		}
+		if resellerID != "" && account.ResellerID != resellerID {
+			continue
+		}
+		accountUsage := a.Store.GetUsage(account.ID)
+		if overQuota && !accountOverQuota(account, packages, accountUsage) {
+			continue
+		}
+		if accountUsage != nil {
+			usage[account.ID] = accountUsage
+		}
+		visible = append(visible, account)
+	}
+	writeJSON(w, 200, map[string]any{
+		"items": visible, "total": len(visible), "usage": usage,
+	})
+}
+
+func accountOverQuota(account store.Account, packages map[string]store.Package, usage *store.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	pkg, ok := packages[account.PackageID]
+	if !ok {
+		return false
+	}
+	return (pkg.DiskBytes > 0 && usage.DiskBytes >= pkg.DiskBytes) ||
+		(pkg.BandwidthBytesMonthly > 0 && usage.BandwidthBytes >= pkg.BandwidthBytesMonthly)
 }
 
 func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {

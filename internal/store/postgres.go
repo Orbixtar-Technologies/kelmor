@@ -1020,13 +1020,21 @@ func (p *PG) jobByIdem(key string) *Job {
 const jobSelect = `SELECT id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload, state, priority, attempts, max_attempts, progress, run_after, COALESCE(locked_by,''), heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''), COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at, started_at, finished_at, logs FROM jobs`
 
 func (p *PG) scanJob(row scanner) *Job {
+	j, err := scanJobRow(row)
+	if err != nil {
+		return nil
+	}
+	return j
+}
+
+func scanJobRow(row scanner) (*Job, error) {
 	j := &Job{}
 	var payload []byte
 	if err := row.Scan(&j.ID, &j.Type, &j.ResourceType, &j.ResourceID, &payload, &j.State, &j.Priority, &j.Attempts, &j.MaxAttempts, &j.Progress, &j.RunAfter, &j.LockedBy, &j.HeartbeatAt, &j.IdempotencyKey, &j.LastError, &j.ActorID, &j.RequestID, &j.CreatedAt, &j.StartedAt, &j.FinishedAt, &j.Logs); err != nil {
-		return nil
+		return nil, err
 	}
 	_ = json.Unmarshal(payload, &j.Payload)
-	return j
+	return j, nil
 }
 
 func (p *PG) ClaimJob(worker string) *Job {
@@ -1094,6 +1102,34 @@ func (p *PG) ListJobs(state string, limit int) []Job {
 	return out
 }
 
+func (p *PG) CancelJob(jobID, actorID, requestID string) (*Job, error) {
+	job, err := scanJobRow(p.pool.QueryRow(p.ctx(), `
+		UPDATE jobs
+		SET state='cancelled', finished_at=now(),
+			locked_by=NULL, locked_at=NULL, heartbeat_at=NULL,
+			actor_id=NULLIF($2,'')::uuid, request_id=NULLIF($3,'')::uuid
+		WHERE id=$1 AND state IN ('queued','failed')
+		RETURNING id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload,
+			state, priority, attempts, max_attempts, progress, run_after, COALESCE(locked_by,''),
+			heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''),
+			COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at,
+			started_at, finished_at, logs`, jobID, actorID, requestID))
+	if err == nil {
+		return job, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	var exists bool
+	if queryErr := p.pool.QueryRow(p.ctx(), `SELECT EXISTS (SELECT 1 FROM jobs WHERE id=$1)`, jobID).Scan(&exists); queryErr != nil {
+		return nil, queryErr
+	}
+	if !exists {
+		return nil, ErrJobNotFound
+	}
+	return nil, ErrJobStateConflict
+}
+
 func (p *PG) AppendAudit(e AuditEvent) {
 	if e.ID == "" {
 		e.ID = id.New()
@@ -1111,12 +1147,21 @@ func (p *PG) AppendAudit(e AuditEvent) {
 }
 
 func (p *PG) ListAudit(limit int) []AuditEvent {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, occurred_at, actor_type, COALESCE(actor_id::text,''), COALESCE(effective_actor_id::text,''), COALESCE(account_id::text,''), action, COALESCE(resource_type,''), COALESCE(resource_id::text,''), COALESCE(source_ip::text,''), COALESCE(user_agent,''), request_id, success, before_state, after_state, metadata
+	rows, err := p.pool.Query(p.ctx(), `SELECT `+auditColumns+`
 		FROM audit_events ORDER BY occurred_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
+	return scanAuditRows(rows)
+}
+
+const auditColumns = `id, occurred_at, actor_type, COALESCE(actor_id::text,''),
+	COALESCE(effective_actor_id::text,''), COALESCE(account_id::text,''), action,
+	COALESCE(resource_type,''), COALESCE(resource_id::text,''), COALESCE(source_ip::text,''),
+	COALESCE(user_agent,''), request_id, success, before_state, after_state, metadata`
+
+func scanAuditRows(rows pgx.Rows) []AuditEvent {
 	var out []AuditEvent
 	for rows.Next() {
 		var e AuditEvent
@@ -1128,6 +1173,45 @@ func (p *PG) ListAudit(limit int) []AuditEvent {
 		out = append(out, e)
 	}
 	return out
+}
+
+func (p *PG) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
+	const where = `
+		FROM audit_events
+		WHERE ($1='' OR concat_ws(' ', action, resource_type, resource_id::text, account_id::text,
+				actor_id::text, source_ip::text, request_id::text) ILIKE '%'||$1||'%')
+		  AND ($2='' OR strpos(action, $2) > 0)
+		  AND ($3='' OR resource_type=$3)
+		  AND ($4='' OR account_id::text=$4)
+		  AND ($5='' OR actor_id::text=$5)
+		  AND ($6::boolean IS NULL OR success=$6)
+		  AND ($7::timestamptz IS NULL OR occurred_at >= $7)
+		  AND ($8::timestamptz IS NULL OR occurred_at <= $8)`
+	var success, since, until any
+	if filter.Success != nil {
+		success = *filter.Success
+	}
+	if filter.Since != nil {
+		since = *filter.Since
+	}
+	if filter.Until != nil {
+		until = *filter.Until
+	}
+	args := []any{
+		filter.Query, filter.Action, filter.ResourceType, filter.AccountID, filter.ActorID,
+		success, since, until,
+	}
+	var total int
+	if err := p.pool.QueryRow(p.ctx(), `SELECT count(*)`+where, args...).Scan(&total); err != nil {
+		return nil, 0
+	}
+	rows, err := p.pool.Query(p.ctx(), `SELECT `+auditColumns+where+`
+		ORDER BY occurred_at DESC LIMIT $9 OFFSET $10`, append(args, filter.Limit, filter.Offset)...)
+	if err != nil {
+		return nil, 0
+	}
+	defer rows.Close()
+	return scanAuditRows(rows), total
 }
 
 func (p *PG) PutToken(t *APIToken) {

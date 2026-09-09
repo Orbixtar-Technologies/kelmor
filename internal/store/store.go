@@ -1,8 +1,28 @@
 package store
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
-var ErrStaleAccount = errors.New("stale account revision")
+var (
+	ErrStaleAccount     = errors.New("stale account revision")
+	ErrJobNotFound      = errors.New("job not found")
+	ErrJobStateConflict = errors.New("job state does not allow cancellation")
+)
+
+type AuditFilter struct {
+	Query        string
+	Action       string
+	ResourceType string
+	AccountID    string
+	ActorID      string
+	Success      *bool
+	Since        *time.Time
+	Until        *time.Time
+	Limit        int
+	Offset       int
+}
 
 type Store interface {
 	PutUser(*User)
@@ -91,9 +111,11 @@ type Store interface {
 	UpdateJob(*Job)
 	GetJob(string) *Job
 	ListJobs(state string, limit int) []Job
+	CancelJob(jobID, actorID, requestID string) (*Job, error)
 
 	AppendAudit(AuditEvent)
 	ListAudit(limit int) []AuditEvent
+	QueryAudit(AuditFilter) ([]AuditEvent, int)
 
 	PutToken(*APIToken)
 	GetToken(id string) *APIToken

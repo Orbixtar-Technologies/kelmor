@@ -105,6 +105,12 @@ paths:
       x-capability: server.read
       responses:
         "200": { description: per-account disk, bandwidth, inode, and process usage }
+  /server/dns/zones:
+    get:
+      operationId: listServerDNSZones
+      x-capability: server.read
+      responses:
+        "200": { description: server-wide zones joined to account usernames and record counts }
   /server/services:
     get:
       operationId: serverServices
@@ -141,6 +147,24 @@ paths:
       responses:
         "201": { description: created }
   /packages/{packageID}:
+    get:
+      operationId: getPackage
+      x-capability: packages.read
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: package visible to the actor }
+        "404": { description: package not found or outside reseller scope }
+    put:
+      operationId: replacePackage
+      x-capability: packages.write
+      x-audit-action: package.update
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: package fully replaced while retaining immutable ownership }
+        "403": { description: package is outside the actor scope }
+        "404": { description: package not found }
     patch:
       operationId: updatePackage
       x-capability: packages.write
@@ -160,6 +184,12 @@ paths:
       responses:
         "200": { description: package deleted }
         "409": { description: package is assigned to an account }
+  /feature-sets:
+    get:
+      operationId: listFeatureSets
+      x-capability: packages.read
+      responses:
+        "200": { description: available package feature sets }
   /resellers:
     get:
       operationId: listResellers
@@ -172,12 +202,38 @@ paths:
       responses:
         "201": { description: created }
   /resellers/{resellerID}:
+    get:
+      operationId: getReseller
+      x-capability: resellers.read
+      description: Server-scoped reseller detail with owned accounts, packages, and a credential-safe owner identity.
+      parameters:
+        - { name: resellerID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: reseller detail }
+        "403": { description: server scope required }
+        "404": { description: reseller not found }
     patch:
       operationId: updateReseller
       x-capability: resellers.modify
       x-audit-action: reseller.update
       parameters:
         - { name: resellerID, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                brand_name: { type: string }
+                status: { type: string, enum: [active, suspended, inactive] }
+                nameservers:
+                  type: array
+                  items: { type: string, format: hostname }
+                privilege_mask:
+                  type: array
+                  items: { type: string }
       responses:
         "200": { description: reseller updated }
         "403": { description: server scope required }
@@ -215,8 +271,18 @@ paths:
         - in: query
           name: status
           schema: { type: string }
+        - in: query
+          name: package_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: reseller_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: over_quota
+          schema: { type: boolean }
       responses:
-        "200": { description: page of accounts }
+        "200": { description: visible accounts with total and a usage map keyed only by visible account IDs }
+        "400": { description: invalid filter value }
   /accounts/{accountID}:
     get:
       operationId: getAccount
@@ -566,6 +632,18 @@ paths:
         "202": { description: eligible failed job cloned into a new queued operation }
         "403": { description: missing capability for the job operation }
         "409": { description: job is not failed or its type is not retryable }
+  /jobs/{jobID}/cancel:
+    post:
+      operationId: cancelJob
+      x-audit-action: job.cancel
+      description: Atomically cancels a visible queued or failed job. Requires the write capability for that job type; server.read alone is insufficient.
+      parameters:
+        - { name: jobID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: credential-redacted cancelled job }
+        "403": { description: missing capability for the job operation }
+        "404": { description: job not found or outside the actor scope }
+        "409": { description: job is running, succeeded, cancelled, or otherwise not cancellable }
   /accounts/{accountID}/mail/domains:
     get:
       operationId: listMailDomains
@@ -935,8 +1013,20 @@ paths:
     get:
       operationId: listAuditEvents
       x-capability: security.audit.read
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: resource_type, in: query, schema: { type: string } }
+        - { name: account_id, in: query, schema: { type: string, format: uuid } }
+        - { name: actor_id, in: query, schema: { type: string, format: uuid } }
+        - { name: success, in: query, schema: { type: boolean } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
-        "200": { description: audit trail }
+        "200": { description: filtered audit trail with total, limit, and offset }
+        "400": { description: invalid filter value }
 components:
   parameters:
     accountID:
