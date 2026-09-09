@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
@@ -225,5 +226,12 @@ func (h *Host) deleteUnixUser(username string) (Result, error) {
 		return h.DeleteLinuxUser(username)
 	}
 	_, _ = runFixed("/usr/sbin/userdel", "-f", "-r", username)
-	return Result{OK: true, ObservedState: "absent"}, nil
+	for i := 0; i < 20; i++ {
+		if _, err := user.Lookup(username); err != nil {
+			return Result{OK: true, ObservedState: "absent"}, nil
+		}
+		time.Sleep(200 * time.Millisecond)
+		_, _ = runFixed("/usr/sbin/userdel", "-f", username)
+	}
+	return Result{}, fmt.Errorf("unix user %s still exists after userdel", username)
 }

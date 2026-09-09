@@ -57,6 +57,7 @@ func applySystemPackages(c Config) error {
 		"redis-server", "rspamd", "clamav-daemon", "fail2ban", "quota",
 		"libnginx-mod-http-modsecurity", "nodejs", "python3", "openssh-server",
 		"nftables", "acl", "vsftpd", "libpam-pwdfile",
+		"curl", "ca-certificates",
 	})
 }
 

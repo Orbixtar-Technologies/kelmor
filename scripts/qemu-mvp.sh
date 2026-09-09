@@ -17,10 +17,13 @@ ssh_cmd 'set -e
   sudo systemctl start dovecot nginx php8.3-fpm pdns postfix || true
   systemctl is-active panel-agent panel-api panel-worker dovecot nginx
 '
-ssh_cmd 'sudo mkdir -p /usr/local/panel/share/scripts && sudo chown ubuntu:ubuntu /usr/local/panel/share/scripts'
+ssh_cmd 'sudo mkdir -p /usr/local/panel/share/scripts /usr/local/panel/share/testdata && sudo chown -R ubuntu:ubuntu /usr/local/panel/share'
 scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" \
   "$SRC/scripts/live-e2e.sh" "$SRC/scripts/cli-mvp.sh" \
   ubuntu@127.0.0.1:/usr/local/panel/share/scripts/
+scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" -r \
+  "$SRC/testdata/cpanel-acme42" \
+  ubuntu@127.0.0.1:/usr/local/panel/share/testdata/
 ssh_cmd 'set -e
   export PANEL_ADMIN_PASSWORD=ChangeMeOnce!2026
   export PANEL_JOB_WAIT_ITERS=240
