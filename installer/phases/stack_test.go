@@ -244,6 +244,73 @@ func TestApplyDNSForcesBindLaunchOnPackagedConf(t *testing.T) {
 	}
 }
 
+func TestApplyDNSReconcilesPowerDNSAPIOnUpgrade(t *testing.T) {
+	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.10")
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	cfg := Config{Hostname: "panel.example.net", AdminEmail: "ops@example.net", Dev: true}
+	pdnsConf := filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf")
+	if err := os.MkdirAll(filepath.Dir(pdnsConf), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packaged := `include-dir=/etc/powerdns/pdns.d
+launch=
+# api=no
+# api-key=
+# webserver=no
+# webserver-address=127.0.0.1
+# webserver-port=8081
+`
+	if err := os.WriteFile(pdnsConf, []byte(packaged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyDNS(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyDNS(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(pdnsConf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsExactLine(string(body), "launch=") {
+		t.Fatalf("Ubuntu packaged launch= parent must stay: %s", body)
+	}
+	want := []string{
+		"bind-config=/etc/powerdns/named.conf",
+		"bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3",
+		"local-address=127.0.0.1,203.0.113.10",
+		"local-port=53",
+		"webserver=yes",
+		"webserver-address=127.0.0.1",
+		"webserver-port=8081",
+		"api=yes",
+		"api-key=panel-loopback",
+	}
+	for _, line := range want {
+		count := 0
+		for _, got := range strings.Split(string(body), "\n") {
+			if strings.TrimSpace(got) == line {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("expected exactly one %q, got %d in:\n%s", line, count, body)
+		}
+	}
+}
+
 func containsExactLine(s, line string) bool {
 	for _, l := range strings.Split(s, "\n") {
 		if strings.TrimSpace(l) == line {

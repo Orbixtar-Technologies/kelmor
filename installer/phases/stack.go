@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,13 +49,7 @@ api-key=panel-loopback
 	if err := writeUnlessExists(pdnsConf, []byte(body), 0o640); err != nil {
 		return err
 	}
-	if err := ensureFileContains(pdnsConf, "bind-config=/etc/powerdns/named.conf\n"); err != nil {
-		return err
-	}
-	if err := ensureFileContains(pdnsConf, "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3\n"); err != nil {
-		return err
-	}
-	if err := replaceConfigLine(pdnsConf, "local-address=", "local-address="+listen+"\n"); err != nil {
+	if err := reconcilePowerDNSConfig(pdnsConf, listen); err != nil {
 		return err
 	}
 	if err := writePublicEnv(c); err != nil {
@@ -848,6 +843,62 @@ func replaceConfigLine(path, prefix, line string) error {
 	return os.WriteFile(path, []byte(out), 0o640)
 }
 
+func reconcilePowerDNSConfig(path, listen string) error {
+	settings := map[string]string{
+		"bind-config":       "/etc/powerdns/named.conf",
+		"bind-dnssec-db":    "/var/lib/panel/dns/bind-dnssec.sqlite3",
+		"local-address":     listen,
+		"local-port":        "53",
+		"webserver":         "yes",
+		"webserver-address": "127.0.0.1",
+		"webserver-port":    "8081",
+		"api":               "yes",
+		"api-key":           "panel-loopback",
+	}
+	return replacePowerDNSSettings(path, settings)
+}
+
+func replacePowerDNSSettings(path string, settings map[string]string) error {
+	keys := make([]string, 0, len(settings))
+	for key := range settings {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		prefix := key + "="
+		lines := strings.Split(string(b), "\n")
+		out := make([]string, 0, len(lines))
+		found := false
+		for _, line := range lines {
+			candidate := strings.TrimSpace(line)
+			candidate = strings.TrimSpace(strings.TrimPrefix(candidate, "#"))
+			if strings.HasPrefix(candidate, prefix) {
+				if found {
+					continue
+				}
+				out = append(out, candidate)
+				found = true
+				continue
+			}
+			out = append(out, line)
+		}
+		if found {
+			if err := os.WriteFile(path, []byte(strings.Join(out, "\n")), 0o640); err != nil {
+				return err
+			}
+		}
+		if err := replaceConfigLine(path, prefix, prefix+settings[key]+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ensureFileContains(path, line string) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -1019,8 +1070,29 @@ func verifyDNS(c Config) error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(b), "bind-dnssec-db=") {
-		return fmt.Errorf("pdns.conf missing bind-dnssec-db")
+	listen := strings.Join(netaddr.DNSListenIPv4(), ",")
+	settings := []string{
+		"bind-config=/etc/powerdns/named.conf",
+		"bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3",
+		"local-address=" + listen,
+		"local-port=53",
+		"webserver=yes",
+		"webserver-address=127.0.0.1",
+		"webserver-port=8081",
+		"api=yes",
+		"api-key=panel-loopback",
+	}
+	for _, setting := range settings {
+		found := false
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.TrimSpace(line) == setting {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("pdns.conf missing active %s", setting)
+		}
 	}
 	// Ubuntu ships launch= (parent) plus pdns.d/bind.conf launch+=bind.
 	// Do not require launch=bind in the main file.
