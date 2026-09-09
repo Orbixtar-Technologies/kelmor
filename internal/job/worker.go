@@ -428,7 +428,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 					return err
 				}
 			}
-			if err := w.renewCertificate(acc, primary.ASCII); err != nil && !labACMEOptional() {
+			if err := w.ensureCertificate(acc, primary.ASCII); err != nil && !labACMEOptional() {
 				return err
 			}
 		}

@@ -38,6 +38,17 @@ func TestScanCertRenewalsQueuesExpiring(t *testing.T) {
 	}
 }
 
+func TestEnsureCertificateSkipsFresh(t *testing.T) {
+	st := store.NewMemory()
+	far := time.Now().Add(80 * 24 * time.Hour)
+	st.PutAccount(&store.Account{ID: "a", Username: "u", Status: "active"})
+	st.PutCert(&store.Certificate{ID: "c", AccountID: "a", Hostname: "x.test", Kind: "domain", Status: "active", NotAfter: &far})
+	w := New(st, nil, logging.New("test"), nil, "w1")
+	if err := w.ensureCertificate(st.GetAccount("a"), "x.test"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestScanPortalHostnameCertQueuesExpiring(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PANEL_STATE_DIR", dir)
