@@ -1,5 +1,7 @@
 package brand
 
+import "strings"
+
 // Product identity. kelmor.host is the product domain only — never a
 // default customer hosting zone or tenant FQDN.
 const (
@@ -9,6 +11,25 @@ const (
 	Agent    = "Kelmor Agent"
 	APITitle = "Kelmor Control Plane API"
 )
+
+// LegacyChromeNames are retired product titles. They must not appear in
+// user-visible portal HTML, login chrome, OpenAPI UI, or installer banners.
+// On-disk privilege paths (/var/lib/panel, panel user, PANEL_*) stay.
+var LegacyChromeNames = []string{
+	"Hosting Panel",
+	"Server Portal",
+	"Account Portal",
+}
+
+// ContainsLegacyChrome reports the first retired product title in s.
+func ContainsLegacyChrome(s string) string {
+	for _, name := range LegacyChromeNames {
+		if strings.Contains(s, name) {
+			return name
+		}
+	}
+	return ""
+}
 
 // ReservedUsernames are Linux / panel identities that tenants cannot claim.
 var ReservedUsernames = []string{

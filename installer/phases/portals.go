@@ -13,6 +13,7 @@ import (
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/acme"
+	"github.com/hosting-panel/panel/internal/brand"
 	"github.com/hosting-panel/panel/internal/netaddr"
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
@@ -53,22 +54,22 @@ func verifyPortals(c Config) error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(server), "Kelmor Director") {
-		return fmt.Errorf("director portal index missing title")
+	if err := portalChromeOK(string(server), brand.Director); err != nil {
+		return fmt.Errorf("kelmor director index: %w", err)
 	}
 	account, err := os.ReadFile(root(c, "usr/local/panel/share/portals/account/index.html"))
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(account), "Kelmor Control") {
-		return fmt.Errorf("control portal index missing title")
+	if err := portalChromeOK(string(account), brand.Control); err != nil {
+		return fmt.Errorf("kelmor control index: %w", err)
 	}
 	if !c.Dev {
 		if !portalIsBuilt(string(server)) {
-			return fmt.Errorf("server portal is not a built SPA (run make portals)")
+			return fmt.Errorf("kelmor director is not a built SPA (run make portals)")
 		}
 		if !portalIsBuilt(string(account)) {
-			return fmt.Errorf("account portal is not a built SPA (run make portals)")
+			return fmt.Errorf("kelmor control is not a built SPA (run make portals)")
 		}
 	}
 	if err := verifyPortalTLS(c); err != nil {
@@ -97,11 +98,11 @@ func installPortalApp(c Config, name, title string) error {
 			return err
 		}
 	}
-	if html, err := os.ReadFile(filepath.Join(dest, "index.html")); err == nil && portalIsBuilt(string(html)) {
+	if html, err := os.ReadFile(filepath.Join(dest, "index.html")); err == nil && portalIsBuilt(string(html)) && portalChromeOK(string(html), title) == nil {
 		return nil
 	}
 	if !c.Dev {
-		return fmt.Errorf("built %s portal assets were not found (run make portals; installer looks next to panel-install under ../share/portals/%s)", name, name)
+		return fmt.Errorf("built %s assets were not found (run make portals; installer prefers portals/%s/dist then dist/share/portals/%s)", title, name, name)
 	}
 	body := fmt.Sprintf("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>%s</title></head><body><h1>%s</h1><p>Built portal assets were not found next to panel-install. Run <code>make portals</code> and re-run the installer.</p></body></html>\n", title, title)
 	return os.WriteFile(filepath.Join(dest, "index.html"), []byte(body), 0o644)
@@ -109,6 +110,16 @@ func installPortalApp(c Config, name, title string) error {
 
 func portalIsBuilt(html string) bool {
 	return strings.Contains(html, "/assets/") && strings.Contains(html, `id="root"`)
+}
+
+func portalChromeOK(html, title string) error {
+	if !strings.Contains(html, title) {
+		return fmt.Errorf("missing %q", title)
+	}
+	if got := brand.ContainsLegacyChrome(html); got != "" {
+		return fmt.Errorf("legacy chrome %q", got)
+	}
+	return nil
 }
 
 func verifyPortalTLS(c Config) error {
@@ -129,10 +140,10 @@ func verifyPortalTLS(c Config) error {
 		return err
 	}
 	if !strings.Contains(string(server), "listen 8443 ssl") || !strings.Contains(string(server), "ssl_certificate") {
-		return fmt.Errorf("server portal nginx is not listening TLS on 8443")
+		return fmt.Errorf("kelmor director nginx is not listening TLS on 8443")
 	}
 	if !strings.Contains(string(account), "listen 8444 ssl") || !strings.Contains(string(account), "ssl_certificate") {
-		return fmt.Errorf("account portal nginx is not listening TLS on 8444")
+		return fmt.Errorf("kelmor control nginx is not listening TLS on 8444")
 	}
 	if !c.Dev && installPrefix(c) == "" {
 		host := strings.TrimSpace(c.Hostname)
@@ -313,22 +324,48 @@ func ensurePortalCertificate(c Config) error {
 }
 
 func portalAssetRoot(c Config, name string) string {
-	candidates := []string{
-		filepath.Join("dist", "share", "portals", name),
-		filepath.Join("portals", name, "dist"),
+	title := brand.Director
+	if name == "account" {
+		title = brand.Control
 	}
-	if exe, err := os.Executable(); err == nil {
-		candidates = append([]string{filepath.Join(filepath.Dir(exe), "..", "share", "portals", name)}, candidates...)
-	}
-	if !c.Dev && installPrefix(c) == "" {
-		candidates = append(candidates, filepath.Join("/usr/local/panel/share/portals", name))
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {
-			return p
+	dest := root(c, "usr/local/panel/share/portals/"+name)
+	for _, p := range portalAssetCandidates(c, name) {
+		if sameFilePath(p, dest) {
+			continue
 		}
+		html, err := os.ReadFile(filepath.Join(p, "index.html"))
+		if err != nil {
+			continue
+		}
+		if portalChromeOK(string(html), title) != nil {
+			continue
+		}
+		return p
 	}
 	return ""
+}
+
+func portalAssetCandidates(c Config, name string) []string {
+	out := []string{
+		filepath.Join("portals", name, "dist"),
+		filepath.Join("dist", "share", "portals", name),
+	}
+	if exe, err := os.Executable(); err == nil {
+		out = append(out, filepath.Join(filepath.Dir(exe), "..", "share", "portals", name))
+	}
+	if !c.Dev && installPrefix(c) == "" {
+		out = append(out, filepath.Join("/usr/local/panel/share/portals", name))
+	}
+	return out
+}
+
+func sameFilePath(a, b string) bool {
+	aa, err1 := filepath.Abs(a)
+	bb, err2 := filepath.Abs(b)
+	if err1 != nil || err2 != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return aa == bb
 }
 
 func copyPortalTree(src, dest string) error {

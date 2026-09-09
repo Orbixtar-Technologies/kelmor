@@ -21,8 +21,9 @@ export function App () {
 		return (
 			<main className="auth">
 				<section>
+					<p className="eyebrow">Kelmor</p>
 					<h1>Kelmor Control</h1>
-					<p>Manage websites, mail, DNS and files for your hosting account. Host hardware controls live in Kelmor Director.</p>
+					<p>Tenant self-serve for the Kelmor product family. Host hardware controls live in Kelmor Director.</p>
 					<form onSubmit={async (e) => {
 						e.preventDefault()
 						const fd = new FormData(e.currentTarget)

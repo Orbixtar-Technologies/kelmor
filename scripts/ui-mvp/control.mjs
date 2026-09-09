@@ -13,6 +13,14 @@ const MAIL_PASS = process.env.PANEL_CONTROL_MAIL_PASSWORD || 'ControlBox!2026'
 
 async function login (page, url, user, pass) {
 	await page.goto(url, { waitUntil: 'domcontentloaded' })
+	const title = await page.title()
+	if (title !== 'Kelmor Control') {
+		throw new Error(`expected Kelmor Control document.title, got ${JSON.stringify(title)}`)
+	}
+	const body = await page.evaluate(() => document.body.innerText)
+	if (!body.includes('Kelmor Control')) {
+		throw new Error(`Control login missing Kelmor Control: ${body.slice(0, 400)}`)
+	}
 	await page.waitForSelector('input[name="username"]')
 	await page.click('input[name="username"]', { clickCount: 3 })
 	await page.type('input[name="username"]', user)

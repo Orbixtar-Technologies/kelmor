@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prove Server/Account portals speak TLS on a live guest.
+# Prove Kelmor Director / Kelmor Control speak TLS on a live guest.
 set -euo pipefail
 curl -sk -o /tmp/sp.html -w "https8443:%{http_code}\n" https://127.0.0.1:8443/
 grep -q 'id="root"' /tmp/sp.html

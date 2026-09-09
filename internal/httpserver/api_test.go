@@ -778,6 +778,42 @@ func TestOpenAPIServesYAML(t *testing.T) {
 	if res.StatusCode != 200 || !bytes.Contains(body, []byte("Kelmor Control Plane API")) {
 		t.Fatalf("%d %s", res.StatusCode, body[:min(len(body), 200)])
 	}
+	if bytes.Contains(body, []byte("Hosting Panel")) || bytes.Contains(body, []byte("Server Portal")) {
+		t.Fatalf("legacy chrome in openapi.yaml: %s", body[:min(len(body), 200)])
+	}
+}
+
+func TestProductHTMLUsesKelmorChrome(t *testing.T) {
+	st := store.NewMemory()
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	for _, path := range []string{"/", "/openapi", "/api/v1/openapi"} {
+		res, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(path, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != 200 {
+			t.Fatalf("%s %d", path, res.StatusCode)
+		}
+		if bytes.Contains(body, []byte("Hosting Panel")) || bytes.Contains(body, []byte("Server Portal")) || bytes.Contains(body, []byte("Account Portal")) {
+			t.Fatalf("%s still has legacy chrome: %s", path, body)
+		}
+		if !bytes.Contains(body, []byte("Kelmor")) {
+			t.Fatalf("%s missing Kelmor: %s", path, body)
+		}
+	}
+	res, err := http.Get(srv.URL + "/openapi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !bytes.Contains(body, []byte("Kelmor Control Plane API")) || !bytes.Contains(body, []byte("<title>Kelmor Control Plane API</title>")) {
+		t.Fatalf("openapi ui title: %s", body)
+	}
 }
 
 func TestRequestCertSkipsFreshAndReusesInflight(t *testing.T) {
