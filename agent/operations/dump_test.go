@@ -28,6 +28,12 @@ func TestDumpAndRestoreSandboxSQL(t *testing.T) {
 	}
 }
 
+func TestRunFixedRejectsSemicolonSQLArg(t *testing.T) {
+	if _, err := runFixed("/usr/bin/psql", "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public"); err == nil {
+		t.Fatal("semicolon SQL in argv must be rejected")
+	}
+}
+
 func TestDumpAndRestoreSandboxPostgres(t *testing.T) {
 	root := t.TempDir()
 	h := &Host{Root: root}

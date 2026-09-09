@@ -88,12 +88,12 @@ func (h *Host) restoreHostedDatabase(engine, name, source, extract string) (Resu
 		}
 	case "postgres":
 		_, _ = runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE "+name)
-		reset := "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO PUBLIC;"
-		if out, err := runFixed("/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql", "-d", name, "-v", "ON_ERROR_STOP=1", "-c", reset); err != nil {
-			return Result{}, fmt.Errorf("psql reset: %s", strings.TrimSpace(string(out)))
+		reset := []byte("DROP SCHEMA IF EXISTS public CASCADE;\nCREATE SCHEMA public;\nGRANT ALL ON SCHEMA public TO PUBLIC;\n")
+		if out, err := runFixedIO("/usr/sbin/runuser", reset, "-u", "postgres", "--", "/usr/bin/psql", "-d", name, "-v", "ON_ERROR_STOP=1"); err != nil {
+			return Result{}, fmt.Errorf("psql reset: %s", strings.TrimSpace(string(out)+" "+err.Error()))
 		}
 		if out, err := runFixedIO("/usr/sbin/runuser", sql, "-u", "postgres", "--", "/usr/bin/psql", "-d", name, "-v", "ON_ERROR_STOP=1"); err != nil {
-			return Result{}, fmt.Errorf("psql restore: %s", strings.TrimSpace(string(out)))
+			return Result{}, fmt.Errorf("psql restore: %s", strings.TrimSpace(string(out)+" "+err.Error()))
 		}
 	default:
 		return Result{}, fmt.Errorf("unsupported engine")
