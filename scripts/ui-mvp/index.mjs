@@ -106,7 +106,8 @@ const browser = await puppeteer.launch({
 	executablePath: CHROME,
 	headless: true,
 	ignoreHTTPSErrors: true,
-	args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+	acceptInsecureCerts: true,
+	args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--ignore-certificate-errors'],
 })
 const page = await browser.newPage()
 page.setDefaultTimeout(20000)
