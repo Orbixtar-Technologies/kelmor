@@ -82,7 +82,7 @@ func Apply(bundleDir, installRoot string, publicKey ed25519.PublicKey) error {
 		return err
 	}
 	defer lock.Close()
-	if err := recoverInterruptedTransaction(lock.root, nil); err != nil {
+	if err := recoverInterruptedTransaction(lock.root, nil, false); err != nil {
 		return fmt.Errorf("recover interrupted update: %w", err)
 	}
 	if err := lock.root.removeTree(stagingDirectory); err != nil {
@@ -191,7 +191,12 @@ func applyLegacyLocked(root *secureRoot, artifacts map[string]*os.File, manifest
 			return err
 		}
 		target := path.Join("bin", path.Base(relative))
-		if err := root.copyReaderAtomic(source, path.Join(stagingDirectory, target), 0o755); err != nil {
+		if err := root.copyReaderAtomicWithDirMode(
+			source,
+			path.Join(stagingDirectory, target),
+			0o755,
+			0o700,
+		); err != nil {
 			return err
 		}
 		transactionArtifacts = append(transactionArtifacts, Artifact{Target: target})
@@ -301,7 +306,7 @@ func Install(ctx context.Context, config Config, runner Runner) (*Status, error)
 		return &status, err
 	}
 	defer lock.Close()
-	if err := recoverInterruptedTransaction(lock.root, runner); err != nil {
+	if err := recoverInterruptedTransaction(lock.root, runner, true); err != nil {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
 	}
 	if err := reloadInstalledRelease(lock.root, &config); err != nil {
@@ -419,7 +424,7 @@ func downloadArtifacts(ctx context.Context, config Config, manifest *Manifest, r
 			hash:   sha256.New(),
 		}
 		target := path.Join(stagingDirectory, artifact.Target)
-		copyErr := root.copyReaderAtomic(reader, target, artifact.Mode)
+		copyErr := root.copyReaderAtomicWithDirMode(reader, target, artifact.Mode, 0o700)
 		bodyCloseErr := response.Body.Close()
 		cancel()
 		switch {
@@ -487,10 +492,11 @@ func beginTransaction(root *secureRoot, artifacts []Artifact) (snapshotMetadata,
 			return snapshotMetadata{}, fmt.Errorf("target %q is not a regular file", artifact.Target)
 		}
 		metadata.Targets = append(metadata.Targets, snapshotEntry{Target: artifact.Target, Exists: true})
-		if err := root.copyAtomic(
+		if err := root.copyAtomicWithDirMode(
 			artifact.Target,
 			path.Join(transactionDirectory, "targets", artifact.Target),
 			uint32(info.Mode().Perm()),
+			0o700,
 		); err != nil {
 			return snapshotMetadata{}, err
 		}
@@ -541,7 +547,7 @@ func transactionExists(root *secureRoot) (bool, error) {
 	return true, file.Close()
 }
 
-func recoverInterruptedTransaction(root *secureRoot, runner Runner) error {
+func recoverInterruptedTransaction(root *secureRoot, runner Runner, requireServiceRecovery bool) error {
 	exists, err := transactionExists(root)
 	if err != nil || !exists {
 		return err
@@ -559,6 +565,9 @@ func recoverInterruptedTransaction(root *secureRoot, runner Runner) error {
 	}
 	if metadata.State == "committed" {
 		return cleanupTransaction(root)
+	}
+	if runner == nil && requireServiceRecovery {
+		return fmt.Errorf("recovery runner is required while an interrupted transaction is pending")
 	}
 	if err := rollbackTransactionWithMetadata(root, metadata); err != nil {
 		return err

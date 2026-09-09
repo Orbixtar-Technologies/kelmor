@@ -117,6 +117,7 @@ func executeRemoteCommand(
 	config update.Config,
 	runner update.Runner,
 ) (*update.Status, error) {
+	config.RecoveryRunner = runner
 	switch command {
 	case "check":
 		return update.Check(ctx, config)

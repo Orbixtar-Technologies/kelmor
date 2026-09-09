@@ -39,8 +39,10 @@ func createSecureRoot(rootPath, description string) error {
 		if component == "" {
 			continue
 		}
-		if err := unix.Mkdirat(int(current.Fd()), component, 0o755); err != nil && !errors.Is(err, unix.EEXIST) {
-			return err
+		mkdirErr := unix.Mkdirat(int(current.Fd()), component, 0o755)
+		created := mkdirErr == nil
+		if mkdirErr != nil && !errors.Is(mkdirErr, unix.EEXIST) {
+			return mkdirErr
 		}
 		if err := current.Sync(); err != nil {
 			return err
@@ -51,6 +53,16 @@ func createSecureRoot(rootPath, description string) error {
 				return fmt.Errorf("%s or an ancestor is a symlink: %w", description, err)
 			}
 			return err
+		}
+		if created {
+			if err := unix.Fchmod(next, 0o755); err != nil {
+				_ = unix.Close(next)
+				return err
+			}
+			if err := unix.Fsync(next); err != nil {
+				_ = unix.Close(next)
+				return err
+			}
 		}
 		if err := current.Close(); err != nil {
 			_ = unix.Close(next)
@@ -118,10 +130,13 @@ func (root *secureRoot) parent(relative string, create bool, mode uint32) (*os.F
 		return nil, "", err
 	}
 	for _, component := range components[:len(components)-1] {
+		created := false
 		if create {
-			if err := unix.Mkdirat(current, component, mode); err != nil && !errors.Is(err, unix.EEXIST) {
+			mkdirErr := unix.Mkdirat(current, component, mode)
+			created = mkdirErr == nil
+			if mkdirErr != nil && !errors.Is(mkdirErr, unix.EEXIST) {
 				_ = unix.Close(current)
-				return nil, "", err
+				return nil, "", mkdirErr
 			}
 			if err := unix.Fsync(current); err != nil {
 				_ = unix.Close(current)
@@ -135,6 +150,18 @@ func (root *secureRoot) parent(relative string, create bool, mode uint32) (*os.F
 				return nil, "", fmt.Errorf("path %q contains a symlink: %w", relative, err)
 			}
 			return nil, "", err
+		}
+		if created {
+			if err := unix.Fchmod(next, mode); err != nil {
+				_ = unix.Close(next)
+				_ = unix.Close(current)
+				return nil, "", err
+			}
+			if err := unix.Fsync(next); err != nil {
+				_ = unix.Close(next)
+				_ = unix.Close(current)
+				return nil, "", err
+			}
 		}
 		_ = unix.Close(current)
 		current = next
@@ -225,6 +252,10 @@ func (root *secureRoot) writeAtomic(relative string, content []byte, mode uint32
 }
 
 func (root *secureRoot) copyAtomic(source, destination string, mode uint32) error {
+	return root.copyAtomicWithDirMode(source, destination, mode, 0o755)
+}
+
+func (root *secureRoot) copyAtomicWithDirMode(source, destination string, mode, directoryMode uint32) error {
 	input, err := root.open(source, unix.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
@@ -237,11 +268,20 @@ func (root *secureRoot) copyAtomic(source, destination string, mode uint32) erro
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%q is not a regular file", source)
 	}
-	return root.copyReaderAtomic(input, destination, mode)
+	return root.copyReaderAtomicWithDirMode(input, destination, mode, directoryMode)
 }
 
 func (root *secureRoot) copyReaderAtomic(input io.Reader, destination string, mode uint32) error {
-	parent, name, err := root.parent(destination, true, 0o755)
+	return root.copyReaderAtomicWithDirMode(input, destination, mode, 0o755)
+}
+
+func (root *secureRoot) copyReaderAtomicWithDirMode(
+	input io.Reader,
+	destination string,
+	mode uint32,
+	directoryMode uint32,
+) error {
+	parent, name, err := root.parent(destination, true, directoryMode)
 	if err != nil {
 		return err
 	}

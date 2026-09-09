@@ -33,6 +33,7 @@ type Config struct {
 	InstallRoot      string
 	StatusPath       string
 	Automatic        bool
+	RecoveryRunner   Runner
 }
 
 func Check(ctx context.Context, config Config) (*Status, error) {
@@ -51,7 +52,7 @@ func Check(ctx context.Context, config Config) (*Status, error) {
 		return &status, err
 	}
 	defer lock.Close()
-	if err := recoverInterruptedTransaction(lock.root, nil); err != nil {
+	if err := recoverInterruptedTransaction(lock.root, config.RecoveryRunner, true); err != nil {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
 	}
 	if err := reloadInstalledRelease(lock.root, &config); err != nil {

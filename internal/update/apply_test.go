@@ -1,6 +1,7 @@
 package update
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -243,6 +244,64 @@ func TestCheckLockRejectionDoesNotContactNetworkOrOverwriteStatus(t *testing.T) 
 	}
 }
 
+func TestCheckRecoversServicesBeforeDeletingInterruptedJournal(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("interrupted-new"), 0o755)
+	writeTestFile(t, filepath.Join(root, "current-release"), []byte("2.0.0\n"), 0o644)
+	journal := filepath.Join(root, transactionDirectory)
+	writeTestFile(t, filepath.Join(journal, "targets", "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(journal, "current-release"), []byte("1.0.0\n"), 0o644)
+	writeTestFile(t, filepath.Join(journal, "metadata.json"), []byte(
+		`{"state":"applying","targets":[{"target":"bin/panel-api","exists":true}],"current_release_exists":true}`,
+	), 0o600)
+	config, cleanup := newInstallConfig(t, root, map[string]testArtifact{
+		"panel-api": {target: "bin/panel-api", content: []byte("release"), mode: 0o755},
+	})
+	defer cleanup()
+	config.InstalledRelease = "2.0.0"
+	runner := &recordingRunner{}
+	config.RecoveryRunner = runner
+
+	status, err := Check(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.AvailableRelease != "2.0.0" {
+		t.Fatalf("unexpected recovered check status: %+v", status)
+	}
+	if !runner.contains("/bin/systemctl", "restart", "panel-api", "panel-worker", "panel-agent", "nginx") ||
+		!runner.contains("/usr/bin/curl", "-fsS", "http://127.0.0.1:18080/healthz") {
+		t.Fatalf("recovery did not restart and health-check prior services: %v", runner.calls)
+	}
+	if _, err := os.Stat(journal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("successful recovery left journal behind: %v", err)
+	}
+}
+
+func TestCheckKeepsJournalWhenRecoveryHealthFails(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("interrupted-new"), 0o755)
+	journal := filepath.Join(root, transactionDirectory)
+	writeTestFile(t, filepath.Join(journal, "targets", "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(journal, "metadata.json"), []byte(
+		`{"state":"applying","targets":[{"target":"bin/panel-api","exists":true}],"current_release_exists":false}`,
+	), 0o600)
+	runner := &recordingRunner{failOnceOn: "http://127.0.0.1:18080/healthz"}
+
+	_, err := Check(context.Background(), Config{
+		FeedURL: "https://updates.example.test", Channel: "stable",
+		InstalledRelease: "2.0.0", InstallRoot: root,
+		RecoveryRunner: runner,
+	})
+	if err == nil || !strings.Contains(err.Error(), "health") {
+		t.Fatalf("expected recovery health failure, got %v", err)
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+	if _, statErr := os.Stat(journal); statErr != nil {
+		t.Fatalf("failed recovery deleted journal: %v", statErr)
+	}
+}
+
 func TestLegacyApplyAndRollbackShareInstallLock(t *testing.T) {
 	root := t.TempDir()
 	lock, err := acquireInstallLock(root)
@@ -467,6 +526,11 @@ func TestInstallModesIgnoreRestrictiveUmask(t *testing.T) {
 	if _, err := Install(context.Background(), config, &recordingRunner{}); err != nil {
 		t.Fatal(err)
 	}
+	for _, directory := range []string{
+		"bin", "share", "share/portals", "share/portals/server",
+	} {
+		assertTestMode(t, filepath.Join(root, directory), 0o755)
+	}
 	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "executable", 0o755)
 	assertTestFile(t, filepath.Join(root, "share", "portals", "server", "index.html"), "readonly", 0o644)
 }
@@ -496,6 +560,51 @@ func TestRollbackModesIgnoreRestrictiveUmask(t *testing.T) {
 	}
 	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
 	assertTestFile(t, filepath.Join(root, "share", "portals", "server", "index.html"), "old-portal", 0o644)
+}
+
+func TestSecureDirectoryModesIgnoreRestrictiveUmask(t *testing.T) {
+	rootPath := filepath.Join(t.TempDir(), "created", "panel")
+	previousUmask := unix.Umask(0o077)
+	defer unix.Umask(previousUmask)
+	if err := createSecureRoot(rootPath, "test root"); err != nil {
+		t.Fatal(err)
+	}
+	assertTestMode(t, filepath.Dir(rootPath), 0o755)
+	assertTestMode(t, rootPath, 0o755)
+	root, err := openSecureRoot(rootPath, "test root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := root.mkdirAll("private/one/two", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.copyReaderAtomic(
+		bytes.NewReader([]byte("leaf")),
+		"public/one/two/file",
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.copyReaderAtomicWithDirMode(
+		bytes.NewReader([]byte("private-leaf")),
+		"staging/one/two/file",
+		0o644,
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{"private", "private/one", "private/one/two"} {
+		assertTestMode(t, filepath.Join(rootPath, directory), 0o700)
+	}
+	for _, directory := range []string{"public", "public/one", "public/one/two"} {
+		assertTestMode(t, filepath.Join(rootPath, directory), 0o755)
+	}
+	for _, directory := range []string{"staging", "staging/one", "staging/one/two"} {
+		assertTestMode(t, filepath.Join(rootPath, directory), 0o700)
+	}
+	assertTestFile(t, filepath.Join(rootPath, "public", "one", "two", "file"), "leaf", 0o644)
+	assertTestFile(t, filepath.Join(rootPath, "staging", "one", "two", "file"), "private-leaf", 0o644)
 }
 
 type testArtifact struct {
@@ -619,6 +728,17 @@ func assertTestFile(t *testing.T, path, want string, mode os.FileMode) {
 	if string(raw) != want {
 		t.Fatalf("%s = %q, want %q", path, raw, want)
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != mode {
+		t.Fatalf("%s mode = %o, want %o", path, info.Mode().Perm(), mode)
+	}
+}
+
+func assertTestMode(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
