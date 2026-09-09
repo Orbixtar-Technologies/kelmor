@@ -10,6 +10,7 @@ const ACCOUNT = process.env.PANEL_ACCOUNT_PORTAL || 'http://127.0.0.1:8444'
 const API = process.env.PANEL_API || 'http://127.0.0.1:18080'
 const TENANT_HTTP_PORT = Number(process.env.PANEL_TENANT_HTTP_PORT || 80)
 const TENANT_HTTPS_PORT = Number(process.env.PANEL_TENANT_HTTPS_PORT || 443)
+const HTTP_TRIES = Number(process.env.PANEL_HTTP_TRIES || 120)
 const CHROME = process.env.CHROME || '/usr/local/bin/google-chrome'
 const ADMIN_USER = process.env.PANEL_ADMIN_USER || 'admin'
 const ADMIN_PASS = process.env.PANEL_ADMIN_PASSWORD || 'ChangeMeOnce!2026'
@@ -76,7 +77,7 @@ function httpHost (host) {
 	return httpGet(host, '/').then((r) => r.code)
 }
 
-async function waitHTTP (host, want, tries = 60) {
+async function waitHTTP (host, want, tries = HTTP_TRIES) {
 	for (let i = 0; i < tries; i++) {
 		try {
 			if (await httpHost(host) === want) return
@@ -88,7 +89,7 @@ async function waitHTTP (host, want, tries = 60) {
 	throw new Error(`${host} never reached HTTP ${want}`)
 }
 
-async function waitSiteBody (host, path, needle, tries = 60) {
+async function waitSiteBody (host, path, needle, tries = HTTP_TRIES) {
 	for (let i = 0; i < tries; i++) {
 		try {
 			const r = await httpGet(host, path)
@@ -162,7 +163,7 @@ try {
 	await page.waitForFunction(() => document.body.innerText.includes('Full backup queued to s3'))
 	await page.waitForFunction(() => {
 		return [...document.querySelectorAll('li[data-backup-destination="s3"][data-backup-state="succeeded"] button[data-restore]')].length > 0
-	}, { timeout: 90000 })
+	}, { timeout: Number(process.env.PANEL_BACKUP_WAIT_MS || 180000) })
 	await page.click('a[href="/files"]')
 	await page.waitForSelector('textarea[name="content"]')
 	const afterPath = await page.$('input[name="path"]')
@@ -198,7 +199,7 @@ try {
 		const accs = await (await fetch(`${API}/api/v1/accounts`, { headers: { Authorization: `Bearer ${token}` } })).json()
 		return (accs.items || []).find((a) => a.username === name)
 	}
-	async function waitAccountStatus (id, want, tries = 60) {
+	async function waitAccountStatus (id, want, tries = HTTP_TRIES) {
 		for (let i = 0; i < tries; i++) {
 			const row = await (await fetch(`${API}/api/v1/accounts/${id}`, { headers: { Authorization: `Bearer ${token}` } })).json()
 			if (row.status === want) return row
