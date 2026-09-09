@@ -28,7 +28,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate 
 	}
 
 	return (
-		<aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
+		<aside id="director-sidebar" className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
 			<div className="sidebar-brand"><span className="brand-mark">K</span><strong>Kelmor Director</strong></div>
 			<div className="sidebar-controls">
 				<label className="sr-only" htmlFor="category-filter">Filter features</label>

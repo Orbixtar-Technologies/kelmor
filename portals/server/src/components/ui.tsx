@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { useCapabilities } from '../rbac'
 
 interface PageHeaderProps {
 	title: string
@@ -58,20 +59,59 @@ interface DialogProps {
 
 export function Dialog ({ open, title, children, onClose, actions }: DialogProps) {
 	const panelRef = useRef<HTMLDivElement>(null)
+	const openerRef = useRef<HTMLElement | null>(null)
+	const wasOpenRef = useRef(false)
+	const onCloseRef = useRef(onClose)
+	const titleId = useId()
+	onCloseRef.current = onClose
+	if (open && !wasOpenRef.current && typeof document !== 'undefined') {
+		openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+	}
+	wasOpenRef.current = open
 	useEffect(() => {
 		if (!open) return
-		panelRef.current?.focus()
-		function closeOnEscape (event: KeyboardEvent) {
-			if (event.key === 'Escape') onClose()
+		const panel = panelRef.current
+		const focusables = panel?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
+		if (!panel?.contains(document.activeElement)) (focusables?.[0] || panel)?.focus()
+		function handleKeyDown (event: KeyboardEvent) {
+			if (event.key === 'Escape') {
+				onCloseRef.current()
+				return
+			}
+			if (event.key !== 'Tab' || !panel) return
+			const available = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+			if (!available.length) {
+				event.preventDefault()
+				panel.focus()
+				return
+			}
+			const first = available[0]
+			const last = available[available.length - 1]
+			if (!panel.contains(document.activeElement)) {
+				event.preventDefault()
+				;(event.shiftKey ? last : first).focus()
+				return
+			}
+			if (event.shiftKey && document.activeElement === first) {
+				event.preventDefault()
+				last.focus()
+			} else if (!event.shiftKey && document.activeElement === last) {
+				event.preventDefault()
+				first.focus()
+			}
 		}
-		document.addEventListener('keydown', closeOnEscape)
-		return () => document.removeEventListener('keydown', closeOnEscape)
-	}, [open, onClose])
+		document.addEventListener('keydown', handleKeyDown)
+		return () => {
+			document.removeEventListener('keydown', handleKeyDown)
+			openerRef.current?.focus()
+			openerRef.current = null
+		}
+	}, [open])
 	if (!open) return null
 	return (
 		<div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-			<div ref={panelRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabIndex={-1}>
-				<header><h2 id="dialog-title">{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button></header>
+			<div ref={panelRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+				<header><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button></header>
 				<div className="dialog-body">{children}</div>
 				{actions ? <footer>{actions}</footer> : null}
 			</div>
@@ -96,12 +136,13 @@ export function SectionHeading ({ title, detail, action }: { title: string; deta
 }
 
 export function AccountTabs ({ id }: { id: string }) {
+	const capabilities = useCapabilities()
 	return (
 		<nav className="tabs" aria-label="Account sections">
 			<Link to={`/accounts/${id}`}>Summary</Link>
 			<Link to={`/accounts/${id}/services`}>Account services</Link>
-			<Link to={`/dns?account=${id}`}>DNS</Link>
-			<Link to={`/jobs?account=${id}`}>Related jobs</Link>
+			{capabilities['dns.read'] ? <Link to={`/dns?account=${id}`}>DNS</Link> : null}
+			{capabilities['server.read'] || capabilities['accounts.read'] ? <Link to={`/jobs?account=${id}`}>Related jobs</Link> : null}
 		</nav>
 	)
 }

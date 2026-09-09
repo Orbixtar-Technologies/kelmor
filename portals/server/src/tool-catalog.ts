@@ -14,10 +14,10 @@ export const toolCatalog: ToolDefinition[] = [
 	{ id: 'force-password', label: 'Force Password Change', description: 'Rotate owner credentials and require a change at sign-in', category: 'Account Functions', path: '/accounts?task=password', icon: 'key', capabilities: ['accounts.modify'] },
 	{ id: 'packages', label: 'Packages', description: 'Manage reusable account limits and assignments', category: 'Packages', path: '/packages', icon: 'box', capabilities: ['packages.read'] },
 	{ id: 'resellers', label: 'Resellers', description: 'Manage delegated operators and privileges', category: 'Resellers', path: '/resellers', icon: 'briefcase', capabilities: ['resellers.read'] },
-	{ id: 'dns', label: 'DNS Management', description: 'Select an account and edit zones, records, and DNSSEC', category: 'DNS Functions', path: '/dns', icon: 'globe', capabilities: ['dns.read'] },
-	{ id: 'sql', label: 'SQL Services', description: 'Select an account to manage databases and users', category: 'SQL Services', path: '/accounts?task=databases', icon: 'database', capabilities: ['databases.read'] },
-	{ id: 'email', label: 'Email Services', description: 'Select an account to manage domains, mailboxes, and aliases', category: 'Email Functions', path: '/accounts?task=email', icon: 'mail', capabilities: ['mail.read'] },
-	{ id: 'ssl', label: 'SSL Certificates', description: 'Select an account to inspect and request certificates', category: 'SSL/TLS', path: '/accounts?task=certificates', icon: 'lock', capabilities: ['websites.read'] },
+	{ id: 'dns', label: 'DNS Management', description: 'Select an account and edit zones, records, and DNSSEC', category: 'DNS Functions', path: '/dns', icon: 'globe', capabilities: ['accounts.read', 'dns.read'], matchAll: true },
+	{ id: 'sql', label: 'SQL Services', description: 'Select an account to manage databases and users', category: 'SQL Services', path: '/accounts?task=databases', icon: 'database', capabilities: ['accounts.read', 'databases.read'], matchAll: true },
+	{ id: 'email', label: 'Email Services', description: 'Select an account to manage domains, mailboxes, and aliases', category: 'Email Functions', path: '/accounts?task=email', icon: 'mail', capabilities: ['accounts.read', 'mail.read'], matchAll: true },
+	{ id: 'ssl', label: 'SSL Certificates', description: 'Select an account to inspect and request certificates', category: 'SSL/TLS', path: '/accounts?task=certificates', icon: 'lock', capabilities: ['accounts.read', 'websites.read'], matchAll: true },
 	{ id: 'services', label: 'Service Status', description: 'Inspect server health, services, vitals, and processes', category: 'Server Status', path: '/status', icon: 'pulse', capabilities: ['server.read'] },
 	{ id: 'security', label: 'Security & Host Configuration', description: 'Audit, firewall configuration, and host reboot', category: 'Security Center', path: '/security', icon: 'shield', capabilities: ['server.read'] },
 	{ id: 'transfers', label: 'Transfers & Backups', description: 'Native transfer, extracted archive import, backup, and restore', category: 'Transfers', path: '/transfers', icon: 'transfer', capabilities: ['accounts.create', 'backups.create'] },
@@ -47,5 +47,8 @@ export function accountTaskTarget (task: string, accountId: string): string {
 	}
 	const service = serviceByTask[task]
 	if (service) return `/accounts/${accountId}/services?service=${service}`
+	if (['password', 'terminate', 'package', 'modify', 'suspension', 'summary'].includes(task)) {
+		return `/accounts/${accountId}?task=${task}`
+	}
 	return `/accounts/${accountId}`
 }

@@ -17,6 +17,7 @@ export function HomePage () {
 	const [error, setError] = useState('')
 	const [loading, setLoading] = useState(true)
 	const tools = discoverTools(toolCatalog, capabilities)
+	const toolIds = new Set(tools.map((tool) => tool.id))
 
 	function load () {
 		setLoading(true)
@@ -61,14 +62,14 @@ export function HomePage () {
 			</section>
 			<div className="home-columns">
 				<section className="panel">
-					<SectionHeading title="Service status" action={<Link to="/status">View details</Link>} />
+					<SectionHeading title="Service status" action={toolIds.has('services') ? <Link to="/status">View details</Link> : undefined} />
 					<div className="table-wrap"><table><thead><tr><th>Service</th><th>Health</th><th>Observed</th></tr></thead><tbody>
 						{server?.services.map((service) => <tr key={service.name}><td>{service.name}</td><td><StatusBadge value={service.health} /></td><td>{service.observed_running ? 'Running' : 'Stopped'}</td></tr>)}
 					</tbody></table></div>
 					{!server?.services.length ? <EmptyState title="No service readings" detail="Open Service Status to retry host telemetry." /> : null}
 				</section>
 				<section className="panel">
-					<SectionHeading title="Recent jobs" action={<Link to="/jobs">All jobs</Link>} />
+					<SectionHeading title="Recent jobs" action={toolIds.has('jobs') ? <Link to="/jobs">All jobs</Link> : undefined} />
 					<ul className="activity-list">
 						{jobs.slice(0, 7).map((job) => <li key={job.id}><span><strong>{job.type}</strong><small>{formatDate(job.created_at)}</small></span><StatusBadge value={job.state} /></li>)}
 					</ul>
@@ -79,11 +80,11 @@ export function HomePage () {
 			<div className="tool-groups">
 				{[...grouped.entries()].map(([category, entries]) => <section className="panel tool-group" key={category}><h3>{category}</h3>{entries.map((tool) => <Link key={tool.id} to={tool.path}><strong>{tool.label}</strong><span>{tool.description}</span></Link>)}</section>)}
 			</div>
-			<section className="panel">
+			{capabilities['security.audit.read'] ? <section className="panel">
 				<SectionHeading title="Recent activity" action={<Link to="/audit">Open audit trail</Link>} />
 				<ul className="activity-list">{activity.slice(0, 8).map((event) => <li key={event.id}><span><strong>{event.action}</strong><small>{event.resource_type || 'system'} · {formatDate(event.occurred_at)}</small></span><StatusBadge value={event.success} /></li>)}</ul>
 				{activity.length === 0 ? <EmptyState title="No visible activity" detail="Audit entries appear as privileged work occurs." /> : null}
-			</section>
+			</section> : null}
 		</>
 	)
 }

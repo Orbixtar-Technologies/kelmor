@@ -41,13 +41,13 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
 			<div className="workspace">
 				<header className="topbar">
-					<button type="button" className="mobile-menu icon-button" aria-label="Open navigation" onClick={() => setMobileOpen(!mobileOpen)}>☰</button>
+					<button type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen(!mobileOpen)}>☰</button>
 					<Link className="topbar-brand" to="/" aria-label="Kelmor Director home"><span>K</span><strong>Kelmor Director</strong></Link>
 					<GlobalFind tools={tools} accounts={accounts} />
 					<div className="top-actions">
 						<div className="popover-wrap">
 							<button type="button" className="icon-button" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(!notificationsOpen)}>♢<span className="notification-dot" /></button>
-							{notificationsOpen ? <div className="popover notifications"><strong>Notifications</strong><p>No unread alerts. Failed jobs remain visible in Jobs.</p><Link to="/jobs" onClick={() => setNotificationsOpen(false)}>Open Jobs</Link></div> : null}
+							{notificationsOpen ? <div className="popover notifications"><strong>Notifications</strong><p>No unread alerts.{tools.some((tool) => tool.id === 'jobs') ? ' Failed jobs remain visible in Jobs.' : ''}</p>{tools.some((tool) => tool.id === 'jobs') ? <Link to="/jobs" onClick={() => setNotificationsOpen(false)}>Open Jobs</Link> : null}</div> : null}
 						</div>
 						<span className="hostname" title="Live hostname">● {hostname}</span>
 						<div className="popover-wrap">

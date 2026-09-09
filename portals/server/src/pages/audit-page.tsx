@@ -16,7 +16,7 @@ export function AuditPage () {
 	const [selected, setSelected] = useState<AuditEvent | null>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
-	function load () { setLoading(true); api<{ items: AuditEvent[] }>('/api/v1/audit-events').then((result) => setItems(asList(result))).catch((requestError) => setError(messageFrom(requestError))).finally(() => setLoading(false)) }
+	function load () { setLoading(true); setError(''); api<{ items: AuditEvent[] }>('/api/v1/audit-events').then((result) => setItems(asList(result))).catch((requestError) => setError(messageFrom(requestError))).finally(() => setLoading(false)) }
 	useEffect(load, [])
 	const actions = [...new Set(items.map((event) => event.action))].sort()
 	const visible = useMemo(() => items.filter((event) => {

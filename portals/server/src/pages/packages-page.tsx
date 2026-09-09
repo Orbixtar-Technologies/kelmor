@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, asList } from '../client'
 import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/ui'
 import { formatBytes, messageFrom } from '../helpers'
 import { useCan } from '../rbac'
-import type { Package } from '../types'
+import type { Account, Package } from '../types'
 
 const numericPackageFields: NumericPackageFieldDefinition[] = [
 	{ field: 'disk_bytes', label: 'Disk bytes' },
@@ -44,6 +45,8 @@ function packageFromForm (data: FormData, current: Package): Package {
 
 export function PackagesPage () {
 	const [items, setItems] = useState<Package[]>([])
+	const [accounts, setAccounts] = useState<Account[]>([])
+	const [accountsLoaded, setAccountsLoaded] = useState(false)
 	const [editing, setEditing] = useState<Package | null>(null)
 	const [deleting, setDeleting] = useState<Package | null>(null)
 	const [confirmation, setConfirmation] = useState('')
@@ -51,10 +54,23 @@ export function PackagesPage () {
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
 	const canWrite = useCan('packages.write')
+	const canReadAccounts = useCan('accounts.read')
 
 	function load () {
 		setLoading(true)
-		api<{ items: Package[] }>('/api/v1/packages').then((result) => setItems(asList(result))).catch((requestError) => setError(messageFrom(requestError))).finally(() => setLoading(false))
+		setError('')
+		setAccountsLoaded(false)
+		Promise.allSettled([
+			api<{ items: Package[] }>('/api/v1/packages'),
+			canReadAccounts ? api<{ items: Account[] }>('/api/v1/accounts') : Promise.resolve({ items: [] }),
+		]).then(([packageResult, accountResult]) => {
+			if (packageResult.status === 'fulfilled') setItems(asList(packageResult.value))
+			else setError(messageFrom(packageResult.reason))
+			if (accountResult.status === 'fulfilled' && canReadAccounts) {
+				setAccounts(asList(accountResult.value))
+				setAccountsLoaded(true)
+			}
+		}).finally(() => setLoading(false))
 	}
 	useEffect(load, [])
 	async function save (event: React.FormEvent<HTMLFormElement>) {
@@ -70,7 +86,8 @@ export function PackagesPage () {
 		} catch (requestError) { setMessage(messageFrom(requestError)) }
 	}
 	async function remove () {
-		if (!deleting || confirmation !== deleting.name) return
+		if (!deleting || confirmation !== deleting.name || !accountsLoaded) return
+		if (accounts.some((account) => account.package_id === deleting.id)) return
 		try {
 			await api(`/api/v1/packages/${deleting.id}`, { method: 'DELETE' })
 			setMessage(`${deleting.name} deleted.`); setDeleting(null); setConfirmation(''); load()
@@ -82,17 +99,25 @@ export function PackagesPage () {
 			<PageHeader title="Packages" description="Define reusable resource, service, and retention limits for accounts." actions={canWrite ? <button type="button" onClick={() => setEditing({ ...defaults })}>Add package</button> : undefined} />
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
-			{loading ? <LoadingState label="Loading packages…" /> : <div className="table-wrap"><table className="dense-table"><thead><tr><th>Name</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Bandwidth</th><th>Domains</th><th>Mailboxes</th><th>Actions</th></tr></thead><tbody>
-				{items.map((pkg) => <tr key={pkg.id}><td><strong>{pkg.name}</strong><small>{pkg.reseller_id ? 'Reseller package' : 'Global package'}</small></td><td>{pkg.cpu_percent}%</td><td>{formatBytes(pkg.memory_bytes)}</td><td>{formatBytes(pkg.disk_bytes)}</td><td>{formatBytes(pkg.bandwidth_bytes_monthly)}</td><td>{pkg.domains}</td><td>{pkg.mailboxes}</td><td>{canWrite ? <div className="row-actions"><button type="button" className="link-button" onClick={() => setEditing(pkg)}>Edit</button><button type="button" className="link-button danger-text" onClick={() => setDeleting(pkg)}>Delete</button></div> : 'View only'}</td></tr>)}
+			{loading ? <LoadingState label="Loading packages…" /> : <div className="table-wrap"><table className="dense-table"><thead><tr><th>Name</th><th>Accounts</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Bandwidth</th><th>Domains</th><th>Mailboxes</th><th>Actions</th></tr></thead><tbody>
+				{items.map((pkg) => {
+					const assignmentCount = accounts.filter((account) => account.package_id === pkg.id).length
+					return <tr key={pkg.id}><td><strong>{pkg.name}</strong><small>{pkg.reseller_id ? 'Reseller package' : 'Global package'}</small></td><td>{accountsLoaded ? <Link to={`/accounts?package=${encodeURIComponent(pkg.id)}`}>{assignmentCount}</Link> : 'Unavailable'}</td><td>{pkg.cpu_percent}%</td><td>{formatBytes(pkg.memory_bytes)}</td><td>{formatBytes(pkg.disk_bytes)}</td><td>{formatBytes(pkg.bandwidth_bytes_monthly)}</td><td>{pkg.domains}</td><td>{pkg.mailboxes}</td><td>{canWrite ? <div className="row-actions"><button type="button" className="link-button" onClick={() => setEditing(pkg)}>Edit</button><button type="button" className="link-button danger-text" onClick={() => { setDeleting(pkg); setConfirmation('') }}>Delete</button></div> : 'View only'}</td></tr>
+				})}
 			</tbody></table></div>}
 			{!loading && !items.length ? <EmptyState title="No packages" detail="Create a package to define account capacity." /> : null}
 			<Dialog open={Boolean(editing)} title={editing?.id ? `Edit ${editing.name}` : 'Add package'} onClose={() => setEditing(null)}>
 				{editing ? <PackageForm value={editing} onSubmit={save} onCancel={() => setEditing(null)} /> : null}
 			</Dialog>
 			<Dialog open={Boolean(deleting)} title={`Delete ${deleting?.name || 'package'}`} onClose={() => { setDeleting(null); setConfirmation('') }}>
-				<p>Deletion fails safely when accounts still use this package. Enter <strong>{deleting?.name}</strong> to confirm.</p>
-				<label>Package name<input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
-				<footer className="dialog-form-actions"><button type="button" className="secondary" onClick={() => setDeleting(null)}>Cancel</button><button type="button" className="danger" disabled={confirmation !== deleting?.name} onClick={remove}>Delete package</button></footer>
+				{(() => {
+					const assignmentCount = deleting ? accounts.filter((account) => account.package_id === deleting.id).length : 0
+					return <>
+						<p><strong>{accountsLoaded ? assignmentCount : 'Unknown'} visible account{assignmentCount === 1 ? '' : 's'}</strong> currently use this package.</p>
+						{!accountsLoaded ? <p className="feedback" role="status">Account assignments are unavailable, so deletion is disabled.</p> : assignmentCount ? <p className="feedback" role="status">Move all assigned accounts to another package before deleting this package.</p> : <><p>Enter <strong>{deleting?.name}</strong> to confirm.</p><label>Package name<input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label></>}
+						<footer className="dialog-form-actions"><button type="button" className="secondary" onClick={() => setDeleting(null)}>Cancel</button><button type="button" className="danger" disabled={!accountsLoaded || assignmentCount > 0 || confirmation !== deleting?.name} onClick={remove}>Delete package</button></footer>
+					</>
+				})()}
 			</Dialog>
 		</>
 	)

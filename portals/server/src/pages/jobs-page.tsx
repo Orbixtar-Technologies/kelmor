@@ -48,7 +48,8 @@ export function JobsPage () {
 	</>
 }
 
-function canRetryJob (job: Job, capabilities: Record<string, boolean>): boolean {
+export function canRetryJob (job: Job, capabilities: Record<string, boolean>): boolean {
+	if (job.retryable === false) return false
 	const prefixes: Array<[string, string]> = [
 		['account.provision', 'accounts.create'], ['account.copy_homedir', 'accounts.create'], ['account.reconcile', 'accounts.modify'],
 		['domain.', 'domains.write'], ['website.', 'websites.write'], ['application.', 'applications.write'],

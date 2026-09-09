@@ -27,33 +27,47 @@ export function AccountsPage () {
 	const [message, setMessage] = useState('')
 	const canCreate = useCan('accounts.create')
 	const canSuspend = useCan('accounts.suspend')
+	const canReadUsage = useCan('billing.usage.read')
 	const view = params.get('view') || 'all'
 	const task = params.get('task') || ''
+	const packageFilter = params.get('package') || ''
 
 	async function loadAccounts () {
 		const result = await api<{ items: Account[] }>('/api/v1/accounts')
 		setAccounts(asList(result))
 	}
-	function load () {
+	async function load () {
 		setLoading(true)
 		setError('')
-		Promise.allSettled([
+		setUsage([])
+		const [accountResult, packageResult, usageResult] = await Promise.allSettled([
 			api<{ items: Account[] }>('/api/v1/accounts'),
 			api<{ items: Package[] }>('/api/v1/packages'),
 			api<MonitorResponse>('/api/v1/server/monitor'),
-		]).then(([accountResult, packageResult, usageResult]) => {
-			if (accountResult.status === 'fulfilled') setAccounts(asList(accountResult.value))
-			else setError(messageFrom(accountResult.reason))
-			if (packageResult.status === 'fulfilled') setPackages(asList(packageResult.value))
-			if (usageResult.status === 'fulfilled') setUsage(usageResult.value.accounts || [])
-		}).finally(() => setLoading(false))
+		])
+		if (accountResult.status === 'rejected') {
+			setError(messageFrom(accountResult.reason))
+			setLoading(false)
+			return
+		}
+		const nextAccounts = asList(accountResult.value)
+		setAccounts(nextAccounts)
+		if (packageResult.status === 'fulfilled') setPackages(asList(packageResult.value))
+		if (usageResult.status === 'fulfilled') {
+			setUsage(usageResult.value.accounts || [])
+		} else if (canReadUsage) {
+			const usageResults = await Promise.allSettled(nextAccounts.map((account) => api<Usage>(`/api/v1/accounts/${account.id}/usage`)))
+			setUsage(usageResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []))
+		}
+		setLoading(false)
 	}
-	useEffect(load, [])
+	useEffect(() => { void load() }, [])
 
 	const packagesById = useMemo(() => new Map(packages.map((pkg) => [pkg.id, pkg])), [packages])
 	const usageByAccountId = useMemo(() => new Map(usage.map((entry) => [entry.account_id, entry])), [usage])
 	const enriched = useMemo(() => accounts.map((account) => ({ ...account, usage: usageByAccountId.get(account.id) })), [accounts, usageByAccountId])
 	const viewed = enriched.filter((account) => {
+		if (packageFilter && account.package_id !== packageFilter) return false
 		if (view === 'suspended') return account.status === 'suspended'
 		if (view === 'over-quota') {
 			const pkg = packagesById.get(account.package_id)
@@ -72,6 +86,7 @@ export function AccountsPage () {
 		await api(`/api/v1/accounts/${id}/${action}`, { method: 'POST', body: '{}' })
 	}
 	async function bulkAction (action: 'suspend' | 'unsuspend') {
+		if (action === 'suspend' && !window.confirm(`Suspend ${selected.size} selected account${selected.size === 1 ? '' : 's'}? Their hosted services will become unavailable.`)) return
 		setMessage('')
 		try {
 			if (action === 'suspend') await api('/api/v1/accounts/bulk/suspend', { method: 'POST', body: JSON.stringify({ ids: [...selected] }) })
@@ -92,8 +107,15 @@ export function AccountsPage () {
 				</section>
 			) : null}
 			<div className="view-tabs" role="group" aria-label="Account views">
-				{[['all', 'All accounts'], ['suspended', 'Suspended'], ['over-quota', 'Over quota']].map(([value, label]) => <button key={value} type="button" className={view === value ? 'active' : 'secondary'} onClick={() => { setParams(value === 'all' ? {} : { view: value }); setPage(1) }}>{label}</button>)}
+				{[['all', 'All accounts'], ['suspended', 'Suspended'], ['over-quota', 'Over quota']].map(([value, label]) => <button key={value} type="button" className={view === value ? 'active' : 'secondary'} onClick={() => {
+					const next = new URLSearchParams(params)
+					if (value === 'all') next.delete('view')
+					else next.set('view', value)
+					setParams(next)
+					setPage(1)
+				}}>{label}</button>)}
 			</div>
+			{packageFilter ? <p className="filter-context">Showing accounts assigned to package <code>{packageFilter}</code>. <button type="button" className="link-button" onClick={() => { const next = new URLSearchParams(params); next.delete('package'); setParams(next) }}>Clear package filter</button></p> : null}
 			<div className="filter-bar">
 				<label>Search accounts<input type="search" value={query} placeholder="Username, domain, status, or IP" onChange={(event) => { setQuery(event.target.value); setPage(1) }} /></label>
 				<div className="bulk-actions"><span>{selected.size} selected</span>{canSuspend ? <><button type="button" disabled={!selected.size} onClick={() => bulkAction('suspend')}>Suspend</button><button type="button" className="secondary" disabled={!selected.size} onClick={() => bulkAction('unsuspend')}>Unsuspend</button></> : null}</div>
@@ -117,7 +139,11 @@ export function AccountsPage () {
 							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'}</small></td>
 							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td>{pkg?.name || account.package_id}</td>
 							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)}</small></> : '—'}</td>
-							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className="link-button" onClick={async () => { try { await stateAction(account.id, account.status === 'suspended' ? 'unsuspend' : 'suspend'); await loadAccounts() } catch (requestError) { setMessage(messageFrom(requestError)) } }}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}</div></td>
+							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className="link-button" onClick={async () => {
+								const action = account.status === 'suspended' ? 'unsuspend' : 'suspend'
+								if (action === 'suspend' && !window.confirm(`Suspend ${account.username}? Its hosted services will become unavailable.`)) return
+								try { await stateAction(account.id, action); await loadAccounts() } catch (requestError) { setMessage(messageFrom(requestError)) }
+							}}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}</div></td>
 						</tr>
 					})}</tbody>
 				</table></div>

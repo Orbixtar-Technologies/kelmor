@@ -44,9 +44,24 @@ describe('tool discovery', () => {
 		]))
 	})
 
+	test('requires account inventory access for account-scoped service selectors', () => {
+		const tools = discoverTools(toolCatalog, {
+			'databases.read': true,
+			'dns.read': true,
+			'mail.read': true,
+			'websites.read': true,
+		})
+
+		expect(tools.map((tool) => tool.id)).not.toEqual(expect.arrayContaining(['dns', 'sql', 'email', 'ssl']))
+	})
+
 	test('routes account service tools to the selected account section', () => {
 		expect(accountTaskTarget('databases', 'account-1')).toBe('/accounts/account-1/services?service=databases')
 		expect(accountTaskTarget('email', 'account-1')).toBe('/accounts/account-1/services?service=mailboxes')
-		expect(accountTaskTarget('password', 'account-1')).toBe('/accounts/account-1')
+		expect(accountTaskTarget('certificates', 'account-1')).toBe('/accounts/account-1/services?service=certificates')
+	})
+
+	test.each(['password', 'terminate', 'package', 'modify', 'suspension', 'summary'])('preserves the %s lifecycle task after account selection', (task) => {
+		expect(accountTaskTarget(task, 'account-1')).toBe(`/accounts/account-1?task=${task}`)
 	})
 })

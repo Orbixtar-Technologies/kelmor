@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
-import { api, asList, clearToken, getToken, setToken } from './client'
+import { api, APIClientError, asList, clearToken, getToken, setToken } from './client'
 import { Can, CapProvider } from './rbac'
 
 interface Me {
@@ -11,6 +11,11 @@ interface Me {
 export function App () {
 	const [me, setMe] = useState<Me | null>(null)
 	const [error, setError] = useState('')
+	const [username, setUsername] = useState('livehost')
+	const [password, setPassword] = useState('TenantPass!2026')
+	const [newPassword, setNewPassword] = useState('')
+	const [confirmPassword, setConfirmPassword] = useState('')
+	const [passwordChangeRequired, setPasswordChangeRequired] = useState(false)
 
 	useEffect(() => {
 		if (!getToken()) return
@@ -23,26 +28,78 @@ export function App () {
 				<section>
 					<p className="eyebrow">Kelmor</p>
 					<h1>Kelmor Control</h1>
-					<p>Tenant self-serve for the Kelmor product family. Host hardware controls live in Kelmor Director.</p>
-					<form onSubmit={async (e) => {
-						e.preventDefault()
-						const fd = new FormData(e.currentTarget)
-						try {
-							const r = await api<{ token: string }>('/api/v1/auth/login', {
-								method: 'POST',
-								body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }),
-							})
-							setToken(r.token)
-							setMe(await api<Me>('/api/v1/me'))
-						} catch (err) {
-							setError(err instanceof Error ? err.message : 'Login failed')
-						}
-					}}>
-						<label>Username<input name="username" defaultValue="livehost" /></label>
-						<label>Password<input name="password" type="password" defaultValue="TenantPass!2026" /></label>
-						{error ? <p className="error">{error}</p> : null}
-						<button type="submit">Open my hosting</button>
-					</form>
+					{passwordChangeRequired ? (
+						<>
+							<p>Your administrator requires you to choose a new password before continuing.</p>
+							<form onSubmit={async (event) => {
+								event.preventDefault()
+								setError('')
+								if (newPassword !== confirmPassword) {
+									setError('New passwords do not match')
+									return
+								}
+								try {
+									const replacementPassword = newPassword
+									await api('/api/v1/auth/complete-password-change', {
+										method: 'POST',
+										body: JSON.stringify({
+											username,
+											current_password: password,
+											new_password: replacementPassword,
+										}),
+									})
+									setPassword('')
+									setNewPassword('')
+									setConfirmPassword('')
+									setPasswordChangeRequired(false)
+									const login = await api<{ token: string }>('/api/v1/auth/login', {
+										method: 'POST',
+										body: JSON.stringify({ username, password: replacementPassword }),
+									})
+									setToken(login.token)
+									setMe(await api<Me>('/api/v1/me'))
+								} catch (requestError) {
+									clearToken()
+									setError(requestError instanceof Error ? requestError.message : 'Password change failed')
+								}
+							}}>
+								<label>Username<input value={username} readOnly autoComplete="username" /></label>
+								<label>Current password<input value={password} type="password" readOnly autoComplete="current-password" /></label>
+								<label>New password<input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={12} required autoComplete="new-password" autoFocus /></label>
+								<label>Confirm new password<input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={12} required autoComplete="new-password" /></label>
+								{error ? <p className="error" role="alert">{error}</p> : null}
+								<button type="submit">Change password and sign in</button>
+							</form>
+						</>
+					) : (
+						<>
+							<p>Tenant self-serve for the Kelmor product family. Host hardware controls live in Kelmor Director.</p>
+							<form onSubmit={async (event) => {
+								event.preventDefault()
+								setError('')
+								try {
+									const login = await api<{ token: string }>('/api/v1/auth/login', {
+										method: 'POST',
+										body: JSON.stringify({ username, password }),
+									})
+									setToken(login.token)
+									setMe(await api<Me>('/api/v1/me'))
+									setPassword('')
+								} catch (requestError) {
+									if (requestError instanceof APIClientError && requestError.code === 'PASSWORD_CHANGE_REQUIRED') {
+										setPasswordChangeRequired(true)
+										return
+									}
+									setError(requestError instanceof Error ? requestError.message : 'Login failed')
+								}
+							}}>
+								<label>Username<input name="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
+								<label>Password<input name="password" value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" /></label>
+								{error ? <p className="error" role="alert">{error}</p> : null}
+								<button type="submit">Open my hosting</button>
+							</form>
+						</>
+					)}
 				</section>
 			</main>
 		)

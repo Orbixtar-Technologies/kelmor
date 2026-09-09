@@ -2,6 +2,18 @@ export interface APIError {
 	error: { code: string; message: string; request_id: string }
 }
 
+export class APIClientError extends Error {
+	readonly code: string
+	readonly requestId: string
+
+	constructor (message: string, code = '', requestId = '') {
+		super(message)
+		this.name = 'APIClientError'
+		this.code = code
+		this.requestId = requestId
+	}
+}
+
 const tokenKey = 'account_portal_token'
 
 export function setToken (token: string) {
@@ -28,7 +40,11 @@ export async function api<T> (path: string, init: RequestInit = {}): Promise<T> 
 	const data = await res.json().catch(() => ({}))
 	if (!res.ok) {
 		const err = data as APIError
-		throw new Error(err.error?.message || res.statusText)
+		throw new APIClientError(
+			err.error?.message || res.statusText,
+			err.error?.code,
+			err.error?.request_id,
+		)
 	}
 	return data as T
 }

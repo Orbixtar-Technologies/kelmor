@@ -125,6 +125,7 @@ export interface Job {
 	started_at?: string
 	finished_at?: string
 	logs?: string[]
+	retryable?: boolean
 }
 
 export interface AuditEvent {

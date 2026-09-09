@@ -53,9 +53,11 @@ interface GlobalFindProps {
 export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
 	const [query, setQuery] = useState('')
 	const [open, setOpen] = useState(false)
+	const [activeIndex, setActiveIndex] = useState(0)
 	const inputRef = useRef<HTMLInputElement>(null)
 	const navigate = useNavigate()
 	const results = rankFindResults(query, tools, accounts)
+	const activeResultId = results[activeIndex] ? `global-find-option-${results[activeIndex].kind}-${results[activeIndex].id}` : undefined
 
 	useEffect(() => {
 		function onKeyDown (event: KeyboardEvent) {
@@ -67,6 +69,9 @@ export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
 	}, [])
+	useEffect(() => {
+		setActiveIndex(0)
+	}, [query])
 
 	function choose (result: FindResult) {
 		navigate(result.path)
@@ -84,18 +89,31 @@ export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
 				value={query}
 				placeholder="Search or Find…"
 				autoComplete="off"
+				role="combobox"
+				aria-autocomplete="list"
+				aria-expanded={open && Boolean(query)}
+				aria-controls="global-find-results"
+				aria-activedescendant={open ? activeResultId : undefined}
 				onFocus={() => setOpen(true)}
 				onChange={(event) => { setQuery(event.target.value); setOpen(true) }}
 				onKeyDown={(event) => {
 					if (event.key === 'Escape') { setOpen(false); inputRef.current?.blur() }
-					if (event.key === 'Enter' && results[0]) choose(results[0])
+					if (event.key === 'ArrowDown' && results.length) {
+						event.preventDefault()
+						setActiveIndex((current) => (current + 1) % results.length)
+					}
+					if (event.key === 'ArrowUp' && results.length) {
+						event.preventDefault()
+						setActiveIndex((current) => (current - 1 + results.length) % results.length)
+					}
+					if (event.key === 'Enter' && results[activeIndex]) choose(results[activeIndex])
 				}}
 			/>
 			<kbd>/</kbd>
 			{open && query ? (
-				<div className="find-results" role="listbox" aria-label="Find results">
-					{results.map((result) => (
-						<button key={`${result.kind}-${result.id}`} type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => choose(result)}>
+				<div id="global-find-results" className="find-results" role="listbox" aria-label="Find results">
+					{results.map((result, index) => (
+						<button id={`global-find-option-${result.kind}-${result.id}`} key={`${result.kind}-${result.id}`} type="button" role="option" aria-selected={index === activeIndex} onMouseEnter={() => setActiveIndex(index)} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(result)}>
 							<span><strong>{result.label}</strong><small>{result.description}</small></span>
 							<em>{result.kind}</em>
 						</button>

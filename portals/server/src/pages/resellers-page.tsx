@@ -18,6 +18,7 @@ export function ResellersPage () {
 	const canModify = useCan('resellers.modify')
 	function load () {
 		setLoading(true)
+		setError('')
 		api<{ items: Reseller[] }>('/api/v1/resellers').then((result) => setItems(asList(result))).catch((requestError) => setError(messageFrom(requestError))).finally(() => setLoading(false))
 	}
 	useEffect(load, [])
@@ -61,7 +62,7 @@ function ResellerForm ({ value, onSubmit, onCancel }: { value?: Reseller; onSubm
 			{!value ? <><label>Login username<input name="username" required /></label><label>Contact email<input name="email" type="email" /></label><label>Initial password<input name="password" type="password" minLength={12} required /></label></> : <label>Status<select name="status" defaultValue={value.status}><option>active</option><option>suspended</option><option>inactive</option></select></label>}
 			<label className="wide-field">Nameservers (comma-separated)<input name="nameservers" defaultValue={value?.nameservers.join(', ') || 'ns1.localhost, ns2.localhost'} /></label>
 		</div>
-		<fieldset><legend>Privilege mask</legend><div className="checkbox-grid">{privilegeOptions.map((privilege) => <label className="checkbox-label" key={privilege}><input type="checkbox" name="privilege" value={privilege} defaultChecked={value?.privilege_mask.includes(privilege)} />{privilege}</label>)}</div></fieldset>
+		<fieldset><legend>Privilege mask</legend><div className="checkbox-grid">{privilegeOptions.map((privilege) => <label className="checkbox-label" key={privilege}><input type="checkbox" name="privilege" value={privilege} defaultChecked={!value || value.privilege_mask.includes(privilege)} />{privilege}</label>)}</div></fieldset>
 		<footer className="dialog-form-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit">{value ? 'Save reseller' : 'Create reseller'}</button></footer>
 	</form>
 }

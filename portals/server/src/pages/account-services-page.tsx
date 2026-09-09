@@ -33,6 +33,13 @@ const services: ServiceDefinition[] = [
 	{ id: 'applications', label: 'Applications', endpoint: 'applications', columns: ['runtime', 'working_directory', 'status'], isDeletable: true, readCapability: 'applications.read', writeCapability: 'applications.write' },
 ]
 
+const accountTokenCapabilities = [
+	'domains.read', 'domains.write', 'websites.read', 'websites.write',
+	'databases.read', 'databases.write', 'mail.read', 'mail.write',
+	'files.read', 'files.write', 'backups.read', 'backups.create',
+	'cron.read', 'cron.write',
+]
+
 export function AccountServicesPage () {
 	const { id = '' } = useParams()
 	const [searchParams] = useSearchParams()
@@ -85,6 +92,14 @@ export function AccountServicesPage () {
 			const result = await api<{ operation_id?: string; token?: string }>(`/api/v1/accounts/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(body) })
 			setMessage(result.token ? `Token created: ${result.token}. Copy it now.` : result.operation_id ? `Queued ${result.operation_id}.` : 'Resource created.')
 			await refreshActiveService()
+			if (endpoint === 'applications' && active !== 'applications') {
+				try {
+					const applications = await api<{ items: ResourceItem[] }>(`/api/v1/accounts/${id}/applications`)
+					setResources((current) => ({ ...current, applications: asList(applications) }))
+				} catch (error) {
+					setErrors((current) => ({ ...current, applications: messageFrom(error) }))
+				}
+			}
 		} catch (error) { setMessage(messageFrom(error)) }
 	}
 	async function remove (segment: string, resourceId: string) {
@@ -114,7 +129,7 @@ export function AccountServicesPage () {
 	const items = definition ? resources[definition.id] || [] : []
 	return (
 		<>
-			<PageHeader title={`${account.username}: Account Services`} description="Websites, domains, databases, mail, certificates, files, access, backups, and automation." actions={<Link className="button-link secondary-link" to={`/dns?account=${id}`}>Manage DNS</Link>} />
+			<PageHeader title={`${account.username}: Account Services`} description="Websites, domains, databases, mail, certificates, files, access, backups, and automation." actions={capabilities['dns.read'] ? <Link className="button-link secondary-link" to={`/dns?account=${id}`}>Manage DNS</Link> : undefined} />
 			<AccountTabs id={id} />
 			<div className="service-tabs" role="tablist" aria-label="Account service">
 				{visibleServices.map((service) => <button key={service.id} type="button" role="tab" aria-selected={definition?.id === service.id} onClick={() => setActive(service.id)}>{service.label}<span>{resources[service.id]?.length ?? '—'}</span></button>)}
@@ -122,12 +137,13 @@ export function AccountServicesPage () {
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			<section className="panel service-panel">
 				<div className="section-heading"><div><h2>{definition?.label}</h2><p>Changes are queued through Kelmor’s capability-enforced API.</p></div></div>
-				{definition?.id === 'mail-domains' && capabilities['mail.write'] ? <MailDomainForm domains={items} onPatch={patchMailDomain} /> : definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} account={account} resources={resources} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
+				{definition?.id === 'mail-domains' && capabilities['mail.write'] ? <MailDomainForm domains={items} onPatch={patchMailDomain} /> : definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} account={account} resources={resources} canListWebsites={Boolean(capabilities['websites.read'])} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
 				{errors[active] ? <ErrorState title={`${definition?.label} unavailable`} error={errors[active]} onRetry={load} /> : null}
 				{loading ? <LoadingState /> : null}
 				{!loading && !errors[active] && definition ? <div className="table-wrap"><table className="dense-table"><thead><tr>{definition.columns.map((column) => <th key={column}>{column.replaceAll('_', ' ')}</th>)}<th>Actions</th></tr></thead>
 					<tbody>{items.map((item) => <tr key={item.id}>{definition.columns.map((column) => <td key={column}>{column === 'status' || column === 'state' ? <StatusBadge value={valueOf(item, column)} /> : column.includes('bytes') || column === 'size' ? formatBytes(Number(item[column])) : valueOf(item, column)}</td>)}<td><div className="row-actions">
-						{active === 'backups' && item.state === 'succeeded' ? <button type="button" className="link-button" onClick={() => setRestoreBackup(item)}>Review restore</button> : null}
+						{active === 'websites' && capabilities['applications.write'] && ['node', 'python'].includes(String(item.runtime)) ? <button type="button" className="link-button" onClick={() => create('applications', { website_id: item.id, runtime: item.runtime })}>Deploy application</button> : null}
+						{active === 'backups' && item.state === 'succeeded' && capabilities['backups.restore'] ? <button type="button" className="link-button" onClick={() => setRestoreBackup(item)}>Review restore</button> : null}
 						{definition.isDeletable && definition.writeCapability && capabilities[definition.writeCapability] ? <button type="button" className="link-button danger-text" onClick={() => remove(definition.endpoint, item.id)}>Delete</button> : null}
 					</div></td></tr>)}</tbody>
 				</table></div> : null}
@@ -150,10 +166,12 @@ interface ServiceCreateFormProps {
 	service: string
 	account: Account
 	resources: Record<string, ResourceItem[]>
+	canListWebsites: boolean
 	onCreate: (endpoint: string, body: Record<string, unknown>) => Promise<void>
 }
 
-export function ServiceCreateForm ({ service, account, resources, onCreate }: ServiceCreateFormProps) {
+export function ServiceCreateForm ({ service, account, resources, canListWebsites, onCreate }: ServiceCreateFormProps) {
+	const capabilities = useCapabilities()
 	function submit (event: React.FormEvent<HTMLFormElement>, endpoint: string, payload: (data: FormData) => Record<string, unknown>) {
 		event.preventDefault()
 		onCreate(endpoint, payload(new FormData(event.currentTarget)))
@@ -162,7 +180,7 @@ export function ServiceCreateForm ({ service, account, resources, onCreate }: Se
 	if (service === 'domains') return <form className="inline-form" onSubmit={(event) => submit(event, 'domains', (data) => ({ fqdn: data.get('fqdn'), type: data.get('type'), dns_managed: true }))}><label>Domain<input name="fqdn" placeholder="shop.example.com" required /></label><label>Type<select name="type"><option value="addon">Addon</option><option value="subdomain">Subdomain</option><option value="alias">Alias</option></select></label><button type="submit">Add domain</button></form>
 	if (service === 'websites') return <form className="inline-form" onSubmit={(event) => submit(event, 'websites', (data) => ({ domain_id: data.get('domain_id'), runtime: data.get('runtime'), document_root: `${account.home_path}/public_html` }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Runtime<select name="runtime"><option>php</option><option>static</option><option>node</option><option>python</option></select></label><button type="submit">Apply website</button></form>
 	if (service === 'databases') return <form className="inline-form" onSubmit={(event) => submit(event, 'databases', (data) => ({ name: data.get('name'), engine: data.get('engine') }))}><label>Name<input name="name" required /></label><label>Engine<select name="engine"><option>mariadb</option><option>postgres</option><option>mysql</option></select></label><button type="submit">Create database</button></form>
-	if (service === 'mailboxes') return <form className="inline-form" onSubmit={(event) => submit(event, 'mail/mailboxes', (data) => ({ domain_id: data.get('domain_id'), local_part: data.get('local_part'), password: data.get('password'), quota_bytes: Number(data.get('quota_bytes')) }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Local part<input name="local_part" required /></label><label>Password<input name="password" type="password" required /></label><label>Quota bytes<input name="quota_bytes" type="number" defaultValue={1073741824} /></label><button type="submit">Create mailbox</button></form>
+	if (service === 'mailboxes') return <><form className="inline-form" onSubmit={(event) => submit(event, 'mail/mailboxes', (data) => ({ domain_id: data.get('domain_id'), local_part: data.get('local_part'), password: data.get('password') }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Local part<input name="local_part" required /></label><label>Password<input name="password" type="password" required /></label><button type="submit">Create mailbox</button></form><p className="subtle">Mailbox storage quota is enforced by the account package and cannot be overridden here.</p></>
 	if (service === 'aliases') return <form className="inline-form" onSubmit={(event) => submit(event, 'mail/aliases', (data) => ({ domain_id: data.get('domain_id'), address: data.get('address'), destination: data.get('destination') }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Address<input name="address" required /></label><label>Destination<input name="destination" required /></label><button type="submit">Create alias</button></form>
 	if (service === 'certificates') return <form className="inline-form" onSubmit={(event) => submit(event, 'certificates', (data) => ({ hostname: data.get('hostname') }))}><label>Hostname<input name="hostname" defaultValue={account.primary_domain} required /></label><button type="submit">Request certificate</button></form>
 	if (service === 'files') return <form className="stack-form" onSubmit={(event) => submit(event, 'files', (data) => ({ path: data.get('path'), content: data.get('content') }))}><label>Path<input name="path" defaultValue="/public_html/index.html" required /></label><label>Contents<textarea name="content" rows={4} required /></label><button type="submit">Write file</button></form>
@@ -170,7 +188,11 @@ export function ServiceCreateForm ({ service, account, resources, onCreate }: Se
 	if (service === 'cron') return <form className="inline-form" onSubmit={(event) => submit(event, 'cron', (data) => ({ schedule: data.get('schedule'), command: data.get('command'), working_directory: account.home_path, enabled: true }))}><label>Schedule<input name="schedule" defaultValue="0 * * * *" required /></label><label>Command<input name="command" required /></label><button type="submit">Add cron job</button></form>
 	if (service === 'ssh') return <><form className="stack-form" onSubmit={(event) => submit(event, 'ssh-keys', (data) => ({ label: data.get('label'), public_key: data.get('public_key') }))}><label>Key label<input name="label" required /></label><label>Public key<textarea name="public_key" rows={3} required /></label><button type="submit">Add SSH key</button></form><form className="inline-form" onSubmit={(event) => submit(event, 'sftp-password', (data) => ({ password: data.get('password') }))}><label>SFTP password<input name="password" type="password" required /></label><button type="submit">Set SFTP password</button></form></>
 	if (service === 'ftp') return <form className="inline-form" onSubmit={(event) => submit(event, 'ftp', (data) => ({ username: data.get('username'), password: data.get('password'), home_path: data.get('home_path') }))}><label>Username<input name="username" required /></label><label>Password<input name="password" type="password" required /></label><label>Home path<input name="home_path" defaultValue={`${account.home_path}/public_html`} required /></label><button type="submit">Create FTP user</button></form>
-	if (service === 'tokens') return <form className="inline-form" onSubmit={(event) => submit(event, 'api-tokens', (data) => ({ name: data.get('name'), scope: data.get('scope'), capabilities: String(data.get('capabilities')).split(',').map((value) => value.trim()).filter(Boolean) }))}><label>Name<input name="name" required /></label><label>Scope<select name="scope"><option value="account">Account</option><option value="read">Read only</option></select></label><label>Capabilities<input name="capabilities" placeholder="domains.read, files.read" /></label><button type="submit">Create token</button></form>
-	if (service === 'applications') return <form className="inline-form" onSubmit={(event) => submit(event, 'applications', (data) => ({ website_id: data.get('website_id'), runtime: data.get('runtime'), runtime_version: data.get('runtime_version'), working_directory: data.get('working_directory'), start_command: data.get('start_command') }))}><label>Website<select name="website_id">{(resources.websites || []).map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'document_root')}</option>)}</select></label><label>Runtime<select name="runtime"><option>node</option><option>python</option></select></label><label>Version<input name="runtime_version" placeholder="20" /></label><label>Working directory<input name="working_directory" defaultValue={`${account.home_path}/app`} /></label><label>Start command<input name="start_command" placeholder="npm start" required /></label><button type="submit">Deploy application</button></form>
+	if (service === 'tokens') return <form className="stack-form" onSubmit={(event) => submit(event, 'api-tokens', (data) => ({ name: data.get('name'), scope: 'account', capabilities: data.getAll('capability') }))}><label>Name<input name="name" required /></label><p className="subtle"><strong>Scope:</strong> Account. Tokens cannot be granted host-wide or arbitrary capabilities.</p><fieldset><legend>Account-safe capabilities</legend><div className="checkbox-grid">{accountTokenCapabilities.filter((capability) => capabilities[capability]).map((capability) => <label className="checkbox-label" key={capability}><input type="checkbox" name="capability" value={capability} />{capability}</label>)}</div></fieldset><button type="submit">Create token</button></form>
+	if (service === 'applications') {
+		if (!canListWebsites) return <p className="subtle">Application creation is disabled because your role cannot list account websites.</p>
+		if (!(resources.websites || []).some((item) => ['node', 'python'].includes(String(item.runtime)))) return <p className="subtle">Create a Node or Python website before creating its application deployment.</p>
+		return <p className="subtle">Choose <strong>Deploy application</strong> beside an account-owned Node or Python website. Runtime settings and working directory are derived from that website.</p>
+	}
 	return null
 }
