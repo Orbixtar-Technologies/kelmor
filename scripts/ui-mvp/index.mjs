@@ -43,6 +43,14 @@ async function textIncludes (page, needle) {
 	}
 }
 
+async function clickButton (page, label) {
+	await page.evaluate((text) => {
+		const button = [...document.querySelectorAll('button')].find((element) => element.textContent.trim() === text)
+		if (!button) throw new Error(`button missing: ${text}`)
+		button.click()
+	}, label)
+}
+
 function httpGet (host, path = '/') {
 	return new Promise((resolve, reject) => {
 		const req = http.request({
@@ -119,8 +127,14 @@ try {
 	await login(page, SERVER, ADMIN_USER, ADMIN_PASS)
 	await page.waitForSelector('a[href="/accounts"]')
 	await textIncludes(page, 'Kelmor Director')
-	await textIncludes(page, 'Host operations')
-	await page.click('a[href="/accounts"]')
+	await textIncludes(page, 'Favorites')
+	await page.click('a[href="/accounts/create"]')
+	await page.waitForSelector('input[name="username"]')
+	await page.type('input[name="username"]', username)
+	await page.type('input[name="domain"]', domain)
+	await page.type('input[name="email"]', `ops@${domain}`)
+	await page.type('input[name="password"]', OWNER_PASS)
+	await clickButton(page, 'Continue')
 	await page.waitForSelector('select[name="package_id"] option')
 	await page.evaluate(() => {
 		const sel = document.querySelector('select[name="package_id"]')
@@ -128,13 +142,12 @@ try {
 		const opt = [...sel.options].find((o) => o.textContent.includes('Starter'))
 		if (!opt) throw new Error('Starter package missing')
 		sel.value = opt.value
+		sel.dispatchEvent(new Event('change', { bubbles: true }))
 	})
-	await page.waitForSelector('input[name="username"]')
-	await page.type('input[name="username"]', username)
-	await page.type('input[name="domain"]', domain)
-	await page.type('input[name="email"]', `ops@${domain}`)
-	await page.type('input[name="password"]', OWNER_PASS)
-	await page.click('button[type="submit"]')
+	await clickButton(page, 'Continue')
+	await textIncludes(page, 'Review account')
+	await clickButton(page, 'Create account')
+	await page.waitForFunction(() => window.location.pathname === '/jobs')
 	await waitHTTP(domain, 200)
 	await page.goto(`${SERVER}/accounts`, { waitUntil: 'networkidle0' })
 	await textIncludes(page, username)
@@ -218,6 +231,7 @@ try {
 	if (!acc) throw new Error('UI-created account missing from API')
 	await page.goto(`${SERVER}/accounts/${acc.id}`, { waitUntil: 'networkidle0' })
 	await textIncludes(page, username)
+	page.once('dialog', (dialog) => dialog.accept())
 	await page.evaluate(() => {
 		const b = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Suspend')
 		if (!b) throw new Error('suspend button missing')
@@ -234,13 +248,22 @@ try {
 	await waitHTTP(domain, 200)
 	const migUser = `mg${stamp}`
 	const migDom = `${migUser}.test`
-	await page.waitForSelector('input[name="migrate_username"]')
-	await page.type('input[name="migrate_username"]', migUser)
-	await page.type('input[name="migrate_domain"]', migDom)
+	await page.goto(`${SERVER}/transfers`, { waitUntil: 'networkidle0' })
+	await page.waitForSelector('select[name="source_id"]')
+	await page.select('select[name="source_id"]', acc.id)
 	await page.evaluate(() => {
-		const form = [...document.querySelectorAll('form')].find((f) => f.querySelector('input[name="migrate_username"]'))
-		form?.querySelector('button[type="submit"]')?.click()
+		const form = document.querySelector('select[name="source_id"]')?.closest('form')
+		if (!form) throw new Error('account copy form missing')
+		form.querySelector('input[name="username"]').value = ''
+		form.querySelector('input[name="domain"]').value = ''
 	})
+	const copyForm = await page.$('select[name="source_id"]')
+	const copyContainer = await copyForm.evaluateHandle((element) => element.closest('form'))
+	await copyContainer.asElement().$eval('input[name="username"]', (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })) }, migUser)
+	await copyContainer.asElement().$eval('input[name="domain"]', (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })) }, migDom)
+	await copyContainer.asElement().$eval('button[type="submit"]', (button) => button.click())
+	await textIncludes(page, 'Ready to copy')
+	await clickButton(page, 'Confirm account copy')
 	await waitHTTP(migDom, 200)
 	await page.goto(`${SERVER}/audit`, { waitUntil: 'networkidle0' })
 	await textIncludes(page, 'account.suspend')
