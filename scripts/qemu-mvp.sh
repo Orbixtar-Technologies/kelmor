@@ -5,10 +5,19 @@ KEY="${PANEL_QEMU_KEY:-/var/lib/panel/qemu/id_ed25519}"
 PORT="${PANEL_QEMU_SSH:-2222}"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 
+as_root=()
+if [[ ! -r "$KEY" ]]; then
+  as_root=(sudo)
+fi
+
 ssh_cmd() {
-  ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  "${as_root[@]}" ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=240 \
     -p "$PORT" ubuntu@127.0.0.1 "$@"
+}
+
+scp_cmd() {
+  "${as_root[@]}" scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"
 }
 
 ssh_cmd 'set -e
@@ -18,17 +27,17 @@ ssh_cmd 'set -e
   systemctl is-active panel-agent panel-api panel-worker dovecot nginx
 '
 ssh_cmd 'sudo mkdir -p /usr/local/panel/share/scripts /usr/local/panel/share/testdata && sudo chown -R ubuntu:ubuntu /usr/local/panel/share'
-scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" \
+scp_cmd -P "$PORT" \
   "$SRC/scripts/live-e2e.sh" "$SRC/scripts/cli-mvp.sh" \
   ubuntu@127.0.0.1:/usr/local/panel/share/scripts/
-scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" -r \
+scp_cmd -P "$PORT" -r \
   "$SRC/testdata/cpanel-acme42" \
   ubuntu@127.0.0.1:/usr/local/panel/share/testdata/
 if [[ -f "$SRC/portals/server/dist/index.html" && -f "$SRC/portals/account/dist/index.html" ]]; then
   ssh_cmd 'sudo mkdir -p /usr/local/panel/share/portals/server /usr/local/panel/share/portals/account && sudo chown -R ubuntu:ubuntu /usr/local/panel/share/portals'
-  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" -r \
+  scp_cmd -P "$PORT" -r \
     "$SRC/portals/server/dist/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/server/
-  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" -r \
+  scp_cmd -P "$PORT" -r \
     "$SRC/portals/account/dist/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/account/
   ssh_cmd 'sudo nginx -t && sudo systemctl reload nginx || true'
 fi

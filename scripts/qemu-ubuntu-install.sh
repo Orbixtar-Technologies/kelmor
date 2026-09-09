@@ -17,7 +17,7 @@ HOST="${PANEL_FRESH_HOSTNAME:-panel.example.net}"
 RAW="$DIR/${NAME}.raw"
 
 if [[ "$(id -u)" -ne 0 ]]; then
-  exec sudo --preserve-env=PANEL_QEMU_DIR,PANEL_QEMU_SSH,PANEL_QEMU_NAME,PANEL_QEMU_CLOUD_IMG,PANEL_QEMU_API_FWD,PANEL_QEMU_MEM,PANEL_FRESH_HOSTNAME,PANEL_QEMU_ACCEL "$0" "$@"
+  exec sudo --preserve-env=PANEL_QEMU_DIR,PANEL_QEMU_SSH,PANEL_QEMU_NAME,PANEL_QEMU_CLOUD_IMG,PANEL_QEMU_API_FWD,PANEL_QEMU_MEM,PANEL_FRESH_HOSTNAME,PANEL_QEMU_ACCEL,PANEL_QEMU_EXTRA_FWD "$0" "$@"
 fi
 
 mkdir -p "$DIR"
@@ -172,7 +172,7 @@ if ! pgrep -f "qemu-system-x86_64.*${NAME}" >/dev/null; then
     -drive if=pflash,format=raw,file="$OVMF_VARS" \
     -drive file="$BOOT_DISK",if=virtio,format="$BOOT_FMT" \
     -cdrom "$SEED" \
-    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22,hostfwd=tcp:127.0.0.1:${API_FWD}-:18080 \
+    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22,hostfwd=tcp:127.0.0.1:${API_FWD}-:18080${PANEL_QEMU_EXTRA_FWD:+,$PANEL_QEMU_EXTRA_FWD} \
     -device virtio-net-pci,netdev=n0 \
     -object rng-random,filename=/dev/urandom,id=rng0 \
     -device virtio-rng-pci,rng=rng0 \
