@@ -225,7 +225,13 @@ func migrateAccount(base, token, id, user, domain string) {
 }
 
 func waitJob(base, token, id string) {
-	deadline := time.Now().Add(90 * time.Second)
+	wait := 90 * time.Second
+	if v := env("PANEL_JOB_WAIT", ""); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			wait = d
+		}
+	}
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		out := do(http.MethodGet, base+"/api/v1/jobs/"+id, token, nil, false)
 		st, _ := out["state"].(string)

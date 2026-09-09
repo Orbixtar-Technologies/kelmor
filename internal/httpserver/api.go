@@ -2440,26 +2440,32 @@ func clientIP(r *http.Request) string {
 }
 
 func defaultServices() []map[string]any {
-	type probe struct{ name, pid, addr string }
+	type probe struct{ name, pid, addr, comm string }
 	probes := []probe{
-		{"nginx", "/run/nginx.pid", "127.0.0.1:80"},
-		{"php-fpm", "/run/php/php8.3-fpm.pid", ""},
-		{"mariadb", "/run/mysqld/mysqld.pid", "127.0.0.1:3306"},
-		{"postgresql", "/var/run/postgresql/16-main.pid", ""},
-		{"postfix", "/var/spool/postfix/pid/master.pid", "127.0.0.1:25"},
-		{"dovecot", "/run/dovecot/master.pid", "127.0.0.1:993"},
-		{"pdns", "/run/pdns.pid", "127.0.0.1:53"},
-		{"rspamd", "/run/rspamd/rspamd.pid", "127.0.0.1:11332"},
-		{"clamav", "/run/clamav/clamd.pid", "unix:/run/clamav/clamd.ctl"},
-		{"sshd", "/run/sshd.pid", "127.0.0.1:22"},
+		{"nginx", "/run/nginx.pid", "127.0.0.1:80", "nginx"},
+		{"php-fpm", "/run/php/php8.3-fpm.pid", "", "php-fpm8.3"},
+		{"mariadb", "/run/mysqld/mysqld.pid", "127.0.0.1:3306", "mysqld"},
+		{"postgresql", "/var/run/postgresql/16-main.pid", "", "postgres"},
+		{"postfix", "/var/spool/postfix/pid/master.pid", "127.0.0.1:25", "master"},
+		{"dovecot", "/run/dovecot/master.pid", "127.0.0.1:993", "dovecot"},
+		{"pdns", "/run/pdns.pid", "127.0.0.1:53", "pdns_server"},
+		{"rspamd", "/run/rspamd/rspamd.pid", "127.0.0.1:11332", "rspamd"},
+		{"clamav", "/run/clamav/clamd.pid", "unix:/run/clamav/clamd.ctl", "clamd"},
+		{"sshd", "/run/sshd.pid", "127.0.0.1:22", "sshd"},
+		{"vsftpd", "/run/vsftpd.pid", "127.0.0.1:21", "vsftpd"},
+		{"panel-api", "", "127.0.0.1:18080", "panel-api"},
+		{"panel-worker", "", "", "panel-worker"},
+		{"panel-agent", "", "unix:/run/panel/agent.sock", "panel-agent"},
 	}
 	out := []map[string]any{}
 	for _, p := range probes {
 		running := false
-		for _, pidPath := range []string{p.pid, strings.TrimSuffix(p.pid, ".pid") + "/pdns.pid"} {
-			if b, err := os.ReadFile(pidPath); err == nil && len(bytesTrim(b)) > 0 {
-				running = true
-				break
+		if p.pid != "" {
+			for _, pidPath := range []string{p.pid, strings.TrimSuffix(p.pid, ".pid") + "/pdns.pid"} {
+				if b, err := os.ReadFile(pidPath); err == nil && len(bytesTrim(b)) > 0 {
+					running = true
+					break
+				}
 			}
 		}
 		if !running && p.addr != "" {
@@ -2473,6 +2479,9 @@ func defaultServices() []map[string]any {
 				running = true
 			}
 		}
+		if !running && p.comm != "" && commRunning(p.comm) {
+			running = true
+		}
 		health := "stopped"
 		if running {
 			health = "healthy"
@@ -2480,6 +2489,26 @@ func defaultServices() []map[string]any {
 		out = append(out, map[string]any{"name": p.name, "health": health, "desired_enabled": true, "observed_running": running})
 	}
 	return out
+}
+
+func commRunning(name string) bool {
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return false
+	}
+	for _, e := range ents {
+		if len(e.Name()) == 0 || e.Name()[0] < '0' || e.Name()[0] > '9' {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/comm")
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(b)) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func bytesTrim(b []byte) []byte {

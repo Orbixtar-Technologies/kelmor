@@ -54,6 +54,15 @@ done
 $CLI file write "$aid" /public_html/cli.txt climvp-ok
 $CLI file list "$aid" /public_html | python3 -c 'import json,sys; names=[i["name"] for i in json.load(sys.stdin).get("items") or []];
 assert "cli.txt" in names, names'
+cron=$($CLI cron create "$aid" '9 * * * *' true)
+cid=$(echo "$cron" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("cron") or {}).get("id",""))')
+cop=$(echo "$cron" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+[[ -n "$cop" ]] && $CLI job wait "$cop"
+[[ -n "$cid" ]]
+cdel=$($CLI cron delete "$aid" "$cid")
+cdop=$(echo "$cdel" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+[[ -n "$cdop" ]] && $CLI job wait "$cdop"
+echo cli-cron-delete ok
 RDOM="gone.climvp.test"
 rdid=$(curl -sS "$PANEL_API/api/v1/accounts/$aid/domains" -H "Authorization: Bearer $PANEL_TOKEN" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((i['id'] for i in items if i.get('ascii_fqdn')=='$RDOM'), ''))")
 if [[ -z "$rdid" ]]; then

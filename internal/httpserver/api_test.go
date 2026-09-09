@@ -818,6 +818,31 @@ func TestRequestCertSkipsFreshAndReusesInflight(t *testing.T) {
 	}
 }
 
+func TestDefaultServicesListsControlPlane(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	got := get(t, srv.URL+"/api/v1/server/services", admin)
+	items, _ := got["services"].([]any)
+	names := map[string]bool{}
+	for _, raw := range items {
+		m, _ := raw.(map[string]any)
+		if n, _ := m["name"].(string); n != "" {
+			names[n] = true
+		}
+	}
+	for _, need := range []string{"nginx", "vsftpd", "panel-api", "panel-worker", "panel-agent", "postgresql", "mariadb"} {
+		if !names[need] {
+			t.Fatalf("missing service %s in %v", need, names)
+		}
+	}
+}
+
 func get(t *testing.T, url, token string) map[string]any {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
