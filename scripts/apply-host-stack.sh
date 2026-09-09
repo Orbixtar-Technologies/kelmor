@@ -221,13 +221,15 @@ if [[ -x /usr/sbin/sshd ]]; then
   sudo tee /etc/ssh/sshd_config.d/panel-sftp.conf >/dev/null <<'EOF'
 # Chrooted tenant SFTP. Over-quota users get internal-sftp -R
 # from zz-panel-sftp-quota.conf (written by panel-agent).
+# Password auth is Match-scoped; do not enable it globally.
 Match Group panel-sftp
     ChrootDirectory /home/%u
     ForceCommand internal-sftp
+    PasswordAuthentication yes
+    KbdInteractiveAuthentication yes
     AllowTcpForwarding no
     X11Forwarding no
 EOF
-  echo 'PasswordAuthentication yes' | sudo tee /etc/ssh/sshd_config.d/panel-password.conf >/dev/null
   if ! pgrep -x sshd >/dev/null; then
     sudo /usr/sbin/sshd || true
   else

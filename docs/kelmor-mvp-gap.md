@@ -1,4 +1,4 @@
-# Kelmor MVP gap (main @ e02bdfb)
+# Kelmor MVP gap (main @ 3f1fdd2 + QEMU path slice)
 
 Honest inventory of `main` against the product identity and the
 fresh-Ubuntu MVP path. Status words mean:
@@ -58,7 +58,7 @@ Ubuntu 24.04 native. No Docker/K8s required for the control plane.
 | DNS | **PARTIAL** | Zone file + `named-zones.conf` + `pdns_control` when live. `ensureDomainStack` **ignored** `writeZone` errors unless ACME was live — account could go `active` with no published zone. |
 | TLS | **PARTIAL** | HTTP-01 via `PANEL_ACME_DIRECTORY` / installer ACME phase; sandbox/dev issues `panel-dev` self-signed. Lab Pebble is optional. |
 | MariaDB | **PARTIAL** | `CreateHostedDatabase` runs `mariadb -e` when live; **not** invoked from `account.provision`. Tenant must `POST /databases` or CLI. Sandbox is **MOCK** (`ObservedState=recorded`). |
-| SFTP | **PARTIAL** | Live: `chpasswd`, `Match Group panel-sftp`, home `0751` + ACL. Virtual vsftpd users are a separate FTP path. No first-class SFTP probe in unit tests. |
+| SFTP | **PARTIAL** | Live: `chpasswd`, `Match Group panel-sftp`, home `0751` + ACL. Installer Match block now sets `PasswordAuthentication yes` (cloud images are key-only by default). `scripts/fresh-provision-smoke.sh` probes a real `sftp` session. Still PARTIAL until that guest path runs. |
 | Mailbox | **PARTIAL** | Maps + Maildir + Dovecot passwd-file are real. Provision created `postmaster` with hash `!` (Dovecot cannot authenticate). Usable mailbox required a later API/CLI call. |
 | Backup / restore | **VERIFIED** (local HPM1) / **PARTIAL** (offsite) | Worker `backup.create` / `backup.restore`; SFTP/S3 destinations need env. Restore must not unsuspend (tested). |
 | Control self-serve | **VERIFIED** | Account Portal calls the same API with tenant capabilities; no host firewall/reboot chrome. |
@@ -79,7 +79,7 @@ Ubuntu 24.04 native. No Docker/K8s required for the control plane.
 | Billing / WHMCS | **MISSING** | Explicit non-goal. |
 | Windows / K8s control | **MISSING** | Explicit non-goal. |
 
-## Highest-leverage slice (this run)
+## Highest-leverage slice (PR #1, now on main)
 
 Close the **lying** provision steps on the MVP path without inventing
 post-MVP product:
@@ -94,11 +94,35 @@ post-MVP product:
 5. Pass PHP version through `ApplyWebsite`; surface php-fpm start errors
    when the agent is live.
 
+## Proof harness (this slice)
+
+Focused path (no WordPress / Node / Python / cPanel import):
+
+```bash
+# host tools: qemu-system-x86, OVMF, cloud-localds
+make qemu-host-ready
+make build
+# optional: make portals   # required for Director HTML on :8443
+sudo ./scripts/qemu-kelmor-path.sh
+```
+
+`qemu-kelmor-path.sh` boots `scripts/qemu-fresh-guest.sh` (official Noble
+cloud image + `panel-install`) then `scripts/qemu-kelmor-mvp.sh`, which
+runs `scripts/fresh-provision-smoke.sh` inside the guest. That smoke now
+asserts privilege zone A (API not root), Kelmor Director HTML when
+`:8443` is required, PHP execution + fpm socket, published PowerDNS A,
+default MariaDB `<user>_db`, `info@` with the owner password, and a
+password SFTP listing.
+
+`scripts/qemu-mvp.sh` still runs the broader `live-e2e.sh` (import/WP).
+Do not treat that as the Kelmor MVP gate.
+
 ## Remaining MVP blockers (after this slice)
 
-- Prove the path on a **real Ubuntu 24.04** host (installer → Director →
-  provision → HTTP/PHP/DNS/TLS/IMAP/SFTP/MariaDB → Control → reboot).
-  This cloud workspace is not that host.
+- Prove the path on a **real Ubuntu 24.04** guest via
+  `scripts/qemu-kelmor-path.sh` (installer → Director → provision →
+  HTTP/PHP/DNS/TLS/IMAP/SFTP/MariaDB). Re-verify this file after that run.
+  Nested KVM may be available on a given agent VM; TCG is the fallback.
 - Live ACME for customer hostnames (needs public DNS to the node).
 - Offsite backup destinations configured and restored.
 - Production admin password / TLS for Director:8443 and Control:8444.

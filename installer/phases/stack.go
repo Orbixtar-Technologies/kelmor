@@ -456,9 +456,13 @@ ignoreregex =
 	}
 	sftp := `# Chrooted tenant SFTP. Over-quota users get internal-sftp -R
 # from /etc/ssh/sshd_config.d/zz-panel-sftp-quota.conf (agent-managed).
+# PasswordAuthentication is Match-scoped so cloud images that default
+# to key-only SSH still accept the owner password for SFTP — not a shell.
 Match Group panel-sftp
     ChrootDirectory /home/%u
     ForceCommand internal-sftp
+    PasswordAuthentication yes
+    KbdInteractiveAuthentication yes
     AllowTcpForwarding no
     X11Forwarding no
 `

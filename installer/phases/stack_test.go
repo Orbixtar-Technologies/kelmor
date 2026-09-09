@@ -168,6 +168,19 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(sasl), "/var/spool/postfix/private/auth") {
 		t.Fatalf("dovecot sasl socket: %s", sasl)
 	}
+	sftp, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/ssh/sshd_config.d/panel-sftp.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(sftp), "Match Group panel-sftp") || !contains(string(sftp), "ForceCommand internal-sftp") {
+		t.Fatalf("sftp match: %s", sftp)
+	}
+	if !contains(string(sftp), "PasswordAuthentication yes") {
+		t.Fatalf("tenant SFTP must allow owner password on cloud images: %s", sftp)
+	}
+	if contains(string(sftp), "PermitTTY yes") {
+		t.Fatal("SFTP match must not grant a tty shell")
+	}
 }
 
 func contains(s, sub string) bool {
