@@ -22,5 +22,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: cd portals/server && npm ci && npx tsc -b --pretty false
+      - run: cd portals/server && npm ci && npm test && npm run build
       - run: cd portals/account && npm ci && npx tsc -b --pretty false

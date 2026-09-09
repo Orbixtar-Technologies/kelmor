@@ -48,6 +48,13 @@ make refresh-portals
 
 Default admin password is for development only. Change it before any real host.
 
+Kelmor Director's server-administration information architecture and supported
+operator flows are mapped in
+[`docs/director-whm-journey-checklist.md`](docs/director-whm-journey-checklist.md).
+The Director includes capability-aware global Find, reviewed account
+provisioning, dense operational histories, and account-linked DNS, SQL, email,
+SSL, backup, usage, and access tools.
+
 ## Production install (Ubuntu 24.04)
 
 ```bash

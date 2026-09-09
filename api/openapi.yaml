@@ -118,6 +118,26 @@ paths:
       x-audit-action: package.create
       responses:
         "201": { description: created }
+  /packages/{packageID}:
+    patch:
+      operationId: updatePackage
+      x-capability: packages.write
+      x-audit-action: package.update
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: package updated }
+        "403": { description: package is outside the actor scope }
+        "404": { description: package not found }
+    delete:
+      operationId: deletePackage
+      x-capability: packages.write
+      x-audit-action: package.delete
+      parameters:
+        - { name: packageID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: package deleted }
+        "409": { description: package is assigned to an account }
   /resellers:
     get:
       operationId: listResellers
@@ -129,6 +149,17 @@ paths:
       x-capability: resellers.create
       responses:
         "201": { description: created }
+  /resellers/{resellerID}:
+    patch:
+      operationId: updateReseller
+      x-capability: resellers.modify
+      x-audit-action: reseller.update
+      parameters:
+        - { name: resellerID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: reseller updated }
+        "403": { description: server scope required }
+        "404": { description: reseller not found }
   /accounts:
     post:
       operationId: createAccount
@@ -181,6 +212,25 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: queued }
+  /accounts/{accountID}/password:
+    post:
+      operationId: rotateAccountPassword
+      x-capability: accounts.modify
+      x-audit-action: account.password.rotate
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 8, writeOnly: true }
+                must_change_password: { type: boolean, default: false }
+      responses:
+        "202": { description: owner password updated and Linux reconciliation queued }
   /accounts/{accountID}/migrate:
     post:
       operationId: migrateAccount
@@ -456,6 +506,24 @@ paths:
       operationId: listJobs
       responses:
         "200": { description: durable job queue }
+  /jobs/{jobID}:
+    get:
+      operationId: getJob
+      parameters:
+        - { name: jobID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: credential-redacted job detail }
+        "404": { description: job not found or outside the actor scope }
+  /jobs/{jobID}/retry:
+    post:
+      operationId: retryJob
+      x-audit-action: job.retry
+      parameters:
+        - { name: jobID, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: eligible failed job cloned into a new queued operation }
+        "403": { description: missing capability for the job operation }
+        "409": { description: job is not failed or its type is not retryable }
   /accounts/{accountID}/mail/domains:
     get:
       operationId: listMailDomains
