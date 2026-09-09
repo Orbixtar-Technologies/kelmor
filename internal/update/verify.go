@@ -12,11 +12,21 @@ import (
 )
 
 type Manifest struct {
-	Release   string            `json:"release"`
-	Channel   string            `json:"channel"`
-	Files     map[string]string `json:"files"`
-	Signature string            `json:"signature"`
-	PublicKey string            `json:"public_key,omitempty"`
+	Release        string            `json:"release"`
+	Channel        string            `json:"channel"`
+	MinimumRelease string            `json:"minimum_release,omitempty"`
+	Artifacts      []Artifact        `json:"artifacts,omitempty"`
+	Files          map[string]string `json:"files,omitempty"`
+	Signature      string            `json:"signature"`
+	PublicKey      string            `json:"public_key,omitempty"`
+}
+
+type Artifact struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+	Mode   uint32 `json:"mode"`
 }
 
 func Load(path string) (*Manifest, error) {
@@ -90,10 +100,23 @@ func ParsePublicKey(hexKey string) (ed25519.PublicKey, error) {
 }
 
 func canonical(m *Manifest) ([]byte, error) {
-	type wire struct {
-		Release string            `json:"release"`
-		Channel string            `json:"channel"`
-		Files   map[string]string `json:"files"`
+	if m.MinimumRelease == "" && len(m.Artifacts) == 0 {
+		type legacyWire struct {
+			Release string            `json:"release"`
+			Channel string            `json:"channel"`
+			Files   map[string]string `json:"files"`
+		}
+		return json.Marshal(legacyWire{Release: m.Release, Channel: m.Channel, Files: m.Files})
 	}
-	return json.Marshal(wire{Release: m.Release, Channel: m.Channel, Files: m.Files})
+	type wire struct {
+		Release        string            `json:"release"`
+		Channel        string            `json:"channel"`
+		MinimumRelease string            `json:"minimum_release,omitempty"`
+		Artifacts      []Artifact        `json:"artifacts,omitempty"`
+		Files          map[string]string `json:"files,omitempty"`
+	}
+	return json.Marshal(wire{
+		Release: m.Release, Channel: m.Channel, MinimumRelease: m.MinimumRelease,
+		Artifacts: m.Artifacts, Files: m.Files,
+	})
 }

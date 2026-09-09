@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +27,36 @@ func TestVerifyRoundTrip(t *testing.T) {
 	}
 	if err := Verify(m, pub); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManifestSignatureCoversCompatibilityAndArtifacts(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manifest{
+		Release: "2.0.0", Channel: "stable", MinimumRelease: "1.0.0",
+		Artifacts: []Artifact{{
+			Path: "panel-api", Target: "bin/panel-api", Size: 9,
+			SHA256: strings.Repeat("a", 64), Mode: 0o755,
+		}},
+	}
+	if err := Sign(m, priv); err != nil {
+		t.Fatal(err)
+	}
+	if err := Verify(m, pub); err != nil {
+		t.Fatalf("signed manifest rejected: %v", err)
+	}
+
+	m.MinimumRelease = "1.5.0"
+	if err := Verify(m, pub); err == nil {
+		t.Fatal("signature did not cover minimum compatible release")
+	}
+	m.MinimumRelease = "1.0.0"
+	m.Artifacts[0].Target = "bin/panel-worker"
+	if err := Verify(m, pub); err == nil {
+		t.Fatal("signature did not cover artifact target")
 	}
 }
 
