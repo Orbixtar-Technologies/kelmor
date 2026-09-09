@@ -1,4 +1,4 @@
-.PHONY: bootstrap generate lint test test-integration test-security test-provisioning build pebble package release dev portals
+.PHONY: bootstrap generate lint test test-integration test-security test-provisioning build pebble package release dev portals refresh-portals
 
 GO ?= go
 API_PORT ?= 18080
@@ -71,8 +71,13 @@ portals:
 	cp -a portals/server/dist dist/share/portals/server
 	cp -a portals/account/dist dist/share/portals/account
 
+# API only on :18080. Director/Control chrome is Vite (`npm run dev`) or
+# installed nginx after `make refresh-portals` (:8443 / :8444).
 dev:
 	PANEL_DEV=1 PANEL_API_ADDR=127.0.0.1:$(API_PORT) ./scripts/dev.sh
+
+refresh-portals: portals
+	bash scripts/refresh-localhost-portals.sh
 
 qemu-host-ready:
 	bash scripts/qemu-host-ready.sh

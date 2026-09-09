@@ -54,11 +54,14 @@ func (a *API) Handler() http.Handler {
 	r.Use(a.securityHeaders)
 	r.Use(a.maxBody)
 	r.Use(a.cors)
+	r.Get("/", a.productIndex)
 	r.Get("/healthz", a.health)
 	r.Get("/readyz", a.ready)
+	r.Get("/openapi", a.openapiUI)
 	r.Get("/openapi.yaml", a.openapi)
 	r.Get("/api/v1/version", a.version)
 	r.Get("/api/v1/openapi.yaml", a.openapi)
+	r.Get("/api/v1/openapi", a.openapiUI)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", a.login)
 		r.Post("/auth/logout", a.logout)
@@ -211,6 +214,21 @@ func (a *API) openapi(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml")
 	w.WriteHeader(200)
 	_, _ = w.Write(openapi.YAML)
+}
+
+func (a *API) productIndex(w http.ResponseWriter, r *http.Request) {
+	writeBrandHTML(w, brand.Product, `<h1>Kelmor</h1><p>Product family Kelmor. Portals are not compiled into this binary — run <code>npm run dev</code> or <code>make refresh-portals</code>.</p><ul><li>Kelmor Director — provider console on :8443 (installed nginx) or :18443 (Vite)</li><li>Kelmor Control — tenant self-serve on :8444 or :18444</li><li><a href="/openapi">Kelmor Control Plane API</a></li></ul>`)
+}
+
+func (a *API) openapiUI(w http.ResponseWriter, r *http.Request) {
+	writeBrandHTML(w, brand.APITitle, `<h1>Kelmor Control Plane API</h1><p>OpenAPI 3 for Kelmor Director and Kelmor Control.</p><p><a href="/openapi.yaml">openapi.yaml</a></p>`)
+}
+
+func writeBrandHTML(w http.ResponseWriter, title, body string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	w.WriteHeader(200)
+	_, _ = fmt.Fprintf(w, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>%s</title></head><body>%s</body></html>\n", title, body)
 }
 
 func (a *API) login(w http.ResponseWriter, r *http.Request) {

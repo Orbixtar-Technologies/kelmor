@@ -116,3 +116,85 @@ func TestVerifyPortalsRequiresTLS(t *testing.T) {
 		t.Fatal("HTTP-only portal nginx must fail verify")
 	}
 }
+
+func TestVerifyPortalsRejectsLegacyBrand(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{Hostname: "panel.example.net", Root: dir}
+	for _, rel := range []string{
+		"usr/local/panel/share/portals/server",
+		"usr/local/panel/share/portals/account",
+		"etc/nginx/panel-sites",
+		"var/lib/panel/certs",
+	} {
+		if err := os.MkdirAll(filepath.Join(dir, rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacy := `<!doctype html><html><head><title>Server Portal</title>
+<script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`
+	control := `<!doctype html><html><head><title>Kelmor Control</title>
+<script type="module" src="/assets/index.js"></script></head><body><div id="root"></div></body></html>`
+	if err := os.WriteFile(filepath.Join(dir, "usr/local/panel/share/portals/server/index.html"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "usr/local/panel/share/portals/account/index.html"), []byte(control), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tls := "server {\n    listen 8443 ssl;\n    ssl_certificate /tmp/x.crt;\n    ssl_certificate_key /tmp/x.key;\n    root /usr/local/panel/share/portals/server;\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/90-server-portal.conf"), []byte(tls), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/91-account-portal.conf"), []byte(strings.ReplaceAll(tls, "8443", "8444")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "var/lib/panel/certs/panel-portals.crt"), []byte("CERT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "var/lib/panel/certs/panel-portals.key"), []byte("KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := verifyPortals(cfg)
+	if err == nil || !strings.Contains(err.Error(), "legacy chrome") {
+		t.Fatalf("expected legacy chrome reject, got %v", err)
+	}
+}
+
+func TestPortalAssetRootPrefersTreeBuild(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	fresh := filepath.Join(dir, "portals", "server", "dist")
+	stale := filepath.Join(dir, "dist", "share", "portals", "server")
+	if err := os.MkdirAll(fresh, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	freshHTML := `<!doctype html><html><head><title>Kelmor Director</title></head><body><div id="root"></div></body></html>`
+	staleHTML := `<!doctype html><html><head><title>Server Portal</title></head><body><div id="root"></div></body></html>`
+	if err := os.WriteFile(filepath.Join(fresh, "index.html"), []byte(freshHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "index.html"), []byte(staleHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := portalAssetRoot(Config{Root: dir, Dev: true}, "server")
+	abs, err := filepath.Abs(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if abs != want {
+		t.Fatalf("preferred %q want %q", abs, want)
+	}
+}

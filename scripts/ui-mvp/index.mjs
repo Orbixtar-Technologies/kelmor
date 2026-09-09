@@ -21,6 +21,10 @@ const domain = `${username}.test`
 
 async function login (page, url, user, pass) {
 	await page.goto(url, { waitUntil: 'domcontentloaded' })
+	const title = await page.title()
+	if (!title.includes('Kelmor')) {
+		throw new Error(`expected Kelmor document.title, got ${JSON.stringify(title)}`)
+	}
 	await page.waitForSelector('input[name="username"]')
 	await page.click('input[name="username"]', { clickCount: 3 })
 	await page.type('input[name="username"]', user)
@@ -114,6 +118,7 @@ page.setDefaultTimeout(20000)
 try {
 	await login(page, SERVER, ADMIN_USER, ADMIN_PASS)
 	await page.waitForSelector('a[href="/accounts"]')
+	await textIncludes(page, 'Kelmor Director')
 	await textIncludes(page, 'Host operations')
 	await page.click('a[href="/accounts"]')
 	await page.waitForSelector('select[name="package_id"] option')

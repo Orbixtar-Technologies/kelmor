@@ -2,8 +2,8 @@
 
 A desired-state hosting operating platform for **Ubuntu 24.04 LTS**. Product identity is kelmor.host; never use that as a customer hosting domain. Components:
 
-- **Kelmor Director** — provider / server-admin control plane (was Server Portal)
-- **Kelmor Control** — tenant self-serve portal (was Account Portal)
+- **Kelmor Director** — provider / server-admin control plane
+- **Kelmor Control** — tenant self-serve portal
 - **Kelmor Agent** — root-owned typed ops over `/run/panel/agent.sock` (`panel-agent` / `kelmor-agent`)
 - API, CLI, installer, and worker (`panel-*` names remain; `kelmor-*` aliases are installed beside them)
 
@@ -12,6 +12,8 @@ The control plane is written in Go. Portals never write Nginx, `/etc/passwd`, or
 This repository is the first production slice of that architecture: schema, auth/RBAC/audit, job engine, agent operations, both portals, CLI, and a resumable installer. Full Ubuntu service installation (Postfix, PowerDNS, MariaDB, …) is orchestrated by installer phases and is intended to run on a clean 24.04 host, not inside a containerized control plane.
 
 ## Local preview (this environment)
+
+Director and Control are Vite SPAs. They are **not** embedded in `panel-dev` / `panel-api`. After `git pull`, `https://127.0.0.1:8443` keeps the last *installed* HTML until you rebuild and copy assets.
 
 The control plane requires PostgreSQL (`panel_control`). Local peer auth:
 
@@ -27,17 +29,22 @@ PANEL_DEV=1 PANEL_AGENT_SOCK=/run/panel/agent.sock \
   PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql \
   PANEL_STATE_DIR=$PWD/var/panel PANEL_PUBLIC_IPV4=127.0.0.1 \
   ./dist/bin/panel-dev
-# other terminals
-cd portals/server && npm install && npm run dev
-cd portals/account && npm install && npm run dev
+# other terminal — source chrome (picks up this tree immediately):
+npm install --prefix portals/server && npm install --prefix portals/account
+npm run dev
+# or: cd portals/server && npm run dev    # Kelmor Director :18443
+#     cd portals/account && npm run dev   # Kelmor Control  :18444
+# refresh installed nginx if you use :8443 / :8444:
+make refresh-portals
 ./scripts/live-e2e.sh
 ./scripts/ui-mvp.sh          # Chrome: provision → files/mail/backups → suspend → migrate → audit
 ```
 
-- API: `http://127.0.0.1:18080`
-- Kelmor Director (installed): `https://127.0.0.1:8443` — `admin` / `ChangeMeOnce!2026` (self-signed portal cert)
-- Kelmor Control (installed): `https://127.0.0.1:8444` — sign in as a provisioned account username
-- Vite HMR (optional): `18443` / `18444`
+- API / OpenAPI HTML: `http://127.0.0.1:18080/` and `http://127.0.0.1:18080/openapi` — titles are Kelmor, not a SPA
+- **Kelmor Director (this tree, Vite):** `http://127.0.0.1:18443` — `admin` / `ChangeMeOnce!2026`
+- **Kelmor Control (this tree, Vite):** `http://127.0.0.1:18444` — sign in as a provisioned account username
+- Kelmor Director (installed nginx): `https://127.0.0.1:8443` — only after `make refresh-portals` (self-signed portal cert)
+- Kelmor Control (installed nginx): `https://127.0.0.1:8444`
 
 Default admin password is for development only. Change it before any real host.
 

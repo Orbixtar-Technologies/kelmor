@@ -1,0 +1,10 @@
+{
+  "name": "kelmor",
+  "private": true,
+  "scripts": {
+    "dev": "bash scripts/dev-portals.sh",
+    "dev:director": "npm run dev --prefix portals/server",
+    "dev:control": "npm run dev --prefix portals/account",
+    "build": "npm run build --prefix portals/server && npm run build --prefix portals/account"
+  }
+}
