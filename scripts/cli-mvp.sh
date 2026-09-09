@@ -36,8 +36,13 @@ host_fetch() {
   fi
   printf '%s' "$code"
 }
-code=$(host_fetch climvp.test /tmp/climvp.html)
-[[ "$code" == "200" ]]
+code=""
+for _ in $(seq 1 40); do
+  code=$(host_fetch climvp.test /tmp/climvp.html)
+  [[ "$code" == "200" ]] && break
+  sleep 0.5
+done
+[[ "$code" == "200" ]] || { echo "climvp HTTP $code" >&2; cat /tmp/climvp.html >&2; exit 1; }
 $CLI file write "$aid" /public_html/cli.txt climvp-ok
 $CLI file list "$aid" /public_html | python3 -c 'import json,sys; names=[i["name"] for i in json.load(sys.stdin).get("items") or []];
 assert "cli.txt" in names, names'
@@ -129,7 +134,12 @@ for i in $(seq 1 20); do
   [[ "$st" == "active" ]] && break
   sleep 1
 done
-code=$(host_fetch climig.test /tmp/climig.html)
-[[ "$code" == "200" ]]
+code=""
+for _ in $(seq 1 40); do
+  code=$(host_fetch climig.test /tmp/climig.html)
+  [[ "$code" == "200" ]] && break
+  sleep 0.5
+done
+[[ "$code" == "200" ]] || { echo "climig HTTP $code" >&2; cat /tmp/climig.html >&2; exit 1; }
 $CLI audit | python3 -c 'import json,sys; items=json.load(sys.stdin).get("items") or []; assert len(items)>0'
 echo CLI_MVP_OK

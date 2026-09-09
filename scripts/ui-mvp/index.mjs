@@ -8,6 +8,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 const SERVER = process.env.PANEL_SERVER_PORTAL || 'http://127.0.0.1:8443'
 const ACCOUNT = process.env.PANEL_ACCOUNT_PORTAL || 'http://127.0.0.1:8444'
 const API = process.env.PANEL_API || 'http://127.0.0.1:18080'
+const TENANT_HTTP_PORT = Number(process.env.PANEL_TENANT_HTTP_PORT || 80)
+const TENANT_HTTPS_PORT = Number(process.env.PANEL_TENANT_HTTPS_PORT || 443)
 const CHROME = process.env.CHROME || '/usr/local/bin/google-chrome'
 const ADMIN_USER = process.env.PANEL_ADMIN_USER || 'admin'
 const ADMIN_PASS = process.env.PANEL_ADMIN_PASSWORD || 'ChangeMeOnce!2026'
@@ -40,14 +42,14 @@ function httpGet (host, path = '/') {
 	return new Promise((resolve, reject) => {
 		const req = http.request({
 			host: '127.0.0.1',
-			port: 80,
+			port: TENANT_HTTP_PORT,
 			path,
 			headers: { Host: host },
 		}, (res) => {
 			if (res.statusCode === 301 || res.statusCode === 302) {
 				const tls = https.request({
 					host: '127.0.0.1',
-					port: 443,
+					port: TENANT_HTTPS_PORT,
 					path,
 					servername: host,
 					headers: { Host: host },
