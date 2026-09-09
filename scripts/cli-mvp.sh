@@ -6,7 +6,10 @@ CLI="${PANEL_CLI:-/usr/local/panel/bin/panel-cli}"
 eval "$($CLI login "${PANEL_ADMIN_USER:-admin}" "${PANEL_ADMIN_PASSWORD:-ChangeMeOnce!2026}")"
 $CLI health >/dev/null
 pkgs=$($CLI account list >/dev/null; curl -sS "$PANEL_API/api/v1/packages" -H "Authorization: Bearer $PANEL_TOKEN")
-pkg=$(echo "$pkgs" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("items") or [])[0]["id"])')
+pkg=$(echo "$pkgs" | python3 -c 'import json,sys; d=json.load(sys.stdin); items=d.get("items") or d
+starter=next((i for i in items if i.get("name")=="Starter"), None)
+pick=starter or max(items, key=lambda i: i.get("disk_bytes") or 0)
+print(pick["id"])')
 accounts=$($CLI account list)
 aid=$(echo "$accounts" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or []; print(next((a['id'] for a in items if a.get('username')=='climvp'), ''))")
 if [[ -z "$aid" ]]; then
@@ -14,6 +17,11 @@ if [[ -z "$aid" ]]; then
   aid=$(echo "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("resource_id",""))')
   op=$(echo "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
   [[ -n "$op" ]] && $CLI job wait "$op"
+else
+  patched=$(curl -sS -X PATCH "$PANEL_API/api/v1/accounts/$aid" -H "Authorization: Bearer $PANEL_TOKEN" -H 'content-type: application/json' \
+    -d "{\"package_id\":\"$pkg\"}")
+  pop=$(echo "$patched" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+  [[ -n "$pop" ]] && $CLI job wait "$pop"
 fi
 for i in $(seq 1 20); do
   st=$($CLI account get "$aid" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
