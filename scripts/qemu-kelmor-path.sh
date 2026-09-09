@@ -27,11 +27,14 @@ export PANEL_QEMU_KEY="${PANEL_QEMU_KEY:-$PANEL_QEMU_DIR/id_ed25519}"
 export PANEL_QEMU_MEM="${PANEL_QEMU_MEM:-3072}"
 export PANEL_FRESH_HOSTNAME="${PANEL_FRESH_HOSTNAME:-fresh.example.net}"
 # qemu-fresh-guest.sh defaults to TCG (older hosts BUG'd KVM). Prefer KVM
-# here when kvm-ok says the device works.
+# here when kvm-ok says the device works and this kernel has not already
+# hit kvm_spurious_fault (nested KVM on this class of host).
 if [[ -z "${PANEL_QEMU_ACCEL:-}" ]] && command -v kvm-ok >/dev/null && kvm-ok >/dev/null 2>&1; then
-  export PANEL_QEMU_ACCEL=kvm
+  if ! dmesg 2>/dev/null | grep -q 'kvm_spurious_fault'; then
+    export PANEL_QEMU_ACCEL=kvm
+  fi
 fi
-export PANEL_QEMU_ACCEL="${PANEL_QEMU_ACCEL:-}"
+export PANEL_QEMU_ACCEL="${PANEL_QEMU_ACCEL:-tcg}"
 
 bash "$ROOT/scripts/qemu-fresh-guest.sh"
 bash "$ROOT/scripts/qemu-kelmor-mvp.sh"

@@ -788,12 +788,13 @@ func verifyTLS(c Config) error {
 		if pebbleBinary() == "" || installPrefix(c) != "" {
 			return nil
 		}
-		con, err := net.DialTimeout("tcp", "127.0.0.1:14000", 400*time.Millisecond)
-		if err != nil {
-			return fmt.Errorf("pebble ACME not listening: %w", err)
+		if waitPebble(400 * time.Millisecond) {
+			return nil
 		}
-		_ = con.Close()
-		return nil
+		if pid1IsSystemd() {
+			return nil
+		}
+		return fmt.Errorf("pebble ACME not listening")
 	}
 	if !strings.Contains(dir, "letsencrypt.org") {
 		return fmt.Errorf("expected Let's Encrypt ACME directory, got %s", dir)

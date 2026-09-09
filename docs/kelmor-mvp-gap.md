@@ -1,4 +1,4 @@
-# Kelmor MVP gap (PR #2 QEMU path @ this tree)
+# Kelmor MVP gap (PR #3 QEMU TLS / reboot / Control @ this tree)
 
 Honest inventory of `main` against the product identity and the
 fresh-Ubuntu MVP path. Status words mean:
@@ -56,13 +56,13 @@ Ubuntu 24.04 native. No Docker/K8s required for the control plane.
 | Nginx site | **VERIFIED** | Guest `Host: freshhost.test` HTTP 200. |
 | PHP 8.3 | **VERIFIED** (live QEMU) | `GET /index.php` → `php 8.3.6 freshhost`; pool isolated; `/run/php/panel-freshhost.sock`; `php8.3-fpm` active. |
 | DNS | **VERIFIED** (after systemd pdns) | Zone file + `dig @127.0.0.1 freshhost.test A` → `10.0.2.15`. First installer pass answered empty until `systemctl restart pdns` (daemon vs unit). |
-| TLS | **PARTIAL** (awaiting live QEMU this run) | Product path: `--acme pebble` (lab HTTP-01) or `--acme staging` / Let’s Encrypt. Provision re-applies the vhost after the cert is written. Pebble is a systemd unit so it can return after reboot. Public LE still needs a hostname whose A/AAAA points at a host that answers :80. |
+| TLS | **VERIFIED** (Pebble HTTP-01 on nested QEMU) / **PARTIAL** (public LE) | Guest `freshhost.test` leaf issued by `CN=Pebble Intermediate CA 7e0d29`, HTTPS 200 via `--resolve`. Worker persists the ACME account key under panel-owned `PANEL_STATE_DIR/control/` (Zone A). Public Let’s Encrypt still needs a routable A/AAAA + :80. |
 | MariaDB | **VERIFIED** (live) / **MOCK** (sandbox) | Provision created `freshhost_db`; `SHOW DATABASES` + credential file on the guest. |
 | SFTP | **VERIFIED** (live QEMU) | Match-scoped password auth; `sftp` as `freshhost` listed `public_html`. |
-| Mailbox | **VERIFIED** (auth) / **PARTIAL** (unit, awaiting reboot proof) | Live mail reload prefers `systemctl restart dovecot` when PID 1 is systemd so a leftover `master.pid` does not steal the port. |
+| Mailbox | **VERIFIED** | `doveadm auth test info@freshhost.test` with the owner password. After reboot, `dovecot.service` was `active` (no leftover hand-started master). |
 | Backup / restore | **VERIFIED** (local HPM1) / **PARTIAL** (offsite) | Guest `backup.create` local succeeded. Offsite not run. |
-| Control self-serve | **PARTIAL** (awaiting browser this run) | `scripts/control-ui-mvp.sh` logs into Kelmor Control, creates a mailbox, and checks the API. |
-| Reboot healthy | **PARTIAL** (awaiting live QEMU this run) | `scripts/qemu-kelmor-reboot.sh` reboots the guest and runs `guest-reboot-health.sh` with no unit repair. |
+| Control self-serve | **VERIFIED** (Chrome) | `CONTROL_UI_MVP_OK freshhost control@freshhost.test` — Kelmor Control login, create mailbox `control`, SSL page lists `freshhost.test`, API agrees. |
+| Reboot healthy | **VERIFIED** (nested QEMU) | `KELMOR_REBOOT_HEALTH_OK` after `shutdown -r now` with no `systemctl start` repair: panel-* + nginx/php-fpm/postgresql/postfix/dovecot/pdns/mariadb/pebble, tenant HTTP/PHP/DNS/MariaDB/SFTP/mail/HTTPS. `systemctl is-system-running` was **degraded** only because `quotaon.service` failed (cloud image has no usrquota). |
 
 ## Control plane (honest)
 
@@ -144,11 +144,14 @@ Public hostnames still require **all** of:
 
 ## Remaining MVP blockers (after this slice)
 
-- Live QEMU evidence for customer Pebble TLS, reboot health, and Control
-  browser (harness is in-tree; mark VERIFIED only after a green run).
-- Let’s Encrypt staging/production on a host with public DNS to :80.
+- Let’s Encrypt **staging/production** on a host with public DNS to :80
+  (QEMU user-net cannot satisfy this; see table above).
+- Nested KVM on some hosts hits `kvm_spurious_fault`; this proof used TCG
+  (`PANEL_QEMU_ACCEL=tcg`). Prefer KVM only when dmesg is clean.
 - Offsite backup destinations configured and restored.
 - Production admin password / TLS for Director:8443 and Control:8444.
+- `quotaon.service` on images without usrquota leaves systemd `degraded`
+  (MVP services were still active).
 - Optional: migrate on-disk `panel` paths to `kelmor` (separate, breaking).
 
 ## What this repo must not grow in an MVP run

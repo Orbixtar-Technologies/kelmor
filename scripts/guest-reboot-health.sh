@@ -10,15 +10,33 @@ UNAME="${PANEL_SMOKE_USER:-freshhost}"
 DOMAIN="${PANEL_SMOKE_DOMAIN:-freshhost.test}"
 TENANT_PASS="${PANEL_TENANT_PASSWORD:-TenantPass!2026}"
 
+unit_is_active() {
+  local u="$1"
+  if systemctl is-active --quiet "$u"; then
+    return 0
+  fi
+  # Ubuntu Postfix is a oneshot wrapper; the instance unit does the listening.
+  if [[ "$u" == "postfix" ]] && systemctl is-active --quiet 'postfix@-'; then
+    return 0
+  fi
+  return 1
+}
+
 need_active() {
-  local u
+  local u i
   for u in "$@"; do
-    if ! systemctl is-active --quiet "$u"; then
-      echo "unit not active after reboot: $u" >&2
-      systemctl status "$u" --no-pager -l >&2 || true
-      exit 1
-    fi
-    echo "unit-ok $u"
+    for i in $(seq 1 60); do
+      if unit_is_active "$u"; then
+        echo "unit-ok $u"
+        break
+      fi
+      if [[ "$i" -eq 60 ]]; then
+        echo "unit not active after reboot: $u" >&2
+        systemctl status "$u" --no-pager -l >&2 || true
+        exit 1
+      fi
+      sleep 2
+    done
   done
 }
 
@@ -29,6 +47,13 @@ api_user=$(ps -o user= -C panel-api 2>/dev/null | awk 'NR==1{print $1}')
 [[ -n "$api_user" && "$api_user" != "root" ]] || { echo "privilege zone A violated: panel-api user='$api_user'" >&2; exit 1; }
 sudo test -S /run/panel/agent.sock || { echo "missing agent socket after reboot" >&2; exit 1; }
 echo "privilege-ok api_user=$api_user"
+
+for _ in $(seq 1 60); do
+  if curl -sf "$BASE/healthz" >/dev/null; then
+    break
+  fi
+  sleep 2
+done
 
 login=$(curl -sS -X POST "$BASE/api/v1/auth/login" -H 'content-type: application/json' \
   -d "{\"username\":\"$USER\",\"password\":\"$PASS\"}")

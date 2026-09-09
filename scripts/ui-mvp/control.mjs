@@ -25,14 +25,23 @@ async function login (page, url, user, pass) {
 }
 
 async function apiLogin () {
-	const res = await fetch(`${API}/api/v1/auth/login`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ username: USER, password: PASS }),
-	})
-	const body = await res.json()
-	if (!body.token) throw new Error(`tenant API login failed: ${JSON.stringify(body)}`)
-	return body.token
+	let last = 'no attempt'
+	for (let i = 0; i < 30; i++) {
+		try {
+			const res = await fetch(`${API}/api/v1/auth/login`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ username: USER, password: PASS }),
+			})
+			const body = await res.json()
+			if (body.token) return body.token
+			last = JSON.stringify(body)
+		} catch (err) {
+			last = err instanceof Error ? err.message : String(err)
+		}
+		await new Promise((r) => setTimeout(r, 1000))
+	}
+	throw new Error(`tenant API login failed: ${last}`)
 }
 
 const browser = await puppeteer.launch({

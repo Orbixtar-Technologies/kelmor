@@ -138,9 +138,8 @@ func startLocalACME(c Config) error {
 	if pid1IsSystemd() {
 		_ = exec.Command("/bin/systemctl", "daemon-reload").Run()
 		_ = exec.Command("/bin/systemctl", "enable", "--now", "pebble.service").Run()
-		if waitPebble(4 * time.Second) {
-			return nil
-		}
+		_ = waitPebble(4 * time.Second)
+		return nil
 	}
 	bin := pebbleBinary()
 	if bin == "" {

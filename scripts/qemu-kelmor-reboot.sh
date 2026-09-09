@@ -48,6 +48,7 @@ done
 ssh_cmd 'set -e
   test "$(cat /proc/1/comm)" = systemd
   echo PID1=$(cat /proc/1/comm)
+  sudo systemctl is-system-running --wait || true
 '
 scp_cmd -P "$PORT" \
   "$SRC/scripts/guest-reboot-health.sh" \
