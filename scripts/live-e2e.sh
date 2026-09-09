@@ -93,6 +93,12 @@ phpcode=$(host_fetch "$DOMAIN" /tmp/live-php.html /index.php)
 php=$(cat /tmp/live-php.html || true)
 echo "php $phpcode $php"
 [[ "$code" == "200" ]] || { echo "expected HTTP 200 for $DOMAIN, got $code" >&2; exit 1; }
+pool="/etc/php/8.3/fpm/pool.d/panel-${UNAME}.conf"
+sudo test -f "$pool" || { echo "missing php-fpm pool $pool" >&2; exit 1; }
+sudo grep -q "user = ${UNAME}" "$pool" || { echo "php-fpm pool not isolated to ${UNAME}" >&2; exit 1; }
+sudo grep -q 'open_basedir' "$pool" || { echo "php-fpm pool missing open_basedir" >&2; exit 1; }
+stat -c '%a %U:%G' "/home/${UNAME}" | grep -Eq '751 root:root' || { echo "home perms not isolated" >&2; stat -c '%a %U:%G' "/home/${UNAME}" >&2; exit 1; }
+echo "linux-isolation ok"
 zid=$(curl -sS "$BASE/api/v1/accounts/$aid/dns/zones" -H "$AUTH" | python3 -c "import json,sys; items=json.load(sys.stdin).get('items') or [];
 print(next((i['id'] for i in items if i.get('name')=='$DOMAIN'), ''))")
 if [[ -n "$zid" ]]; then
