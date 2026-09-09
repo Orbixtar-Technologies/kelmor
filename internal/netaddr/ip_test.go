@@ -12,8 +12,13 @@ func TestPublicIPv4HonorsEnv(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 	addrs := DNSListenIPv4()
-	if len(addrs) != 1 || addrs[0] != "0.0.0.0" {
-		t.Fatalf("unbound public ip should listen 0.0.0.0, got %v", addrs)
+	if len(addrs) < 1 || addrs[0] != "127.0.0.1" {
+		t.Fatalf("expected loopback first, got %v", addrs)
+	}
+	for _, a := range addrs {
+		if a == "203.0.113.9" || a == "0.0.0.0" {
+			t.Fatalf("must not bind published NAT or wildcard: %v", addrs)
+		}
 	}
 }
 

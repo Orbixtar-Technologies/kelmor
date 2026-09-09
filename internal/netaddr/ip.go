@@ -85,16 +85,35 @@ func AddressIsLocal(ipv4 string) bool {
 	return false
 }
 
-// DNSListenIPv4 is the PowerDNS local-address list. Loopback plus
-// PublicIPv4 when that address is on a NIC. A floating / 1:1 NAT
-// address is not bindable, so listen on 0.0.0.0 instead.
+// DNSListenIPv4 is the PowerDNS local-address list. Always include
+// 127.0.0.1. Add PublicIPv4 when it is on a NIC. A floating / 1:1 NAT
+// address is not bindable and 0.0.0.0:53 collides with systemd-resolved,
+// so bind the UDP egress address instead.
 func DNSListenIPv4() []string {
-	pub := PublicIPv4()
-	if pub == "127.0.0.1" {
+	bind := bindableNonLoopback()
+	if bind == "" || bind == "127.0.0.1" {
 		return []string{"127.0.0.1"}
 	}
-	if AddressIsLocal(pub) {
-		return []string{"127.0.0.1", pub}
+	return []string{"127.0.0.1", bind}
+}
+
+func bindableNonLoopback() string {
+	pub := PublicIPv4()
+	if pub != "127.0.0.1" && AddressIsLocal(pub) {
+		return pub
 	}
-	return []string{"0.0.0.0"}
+	return egressIPv4()
+}
+
+func egressIPv4() string {
+	c, err := net.DialTimeout("udp", "1.1.1.1:53", 400*time.Millisecond)
+	if err != nil {
+		return ""
+	}
+	defer c.Close()
+	addr, ok := c.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP.To4() == nil || addr.IP.IsLoopback() {
+		return ""
+	}
+	return addr.IP.To4().String()
 }
