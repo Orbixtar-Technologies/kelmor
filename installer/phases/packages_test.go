@@ -3,6 +3,7 @@ package phases
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,6 +40,16 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestAptEnvIsNoninteractive(t *testing.T) {
+	env := aptEnv()
+	joined := strings.Join(env, "\n")
+	for _, want := range []string{"DEBIAN_FRONTEND=noninteractive", "UCF_FORCE_CONFFNEW=1"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %s in %v", want, env)
+		}
+	}
 }
 
 func TestRejectUnknownPackage(t *testing.T) {

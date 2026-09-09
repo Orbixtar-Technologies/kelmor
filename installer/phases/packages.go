@@ -30,13 +30,18 @@ func InstallPackages(names []string) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("root required to install packages")
 	}
-	env := []string{"DEBIAN_FRONTEND=noninteractive", "PATH=/usr/sbin:/usr/bin:/bin"}
+	env := aptEnv()
 	update := exec.Command("/usr/bin/apt-get", "update")
 	update.Env = env
 	if out, err := update.CombinedOutput(); err != nil {
 		return fmt.Errorf("apt-get update: %s", string(out))
 	}
-	args := append([]string{"-y", "install"}, names...)
+	args := append([]string{
+		"-y",
+		"-o", "Dpkg::Options::=--force-confdef",
+		"-o", "Dpkg::Options::=--force-confold",
+		"install",
+	}, names...)
 	cmd := exec.Command("/usr/bin/apt-get", args...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
@@ -44,6 +49,15 @@ func InstallPackages(names []string) error {
 		return fmt.Errorf("apt-get: %s", string(out))
 	}
 	return nil
+}
+
+func aptEnv() []string {
+	return []string{
+		"DEBIAN_FRONTEND=noninteractive",
+		"DEBCONF_NONINTERACTIVE_SEEN=true",
+		"UCF_FORCE_CONFFNEW=1",
+		"PATH=/usr/sbin:/usr/bin:/bin",
+	}
 }
 
 func applySystemPackages(c Config) error {
