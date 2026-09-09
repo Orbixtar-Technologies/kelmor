@@ -194,10 +194,10 @@ userdb {
 ssl = yes
 ssl_cert = </var/lib/panel/certs/imap.panel.local.crt
 ssl_key = </var/lib/panel/certs/imap.panel.local.key
-!include_try /etc/dovecot/conf.d/*.conf
+!include_try /etc/dovecot/conf.d/99-panel-*.conf
 mail_location = maildir:~/Maildir
 `
-	if err := writeUnlessExists(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
+	if err := os.WriteFile(root(c, "etc/dovecot/dovecot.conf"), []byte(dovecot), 0o644); err != nil {
 		return err
 	}
 	for _, name := range []string{"virtual", "vdomains", "passwd", "uids", "gids", "aliases", "sender-login"} {
