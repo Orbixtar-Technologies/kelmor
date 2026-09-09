@@ -296,19 +296,38 @@ func ensurePanelMailCert(c Config) error {
 	return nil
 }
 
+func mailRestartPlan(systemd bool) [][]string {
+	if systemd {
+		return [][]string{
+			{"/bin/systemctl", "restart", "dovecot"},
+			{"/bin/systemctl", "reload", "postfix"},
+		}
+	}
+	return [][]string{
+		{"/usr/bin/doveadm", "stop"},
+		{"/usr/sbin/dovecot"},
+		{"/usr/sbin/postfix", "reload"},
+	}
+}
+
 func reloadLiveMail(c Config) {
 	if c.Dev || installPrefix(c) != "" {
 		return
 	}
-	// A new unix_listener is not created by doveadm reload.
-	if _, err := os.Stat("/usr/sbin/dovecot"); err == nil {
-		_ = exec.Command("/usr/bin/doveadm", "stop").Run()
-		time.Sleep(200 * time.Millisecond)
-		if exec.Command("/usr/bin/pgrep", "-x", "dovecot").Run() != nil {
-			_ = exec.Command("/usr/sbin/dovecot").Start()
+	for _, args := range mailRestartPlan(pid1IsSystemd()) {
+		if len(args) == 0 {
+			continue
 		}
+		if args[len(args)-1] == "dovecot" && args[0] != "/bin/systemctl" {
+			if _, err := os.Stat("/usr/sbin/dovecot"); err != nil {
+				continue
+			}
+			if exec.Command("/usr/bin/pgrep", "-x", "dovecot").Run() == nil {
+				continue
+			}
+		}
+		_ = exec.Command(args[0], args[1:]...).Run()
 	}
-	_, _ = exec.Command("/usr/sbin/postfix", "reload").CombinedOutput()
 	_ = waitListen("127.0.0.1:587", 3*time.Second)
 }
 
@@ -873,6 +892,12 @@ func verifySystemd(c Config) error {
 	if _, err := os.Stat(root(c, "etc/systemd/system/multi-user.target.wants/panel-worker.service")); err != nil {
 		return fmt.Errorf("panel-worker.service is not enabled for multi-user boot")
 	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/pebble.service")); err != nil {
+		return fmt.Errorf("pebble.service missing")
+	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/multi-user.target.wants/pebble.service")); err != nil {
+		return fmt.Errorf("pebble.service is not enabled for multi-user boot")
+	}
 	return nil
 }
 
@@ -910,6 +935,7 @@ func enableBootUnits(c Config) error {
 	for _, name := range []string{
 		"panel-agent.service", "panel-api.service", "panel-worker.service",
 		"panel-smtp-policy.service", "panel-object-store.service",
+		"pebble.service",
 	} {
 		link := filepath.Join(wants, name)
 		_ = os.Remove(link)

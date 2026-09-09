@@ -58,8 +58,10 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/usr/local/panel/share/portals/account/index.html",
 		"var/panel/host/var/lib/panel/acme-www/.well-known/acme-challenge",
 		"var/panel/host/etc/systemd/system/panel-agent.service",
+		"var/panel/host/etc/systemd/system/pebble.service",
 		"var/panel/host/etc/systemd/system/multi-user.target.wants/panel-agent.service",
 		"var/panel/host/etc/systemd/system/multi-user.target.wants/panel-worker.service",
+		"var/panel/host/etc/systemd/system/multi-user.target.wants/pebble.service",
 		"var/panel/host/etc/systemd/system/panel-smtp-policy.service",
 		"var/panel/host/var/lib/panel/health-report.txt",
 		"var/panel/host/var/lib/panel/public.env",
@@ -94,6 +96,13 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	}
 	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/secrets/backup-s3.env") {
 		t.Fatalf("worker unit missing S3 backup env file: %s", worker)
+	}
+	pebbleUnit, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/systemd/system/pebble.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(pebbleUnit), "/usr/local/panel/bin/pebble") || !contains(string(pebbleUnit), "-dnsserver 127.0.0.1:53") {
+		t.Fatalf("pebble unit: %s", pebbleUnit)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "var/panel/host/etc/systemd/system/panel-object-store.service")); err != nil {
 		t.Fatal(err)

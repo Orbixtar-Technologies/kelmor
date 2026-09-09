@@ -19,6 +19,13 @@ else
   ok=0
 fi
 
+if [[ "${PANEL_QEMU_INSTALL_DEPS:-0}" == "1" ]] && ! command -v qemu-system-x86_64 >/dev/null; then
+  if command -v apt-get >/dev/null && [[ "$(id -u)" -eq 0 || -n "${SUDO_OK:-}" ]]; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+      qemu-system-x86 qemu-utils cloud-image-utils ovmf cpu-checker >/dev/null || true
+  fi
+fi
+
 if command -v qemu-system-x86_64 >/dev/null; then
   report QEMU_BIN "$(command -v qemu-system-x86_64)"
   report QEMU_VERSION "$(qemu-system-x86_64 --version | head -1 | tr ' ' '_')"

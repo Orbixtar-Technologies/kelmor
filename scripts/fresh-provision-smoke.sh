@@ -127,6 +127,65 @@ echo "dns-a $a"
 [[ -n "$a" ]] || { echo "PowerDNS returned no A for $DOMAIN" >&2; sudo cat "/var/lib/panel/dns/zones/${DOMAIN}.zone" >&2; exit 1; }
 echo "dns-ok"
 
+assert_customer_tls() {
+  local dir issuer https_code certs cid cop want
+  dir=$(sudo cat /var/lib/panel/acme.directory 2>/dev/null | tr -d '[:space:]' || true)
+  want=""
+  if echo "$dir" | grep -qiE 'pebble|:14000'; then
+    want=pebble
+    if ! timeout 1 bash -c 'echo >/dev/tcp/127.0.0.1/14000' 2>/dev/null; then
+      sudo systemctl start pebble.service >/dev/null 2>&1 || true
+      sleep 1
+    fi
+  elif echo "$dir" | grep -qi staging; then
+    want=staging
+  elif echo "$dir" | grep -qi letsencrypt.org; then
+    want=letsencrypt
+  elif [[ -z "$dir" ]]; then
+    want=panel-dev
+  fi
+
+  certs=$(curl -sS "$BASE/api/v1/accounts/$aid/certificates" -H "$AUTH")
+  cid=$(echo "$certs" | python3 -c "import json,sys
+items=json.load(sys.stdin).get('items') or []
+print(next((i['id'] for i in items if i.get('hostname')=='$DOMAIN' and i.get('status')=='active'), ''))")
+  if [[ -z "$cid" ]]; then
+    echo "customer-tls requesting $DOMAIN"
+    cop=$(curl -sS -X POST "$BASE/api/v1/accounts/$aid/certificates" -H "$AUTH" -H 'content-type: application/json' \
+      -d "{\"hostname\":\"$DOMAIN\"}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("operation_id",""))')
+    wait_job "$cop" customer-tls
+  fi
+
+  sudo test -f "/var/lib/panel/certs/${DOMAIN}.crt" || { echo "missing customer cert file for $DOMAIN" >&2; exit 1; }
+  issuer=$(sudo openssl x509 -in "/var/lib/panel/certs/${DOMAIN}.crt" -noout -issuer -subject || true)
+  echo "tls-issuer $issuer"
+  echo "tls-directory ${dir:-empty}"
+  case "$want" in
+    pebble)
+      echo "$issuer" | grep -qi pebble || { echo "expected Pebble-issued customer cert, got: $issuer" >&2; exit 1; }
+      ;;
+    staging)
+      echo "$issuer" | grep -qiE 'staging|fake le|let.s encrypt' || { echo "expected Let's Encrypt staging cert, got: $issuer" >&2; exit 1; }
+      ;;
+    letsencrypt)
+      echo "$issuer" | grep -qiE 'let.s encrypt' || { echo "expected Let's Encrypt cert, got: $issuer" >&2; exit 1; }
+      ;;
+    panel-dev)
+      echo "$issuer" | grep -qiE 'kelmor|pebble|let.s encrypt' || { echo "expected panel-dev or ACME cert, got: $issuer" >&2; exit 1; }
+      ;;
+    *)
+      echo "unknown ACME directory $dir; not treating as success" >&2
+      exit 1
+      ;;
+  esac
+  https_code=$(curl -sk -o /tmp/live-https.html -w '%{http_code}' --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/" || true)
+  echo "https $https_code"
+  [[ "$https_code" == "200" ]] || { echo "expected HTTPS 200 for $DOMAIN, got $https_code" >&2; exit 1; }
+  echo "customer-tls-ok issuer=$want"
+}
+
+assert_customer_tls
+
 dbn="${UNAME}_db"
 sudo mariadb -N -e "SHOW DATABASES" | grep -qx "$dbn" || { echo "default MariaDB $dbn missing" >&2; sudo mariadb -e "SHOW DATABASES" >&2; exit 1; }
 sudo test -f "/home/${UNAME}/.panel-database.mariadb.${dbn}" || { echo "missing MariaDB credential file" >&2; exit 1; }

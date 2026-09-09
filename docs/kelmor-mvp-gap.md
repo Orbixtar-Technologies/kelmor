@@ -56,13 +56,13 @@ Ubuntu 24.04 native. No Docker/K8s required for the control plane.
 | Nginx site | **VERIFIED** | Guest `Host: freshhost.test` HTTP 200. |
 | PHP 8.3 | **VERIFIED** (live QEMU) | `GET /index.php` → `php 8.3.6 freshhost`; pool isolated; `/run/php/panel-freshhost.sock`; `php8.3-fpm` active. |
 | DNS | **VERIFIED** (after systemd pdns) | Zone file + `dig @127.0.0.1 freshhost.test A` → `10.0.2.15`. First installer pass answered empty until `systemctl restart pdns` (daemon vs unit). |
-| TLS | **PARTIAL** | Director `:8443` self-signed worked. Customer hostname ACME still lab/Pebble/`panel-dev`, not public DNS. |
+| TLS | **PARTIAL** (awaiting live QEMU this run) | Product path: `--acme pebble` (lab HTTP-01) or `--acme staging` / Let’s Encrypt. Provision re-applies the vhost after the cert is written. Pebble is a systemd unit so it can return after reboot. Public LE still needs a hostname whose A/AAAA points at a host that answers :80. |
 | MariaDB | **VERIFIED** (live) / **MOCK** (sandbox) | Provision created `freshhost_db`; `SHOW DATABASES` + credential file on the guest. |
 | SFTP | **VERIFIED** (live QEMU) | Match-scoped password auth; `sftp` as `freshhost` listed `public_html`. |
-| Mailbox | **VERIFIED** (auth) / **PARTIAL** (unit) | `doveadm auth test info@freshhost.test` succeeded with the owner password. Dovecot systemd unit was `failed` while a hand-started master still served IMAP. |
+| Mailbox | **VERIFIED** (auth) / **PARTIAL** (unit, awaiting reboot proof) | Live mail reload prefers `systemctl restart dovecot` when PID 1 is systemd so a leftover `master.pid` does not steal the port. |
 | Backup / restore | **VERIFIED** (local HPM1) / **PARTIAL** (offsite) | Guest `backup.create` local succeeded. Offsite not run. |
-| Control self-serve | **VERIFIED** (API/SPA) | Same API as Director; this run did not click Control in a browser. |
-| Reboot healthy | **PARTIAL** | Guest was not rebooted. |
+| Control self-serve | **PARTIAL** (awaiting browser this run) | `scripts/control-ui-mvp.sh` logs into Kelmor Control, creates a mailbox, and checks the API. |
+| Reboot healthy | **PARTIAL** (awaiting live QEMU this run) | `scripts/qemu-kelmor-reboot.sh` reboots the guest and runs `guest-reboot-health.sh` with no unit repair. |
 
 ## Control plane (honest)
 
@@ -107,26 +107,48 @@ sudo ./scripts/qemu-kelmor-path.sh
 ```
 
 `qemu-kelmor-path.sh` boots `scripts/qemu-fresh-guest.sh` (official Noble
-cloud image + `panel-install`) then `scripts/qemu-kelmor-mvp.sh`, which
-runs `scripts/fresh-provision-smoke.sh` inside the guest. That smoke now
-asserts privilege zone A (API not root), Kelmor Director HTML when
-`:8443` is required, PHP execution + fpm socket, published PowerDNS A,
-default MariaDB `<user>_db`, `info@` with the owner password, and a
-password SFTP listing.
+cloud image + `panel-install --acme pebble`) then:
+
+1. `scripts/qemu-kelmor-mvp.sh` → `fresh-provision-smoke.sh` (privilege
+   zone A, Director HTML, PHP, DNS, **customer TLS**, MariaDB, `info@`,
+   password SFTP).
+2. `scripts/qemu-kelmor-reboot.sh` → guest `shutdown -r now` →
+   `guest-reboot-health.sh` (no `systemctl start` repair).
+3. `scripts/control-ui-mvp.sh` → Chrome against Control `:8444` (host
+   forward `39444`) as the provisioned tenant.
 
 `scripts/qemu-mvp.sh` still runs the broader `live-e2e.sh` (import/WP).
 Do not treat that as the Kelmor MVP gate.
 
+### Customer TLS modes (honest)
+
+| Mode | Install flag / env | What it proves | What it does **not** prove |
+| --- | --- | --- | --- |
+| `panel-dev` | empty `PANEL_ACME_DIRECTORY` (dev/sandbox) | Self-signed Kelmor leaf written through `IssueDevCertificate` | Public trust, HTTP-01 |
+| Pebble (lab) | `--acme pebble` | Real ACME HTTP-01 against a local CA; same challenge protocol as LE | Public hostname, public CA, inbound :80 from the Internet |
+| Let’s Encrypt **staging** | `--acme staging` or `PANEL_ACME_STAGING=1` | Public CA staging issuance | Production trust store (staging intermediates are untrusted by browsers) |
+| Let’s Encrypt production | `--acme letsencrypt` (default on a fresh public install) | Public trust | Nothing if DNS/HTTP-01 cannot reach the node |
+
+Public hostnames still require **all** of:
+
+1. An A/AAAA at the registrar (or parent) pointing at the node’s
+   `PANEL_PUBLIC_IPV4` (not a QEMU user-net `10.0.2.15` that the Internet
+   cannot route to).
+2. Port 80 reachable from Let’s Encrypt validators (nftables `table inet
+   panel` already allows HTTP).
+3. Install with `--acme staging` first, then `--acme letsencrypt` once
+   staging HTTP-01 succeeds — do not burn production rate limits on a
+   broken path.
+4. Nested QEMU user networking **cannot** satisfy (1)+(2). That is why
+   the QEMU proof uses Pebble, not LE staging.
+
 ## Remaining MVP blockers (after this slice)
 
-- Re-run `qemu-kelmor-path.sh` on a **new** empty disk after the
-  systemd-pdns fix (this run repaired pdns on an already-installed guest).
-- Guest reboot → units come back healthy (`PANEL_ALLOW_REBOOT=1`).
-- Dovecot managed only by systemd (no leftover master.pid clash).
-- Live ACME for customer hostnames (public DNS to the node).
+- Live QEMU evidence for customer Pebble TLS, reboot health, and Control
+  browser (harness is in-tree; mark VERIFIED only after a green run).
+- Let’s Encrypt staging/production on a host with public DNS to :80.
 - Offsite backup destinations configured and restored.
 - Production admin password / TLS for Director:8443 and Control:8444.
-- Browser pass of Kelmor Control (API path already used).
 - Optional: migrate on-disk `panel` paths to `kelmor` (separate, breaking).
 
 ## What this repo must not grow in an MVP run

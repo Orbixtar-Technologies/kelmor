@@ -1,4 +1,4 @@
-.PHONY: bootstrap generate lint test test-integration test-security test-provisioning build package release dev portals
+.PHONY: bootstrap generate lint test test-integration test-security test-provisioning build pebble package release dev portals
 
 GO ?= go
 API_PORT ?= 18080
@@ -41,6 +41,11 @@ build:
 	$(GO) build -o dist/bin/panel-dev ./cmd/panel-dev
 	$(GO) build -o dist/bin/panel-smtp-policy ./cmd/panel-smtp-policy
 	$(GO) build -o dist/bin/panel-object-store ./cmd/panel-object-store
+
+# Lab ACME CA used by --acme pebble (HTTP-01, same protocol as Let's Encrypt).
+pebble:
+	mkdir -p dist/bin
+	GOBIN="$(CURDIR)/dist/bin" $(GO) install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.8.0
 	cp dist/bin/panel-api dist/bin/kelmor-api
 	cp dist/bin/panel-worker dist/bin/kelmor-worker
 	cp dist/bin/panel-agent dist/bin/kelmor-agent
@@ -74,5 +79,5 @@ qemu-host-ready:
 
 # Nested Ubuntu 24.04 guest + installer + focused provision smoke.
 # Requires qemu-system-x86, OVMF, cloud-localds, and sudo.
-qemu-kelmor-mvp: build
+qemu-kelmor-mvp: build pebble
 	bash scripts/qemu-kelmor-path.sh
