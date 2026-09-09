@@ -51,6 +51,14 @@ func verifyPortals(c Config) error {
 	if !strings.Contains(string(account), "Account Portal") {
 		return fmt.Errorf("account portal index missing title")
 	}
+	if !c.Dev {
+		if !portalIsBuilt(string(server)) {
+			return fmt.Errorf("server portal is not a built SPA (run make portals)")
+		}
+		if !portalIsBuilt(string(account)) {
+			return fmt.Errorf("account portal is not a built SPA (run make portals)")
+		}
+	}
 	if c.Dev {
 		return nil
 	}
@@ -68,17 +76,24 @@ func installPortalApp(c Config, name, title string) error {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
-	src := portalAssetRoot(name)
+	src := portalAssetRoot(c, name)
 	if src != "" && src != dest {
 		if err := copyPortalTree(src, dest); err != nil {
 			return err
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dest, "index.html")); err == nil {
+	if html, err := os.ReadFile(filepath.Join(dest, "index.html")); err == nil && portalIsBuilt(string(html)) {
 		return nil
+	}
+	if !c.Dev {
+		return fmt.Errorf("built %s portal assets were not found (run make portals; installer looks next to panel-install under ../share/portals/%s)", name, name)
 	}
 	body := fmt.Sprintf("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>%s</title></head><body><h1>%s</h1><p>Built portal assets were not found next to panel-install. Run <code>make portals</code> and re-run the installer.</p></body></html>\n", title, title)
 	return os.WriteFile(filepath.Join(dest, "index.html"), []byte(body), 0o644)
+}
+
+func portalIsBuilt(html string) bool {
+	return strings.Contains(html, "/assets/") && strings.Contains(html, `id="root"`)
 }
 
 func writePortalNginx(c Config, name string, port int, rootRel string) error {
@@ -113,14 +128,16 @@ func writePortalNginx(c Config, name string, port int, rootRel string) error {
 	return os.WriteFile(root(c, "etc/nginx/panel-sites/"+name), []byte(body), 0o644)
 }
 
-func portalAssetRoot(name string) string {
+func portalAssetRoot(c Config, name string) string {
 	candidates := []string{
 		filepath.Join("dist", "share", "portals", name),
 		filepath.Join("portals", name, "dist"),
-		filepath.Join("/usr/local/panel/share/portals", name),
 	}
 	if exe, err := os.Executable(); err == nil {
 		candidates = append([]string{filepath.Join(filepath.Dir(exe), "..", "share", "portals", name)}, candidates...)
+	}
+	if !c.Dev && installPrefix(c) == "" {
+		candidates = append(candidates, filepath.Join("/usr/local/panel/share/portals", name))
 	}
 	for _, p := range candidates {
 		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {
@@ -165,7 +182,7 @@ func copyPortalTree(src, dest string) error {
 }
 
 func reloadNginxIfLive(c Config) error {
-	if c.Dev {
+	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	if _, err := os.Stat("/usr/sbin/nginx"); err != nil {

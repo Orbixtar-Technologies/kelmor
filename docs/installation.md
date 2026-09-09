@@ -9,6 +9,8 @@ Minimum production: 4 vCPU, 8 GB RAM, 100 GB SSD.
 make package   # dist/deb/hosting-panel_*.deb (binaries, portals, systemd units)
 sudo dpkg -i dist/deb/hosting-panel_*.deb
 sudo panel-install --hostname panel.example.net --admin-email ops@example.net --non-interactive --channel stable
+# Live installs refuse placeholder portal HTML. `make package` ships the built SPAs;
+# a binary-only copy must place them at /usr/local/panel/share/portals/{server,account}.
 # default ACME is Let's Encrypt HTTP-01. Lab/Pebble:
 # sudo panel-install --acme pebble --non-interactive
 ```

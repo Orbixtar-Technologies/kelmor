@@ -5,6 +5,7 @@ KEY="${PANEL_QEMU_KEY:-/var/lib/panel/qemu/id_ed25519}"
 PORT="${PANEL_QEMU_SSH:-2222}"
 HOST="${PANEL_FRESH_HOSTNAME:-panel.example.net}"
 BIN="${PANEL_BIN_DIR:-/usr/local/panel/bin}"
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
 
 ssh_cmd() {
   ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -20,6 +21,21 @@ scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$P
   "$BIN/panel-backup" "$BIN/pebble" \
   ubuntu@127.0.0.1:/tmp/panel-in/
 ssh_cmd 'sudo cp -a /tmp/panel-in/. /usr/local/panel/bin/; sudo chmod 0755 /usr/local/panel/bin/*'
+if [[ -f "$SRC/portals/server/dist/index.html" && -f "$SRC/portals/account/dist/index.html" ]]; then
+  ssh_cmd 'sudo mkdir -p /usr/local/panel/share/portals/server /usr/local/panel/share/portals/account && sudo chown -R ubuntu:ubuntu /usr/local/panel/share/portals'
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" -r \
+    "$SRC/portals/server/dist/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/server/
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" -r \
+    "$SRC/portals/account/dist/." ubuntu@127.0.0.1:/usr/local/panel/share/portals/account/
+fi
+if [[ -d "$SRC/testdata/cpanel-acme42" ]]; then
+  ssh_cmd 'sudo mkdir -p /usr/local/panel/share/testdata /usr/local/panel/share/scripts && sudo chown -R ubuntu:ubuntu /usr/local/panel/share'
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" -r \
+    "$SRC/testdata/cpanel-acme42" ubuntu@127.0.0.1:/usr/local/panel/share/testdata/
+  scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" \
+    "$SRC/scripts/live-e2e.sh" "$SRC/scripts/cli-mvp.sh" \
+    ubuntu@127.0.0.1:/usr/local/panel/share/scripts/
+fi
 echo BINS_COPIED
 ssh_cmd "sudo /usr/local/panel/bin/panel-install --non-interactive --hostname $HOST --admin-email admin@$HOST --acme pebble"
 echo INSTALL_DONE

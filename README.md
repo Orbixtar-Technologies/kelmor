@@ -46,7 +46,7 @@ Default admin password is for development only. Change it before any real host.
 sudo ./panel-install --hostname panel.example.net --admin-email ops@example.net --non-interactive
 ```
 
-The installer writes `/var/lib/panel/install-state.json` and resumes failed phases. It does not require Docker for the control plane. After `make portals`, the installer copies the built SPAs to `/usr/local/panel/share/portals` and nginx serves them on **8443** (Server Portal) and **8444** (Account Portal), proxying `/api` and `/healthz` to the control API.
+The installer writes `/var/lib/panel/install-state.json` and resumes failed phases. It does not require Docker for the control plane. A live install fails unless built Server/Account SPAs are present (`make portals` or the Debian package). nginx serves them on **8443** and **8444**, proxying `/api` and `/healthz` to the control API.
 
 ## Layout
 

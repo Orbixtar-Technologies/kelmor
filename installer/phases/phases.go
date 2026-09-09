@@ -252,7 +252,9 @@ func installPackedPortals(c Config, binSrc string) error {
 		filepath.Join(filepath.Dir(binSrc), "..", "share", "portals"),
 		filepath.Join(binSrc, "..", "share", "portals"),
 		"dist/share/portals",
-		"/usr/local/panel/share/portals",
+	}
+	if installPrefix(c) == "" {
+		candidates = append(candidates, "/usr/local/panel/share/portals")
 	}
 	var src string
 	for _, p := range candidates {
@@ -262,6 +264,10 @@ func installPackedPortals(c Config, binSrc string) error {
 		}
 	}
 	if src == "" {
+		return nil
+	}
+	html, err := os.ReadFile(filepath.Join(src, "server", "index.html"))
+	if err != nil || !portalIsBuilt(string(html)) {
 		return nil
 	}
 	dest := root(c, "usr/local/panel/share/portals")
