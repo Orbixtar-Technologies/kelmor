@@ -33,6 +33,21 @@ func hostServices() []hostService {
 	}
 }
 
+func systemdUnitForHost(comm string) string {
+	switch comm {
+	case "pdns_server":
+		return "pdns"
+	case "dovecot":
+		return "dovecot"
+	case "nginx":
+		return "nginx"
+	case "mysqld":
+		return "mariadb"
+	default:
+		return ""
+	}
+}
+
 func startHostService(svc hostService) {
 	if len(svc.Args) == 0 {
 		return
@@ -48,6 +63,14 @@ func startHostService(svc hostService) {
 	}
 	if svc.Comm != "" && exec.Command("/usr/bin/pgrep", "-x", svc.Comm).Run() == nil {
 		return
+	}
+	if unit := systemdUnitForHost(svc.Comm); unit != "" {
+		if exec.Command("/bin/systemctl", "restart", unit).Run() == nil {
+			if svc.Listen != "" {
+				_ = waitListen(svc.Listen, 5*time.Second)
+			}
+			return
+		}
 	}
 	cmd := exec.Command(svc.Args[0], svc.Args[1:]...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "DEBIAN_FRONTEND=noninteractive"}

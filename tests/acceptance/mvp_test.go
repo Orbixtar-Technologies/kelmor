@@ -54,9 +54,16 @@ func TestMVPAcceptancePath(t *testing.T) {
 		t.Fatal("mail maps", err)
 	}
 
+	if _, err := os.Stat(filepath.Join(root, "home/acme42/public_html/index.php")); err != nil {
+		t.Fatal("php index", err)
+	}
 	dbs := get(t, srv.URL+"/api/v1/accounts/"+aid+"/databases", token)["items"].([]any)
 	if len(dbs) == 0 {
 		t.Fatal("default mariadb missing")
+	}
+	db0 := dbs[0].(map[string]any)
+	if db0["name"] != "acme42_db" || db0["engine"] != "mariadb" {
+		t.Fatalf("default mariadb %+v", db0)
 	}
 	mds := get(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/domains", token)["items"].([]any)
 	if len(mds) == 0 {
@@ -65,6 +72,10 @@ func TestMVPAcceptancePath(t *testing.T) {
 	boxes := get(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes", token)["items"].([]any)
 	if len(boxes) == 0 {
 		t.Fatal("login mailbox missing")
+	}
+	box0 := boxes[0].(map[string]any)
+	if box0["local_part"] != "info" {
+		t.Fatalf("login mailbox %+v", box0)
 	}
 	md := mds[0].(map[string]any)
 	post(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes", token, map[string]any{

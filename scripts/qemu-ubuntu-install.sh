@@ -208,10 +208,14 @@ BIN_DIR="$SRC/dist/bin"
 if [[ ! -x "$BIN_DIR/panel-install" ]]; then
   BIN_DIR=/usr/local/panel/bin
 fi
+copy_bins=("$BIN_DIR"/panel-*)
+if [[ -x "$BIN_DIR/pebble" ]]; then
+  copy_bins+=("$BIN_DIR/pebble")
+fi
 scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" \
-  "$BIN_DIR/"panel-* "$BIN_DIR/pebble" \
+  "${copy_bins[@]}" \
   ubuntu@127.0.0.1:/tmp/panel-in/
-ssh_cmd 'sudo cp -a /tmp/panel-in/. /usr/local/panel/bin/; sudo chmod 0755 /usr/local/panel/bin/panel-* /usr/local/panel/bin/pebble || true'
+ssh_cmd 'sudo cp -a /tmp/panel-in/. /usr/local/panel/bin/; sudo chmod 0755 /usr/local/panel/bin/panel-* ; sudo chmod 0755 /usr/local/panel/bin/pebble 2>/dev/null || true'
 if [[ -f "$SRC/portals/server/dist/index.html" && -f "$SRC/portals/account/dist/index.html" ]]; then
   ssh_cmd 'sudo mkdir -p /usr/local/panel/share/portals/server /usr/local/panel/share/portals/account && sudo chown -R ubuntu:ubuntu /usr/local/panel/share/portals'
   scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SSH_PORT" -r \

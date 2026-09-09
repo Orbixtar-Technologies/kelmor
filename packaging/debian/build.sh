@@ -18,7 +18,8 @@ cp "$ROOT/dist/bin/"panel-{api,worker,agent,cli,updater,backup,install,smtp-poli
 cp "$ROOT/dist/bin/"kelmor-{api,worker,agent,cli,updater,backup,install,smtp-policy,object-store} "$STAGE/usr/local/panel/bin/"
 cp -a "$ROOT/dist/share/portals/." "$STAGE/usr/local/panel/share/portals/"
 cp -a "$ROOT/testdata/cpanel-acme42" "$STAGE/usr/local/panel/share/testdata/"
-cp "$ROOT/scripts/live-e2e.sh" "$ROOT/scripts/cli-mvp.sh" "$STAGE/usr/local/panel/share/scripts/"
+cp "$ROOT/scripts/live-e2e.sh" "$ROOT/scripts/cli-mvp.sh" \
+  "$ROOT/scripts/fresh-provision-smoke.sh" "$STAGE/usr/local/panel/share/scripts/"
 cp "$ROOT/installer/phases/units/"*.service "$STAGE/etc/systemd/system/"
 cp "$ROOT/packaging/debian/postinst" "$STAGE/DEBIAN/postinst"
 chmod 0755 "$STAGE/DEBIAN/postinst"

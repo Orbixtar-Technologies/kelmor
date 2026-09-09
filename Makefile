@@ -68,3 +68,11 @@ portals:
 
 dev:
 	PANEL_DEV=1 PANEL_API_ADDR=127.0.0.1:$(API_PORT) ./scripts/dev.sh
+
+qemu-host-ready:
+	bash scripts/qemu-host-ready.sh
+
+# Nested Ubuntu 24.04 guest + installer + focused provision smoke.
+# Requires qemu-system-x86, OVMF, cloud-localds, and sudo.
+qemu-kelmor-mvp: build
+	bash scripts/qemu-kelmor-path.sh

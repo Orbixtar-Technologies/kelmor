@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+func TestSystemdUnitForHost(t *testing.T) {
+	if got := systemdUnitForHost("pdns_server"); got != "pdns" {
+		t.Fatalf("pdns %q", got)
+	}
+	if got := systemdUnitForHost("dovecot"); got != "dovecot" {
+		t.Fatalf("dovecot %q", got)
+	}
+	if got := systemdUnitForHost("unknown"); got != "" {
+		t.Fatalf("unknown %q", got)
+	}
+}
+
 func TestHostServicesStartPowerDNSWithConfigDir(t *testing.T) {
 	var pdns *hostService
 	for i := range hostServices() {
