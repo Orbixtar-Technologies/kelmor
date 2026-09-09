@@ -101,19 +101,21 @@ export function JobQueue () {
 				actions={<button type="button" className="btn secondary" onClick={() => jobs.reload()}>Refresh</button>}
 			/>
 
-			<Panel title="Queue health" icon="activity" tight>
-				<ul className="stat-list">
+			<Panel title="Queue health" icon="activity" subtitle={`${all.length} jobs recorded`}>
+				<div className="chip-row">
 					{counts.map(({ state, count }) => (
-						<li key={state}>
-							<span className="label">
-								<button type="button" className="linkish" onClick={() => setStateFilter(stateFilter === state ? '' : state)}>
-									{state}
-								</button>
-							</span>
-							<span className="value"><Pill tone={statusTone(state)}>{count}</Pill></span>
-						</li>
+						<button
+							key={state}
+							type="button"
+							className={stateFilter === state ? 'chip on' : 'chip'}
+							aria-pressed={stateFilter === state}
+							onClick={() => setStateFilter(stateFilter === state ? '' : state)}
+						>
+							<Pill tone={statusTone(state)}>{count}</Pill>
+							<span>{state}</span>
+						</button>
 					))}
-				</ul>
+				</div>
 			</Panel>
 
 			{all.some((job) => job.state === 'failed') ? (

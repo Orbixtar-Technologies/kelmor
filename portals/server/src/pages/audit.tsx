@@ -71,7 +71,12 @@ export function AuditLog () {
 	const rows = events.data?.items ?? []
 	const total = events.data?.total ?? 0
 	const pageCount = Math.max(1, Math.ceil(total / limit))
-	const accountFor = (id?: string) => (accounts.data ?? []).find((a) => a.id === id)
+	// Writes against an account record the id as the resource rather than the
+	// account scope, so fall back to it before showing an empty cell.
+	const accountFor = (event: AuditEvent) => {
+		const id = event.account_id || (event.resource_type === 'account' ? event.resource_id : '')
+		return (accounts.data ?? []).find((a) => a.id === id)
+	}
 	const filtersActive = JSON.stringify(applied) !== JSON.stringify(emptyFilters)
 
 	function apply () {
@@ -176,7 +181,7 @@ export function AuditLog () {
 							</thead>
 							<tbody>
 								{rows.map((event) => {
-									const account = accountFor(event.account_id)
+									const account = accountFor(event)
 									return (
 										<tr key={event.id}>
 											<td title={formatDateTime(event.occurred_at)}>{formatRelative(event.occurred_at)}</td>

@@ -23,9 +23,10 @@ export function PageHeader ({ title, description, crumbs, actions, favoritePath 
 	const tool = toolByPath(path)
 	const category = categoryOf(path)
 	const { isFavorite, toggle } = useFavorites()
+	const leaf = tool?.name ?? title
 	const trail: Crumb[] = crumbs ?? [
-		...(category ? [{ label: category.name }] : []),
-		{ label: tool?.name ?? title },
+		...(category && category.name !== leaf ? [{ label: category.name }] : []),
+		{ label: leaf },
 	]
 
 	return (

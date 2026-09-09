@@ -57,9 +57,14 @@ export function meterClass (percent: number) {
 	return 'meter'
 }
 
+/**
+ * Abbreviates an identifier for a table cell. UUIDv7 ids share a time-ordered
+ * prefix, so the tail is what actually distinguishes two rows.
+ */
 export function shortId (value: string | null | undefined, length = 8) {
 	if (!value) return '—'
-	return value.length <= length ? value : value.slice(0, length)
+	if (value.length <= length) return value
+	return `…${value.slice(-length)}`
 }
 
 export function titleCase (value: string) {
