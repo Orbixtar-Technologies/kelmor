@@ -48,8 +48,8 @@ export function App () {
 					<Route path="dns" element={allowed('dns.read', <DNSPage />)} />
 					<Route path="status" element={allowed('server.read', <ServiceStatusPage />)} />
 					<Route path="security" element={allowed('server.read', <SecurityPage />)} />
-					<Route path="transfers" element={(capabilities['accounts.create'] || capabilities['backups.create']) ? <TransfersPage /> : <Forbidden title="Transfers" />} />
-					<Route path="import" element={(capabilities['accounts.create'] || capabilities['backups.create']) ? <TransfersPage /> : <Forbidden title="Transfers" />} />
+					<Route path="transfers" element={allowed('accounts.read', <TransfersPage />)} />
+					<Route path="import" element={allowed('accounts.read', <TransfersPage />)} />
 					<Route path="jobs" element={(capabilities['server.read'] || capabilities['accounts.read']) ? <JobsPage /> : <Forbidden title="Jobs" />} />
 					<Route path="audit" element={allowed('security.audit.read', <AuditPage />)} />
 					<Route path="usage" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />

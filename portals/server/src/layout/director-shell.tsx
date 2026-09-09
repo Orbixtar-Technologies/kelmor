@@ -41,10 +41,17 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 		setMobileOpen(false)
 		menuButtonRef.current?.focus()
 	}
+	function handleSidebarNavigation () {
+		if (mobileOpen) {
+			dismissMobileNavigation()
+			return
+		}
+		setMobileOpen(false)
+	}
 
 	return (
 		<div className={`director ${collapsed ? 'nav-collapsed' : ''}`}>
-			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} onMobileDismiss={dismissMobileNavigation} />
+			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} />
 			<div className="workspace">
 				<header className="topbar">
 					<button ref={menuButtonRef} type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen((open) => !open)}>☰</button>

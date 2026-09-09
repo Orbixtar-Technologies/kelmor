@@ -1552,6 +1552,10 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 	acc.DesiredRevision++
 	job, err := a.Store.UpdateAccountWithJob(acc, &store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID}, State: "queued"})
 	if err != nil {
+		if errors.Is(err, store.ErrStaleAccount) {
+			a.fail(w, r, 409, "ACCOUNT_CONFLICT", "Account changed while this update was being reviewed", false)
+			return
+		}
 		a.fail(w, r, 500, "ACCOUNT_UPDATE_ERROR", "Could not update account and queue reconciliation", false)
 		return
 	}
@@ -1639,6 +1643,10 @@ func (a *API) setAccountStatus(w http.ResponseWriter, r *http.Request, status, a
 	acc.DesiredRevision++
 	job, err := a.Store.UpdateAccountWithJob(acc, &store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID, "status": status}, State: "queued"})
 	if err != nil {
+		if errors.Is(err, store.ErrStaleAccount) {
+			a.fail(w, r, 409, "ACCOUNT_CONFLICT", "Account changed while this action was being reviewed", false)
+			return
+		}
 		a.fail(w, r, 500, "ACCOUNT_STATUS_ERROR", "Could not update account status and queue reconciliation", false)
 		return
 	}

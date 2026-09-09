@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -403,7 +404,7 @@ func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
 			linux_uid=$6, linux_gid=$7, package_id=$8, status=$9, home_path=$10,
 			ip_address=NULLIF($11,'')::inet, shell_class=$12, login_disabled=$13,
 			desired_revision=$14, observed_revision=$15, updated_at=now()
-		WHERE id=$1`,
+		WHERE id=$1 AND desired_revision=$14 - 1`,
 		account.ID, account.ResellerID, account.OwnerUserID, account.Username, account.PrimaryDomain,
 		account.LinuxUID, account.LinuxGID, account.PackageID, account.Status, account.HomePath,
 		account.IPAddress, account.ShellClass, account.LoginDisabled, account.DesiredRevision,
@@ -412,7 +413,7 @@ func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
 		return nil, fmt.Errorf("update account: %w", err)
 	}
 	if result.RowsAffected() != 1 {
-		return nil, fmt.Errorf("account %q not found", account.ID)
+		return nil, fmt.Errorf("%w: account %q", ErrStaleAccount, account.ID)
 	}
 	if err := insertJobTx(ctx, tx, job, payload); err != nil {
 		return nil, fmt.Errorf("insert account update job: %w", err)
@@ -425,12 +426,11 @@ func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
 }
 
 func validateAccountReferences(ctx context.Context, tx pgx.Tx, account *Account) error {
-	var packageExists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM packages WHERE id=$1)`, account.PackageID).Scan(&packageExists); err != nil {
-		return fmt.Errorf("validate account package: %w", err)
-	}
-	if !packageExists {
+	var packageID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM packages WHERE id=$1 FOR KEY SHARE`, account.PackageID).Scan(&packageID); errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("package %q not found", account.PackageID)
+	} else if err != nil {
+		return fmt.Errorf("validate account package: %w", err)
 	}
 	if account.ResellerID == "" {
 		return nil

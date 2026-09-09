@@ -155,3 +155,35 @@ func TestMemoryUpdateAccountWithJobRollsBackOnDuplicateJob(t *testing.T) {
 		t.Fatalf("failed update changed account: %+v", got)
 	}
 }
+
+func TestMemoryUpdateAccountWithJobRejectsStaleRevision(t *testing.T) {
+	data := NewMemory()
+	data.PutPackage(&Package{ID: "package-1"})
+	data.PutAccount(&Account{
+		ID: "account-1", Username: "customer", PrimaryDomain: "old.test",
+		PackageID: "package-1", Status: "active", DesiredRevision: 1,
+	})
+	first := data.GetAccount("account-1")
+	second := data.GetAccount("account-1")
+	first.PrimaryDomain = "first.test"
+	first.DesiredRevision++
+	second.Status = "suspended"
+	second.DesiredRevision++
+
+	if _, err := data.UpdateAccountWithJob(first, &Job{
+		ID: "job-first", Type: "account.reconcile", ResourceID: first.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.UpdateAccountWithJob(second, &Job{
+		ID: "job-second", Type: "account.reconcile", ResourceID: second.ID,
+	}); err == nil {
+		t.Fatal("stale account update committed")
+	}
+	if got := data.GetAccount(first.ID); !reflect.DeepEqual(got, first) {
+		t.Fatalf("stale update overwrote current account: %+v", got)
+	}
+	if data.GetJob("job-second") != nil {
+		t.Fatal("stale update enqueued a job")
+	}
+}

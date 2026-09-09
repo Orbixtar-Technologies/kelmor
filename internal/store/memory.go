@@ -275,8 +275,12 @@ func (m *Memory) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) 
 	if account == nil || job == nil {
 		return nil, fmt.Errorf("account and job are required")
 	}
-	if account.ID == "" || m.Accounts[account.ID] == nil {
+	current := m.Accounts[account.ID]
+	if account.ID == "" || current == nil {
 		return nil, fmt.Errorf("account %q not found", account.ID)
+	}
+	if account.DesiredRevision != current.DesiredRevision+1 {
+		return nil, fmt.Errorf("%w: account %q", ErrStaleAccount, account.ID)
 	}
 	if job.ResourceID != "" && job.ResourceID != account.ID {
 		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)

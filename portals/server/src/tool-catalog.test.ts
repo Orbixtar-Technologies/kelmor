@@ -64,6 +64,7 @@ describe('tool discovery', () => {
 		['terminate-account', ['accounts.read', 'accounts.terminate']],
 		['force-password', ['accounts.read', 'accounts.modify']],
 		['usage', ['billing.usage.read', 'accounts.read', 'packages.read']],
+		['transfers', ['accounts.read']],
 	] as const)('requires every capability for the %s tool', (toolId, requiredCapabilities) => {
 		for (const omittedCapability of requiredCapabilities) {
 			const capabilities = Object.fromEntries(requiredCapabilities.map((capability) => [capability, capability !== omittedCapability]))

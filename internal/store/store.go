@@ -1,5 +1,9 @@
 package store
 
+import "errors"
+
+var ErrStaleAccount = errors.New("stale account revision")
+
 type Store interface {
 	PutUser(*User)
 	UserByUsername(string) *User
