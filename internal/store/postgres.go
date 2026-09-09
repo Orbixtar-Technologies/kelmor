@@ -293,6 +293,168 @@ func (p *PG) PutAccount(a *Account) {
 		a.ID, a.ResellerID, a.OwnerUserID, a.Username, a.PrimaryDomain, a.LinuxUID, a.LinuxGID, a.PackageID, a.Status, a.HomePath, a.IPAddress, a.ShellClass, a.LoginDisabled, a.DesiredRevision, a.ObservedRevision)
 }
 
+func (p *PG) CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error) {
+	if owner == nil || account == nil || domain == nil || job == nil {
+		return nil, fmt.Errorf("owner, account, domain, and job are required")
+	}
+	if account.OwnerUserID != owner.ID {
+		return nil, fmt.Errorf("account owner %q does not match user %q", account.OwnerUserID, owner.ID)
+	}
+	if domain.AccountID != account.ID {
+		return nil, fmt.Errorf("domain account %q does not match account %q", domain.AccountID, account.ID)
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	normalizeJob(job)
+	payload, err := json.Marshal(job.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal account creation job payload: %w", err)
+	}
+
+	ctx := p.ctx()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin account creation: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := validateAccountReferences(ctx, tx, account); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, password_hash, display_name, status, totp_enabled, must_change_password, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())`,
+		owner.ID, owner.Username, owner.Email, owner.PasswordHash, owner.DisplayName, owner.Status,
+		owner.TOTPEnabled, owner.MustChangePassword, owner.CreatedAt); err != nil {
+		return nil, fmt.Errorf("insert account owner: %w", err)
+	}
+	for _, role := range owner.Roles {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO roles (id, name) VALUES ($1,$2)
+			ON CONFLICT (name) DO NOTHING`, id.New(), role); err != nil {
+			return nil, fmt.Errorf("ensure account owner role %q: %w", role, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO user_roles (user_id, role_id)
+			SELECT $1, id FROM roles WHERE name=$2`, owner.ID, role); err != nil {
+			return nil, fmt.Errorf("assign account owner role %q: %w", role, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO accounts (id, reseller_id, owner_user_id, username, primary_domain, linux_uid, linux_gid, package_id, status, home_path, ip_address, shell_class, login_disabled, desired_revision, observed_revision)
+		VALUES ($1,NULLIF($2,'')::uuid,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,'')::inet,$12,$13,$14,$15)`,
+		account.ID, account.ResellerID, account.OwnerUserID, account.Username, account.PrimaryDomain,
+		account.LinuxUID, account.LinuxGID, account.PackageID, account.Status, account.HomePath,
+		account.IPAddress, account.ShellClass, account.LoginDisabled, account.DesiredRevision,
+		account.ObservedRevision); err != nil {
+		return nil, fmt.Errorf("insert account: %w", err)
+	}
+	for _, userID := range unique(memberUserIDs) {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO account_members (account_id, user_id, role)
+			VALUES ($1,$2,'customer_owner')`, account.ID, userID); err != nil {
+			return nil, fmt.Errorf("insert account member %q: %w", userID, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO domains (id, account_id, fqdn, ascii_fqdn, type, document_root, dns_managed, status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		domain.ID, domain.AccountID, domain.FQDN, domain.ASCII, domain.Type,
+		domain.DocumentRoot, domain.DNSManaged, domain.Status); err != nil {
+		return nil, fmt.Errorf("insert primary domain: %w", err)
+	}
+	if err := insertJobTx(ctx, tx, job, payload); err != nil {
+		return nil, fmt.Errorf("insert account creation job: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit account creation: %w", err)
+	}
+	cp := *job
+	return &cp, nil
+}
+
+func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
+	if account == nil || job == nil {
+		return nil, fmt.Errorf("account and job are required")
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	normalizeJob(job)
+	payload, err := json.Marshal(job.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal account update job payload: %w", err)
+	}
+
+	ctx := p.ctx()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin account update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := validateAccountReferences(ctx, tx, account); err != nil {
+		return nil, err
+	}
+	result, err := tx.Exec(ctx, `
+		UPDATE accounts SET
+			reseller_id=NULLIF($2,'')::uuid, owner_user_id=$3, username=$4, primary_domain=$5,
+			linux_uid=$6, linux_gid=$7, package_id=$8, status=$9, home_path=$10,
+			ip_address=NULLIF($11,'')::inet, shell_class=$12, login_disabled=$13,
+			desired_revision=$14, observed_revision=$15, updated_at=now()
+		WHERE id=$1`,
+		account.ID, account.ResellerID, account.OwnerUserID, account.Username, account.PrimaryDomain,
+		account.LinuxUID, account.LinuxGID, account.PackageID, account.Status, account.HomePath,
+		account.IPAddress, account.ShellClass, account.LoginDisabled, account.DesiredRevision,
+		account.ObservedRevision)
+	if err != nil {
+		return nil, fmt.Errorf("update account: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return nil, fmt.Errorf("account %q not found", account.ID)
+	}
+	if err := insertJobTx(ctx, tx, job, payload); err != nil {
+		return nil, fmt.Errorf("insert account update job: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit account update: %w", err)
+	}
+	cp := *job
+	return &cp, nil
+}
+
+func validateAccountReferences(ctx context.Context, tx pgx.Tx, account *Account) error {
+	var packageExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM packages WHERE id=$1)`, account.PackageID).Scan(&packageExists); err != nil {
+		return fmt.Errorf("validate account package: %w", err)
+	}
+	if !packageExists {
+		return fmt.Errorf("package %q not found", account.PackageID)
+	}
+	if account.ResellerID == "" {
+		return nil
+	}
+	var resellerExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM resellers WHERE id=$1)`, account.ResellerID).Scan(&resellerExists); err != nil {
+		return fmt.Errorf("validate account reseller: %w", err)
+	}
+	if !resellerExists {
+		return fmt.Errorf("reseller %q not found", account.ResellerID)
+	}
+	return nil
+}
+
+func insertJobTx(ctx context.Context, tx pgx.Tx, job *Job, payload []byte) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
+		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')::uuid,NULLIF($14,'')::uuid,$15,$16)`,
+		job.ID, job.Type, job.ResourceType, job.ResourceID, payload, job.State, job.Priority,
+		job.Attempts, job.MaxAttempts, job.Progress, job.RunAfter, job.IdempotencyKey,
+		job.ActorID, job.RequestID, job.CreatedAt, job.Logs)
+	return err
+}
+
 func (p *PG) scanAccount(row scanner) *Account {
 	a := &Account{}
 	var reseller, ip *string

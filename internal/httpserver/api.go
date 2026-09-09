@@ -1459,7 +1459,6 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 	if owner.Email == "" {
 		owner.Email = in.Username + "@" + ascii
 	}
-	a.Store.PutUser(owner)
 	uid := a.Store.AllocUID()
 	acc := &store.Account{
 		ID: id.New(), ResellerID: in.ResellerID, OwnerUserID: owner.ID, Username: in.Username,
@@ -1467,19 +1466,21 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 		Status: "provisioning", HomePath: "/home/" + in.Username, ShellClass: "sftp-only",
 		DesiredRevision: 1,
 	}
-	a.Store.PutAccount(acc)
-	a.Store.AddMember(acc.ID, owner.ID)
+	memberUserIDs := []string{owner.ID}
 	if who.ResellerID != "" && who.UserID != owner.ID {
-		a.Store.AddMember(acc.ID, who.UserID)
+		memberUserIDs = append(memberUserIDs, who.UserID)
 	}
 	dom := &store.Domain{ID: id.New(), AccountID: acc.ID, FQDN: ascii, ASCII: ascii, Type: "primary", DocumentRoot: acc.HomePath + "/public_html", DNSManaged: true, Status: "provisioning"}
-	a.Store.PutDomain(dom)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.CreateAccountWithJob(owner, acc, dom, memberUserIDs, &store.Job{
 		Type: "account.provision", ResourceType: "account", ResourceID: acc.ID,
 		Payload: map[string]any{"account_id": acc.ID, "domain_id": dom.ID, "linux_password": in.OwnerPassword},
 		State:   "queued", Priority: 10, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
 	})
+	if err != nil {
+		a.fail(w, r, 500, "ACCOUNT_CREATE_ERROR", "Could not create account and queue provisioning", false)
+		return
+	}
 	a.audit(r, "account.create", "account", acc.ID, true, nil, map[string]any{"username": acc.Username, "domain": ascii})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "resource_id": acc.ID, "status": "provisioning", "account": acc})
 }
@@ -1549,8 +1550,11 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 		acc.LoginDisabled = v
 	}
 	acc.DesiredRevision++
-	a.Store.PutAccount(acc)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID}, State: "queued"})
+	job, err := a.Store.UpdateAccountWithJob(acc, &store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID}, State: "queued"})
+	if err != nil {
+		a.fail(w, r, 500, "ACCOUNT_UPDATE_ERROR", "Could not update account and queue reconciliation", false)
+		return
+	}
 	a.audit(r, "account.modify", "account", acc.ID, true, map[string]any{"package_id": before.PackageID}, map[string]any{"package_id": acc.PackageID})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "account": acc})
 }
@@ -1633,8 +1637,11 @@ func (a *API) setAccountStatus(w http.ResponseWriter, r *http.Request, status, a
 	before := acc.Status
 	acc.Status = status
 	acc.DesiredRevision++
-	a.Store.PutAccount(acc)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID, "status": status}, State: "queued"})
+	job, err := a.Store.UpdateAccountWithJob(acc, &store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID, "status": status}, State: "queued"})
+	if err != nil {
+		a.fail(w, r, 500, "ACCOUNT_STATUS_ERROR", "Could not update account status and queue reconciliation", false)
+		return
+	}
 	a.audit(r, action, "account", acc.ID, true, map[string]any{"status": before}, map[string]any{"status": status})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "account": acc})
 }

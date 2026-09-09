@@ -192,6 +192,128 @@ func (m *Memory) ListResellers() []Reseller {
 }
 
 func (m *Memory) PutAccount(a *Account) { m.mu.Lock(); m.Accounts[a.ID] = a; m.mu.Unlock() }
+
+func (m *Memory) CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if owner == nil || account == nil || domain == nil || job == nil {
+		return nil, fmt.Errorf("owner, account, domain, and job are required")
+	}
+	if owner.ID == "" || account.ID == "" || domain.ID == "" {
+		return nil, fmt.Errorf("owner, account, and domain IDs are required")
+	}
+	if account.OwnerUserID != owner.ID {
+		return nil, fmt.Errorf("account owner %q does not match user %q", account.OwnerUserID, owner.ID)
+	}
+	if domain.AccountID != account.ID {
+		return nil, fmt.Errorf("domain account %q does not match account %q", domain.AccountID, account.ID)
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	if m.Packages[account.PackageID] == nil {
+		return nil, fmt.Errorf("package %q not found", account.PackageID)
+	}
+	if account.ResellerID != "" && m.Resellers[account.ResellerID] == nil {
+		return nil, fmt.Errorf("reseller %q not found", account.ResellerID)
+	}
+	if m.Users[owner.ID] != nil {
+		return nil, fmt.Errorf("user %q already exists", owner.ID)
+	}
+	for _, existing := range m.Users {
+		if existing.Username == owner.Username {
+			return nil, fmt.Errorf("username %q already exists", owner.Username)
+		}
+		if existing.Email == owner.Email {
+			return nil, fmt.Errorf("email %q already exists", owner.Email)
+		}
+	}
+	if m.Accounts[account.ID] != nil {
+		return nil, fmt.Errorf("account %q already exists", account.ID)
+	}
+	for _, existing := range m.Accounts {
+		if existing.Username == account.Username {
+			return nil, fmt.Errorf("account username %q already exists", account.Username)
+		}
+	}
+	if m.Domains[domain.ID] != nil {
+		return nil, fmt.Errorf("domain %q already exists", domain.ID)
+	}
+	for _, existing := range m.Domains {
+		if existing.ASCII == domain.ASCII {
+			return nil, fmt.Errorf("domain %q already exists", domain.ASCII)
+		}
+	}
+	for _, userID := range memberUserIDs {
+		if userID == "" || (userID != owner.ID && m.Users[userID] == nil) {
+			return nil, fmt.Errorf("member user %q not found", userID)
+		}
+	}
+	normalizeJob(job)
+	if err := m.validateNewJobLocked(job); err != nil {
+		return nil, err
+	}
+
+	ownerCopy := *owner
+	ownerCopy.Roles = append([]string(nil), owner.Roles...)
+	accountCopy := *account
+	domainCopy := *domain
+	jobCopy := *job
+	m.Users[owner.ID] = &ownerCopy
+	m.Accounts[account.ID] = &accountCopy
+	m.Members[account.ID] = unique(append([]string(nil), memberUserIDs...))
+	m.Domains[domain.ID] = &domainCopy
+	m.Jobs[job.ID] = &jobCopy
+	return &jobCopy, nil
+}
+
+func (m *Memory) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if account == nil || job == nil {
+		return nil, fmt.Errorf("account and job are required")
+	}
+	if account.ID == "" || m.Accounts[account.ID] == nil {
+		return nil, fmt.Errorf("account %q not found", account.ID)
+	}
+	if job.ResourceID != "" && job.ResourceID != account.ID {
+		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	if m.Packages[account.PackageID] == nil {
+		return nil, fmt.Errorf("package %q not found", account.PackageID)
+	}
+	if account.ResellerID != "" && m.Resellers[account.ResellerID] == nil {
+		return nil, fmt.Errorf("reseller %q not found", account.ResellerID)
+	}
+	normalizeJob(job)
+	if err := m.validateNewJobLocked(job); err != nil {
+		return nil, err
+	}
+
+	accountCopy := *account
+	jobCopy := *job
+	m.Accounts[account.ID] = &accountCopy
+	m.Jobs[job.ID] = &jobCopy
+	return &jobCopy, nil
+}
+
+func (m *Memory) validateNewJobLocked(job *Job) error {
+	if m.Jobs[job.ID] != nil {
+		return fmt.Errorf("job %q already exists", job.ID)
+	}
+	if job.IdempotencyKey == "" {
+		return nil
+	}
+	for _, existing := range m.Jobs {
+		if existing.IdempotencyKey == job.IdempotencyKey {
+			return fmt.Errorf("job idempotency key %q already exists", job.IdempotencyKey)
+		}
+	}
+	return nil
+}
+
 func (m *Memory) GetAccount(id string) *Account {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

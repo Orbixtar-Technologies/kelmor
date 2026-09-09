@@ -1857,6 +1857,121 @@ func (s failingPasswordRotationStore) RotatePasswordAndEnqueue(string, string, b
 	return nil, errors.New("queue unavailable")
 }
 
+type failingAccountMutationStore struct {
+	store.Store
+}
+
+func (s failingAccountMutationStore) CreateAccountWithJob(*store.User, *store.Account, *store.Domain, []string, *store.Job) (*store.Job, error) {
+	return nil, errors.New("queue unavailable")
+}
+
+func (s failingAccountMutationStore) UpdateAccountWithJob(*store.Account, *store.Job) (*store.Job, error) {
+	return nil, errors.New("queue unavailable")
+}
+
+func TestCreateAccountFailureDoesNotPersistStateOrSuccessAudit(t *testing.T) {
+	data := store.NewMemory()
+	if err := store.SeedDev(data, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(failingAccountMutationStore{Store: data}, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	beforeUsers := data.Stats()["users"]
+	beforeDomains := data.Stats()["domains"]
+
+	code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "atomic-create", "primary_domain": "atomic-create.test",
+		"package_id": data.ListPackages()[0].ID, "owner_email": "owner@atomic-create.test",
+		"owner_password": "TenantPass!2026",
+	}, nil)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("create failure status %d", code)
+	}
+	if data.AccountByUsername("atomic-create") != nil || data.UserByUsername("atomic-create") != nil {
+		t.Fatal("failed account create persisted account or owner")
+	}
+	if data.DomainTaken("atomic-create.test") || data.Stats()["domains"] != beforeDomains ||
+		data.Stats()["users"] != beforeUsers {
+		t.Fatal("failed account create persisted user or domain state")
+	}
+	if hasSuccessfulAudit(data, "account.create") {
+		t.Fatal("failed account create wrote a success audit")
+	}
+}
+
+func TestModifyAccountFailureDoesNotPersistStateOrSuccessAudit(t *testing.T) {
+	data := store.NewMemory()
+	if err := store.SeedDev(data, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	original := &store.Account{
+		ID: id.New(), Username: "atomic-modify", PrimaryDomain: "before.test",
+		PackageID: data.ListPackages()[0].ID, Status: "active", DesiredRevision: 3,
+	}
+	data.PutAccount(original)
+	api := New(failingAccountMutationStore{Store: data}, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+
+	code, _ := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/accounts/"+original.ID, admin, map[string]any{
+		"primary_domain": "after.test", "login_disabled": true,
+	}, nil)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("modify failure status %d", code)
+	}
+	if got := data.GetAccount(original.ID); !reflect.DeepEqual(got, original) {
+		t.Fatalf("failed account modify persisted state: %+v", got)
+	}
+	if hasSuccessfulAudit(data, "account.modify") {
+		t.Fatal("failed account modify wrote a success audit")
+	}
+}
+
+func TestAccountStatusFailureDoesNotPersistStateOrSuccessAudit(t *testing.T) {
+	data := store.NewMemory()
+	if err := store.SeedDev(data, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	original := &store.Account{
+		ID: id.New(), Username: "atomic-status", PrimaryDomain: "status.test",
+		PackageID: data.ListPackages()[0].ID, Status: "active", DesiredRevision: 7,
+	}
+	data.PutAccount(original)
+	api := New(failingAccountMutationStore{Store: data}, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+
+	code, _ := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+original.ID+"/suspend", admin, map[string]any{}, nil)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("status failure status %d", code)
+	}
+	if got := data.GetAccount(original.ID); !reflect.DeepEqual(got, original) {
+		t.Fatalf("failed account status change persisted state: %+v", got)
+	}
+	if hasSuccessfulAudit(data, "account.suspend") {
+		t.Fatal("failed account status change wrote a success audit")
+	}
+}
+
+func hasSuccessfulAudit(data store.Store, action string) bool {
+	for _, event := range data.ListAudit(100) {
+		if event.Action == action && event.Success {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAccountPasswordRotationFailureDoesNotChangeOwner(t *testing.T) {
 	data := store.NewMemory()
 	if err := store.SeedDev(data, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

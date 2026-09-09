@@ -24,6 +24,8 @@ type Store interface {
 
 	AllocUID() int
 	PutAccount(*Account)
+	CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error)
+	UpdateAccountWithJob(account *Account, job *Job) (*Job, error)
 	GetAccount(string) *Account
 	AccountByUsername(string) *Account
 	ListAccounts(q, status string) []Account

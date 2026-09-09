@@ -3,22 +3,27 @@ package store
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/hosting-panel/panel/internal/id"
+	"github.com/hosting-panel/panel/internal/rbac"
 )
 
 func TestPostgresDesiredState(t *testing.T) {
-	dsn := os.Getenv("PANEL_DATABASE_URL")
-	if dsn == "" {
+	dsn, explicitlyConfigured := os.LookupEnv("PANEL_DATABASE_URL")
+	if !explicitlyConfigured {
 		dsn = "postgres:///panel_control?host=/var/run/postgresql"
 	}
 	ctx := context.Background()
 	pg, err := OpenPostgres(ctx, dsn)
 	if err != nil {
+		if explicitlyConfigured {
+			t.Fatal(err)
+		}
 		t.Skip(err)
 	}
-	defer pg.Close()
+	t.Cleanup(pg.Close)
 	pg.SeedDatabaseServers()
 	if err := SeedDev(pg, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
 		t.Fatal(err)
@@ -106,5 +111,67 @@ func TestPostgresDesiredState(t *testing.T) {
 	rolledBack := pg.UserByID(rollbackUserID)
 	if rolledBack == nil || rolledBack.PasswordHash != "rollback-old-hash" || !rolledBack.MustChangePassword {
 		t.Fatalf("failed enqueue did not roll back password: %+v", rolledBack)
+	}
+
+	account := &Account{
+		ID: id.New(), OwnerUserID: rollbackUserID, Username: "atomic-" + id.New(),
+		PrimaryDomain: "atomic-" + id.New() + ".test", LinuxUID: pg.AllocUID(), PackageID: pg.ListPackages()[0].ID,
+		Status: "active", HomePath: "/home/postgres-atomic", ShellClass: "sftp-only", DesiredRevision: 1,
+	}
+	account.LinuxGID = account.LinuxUID
+	pg.PutAccount(account)
+	updated := pg.GetAccount(account.ID)
+	if updated == nil {
+		t.Fatal("atomic update test account missing")
+	}
+	updated.Status = "suspended"
+	updated.DesiredRevision++
+	if _, err := pg.UpdateAccountWithJob(updated, &Job{
+		ID: "not-a-uuid", Type: "account.reconcile", ResourceType: "account", ResourceID: updated.ID,
+		Payload: map[string]any{"account_id": updated.ID},
+	}); err == nil {
+		t.Fatal("invalid account update job unexpectedly committed")
+	}
+	if got := pg.GetAccount(account.ID); !reflect.DeepEqual(got, account) {
+		t.Fatalf("failed enqueue did not roll back account update:\n got: %+v\nwant: %+v", got, account)
+	}
+
+	legacyOwner := &User{
+		ID: id.New(), Username: "legacy-reseller-" + id.New(), Email: id.New() + "@postgres.test",
+		PasswordHash: "test", DisplayName: "Legacy Reseller", Status: "active",
+	}
+	pg.PutUser(legacyOwner)
+	legacyReseller := &Reseller{
+		ID: id.New(), UserID: legacyOwner.ID, Name: "Legacy Reseller",
+		PrivilegeMask: []string{}, Nameservers: []string{}, Status: "active",
+	}
+	pg.PutReseller(legacyReseller)
+	migrationName := "000025_backfill_legacy_reseller_privileges.sql"
+	if _, err := pg.pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version=$1`, migrationName); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pg.pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING`, migrationName)
+	})
+	if err := Migrate(ctx, pg.pool); err != nil {
+		t.Fatal(err)
+	}
+	if got := pg.GetReseller(legacyReseller.ID); got == nil ||
+		!reflect.DeepEqual(got.PrivilegeMask, rbac.RoleCaps["reseller"]) {
+		t.Fatalf("legacy reseller privileges were not backfilled: %+v", got)
+	}
+
+	newOwner := &User{
+		ID: id.New(), Username: "new-reseller-" + id.New(), Email: id.New() + "@postgres.test",
+		PasswordHash: "test", DisplayName: "New Reseller", Status: "active",
+	}
+	pg.PutUser(newOwner)
+	newReseller := &Reseller{
+		ID: id.New(), UserID: newOwner.ID, Name: "New Reseller",
+		PrivilegeMask: []string{}, Nameservers: []string{}, Status: "active",
+	}
+	pg.PutReseller(newReseller)
+	if got := pg.GetReseller(newReseller.ID); got == nil || !reflect.DeepEqual(got.PrivilegeMask, []string{}) {
+		t.Fatalf("new empty reseller privileges did not remain empty: %+v", got)
 	}
 }
