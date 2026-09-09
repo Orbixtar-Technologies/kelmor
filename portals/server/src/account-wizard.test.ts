@@ -34,4 +34,17 @@ describe('account wizard', () => {
 			reseller_id: 'reseller-1',
 		})
 	})
+
+	test('normalizes the submitted domain before generating a blank owner email', () => {
+		expect(buildAccountPayload({
+			...validDraft,
+			username: 'caseowner',
+			primaryDomain: 'WWW.Example.COM',
+			ownerEmail: '',
+		})).toMatchObject({
+			username: 'caseowner',
+			primary_domain: 'www.example.com',
+			owner_email: 'caseowner@www.example.com',
+		})
+	})
 })

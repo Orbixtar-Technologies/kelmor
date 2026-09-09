@@ -17,10 +17,12 @@ export function validateAccountStep (step: number, draft: AccountDraft): FieldEr
 }
 
 export function buildAccountPayload (draft: AccountDraft): AccountPayload {
+	const username = draft.username.trim()
+	const domain = draft.primaryDomain.trim().toLowerCase()
 	return {
-		username: draft.username.trim(),
-		primary_domain: draft.primaryDomain.trim().toLocaleLowerCase(),
-		owner_email: draft.ownerEmail.trim(),
+		username,
+		primary_domain: domain,
+		owner_email: draft.ownerEmail.trim() || `${username}@${domain}`,
 		owner_password: draft.ownerPassword,
 		package_id: draft.packageId,
 		...(draft.resellerId ? { reseller_id: draft.resellerId } : {}),

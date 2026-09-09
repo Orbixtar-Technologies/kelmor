@@ -5,7 +5,7 @@ import { messageFrom } from '../helpers'
 import { useCan } from '../rbac'
 import type { Reseller } from '../types'
 
-const privilegeOptions = ['accounts.read', 'accounts.create', 'accounts.modify', 'accounts.suspend', 'domains.read', 'domains.write', 'websites.write', 'databases.write', 'dns.read', 'dns.write', 'mail.write', 'files.write', 'backups.create', 'backups.restore', 'packages.read', 'packages.write']
+const privilegeOptions = ['accounts.read', 'accounts.create', 'accounts.modify', 'accounts.suspend', 'packages.read', 'packages.write', 'domains.read', 'domains.write', 'dns.read', 'websites.read', 'backups.read', 'backups.create', 'backups.restore', 'billing.usage.read']
 
 export function ResellersPage () {
 	const [items, setItems] = useState<Reseller[]>([])

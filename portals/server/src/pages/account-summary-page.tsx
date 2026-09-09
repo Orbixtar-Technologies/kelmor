@@ -27,6 +27,16 @@ export function AccountSummaryPage () {
 	const canModify = useCan('accounts.modify')
 	const canSuspend = useCan('accounts.suspend')
 	const canTerminate = useCan('accounts.terminate')
+	function closeTerminate () {
+		setTerminateOpen(false)
+		setConfirmation('')
+		setTerminateError('')
+	}
+	function openTerminate () {
+		setConfirmation('')
+		setTerminateError('')
+		setTerminateOpen(true)
+	}
 
 	const load = useCallback(() => {
 		const sequence = ++requestSequence.current
@@ -57,7 +67,7 @@ export function AccountSummaryPage () {
 	useEffect(() => {
 		if (account?.id !== id) return
 		if (task === 'password' && canModify) setPasswordOpen(true)
-		if (task === 'terminate' && canTerminate) setTerminateOpen(true)
+		if (task === 'terminate' && canTerminate) openTerminate()
 		if (['package', 'modify'].includes(task)) {
 			assignmentRef.current?.scrollIntoView({ block: 'center' })
 		}
@@ -120,7 +130,7 @@ export function AccountSummaryPage () {
 					{canModify ? <button type="submit">Save assignment</button> : <p className="subtle">Your role can view but not change this assignment.</p>}
 				</form><p className="subtle">Current: {pkg?.name || account.package_id} · {reseller?.name || 'Direct'}</p></section>
 				<section className="panel"><h2>Usage snapshot</h2>{usage ? <dl className="detail-list"><div><dt>Disk</dt><dd>{formatBytes(usage.disk_bytes)} / {formatBytes(pkg?.disk_bytes)}</dd></div><div><dt>Bandwidth</dt><dd>{formatBytes(usage.bandwidth_bytes)} / {formatBytes(pkg?.bandwidth_bytes_monthly)}</dd></div><div><dt>Memory</dt><dd>{formatBytes(usage.memory_bytes)}</dd></div><div><dt>Processes</dt><dd>{usage.process_count}</dd></div></dl> : <p>Usage is not yet available for this account.</p>}</section>
-				<section className="panel"><h2>Security actions</h2><p>Rotate owner credentials or permanently terminate this account.</p><div className="button-row">{canModify ? <button type="button" onClick={() => setPasswordOpen(true)}>Rotate password</button> : null}{canTerminate ? <button type="button" className="danger" onClick={() => { setTerminateError(''); setTerminateOpen(true) }}>Terminate account</button> : null}</div>{!canModify && !canTerminate ? <p className="subtle">No lifecycle actions are available to your role.</p> : null}</section>
+				<section className="panel"><h2>Security actions</h2><p>Rotate owner credentials or permanently terminate this account.</p><div className="button-row">{canModify ? <button type="button" onClick={() => setPasswordOpen(true)}>Rotate password</button> : null}{canTerminate ? <button type="button" className="danger" onClick={openTerminate}>Terminate account</button> : null}</div>{!canModify && !canTerminate ? <p className="subtle">No lifecycle actions are available to your role.</p> : null}</section>
 			</div>
 			<section className="panel"><h2>Recent related jobs</h2><div className="table-wrap"><table><thead><tr><th>Type</th><th>State</th><th>Progress</th><th>Error</th></tr></thead><tbody>{jobs.slice(0, 8).map((job) => <tr key={job.id}><td>{job.type}</td><td><StatusBadge value={job.state} /></td><td>{job.progress}%</td><td>{job.last_error || '—'}</td></tr>)}</tbody></table></div>{!jobs.length ? <p>No related jobs yet.</p> : null}</section>
 			<Dialog open={passwordOpen} title="Rotate account password" onClose={() => setPasswordOpen(false)}>
@@ -139,11 +149,11 @@ export function AccountSummaryPage () {
 					<footer className="dialog-form-actions"><button type="button" className="secondary" onClick={() => setPasswordOpen(false)}>Cancel</button><button type="submit">Rotate password</button></footer>
 				</form>
 			</Dialog>
-			<Dialog open={terminateOpen} title={`Terminate ${account.username}`} onClose={() => { setTerminateOpen(false); setConfirmation('') }}>
+			<Dialog open={terminateOpen} title={`Terminate ${account.username}`} onClose={closeTerminate}>
 				<p>This permanently removes account services and the Linux identity. Enter <strong>{account.username}</strong> to continue.</p>
 				{terminateError ? <p className="feedback" role="alert">{terminateError}</p> : null}
 				<label>Username confirmation<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoFocus /></label>
-				<footer className="dialog-form-actions"><button type="button" className="secondary" onClick={() => setTerminateOpen(false)}>Cancel</button><button type="button" className="danger" disabled={confirmation !== account.username} onClick={async () => { if (await postAction('terminate')) { setTerminateOpen(false); navigate('/accounts') } }}>Terminate permanently</button></footer>
+				<footer className="dialog-form-actions"><button type="button" className="secondary" onClick={closeTerminate}>Cancel</button><button type="button" className="danger" disabled={confirmation !== account.username} onClick={async () => { if (await postAction('terminate')) { closeTerminate(); navigate('/accounts') } }}>Terminate permanently</button></footer>
 			</Dialog>
 		</>
 	)
