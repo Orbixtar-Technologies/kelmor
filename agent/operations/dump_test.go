@@ -27,3 +27,15 @@ func TestDumpAndRestoreSandboxSQL(t *testing.T) {
 		t.Fatal("expected path reject")
 	}
 }
+
+func TestDumpAndRestoreSandboxPostgres(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Root: root}
+	dest := "/var/lib/panel/backups/staging/acme_pg.sql"
+	if _, err := h.dumpHostedDatabase("postgres", "acme_pg", dest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.restoreHostedDatabase("postgres", "acme_pg", dest, ""); err != nil {
+		t.Fatal(err)
+	}
+}
