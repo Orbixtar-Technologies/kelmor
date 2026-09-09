@@ -1,6 +1,8 @@
 package phases
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/acme"
+	"github.com/hosting-panel/panel/internal/netaddr"
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
 
@@ -22,6 +27,7 @@ func applyPortals(c Config) error {
 	if err := installPortalApp(c, "account", "Account Portal"); err != nil {
 		return err
 	}
+	tryIssuePortalHostnameCertificate(c)
 	if err := writePortalNginx(c, "90-server-portal.conf", 8443, "usr/local/panel/share/portals/server"); err != nil {
 		return err
 	}
@@ -144,10 +150,19 @@ func writePortalNginx(c Config, name string, port int, rootRel string) error {
 		cert = "/var/lib/panel/certs/panel-portals.crt"
 		key = "/var/lib/panel/certs/panel-portals.key"
 	}
-	body := fmt.Sprintf(`server {
+	body := portalNginxServer(port, "_", cert, key, abs)
+	if hostCert, hostKey, ok := hostnamePortalCertPaths(c); ok {
+		host := strings.TrimSpace(c.Hostname)
+		body = portalNginxServer(port, host, hostCert, hostKey, abs) + body
+	}
+	return os.WriteFile(root(c, "etc/nginx/panel-sites/"+name), []byte(body), 0o644)
+}
+
+func portalNginxServer(port int, serverName, cert, key, abs string) string {
+	return fmt.Sprintf(`server {
     listen %d ssl;
     listen [::]:%d ssl;
-    server_name _;
+    server_name %s;
     ssl_certificate %s;
     ssl_certificate_key %s;
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -167,8 +182,65 @@ func writePortalNginx(c Config, name string, port int, rootRel string) error {
         try_files $uri $uri/ /index.html;
     }
 }
-`, port, port, cert, key, abs)
-	return os.WriteFile(root(c, "etc/nginx/panel-sites/"+name), []byte(body), 0o644)
+`, port, port, serverName, cert, key, abs)
+}
+
+func hostnamePortalCertPaths(c Config) (cert, key string, ok bool) {
+	host := strings.TrimSpace(c.Hostname)
+	if host == "" || host == "localhost" {
+		return "", "", false
+	}
+	cert = root(c, "var/lib/panel/certs/"+host+".crt")
+	key = root(c, "var/lib/panel/certs/"+host+".key")
+	if _, err := os.Stat(cert); err != nil {
+		return "", "", false
+	}
+	if _, err := os.Stat(key); err != nil {
+		return "", "", false
+	}
+	if !c.Dev && installPrefix(c) == "" {
+		return "/var/lib/panel/certs/" + host + ".crt", "/var/lib/panel/certs/" + host + ".key", true
+	}
+	return cert, key, true
+}
+
+func tryIssuePortalHostnameCertificate(c Config) {
+	if c.Dev || installPrefix(c) != "" {
+		return
+	}
+	host := strings.TrimSpace(c.Hostname)
+	if host == "" || host == "localhost" {
+		return
+	}
+	directory := readACMEDirectory(c)
+	if directory == "" {
+		return
+	}
+	_ = publishPanelHostnameZone(host)
+	ensureLoopbackHost(host)
+	contact := strings.TrimSpace(c.AdminEmail)
+	if contact == "" {
+		contact = "admin@" + host
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_, _ = acme.Issue(ctx, &operations.Host{}, host, contact, directory)
+}
+
+func publishPanelHostnameZone(host string) error {
+	ip := netaddr.PublicIPv4()
+	serial := time.Now().Unix()
+	body := fmt.Sprintf("$ORIGIN %s.\n$TTL 3600\n@ IN SOA ns1.%s. hostmaster.%s. (%d 7200 3600 1209600 3600)\n@ IN NS ns1.%s.\n@ 300 IN A %s\nns1 300 IN A %s\nns2 300 IN A %s\n",
+		host, host, host, serial, host, ip, ip, ip)
+	params, err := json.Marshal(map[string]any{"name": host, "body": body})
+	if err != nil {
+		return err
+	}
+	_, err = (&operations.Host{}).Dispatch(context.Background(), operations.Request{
+		Method: "ApplyDNSZone",
+		Params: params,
+	})
+	return err
 }
 
 func ensurePortalCertificate(c Config) error {

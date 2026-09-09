@@ -60,6 +60,24 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 	if !strings.Contains(string(conf), "ssl_certificate") || !strings.Contains(string(conf), "listen 8443 ssl") {
 		t.Fatalf("portal nginx missing TLS: %s", conf)
 	}
+	hostCert := filepath.Join(dir, "var/lib/panel/certs/panel.example.net.crt")
+	hostKey := filepath.Join(dir, "var/lib/panel/certs/panel.example.net.key")
+	if err := os.WriteFile(hostCert, []byte("CERT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hostKey, []byte("KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePortalNginx(cfg, "90-server-portal.conf", 8443, "usr/local/panel/share/portals/server"); err != nil {
+		t.Fatal(err)
+	}
+	conf, err = os.ReadFile(filepath.Join(dir, "etc/nginx/panel-sites/90-server-portal.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(conf), "server_name panel.example.net") || !strings.Contains(string(conf), hostCert) {
+		t.Fatalf("missing hostname ACME vhost: %s", conf)
+	}
 }
 
 func TestVerifyPortalsRequiresTLS(t *testing.T) {
