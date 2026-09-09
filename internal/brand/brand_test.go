@@ -40,14 +40,14 @@ func TestUserVisibleChromeFiles(t *testing.T) {
 		"README.md",
 	}
 	needles := map[string][]string{
-		"portals/server/index.html":  {Director},
-		"portals/server/src/app.tsx": {Director, Product},
-		"portals/server/src/nav.tsx": {Director},
-		"portals/account/index.html": {Control},
+		"portals/server/index.html":   {Director},
+		"portals/server/src/app.tsx":  {Director, Product},
+		"portals/server/src/nav.tsx":  {Director},
+		"portals/account/index.html":  {Control},
 		"portals/account/src/app.tsx": {Control, Director},
-		"api/openapi.yaml":           {APITitle},
-		"cmd/panel-install/main.go":  {Director, Control},
-		"README.md":                  {Director, Control},
+		"api/openapi.yaml":            {APITitle},
+		"cmd/panel-install/main.go":   {Director, Control},
+		"README.md":                   {Director, Control},
 	}
 	for _, rel := range files {
 		body, err := os.ReadFile(filepath.Join(root, rel))
