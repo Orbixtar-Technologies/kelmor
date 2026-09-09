@@ -14,11 +14,6 @@ export function useCapabilities () {
 	return useContext(Caps)
 }
 
-export function Can ({ cap, children }: { cap: string; children: React.ReactNode }) {
-	if (!useCan(cap)) return null
-	return <>{children}</>
-}
-
 export function Forbidden ({ title }: { title: string }) {
 	return (
 		<section>

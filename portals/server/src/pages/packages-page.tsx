@@ -1,15 +1,31 @@
 import { useEffect, useState } from 'react'
 import { api, asList } from '../client'
-import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
+import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/ui'
 import { formatBytes, messageFrom } from '../helpers'
 import { useCan } from '../rbac'
 import type { Package } from '../types'
 
-const numericFields: Array<keyof Package> = [
-	'disk_bytes', 'bandwidth_bytes_monthly', 'domains', 'subdomains', 'alias_domains',
-	'databases', 'database_users', 'mailboxes', 'mailbox_storage_bytes', 'ftp_users',
-	'cron_jobs', 'application_instances', 'backup_retention_days', 'cpu_percent',
-	'memory_bytes', 'process_limit', 'io_weight', 'iops', 'concurrent_web_requests', 'email_daily_limit',
+const numericPackageFields: NumericPackageFieldDefinition[] = [
+	{ field: 'disk_bytes', label: 'Disk bytes' },
+	{ field: 'bandwidth_bytes_monthly', label: 'Monthly bandwidth bytes' },
+	{ field: 'domains', label: 'Domains' },
+	{ field: 'subdomains', label: 'Subdomains' },
+	{ field: 'alias_domains', label: 'Alias domains' },
+	{ field: 'databases', label: 'Databases' },
+	{ field: 'database_users', label: 'Database users' },
+	{ field: 'mailboxes', label: 'Mailboxes' },
+	{ field: 'mailbox_storage_bytes', label: 'Mailbox storage bytes' },
+	{ field: 'ftp_users', label: 'FTP users' },
+	{ field: 'cron_jobs', label: 'Cron jobs' },
+	{ field: 'application_instances', label: 'Application instances' },
+	{ field: 'backup_retention_days', label: 'Backup retention days' },
+	{ field: 'cpu_percent', label: 'CPU percent' },
+	{ field: 'memory_bytes', label: 'Memory bytes' },
+	{ field: 'process_limit', label: 'Process limit' },
+	{ field: 'io_weight', label: 'I/O weight' },
+	{ field: 'iops', label: 'IOPS' },
+	{ field: 'concurrent_web_requests', label: 'Concurrent web requests' },
+	{ field: 'email_daily_limit', label: 'Daily email limit' },
 ]
 
 const defaults: Package = {
@@ -22,7 +38,7 @@ const defaults: Package = {
 
 function packageFromForm (data: FormData, current: Package): Package {
 	const next = { ...current, name: String(data.get('name') || ''), reseller_id: String(data.get('reseller_id') || ''), feature_set_id: String(data.get('feature_set_id') || '') }
-	numericFields.forEach((field) => { next[field] = Number(data.get(field)) as never })
+	numericPackageFields.forEach(({ field }) => { next[field] = Number(data.get(field)) })
 	return next
 }
 
@@ -83,13 +99,12 @@ export function PackagesPage () {
 }
 
 function PackageForm ({ value, onSubmit, onCancel }: { value: Package; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
-	const labels: Record<string, string> = {
-		disk_bytes: 'Disk bytes', bandwidth_bytes_monthly: 'Monthly bandwidth bytes', domains: 'Domains',
-		subdomains: 'Subdomains', alias_domains: 'Alias domains', databases: 'Databases', database_users: 'Database users',
-		mailboxes: 'Mailboxes', mailbox_storage_bytes: 'Mailbox storage bytes', ftp_users: 'FTP users',
-		cron_jobs: 'Cron jobs', application_instances: 'Application instances', backup_retention_days: 'Backup retention days',
-		cpu_percent: 'CPU percent', memory_bytes: 'Memory bytes', process_limit: 'Process limit', io_weight: 'I/O weight',
-		iops: 'IOPS', concurrent_web_requests: 'Concurrent web requests', email_daily_limit: 'Daily email limit',
-	}
-	return <form onSubmit={onSubmit}><div className="form-grid"><label>Package name<input name="name" defaultValue={value.name} required autoFocus /></label><label>Reseller ID<input name="reseller_id" defaultValue={value.reseller_id} placeholder="Optional" /></label><label>Feature set ID<input name="feature_set_id" defaultValue={value.feature_set_id} placeholder="Optional" /></label>{numericFields.map((field) => <label key={field}>{labels[field]}<input name={field} type="number" min={0} defaultValue={Number(value[field])} required /></label>)}</div><footer className="dialog-form-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit">Save package</button></footer></form>
+	return <form onSubmit={onSubmit}><div className="form-grid"><label>Package name<input name="name" defaultValue={value.name} required autoFocus /></label><label>Reseller ID<input name="reseller_id" defaultValue={value.reseller_id} placeholder="Optional" /></label><label>Feature set ID<input name="feature_set_id" defaultValue={value.feature_set_id} placeholder="Optional" /></label>{numericPackageFields.map(({ field, label }) => <label key={field}>{label}<input name={field} type="number" min={0} defaultValue={value[field]} required /></label>)}</div><footer className="dialog-form-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit">Save package</button></footer></form>
+}
+
+type NumericPackageField = Exclude<keyof Package, 'id' | 'reseller_id' | 'name' | 'feature_set_id'>
+
+interface NumericPackageFieldDefinition {
+	field: NumericPackageField
+	label: string
 }

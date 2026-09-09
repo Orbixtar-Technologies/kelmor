@@ -30,6 +30,10 @@ export function AccountsPage () {
 	const view = params.get('view') || 'all'
 	const task = params.get('task') || ''
 
+	async function loadAccounts () {
+		const result = await api<{ items: Account[] }>('/api/v1/accounts')
+		setAccounts(asList(result))
+	}
 	function load () {
 		setLoading(true)
 		setError('')
@@ -46,11 +50,13 @@ export function AccountsPage () {
 	}
 	useEffect(load, [])
 
-	const enriched = useMemo(() => accounts.map((account) => ({ ...account, usage: usage.find((entry) => entry.account_id === account.id) })), [accounts, usage])
+	const packagesById = useMemo(() => new Map(packages.map((pkg) => [pkg.id, pkg])), [packages])
+	const usageByAccountId = useMemo(() => new Map(usage.map((entry) => [entry.account_id, entry])), [usage])
+	const enriched = useMemo(() => accounts.map((account) => ({ ...account, usage: usageByAccountId.get(account.id) })), [accounts, usageByAccountId])
 	const viewed = enriched.filter((account) => {
 		if (view === 'suspended') return account.status === 'suspended'
 		if (view === 'over-quota') {
-			const pkg = packages.find((entry) => entry.id === account.package_id)
+			const pkg = packagesById.get(account.package_id)
 			return Boolean(account.usage && pkg && (account.usage.disk_bytes > pkg.disk_bytes || account.usage.bandwidth_bytes > pkg.bandwidth_bytes_monthly))
 		}
 		return true
@@ -72,7 +78,7 @@ export function AccountsPage () {
 			else await Promise.all([...selected].map((id) => stateAction(id, action)))
 			setMessage(`${selected.size} account${selected.size === 1 ? '' : 's'} queued for ${action}.`)
 			setSelected(new Set())
-			load()
+			await loadAccounts()
 		} catch (requestError) { setMessage(messageFrom(requestError)) }
 	}
 
@@ -104,14 +110,14 @@ export function AccountsPage () {
 					{[['username', 'User'], ['primary_domain', 'Primary domain'], ['status', 'Status'], ['linux_uid', 'UID']].map(([key, label]) => <th key={key}><button type="button" className="sort-button" onClick={() => changeSort(key as keyof Account)}>{label}{sort === key ? (direction === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>)}
 					<th>Package</th><th>Disk quota</th><th>Actions</th></tr></thead>
 					<tbody>{paged.items.map((account) => {
-						const pkg = packages.find((entry) => entry.id === account.package_id)
+						const pkg = packagesById.get(account.package_id)
 						const diskPercent = percent(account.usage?.disk_bytes, pkg?.disk_bytes)
 						return <tr key={account.id} className={account.status === 'suspended' ? 'muted-row' : ''}>
 							<td><input type="checkbox" aria-label={`Select ${account.username}`} checked={selected.has(account.id)} onChange={(event) => { const next = new Set(selected); event.target.checked ? next.add(account.id) : next.delete(account.id); setSelected(next) }} /></td>
 							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'}</small></td>
 							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td>{pkg?.name || account.package_id}</td>
 							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)}</small></> : '—'}</td>
-							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className="link-button" onClick={async () => { try { await stateAction(account.id, account.status === 'suspended' ? 'unsuspend' : 'suspend'); load() } catch (requestError) { setMessage(messageFrom(requestError)) } }}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}</div></td>
+							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className="link-button" onClick={async () => { try { await stateAction(account.id, account.status === 'suspended' ? 'unsuspend' : 'suspend'); await loadAccounts() } catch (requestError) { setMessage(messageFrom(requestError)) } }}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}</div></td>
 						</tr>
 					})}</tbody>
 				</table></div>

@@ -11,26 +11,26 @@ interface ServiceDefinition {
 	label: string
 	endpoint: string
 	columns: string[]
-	deleteSegment?: string
+	isDeletable?: boolean
 	readCapability: string
 	writeCapability?: string
 }
 
 const services: ServiceDefinition[] = [
-	{ id: 'websites', label: 'Websites', endpoint: 'websites', columns: ['runtime', 'document_root', 'enabled'], deleteSegment: 'websites', readCapability: 'websites.read', writeCapability: 'websites.write' },
-	{ id: 'domains', label: 'Domains', endpoint: 'domains', columns: ['ascii_fqdn', 'type', 'status'], deleteSegment: 'domains', readCapability: 'domains.read', writeCapability: 'domains.write' },
-	{ id: 'databases', label: 'Databases', endpoint: 'databases', columns: ['name', 'engine', 'status'], deleteSegment: 'databases', readCapability: 'databases.read', writeCapability: 'databases.write' },
+	{ id: 'websites', label: 'Websites', endpoint: 'websites', columns: ['runtime', 'document_root', 'enabled'], isDeletable: true, readCapability: 'websites.read', writeCapability: 'websites.write' },
+	{ id: 'domains', label: 'Domains', endpoint: 'domains', columns: ['ascii_fqdn', 'type', 'status'], isDeletable: true, readCapability: 'domains.read', writeCapability: 'domains.write' },
+	{ id: 'databases', label: 'Databases', endpoint: 'databases', columns: ['name', 'engine', 'status'], isDeletable: true, readCapability: 'databases.read', writeCapability: 'databases.write' },
 	{ id: 'mail-domains', label: 'Mail domains', endpoint: 'mail/domains', columns: ['domain_id', 'catchall_policy', 'status'], readCapability: 'mail.read', writeCapability: 'mail.write' },
-	{ id: 'mailboxes', label: 'Mailboxes', endpoint: 'mail/mailboxes', columns: ['local_part', 'quota_bytes', 'status'], deleteSegment: 'mail/mailboxes', readCapability: 'mail.read', writeCapability: 'mail.write' },
-	{ id: 'aliases', label: 'Aliases', endpoint: 'mail/aliases', columns: ['address', 'destination'], deleteSegment: 'mail/aliases', readCapability: 'mail.read', writeCapability: 'mail.write' },
+	{ id: 'mailboxes', label: 'Mailboxes', endpoint: 'mail/mailboxes', columns: ['local_part', 'quota_bytes', 'status'], isDeletable: true, readCapability: 'mail.read', writeCapability: 'mail.write' },
+	{ id: 'aliases', label: 'Aliases', endpoint: 'mail/aliases', columns: ['address', 'destination'], isDeletable: true, readCapability: 'mail.read', writeCapability: 'mail.write' },
 	{ id: 'certificates', label: 'Certificates', endpoint: 'certificates', columns: ['hostname', 'kind', 'status', 'not_after'], readCapability: 'websites.read', writeCapability: 'websites.write' },
 	{ id: 'files', label: 'Files', endpoint: 'files?path=/public_html', columns: ['name', 'size', 'dir'], readCapability: 'files.read', writeCapability: 'files.write' },
 	{ id: 'backups', label: 'Backups & restore', endpoint: 'backups', columns: ['kind', 'state', 'destination', 'size_bytes'], readCapability: 'backups.read', writeCapability: 'backups.create' },
-	{ id: 'cron', label: 'Cron', endpoint: 'cron', columns: ['schedule', 'command', 'enabled'], deleteSegment: 'cron', readCapability: 'cron.read', writeCapability: 'cron.write' },
-	{ id: 'ssh', label: 'SSH / SFTP', endpoint: 'ssh-keys', columns: ['label', 'fingerprint', 'created_at'], deleteSegment: 'ssh-keys', readCapability: 'files.read', writeCapability: 'files.write' },
-	{ id: 'ftp', label: 'FTP', endpoint: 'ftp', columns: ['username', 'home_path', 'status'], deleteSegment: 'ftp', readCapability: 'files.read', writeCapability: 'files.write' },
-	{ id: 'tokens', label: 'API tokens', endpoint: 'api-tokens', columns: ['name', 'prefix', 'scope', 'expires_at'], deleteSegment: 'api-tokens', readCapability: 'api_tokens.read', writeCapability: 'api_tokens.write' },
-	{ id: 'applications', label: 'Applications', endpoint: 'applications', columns: ['runtime', 'working_directory', 'status'], deleteSegment: 'applications', readCapability: 'applications.read', writeCapability: 'applications.write' },
+	{ id: 'cron', label: 'Cron', endpoint: 'cron', columns: ['schedule', 'command', 'enabled'], isDeletable: true, readCapability: 'cron.read', writeCapability: 'cron.write' },
+	{ id: 'ssh', label: 'SSH / SFTP', endpoint: 'ssh-keys', columns: ['label', 'fingerprint', 'created_at'], isDeletable: true, readCapability: 'files.read', writeCapability: 'files.write' },
+	{ id: 'ftp', label: 'FTP', endpoint: 'ftp', columns: ['username', 'home_path', 'status'], isDeletable: true, readCapability: 'files.read', writeCapability: 'files.write' },
+	{ id: 'tokens', label: 'API tokens', endpoint: 'api-tokens', columns: ['name', 'prefix', 'scope', 'expires_at'], isDeletable: true, readCapability: 'api_tokens.read', writeCapability: 'api_tokens.write' },
+	{ id: 'applications', label: 'Applications', endpoint: 'applications', columns: ['runtime', 'working_directory', 'status'], isDeletable: true, readCapability: 'applications.read', writeCapability: 'applications.write' },
 ]
 
 export function AccountServicesPage () {
@@ -68,12 +68,23 @@ export function AccountServicesPage () {
 	}, [id, visibleServices])
 	useEffect(load, [load])
 
+	async function refreshActiveService () {
+		const service = visibleServices.find((entry) => entry.id === active)
+		if (!service) return
+		try {
+			const result = await api<{ items: ResourceItem[] }>(`/api/v1/accounts/${id}/${service.endpoint}`)
+			setResources((current) => ({ ...current, [service.id]: asList(result) }))
+			setErrors((current) => ({ ...current, [service.id]: '' }))
+		} catch (error) {
+			setErrors((current) => ({ ...current, [service.id]: messageFrom(error) }))
+		}
+	}
 	async function create (endpoint: string, body: Record<string, unknown>) {
 		setMessage('')
 		try {
 			const result = await api<{ operation_id?: string; token?: string }>(`/api/v1/accounts/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(body) })
 			setMessage(result.token ? `Token created: ${result.token}. Copy it now.` : result.operation_id ? `Queued ${result.operation_id}.` : 'Resource created.')
-			load()
+			await refreshActiveService()
 		} catch (error) { setMessage(messageFrom(error)) }
 	}
 	async function remove (segment: string, resourceId: string) {
@@ -81,14 +92,14 @@ export function AccountServicesPage () {
 		try {
 			await api(`/api/v1/accounts/${id}/${segment}/${resourceId}`, { method: 'DELETE' })
 			setMessage('Delete operation queued.')
-			load()
+			await refreshActiveService()
 		} catch (error) { setMessage(messageFrom(error)) }
 	}
 	async function patchMailDomain (mailDomainId: string, catchallPolicy: string) {
 		try {
 			await api(`/api/v1/accounts/${id}/mail/domains/${mailDomainId}`, { method: 'PATCH', body: JSON.stringify({ catchall_policy: catchallPolicy }) })
 			setMessage('Mail routing update queued.')
-			load()
+			await refreshActiveService()
 		} catch (error) { setMessage(messageFrom(error)) }
 	}
 	async function restore () {
@@ -117,7 +128,7 @@ export function AccountServicesPage () {
 				{!loading && !errors[active] && definition ? <div className="table-wrap"><table className="dense-table"><thead><tr>{definition.columns.map((column) => <th key={column}>{column.replaceAll('_', ' ')}</th>)}<th>Actions</th></tr></thead>
 					<tbody>{items.map((item) => <tr key={item.id}>{definition.columns.map((column) => <td key={column}>{column === 'status' || column === 'state' ? <StatusBadge value={valueOf(item, column)} /> : column.includes('bytes') || column === 'size' ? formatBytes(Number(item[column])) : valueOf(item, column)}</td>)}<td><div className="row-actions">
 						{active === 'backups' && item.state === 'succeeded' ? <button type="button" className="link-button" onClick={() => setRestoreBackup(item)}>Review restore</button> : null}
-						{definition.deleteSegment && definition.writeCapability && capabilities[definition.writeCapability] ? <button type="button" className="link-button danger-text" onClick={() => remove(definition.deleteSegment || '', item.id)}>Delete</button> : null}
+						{definition.isDeletable && definition.writeCapability && capabilities[definition.writeCapability] ? <button type="button" className="link-button danger-text" onClick={() => remove(definition.endpoint, item.id)}>Delete</button> : null}
 					</div></td></tr>)}</tbody>
 				</table></div> : null}
 				{!loading && !errors[active] && !items.length ? <EmptyState title={`No ${definition?.label.toLocaleLowerCase()} yet`} detail="Use the form above where available. Provisioning results will remain visible here." /> : null}

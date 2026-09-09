@@ -24,7 +24,7 @@ export function DNSPage () {
 			setAccounts(next)
 			if (!accountId && next[0]) setParams({ account: next[0].id }, { replace: true })
 		}).catch((requestError) => setError(messageFrom(requestError)))
-	}, [accountId, setParams])
+	}, [setParams])
 	const loadZones = useCallback(() => {
 		if (!accountId) return
 		setLoading(true); setError('')

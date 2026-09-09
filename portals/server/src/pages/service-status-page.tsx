@@ -4,7 +4,6 @@ import { ErrorState, LoadingState, Metric, PageHeader, SectionHeading, StatusBad
 import { formatBytes, messageFrom, percent } from '../helpers'
 import type { ResourceItem, ServerOverview, Service } from '../types'
 
-interface ServicesResponse { items?: Service[]; services?: Service[] }
 interface ProcessesResponse { processes?: ResourceItem[] }
 
 export function ServiceStatusPage () {
@@ -15,10 +14,12 @@ export function ServiceStatusPage () {
 	const [loading, setLoading] = useState(true)
 	function load () {
 		setLoading(true); setError('')
-		Promise.allSettled([api<ServerOverview>('/api/v1/server'), api<ServicesResponse>('/api/v1/server/services'), api<ProcessesResponse>('/api/v1/server/processes')]).then(([overview, serviceResult, processResult]) => {
-			if (overview.status === 'fulfilled') setServer(overview.value)
+		Promise.allSettled([api<ServerOverview>('/api/v1/server'), api<ProcessesResponse>('/api/v1/server/processes')]).then(([overview, processResult]) => {
+			if (overview.status === 'fulfilled') {
+				setServer(overview.value)
+				setServices(overview.value.services)
+			}
 			else setError(messageFrom(overview.reason))
-			if (serviceResult.status === 'fulfilled') setServices(serviceResult.value.items || serviceResult.value.services || [])
 			if (processResult.status === 'fulfilled') setProcesses(processResult.value.processes || [])
 		}).finally(() => setLoading(false))
 	}

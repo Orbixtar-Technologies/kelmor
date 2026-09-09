@@ -18,14 +18,19 @@ export function UsagePage () {
 		setLoading(true)
 		setError('')
 		try {
-			const [accountResult, packageResult] = await Promise.all([api<{ items: Account[] }>('/api/v1/accounts'), api<{ items: Package[] }>('/api/v1/packages')])
-			const nextAccounts = asList(accountResult)
+			const [accountResult, packageResult, monitorResult] = await Promise.allSettled([
+				api<{ items: Account[] }>('/api/v1/accounts'),
+				api<{ items: Package[] }>('/api/v1/packages'),
+				api<MonitorResponse>('/api/v1/server/monitor'),
+			])
+			if (accountResult.status === 'rejected') throw accountResult.reason
+			if (packageResult.status === 'rejected') throw packageResult.reason
+			const nextAccounts = asList(accountResult.value)
 			setAccounts(nextAccounts)
-			setPackages(asList(packageResult))
-			try {
-				const usageResult = await api<MonitorResponse>('/api/v1/server/monitor')
-				setUsage(usageResult.accounts || [])
-			} catch {
+			setPackages(asList(packageResult.value))
+			if (monitorResult.status === 'fulfilled') {
+				setUsage(monitorResult.value.accounts || [])
+			} else {
 				const usageResults = await Promise.allSettled(nextAccounts.map((account) => api<Usage>(`/api/v1/accounts/${account.id}/usage`)))
 				setUsage(usageResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []))
 			}
@@ -36,7 +41,9 @@ export function UsagePage () {
 		}
 	}
 	useEffect(() => { void load() }, [])
-	const rows = useMemo(() => accounts.map((account) => ({ account, pkg: packages.find((pkg) => pkg.id === account.package_id), usage: usage.find((entry) => entry.account_id === account.id) })).filter((row) => `${row.account.username} ${row.account.primary_domain}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [accounts, packages, usage, query])
+	const packagesById = useMemo(() => new Map(packages.map((pkg) => [pkg.id, pkg])), [packages])
+	const usageByAccountId = useMemo(() => new Map(usage.map((entry) => [entry.account_id, entry])), [usage])
+	const rows = useMemo(() => accounts.map((account) => ({ account, pkg: packagesById.get(account.package_id), usage: usageByAccountId.get(account.id) })).filter((row) => `${row.account.username} ${row.account.primary_domain}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [accounts, packagesById, usageByAccountId, query])
 	return <>
 		<PageHeader title="Account Usage" description="Compare measured account consumption with package capacity." actions={<button type="button" className="secondary" onClick={load}>Refresh</button>} />
 		<div className="filter-bar"><label>Search accounts<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>

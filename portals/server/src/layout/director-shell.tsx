@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { api, asList } from '../client'
-import { messageFrom } from '../helpers'
+import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
 import { GlobalFind } from './global-find'
 import { Sidebar } from './sidebar'
@@ -9,7 +9,6 @@ import type { Account, Me, ServerOverview } from '../types'
 
 interface DirectorShellProps {
 	me: Me
-	capabilities: Record<string, boolean>
 	onSignOut: () => void
 }
 
@@ -20,7 +19,8 @@ const crumbLabels: Record<string, string> = {
 	jobs: 'Jobs', audit: 'Audit Trail', usage: 'Account Usage',
 }
 
-export function DirectorShell ({ me, capabilities, onSignOut }: DirectorShellProps) {
+export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
+	const capabilities = useCapabilities()
 	const [collapsed, setCollapsed] = useState(false)
 	const [mobileOpen, setMobileOpen] = useState(false)
 	const [accounts, setAccounts] = useState<Account[]>([])
@@ -67,8 +67,4 @@ export function DirectorShell ({ me, capabilities, onSignOut }: DirectorShellPro
 			</div>
 		</div>
 	)
-}
-
-export function RouteError ({ error }: { error: unknown }) {
-	return <section className="error-state"><strong>Page error</strong><p>{messageFrom(error)}</p></section>
 }

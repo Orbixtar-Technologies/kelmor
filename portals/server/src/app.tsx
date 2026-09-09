@@ -23,13 +23,12 @@ import type { Me, User } from './types'
 export function App () {
 	const [me, setMe] = useState<Me | null>(null)
 	const [checking, setChecking] = useState(Boolean(getToken()))
-	const [error, setError] = useState('')
 	useEffect(() => {
 		if (!getToken()) return
 		api<Me>('/api/v1/me').then(setMe).catch(() => clearToken()).finally(() => setChecking(false))
 	}, [])
 	if (checking) return <main className="auth"><div className="loading-state" role="status"><span />Restoring Kelmor Director session…</div></main>
-	if (!me) return <LoginPage error={error} setError={setError} onLogin={setMe} />
+	if (!me) return <LoginPage onLogin={setMe} />
 	const capabilities = me.actor.capabilities || {}
 	function allowed (capability: string, element: ReactNode) {
 		return capabilities[capability] ? element : <Forbidden title="Access restricted" />
@@ -37,7 +36,7 @@ export function App () {
 	return (
 		<CapProvider caps={capabilities}>
 			<Routes>
-				<Route element={<DirectorShell me={me} capabilities={capabilities} onSignOut={() => { api('/api/v1/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined); clearToken(); setMe(null) }} />}>
+				<Route element={<DirectorShell me={me} onSignOut={() => { api('/api/v1/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined); clearToken(); setMe(null) }} />}>
 					<Route index element={(capabilities['server.read'] || capabilities['accounts.read']) ? <HomePage /> : <Forbidden title="Home" />} />
 					<Route path="accounts" element={allowed('accounts.read', <AccountsPage />)} />
 					<Route path="accounts/create" element={allowed('accounts.create', <CreateAccountPage />)} />
@@ -62,12 +61,11 @@ export function App () {
 }
 
 interface LoginPageProps {
-	error: string
-	setError: (value: string) => void
 	onLogin: (me: Me) => void
 }
 
-function LoginPage ({ error, setError, onLogin }: LoginPageProps) {
+function LoginPage ({ onLogin }: LoginPageProps) {
+	const [error, setError] = useState('')
 	return <main className="auth"><section className="login-card"><div className="login-brand"><span>K</span><div><strong>Kelmor Director</strong><small>Server administration</small></div></div><h1>Sign in</h1><p>Access your Kelmor host, accounts, services, and background operations.</p><form onSubmit={async (event) => {
 		event.preventDefault(); setError('')
 		const data = new FormData(event.currentTarget)
