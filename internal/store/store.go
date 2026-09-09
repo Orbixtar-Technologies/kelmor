@@ -15,7 +15,7 @@ type Store interface {
 	PutPackage(*Package)
 	GetPackage(string) *Package
 	ListPackages() []Package
-	DeletePackage(string)
+	DeletePackageIfUnused(string) bool
 
 	PutReseller(*Reseller)
 	GetReseller(string) *Reseller

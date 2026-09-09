@@ -805,13 +805,10 @@ func (a *API) deletePackage(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 403, "FORBIDDEN", "Not authorized for this package", false)
 		return
 	}
-	for _, account := range a.Store.ListAccounts("", "") {
-		if account.PackageID == pkg.ID {
-			a.fail(w, r, 409, "IN_USE", "Package is assigned to an account", false)
-			return
-		}
+	if !a.Store.DeletePackageIfUnused(pkg.ID) {
+		a.fail(w, r, 409, "IN_USE", "Package is assigned to an account", false)
+		return
 	}
-	a.Store.DeletePackage(pkg.ID)
 	a.audit(r, "package.delete", "package", pkg.ID, true,
 		map[string]any{"name": pkg.Name, "reseller_id": pkg.ResellerID}, nil)
 	writeJSON(w, 200, map[string]any{"deleted": pkg.ID})

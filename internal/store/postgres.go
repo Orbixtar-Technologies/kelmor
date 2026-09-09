@@ -215,8 +215,12 @@ func (p *PG) ListPackages() []Package {
 	return out
 }
 
-func (p *PG) DeletePackage(id string) {
-	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM packages WHERE id=$1`, id)
+func (p *PG) DeletePackageIfUnused(id string) bool {
+	result, err := p.pool.Exec(p.ctx(), `
+		DELETE FROM packages
+		WHERE id=$1
+		  AND NOT EXISTS (SELECT 1 FROM accounts WHERE package_id=$1)`, id)
+	return err == nil && result.RowsAffected() == 1
 }
 
 func (p *PG) PutReseller(r *Reseller) {

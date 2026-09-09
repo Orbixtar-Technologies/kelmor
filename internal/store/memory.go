@@ -144,10 +144,19 @@ func (m *Memory) ListPackages() []Package {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
-func (m *Memory) DeletePackage(id string) {
+func (m *Memory) DeletePackageIfUnused(id string) bool {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Packages[id] == nil {
+		return false
+	}
+	for _, account := range m.Accounts {
+		if account.PackageID == id {
+			return false
+		}
+	}
 	delete(m.Packages, id)
-	m.mu.Unlock()
+	return true
 }
 
 func (m *Memory) PutReseller(r *Reseller) { m.mu.Lock(); m.Resellers[r.ID] = r; m.mu.Unlock() }
