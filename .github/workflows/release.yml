@@ -1,0 +1,82 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Optional explicit semver (e.g. 0.2.5). Leave empty to auto-compute.
+        required: false
+        type: string
+      publish_feed:
+        description: Publish signed feed to configured VM after build
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install portal dependencies
+        run: make bootstrap
+
+      - name: Prepare signing key
+        env:
+          SIGNING_KEY: ${{ secrets.PANEL_UPDATE_SIGNING_KEY }}
+        run: |
+          if [[ -z "$SIGNING_KEY" ]]; then
+            echo "PANEL_UPDATE_SIGNING_KEY secret is required for signed releases." >&2
+            exit 1
+          fi
+          install -d -m 700 "$RUNNER_TEMP/signing"
+          printf '%s' "$SIGNING_KEY" > "$RUNNER_TEMP/signing/update-signing.priv"
+          chmod 600 "$RUNNER_TEMP/signing/update-signing.priv"
+
+      - name: Build, package, and sign update feed
+        env:
+          PANEL_UPDATE_SIGNING_KEY: ${{ runner.temp }}/signing/update-signing.priv
+          PANEL_UPDATE_RELEASE: ${{ inputs.release_version }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: bash scripts/ci/release.sh
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kelmor-release-${{ github.run_number }}
+          retention-days: 90
+          path: |
+            dist/deb/*.deb
+            dist/update-feed/
+            dist/release/release.env
+
+      - name: Publish update feed to VM
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_feed }}
+        env:
+          VM_HOST: ${{ secrets.KELMOR_VM_HOST }}
+          VM_USER: ${{ secrets.KELMOR_VM_USER }}
+          VM_KEY_PATH: ${{ runner.temp }}/vm/ssh-key
+          VM_PORT: ${{ secrets.KELMOR_VM_PORT }}
+          PANEL_UPDATE_PUBLISH_URL: ${{ secrets.PANEL_UPDATE_PUBLISH_URL }}
+        run: |
+          if [[ -n "${VM_HOST:-}" && -n "${{ secrets.KELMOR_VM_SSH_KEY }}" ]]; then
+            install -d -m 700 "$RUNNER_TEMP/vm"
+            printf '%s' "${{ secrets.KELMOR_VM_SSH_KEY }}" > "$VM_KEY_PATH"
+            chmod 600 "$VM_KEY_PATH"
+          fi
+          bash scripts/ci/publish-update-feed.sh

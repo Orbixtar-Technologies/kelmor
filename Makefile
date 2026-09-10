@@ -60,8 +60,11 @@ pebble:
 package: build
 	bash packaging/debian/build.sh
 
-release: lint test build
-	@echo "Release artifacts would be signed from CI, not a workstation."
+release:
+	bash scripts/ci/release.sh
+
+auto-update:
+	bash scripts/ci/auto-update.sh
 
 portals:
 	cd portals/server && npm install && npm run build
