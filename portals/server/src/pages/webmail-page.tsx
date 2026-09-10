@@ -23,6 +23,7 @@ export function WebmailPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [viewAll, setViewAll] = useState(!params.get('account'))
+	const [toolUrls, setToolUrls] = useState<Record<string, { webmail_url?: string }>>({})
 	const requests = useRef(new RequestSequence()).current
 	const accountId = params.get('account') || ''
 	const currentAccountId = useRef(accountId)
@@ -84,9 +85,20 @@ export function WebmailPage () {
 
 	const imapHost = useMemo(() => hostname ? `mail.${hostname.split('.').slice(1).join('.') || hostname}` : 'mail.example.com', [hostname])
 
-	function openWebmail (mailbox: MailboxRow) {
-		const webmailUrl = `https://webmail.${mailbox.domain_name}/`
-		window.open(webmailUrl, '_blank', 'noopener,noreferrer')
+	async function ensureToolUrls (accountId: string) {
+		if (toolUrls[accountId]) return toolUrls[accountId]
+		try {
+			const result = await api<{ webmail_url: string }>(`/api/v1/accounts/${accountId}/admin-tools`)
+			setToolUrls((current) => ({ ...current, [accountId]: result }))
+			return result
+		} catch {
+			return { webmail_url: `https://webmail.${mailboxes.find((entry) => entry.account_id === accountId)?.domain_name || 'example.com'}/` }
+		}
+	}
+
+	async function openWebmail (mailbox: MailboxRow) {
+		const tools = await ensureToolUrls(mailbox.account_id)
+		window.open(tools.webmail_url || `https://webmail.${mailbox.domain_name}/`, '_blank', 'noopener,noreferrer')
 	}
 
 	return (

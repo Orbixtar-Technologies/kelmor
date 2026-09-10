@@ -199,6 +199,46 @@ php_admin_value[open_basedir] = /home/%s:/tmp:/usr/share/php
 `, account, account, group, account, maxChildren, account)
 }
 
+type ToolSiteSpec struct {
+	SiteID       string
+	Hostname     string
+	DocumentRoot string
+	TLSCert      string
+	TLSKey       string
+}
+
+func NginxToolSite(s ToolSiteSpec) string {
+	var b strings.Builder
+	writeToolServer(&b, "80", s, false)
+	if s.TLSCert != "" && s.TLSKey != "" {
+		writeToolServer(&b, "443 ssl", s, true)
+	}
+	return b.String()
+}
+
+func writeToolServer(b *strings.Builder, listen string, s ToolSiteSpec, tls bool) {
+	b.WriteString("server {\n")
+	fmt.Fprintf(b, "    listen %s;\n", listen)
+	if strings.HasPrefix(listen, "80") {
+		b.WriteString("    listen [::]:80;\n")
+	} else {
+		b.WriteString("    listen [::]:443 ssl;\n")
+	}
+	fmt.Fprintf(b, "    server_name %s;\n", s.Hostname)
+	fmt.Fprintf(b, "    root %s;\n", s.DocumentRoot)
+	b.WriteString("    index index.php index.html;\n")
+	fmt.Fprintf(b, "    access_log /var/log/nginx/%s.access.log;\n", s.SiteID)
+	fmt.Fprintf(b, "    error_log /var/log/nginx/%s.error.log;\n", s.SiteID)
+	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+	if tls {
+		fmt.Fprintf(b, "    ssl_certificate %s;\n", s.TLSCert)
+		fmt.Fprintf(b, "    ssl_certificate_key %s;\n", s.TLSKey)
+	}
+	b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
+	b.WriteString("    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/php8.3-fpm.sock; }\n")
+	b.WriteString("}\n")
+}
+
 func SystemdSlice(username string, cpuPercent int, memoryBytes int64, tasksMax, ioWeight, iops int) string {
 	if tasksMax < 1 {
 		tasksMax = 100

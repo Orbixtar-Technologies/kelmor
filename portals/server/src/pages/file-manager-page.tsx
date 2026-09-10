@@ -107,20 +107,91 @@ export function FileManagerPage () {
 		}
 	}
 
+	function entryPath (entry: FileEntry) {
+		return currentPath.endsWith('/') ? `${currentPath}${entry.name}` : `${currentPath}/${entry.name}`
+	}
+
 	async function readFile (entry: FileEntry) {
 		if (!accountId) return
-		const path = currentPath.endsWith('/') ? `${currentPath}${entry.name}` : `${currentPath}/${entry.name}`
-		try {
-			const result = await api<{ items: FileEntry[] }>(`/api/v1/accounts/${accountId}/files?path=${encodeURIComponent(path)}`)
-			const listed = asList(result)
-			if (listed.length || entry.dir) {
-				navigateTo(path)
-				return
-			}
-		} catch {
-			// fall through to editor for text files
+		const path = entryPath(entry)
+		if (entry.dir) {
+			navigateTo(path)
+			return
 		}
-		openEditor(path.startsWith('/') ? path : `/${path}`)
+		try {
+			const result = await api<{ content: string }>(`/api/v1/accounts/${accountId}/files/content?path=${encodeURIComponent(path)}`)
+			openEditor(path.startsWith('/') ? path : `/${path}`, result.content)
+		} catch {
+			openEditor(path.startsWith('/') ? path : `/${path}`)
+		}
+	}
+
+	async function deleteEntry (entry: FileEntry) {
+		if (!accountId || !window.confirm(`Delete ${entry.name}?`)) return
+		try {
+			await api(`/api/v1/accounts/${accountId}/files`, {
+				method: 'DELETE',
+				body: JSON.stringify({ path: entryPath(entry) }),
+			})
+			setMessage(`Deleted ${entry.name}`)
+			loadDirectory(accountId, currentPath)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
+	async function renameEntry (entry: FileEntry) {
+		if (!accountId) return
+		const nextName = window.prompt('Rename to', entry.name)
+		if (!nextName || nextName === entry.name) return
+		const parent = entryPath(entry).split('/').slice(0, -1).join('/') || '/'
+		const newPath = `${parent}/${nextName}`.replace('//', '/')
+		try {
+			await api(`/api/v1/accounts/${accountId}/files`, {
+				method: 'PATCH',
+				body: JSON.stringify({ path: entryPath(entry), new_path: newPath }),
+			})
+			setMessage(`Renamed to ${nextName}`)
+			loadDirectory(accountId, currentPath)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
+	async function createFolder () {
+		if (!accountId) return
+		const name = window.prompt('New folder name')
+		if (!name) return
+		const path = currentPath.endsWith('/') ? `${currentPath}${name}` : `${currentPath}/${name}`
+		try {
+			await api(`/api/v1/accounts/${accountId}/files/mkdir`, {
+				method: 'POST',
+				body: JSON.stringify({ path }),
+			})
+			setMessage(`Created folder ${name}`)
+			loadDirectory(accountId, currentPath)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
+	async function uploadFile (file: File) {
+		if (!accountId) return
+		const buffer = await file.arrayBuffer()
+		const bytes = new Uint8Array(buffer)
+		let binary = ''
+		for (const byte of bytes) binary += String.fromCharCode(byte)
+		const path = currentPath.endsWith('/') ? `${currentPath}${file.name}` : `${currentPath}/${file.name}`
+		try {
+			await api(`/api/v1/accounts/${accountId}/files`, {
+				method: 'POST',
+				body: JSON.stringify({ path, content_b64: btoa(binary) }),
+			})
+			setMessage(`Uploaded ${file.name}`)
+			loadDirectory(accountId, currentPath)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
 	}
 
 	const sortedItems = [...items].sort((left, right) => {
@@ -160,7 +231,13 @@ export function FileManagerPage () {
 				<div className="file-toolbar">
 					<button type="button" className="secondary compact" disabled={currentPath === '/'} onClick={() => navigateTo(currentPath.split('/').slice(0, -1).join('/') || '/')}>Up</button>
 					<button type="button" className="secondary compact" onClick={() => navigateTo('/public_html')}>public_html</button>
-					{canWrite ? <button type="button" className="compact" onClick={() => openEditor(currentPath === '/' ? '/public_html/new-file.txt' : `${currentPath}/new-file.txt`)}>New file</button> : null}
+					{canWrite ? <>
+						<button type="button" className="compact" onClick={() => openEditor(currentPath === '/' ? '/public_html/new-file.txt' : `${currentPath}/new-file.txt`)}>New file</button>
+						<button type="button" className="secondary compact" onClick={createFolder}>New folder</button>
+						<label className="upload-button secondary compact">
+							Upload<input type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file); event.target.value = '' }} />
+						</label>
+					</> : null}
 				</div>
 				{loading ? <LoadingState label="Reading directory…" /> : null}
 				{!loading ? <div className="table-wrap"><table className="dense-table file-table">
@@ -175,8 +252,12 @@ export function FileManagerPage () {
 								</td>
 								<td>{entry.dir ? '—' : formatBytes(Number(entry.size || 0))}</td>
 								<td>{entry.dir ? 'Directory' : 'File'}</td>
-								<td>
-									{!entry.dir && canWrite ? <button type="button" className="link-button" onClick={() => openEditor(currentPath.endsWith('/') ? `${currentPath}${entry.name}` : `${currentPath}/${entry.name}`)}>Edit</button> : null}
+								<td className="row-actions">
+									{!entry.dir && canWrite ? <button type="button" className="link-button" onClick={() => readFile(entry)}>Edit</button> : null}
+									{canWrite ? <>
+										<button type="button" className="link-button" onClick={() => renameEntry(entry)}>Rename</button>
+										<button type="button" className="link-button danger-text" onClick={() => deleteEntry(entry)}>Delete</button>
+									</> : null}
 								</td>
 							</tr>
 						))}

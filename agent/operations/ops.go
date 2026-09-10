@@ -448,6 +448,69 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 			}
 		}
 		return Result{OK: true, Message: "reload requested for " + p.Name}, nil
+	case "ControlService":
+		var p struct {
+			Name   string `json:"name"`
+			Action string `json:"action"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		if err := validateService(p.Name); err != nil {
+			return nil, err
+		}
+		action := strings.ToLower(strings.TrimSpace(p.Action))
+		if action == "" {
+			action = "restart"
+		}
+		if h.live() {
+			if err := controlNamedService(p.Name, action); err != nil {
+				return nil, err
+			}
+		}
+		return Result{OK: true, Message: action + " requested for " + p.Name}, nil
+	case "ReadManagedFile":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.readManagedFile(p.Path)
+	case "DeleteManagedFile":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.deleteManagedFile(p.Path)
+	case "RenameManagedPath":
+		var p struct {
+			OldPath string `json:"old_path"`
+			NewPath string `json:"new_path"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.renameManagedPath(p.OldPath, p.NewPath)
+	case "ChmodManagedPath":
+		var p struct {
+			Path string `json:"path"`
+			Mode uint32 `json:"mode"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.chmodManagedPath(p.Path, p.Mode)
+	case "ApplyAdminTools":
+		var p struct {
+			Domain string `json:"domain"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.applyAdminTools(p.Domain)
 	case "GetServiceStatus":
 		var p struct {
 			Name string `json:"name"`
