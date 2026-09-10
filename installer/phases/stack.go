@@ -968,6 +968,9 @@ func verifySystemd(c Config) error {
 	if _, err := os.Stat(root(c, "etc/panel/update.pub")); err != nil {
 		return fmt.Errorf("update.pub missing")
 	}
+	if _, err := os.Stat(root(c, "usr/local/panel/current-release")); err != nil {
+		return fmt.Errorf("current-release missing")
+	}
 	return nil
 }
 
