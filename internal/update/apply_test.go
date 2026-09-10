@@ -17,9 +17,40 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
+
+func TestWithInstallOperationLockWaitsForCanonicalLock(t *testing.T) {
+	installRoot := t.TempDir()
+	held, err := acquireInstallLock(installRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		close(started)
+		result <- WithInstallOperationLock(installRoot, func() error {
+			return nil
+		})
+	}()
+	<-started
+	select {
+	case err := <-result:
+		_ = held.Close()
+		t.Fatalf("shared operation lock did not wait: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := held.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestApplyAndRollback(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)

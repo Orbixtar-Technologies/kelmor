@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/hosting-panel/panel/internal/update"
 )
@@ -17,6 +18,9 @@ import (
 func TestManagePanelUpdateAcceptsFixedActions(t *testing.T) {
 	root := t.TempDir()
 	host := &Host{Root: root}
+	if err := os.MkdirAll(filepath.Join(root, "usr/local/panel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	configPath := filepath.Join(root, "etc/panel/update.env")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
 		t.Fatal(err)
@@ -118,6 +122,9 @@ func TestPanelUpdateActionsSelectFixedAsynchronousUnits(t *testing.T) {
 func TestManagePanelUpdateSettingsPreservesMetadataAndUpdatesStatus(t *testing.T) {
 	root := t.TempDir()
 	host := &Host{Root: root}
+	if err := os.MkdirAll(filepath.Join(root, "usr/local/panel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	configPath := filepath.Join(root, "etc/panel/update.env")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
 		t.Fatal(err)
@@ -177,6 +184,10 @@ func TestManagePanelUpdateSettingsPreservesMetadataAndUpdatesStatus(t *testing.T
 func TestManagePanelUpdateSettingsSerializesConfigAndStatus(t *testing.T) {
 	root := t.TempDir()
 	host := &Host{Root: root}
+	installRoot := filepath.Join(root, "usr/local/panel")
+	if err := os.MkdirAll(installRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	configPath := filepath.Join(root, "etc/panel/update.env")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
 		t.Fatal(err)
@@ -234,9 +245,84 @@ func TestManagePanelUpdateSettingsSerializesConfigAndStatus(t *testing.T) {
 	if got.Automatic {
 		t.Fatalf("concurrent status did not reflect config: %+v", got)
 	}
-	lockPath := filepath.Join(root, "run/panel/update-settings.lock")
+	lockPath := filepath.Join(installRoot, ".update.lock")
 	if info, err := os.Stat(lockPath); err != nil || !info.Mode().IsRegular() {
-		t.Fatalf("advisory lock missing: %v", err)
+		t.Fatalf("canonical advisory lock missing: %v", err)
+	}
+}
+
+func TestManagePanelUpdateSettingsWaitsForUpdaterCanonicalLock(t *testing.T) {
+	root := t.TempDir()
+	host := &Host{Root: root}
+	installRoot := filepath.Join(root, "usr/local/panel")
+	if err := os.MkdirAll(installRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "etc/panel/update.env")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	config := "PANEL_UPDATE_CHANNEL=stable\n" +
+		"PANEL_UPDATE_INSTALL_ROOT=/usr/local/panel\n" +
+		"PANEL_UPDATE_AUTOMATIC=true\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statusPath := filepath.Join(root, "var/lib/panel/update-status.json")
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "idle", InstalledRelease: "1.0.0", Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updaterEntered := make(chan struct{})
+	releaseUpdater := make(chan struct{})
+	updaterResult := make(chan error, 1)
+	go func() {
+		updaterResult <- update.WithInstallOperationLock(installRoot, func() error {
+			close(updaterEntered)
+			<-releaseUpdater
+			return update.WriteStatus(statusPath, update.Status{
+				State: "available", InstalledRelease: "1.0.0", AvailableRelease: "2.0.0",
+				Automatic: true, Channel: "stable",
+			})
+		})
+	}()
+	<-updaterEntered
+
+	settingsResult := make(chan error, 1)
+	go func() {
+		automatic := false
+		_, err := host.ManagePanelUpdate(context.Background(), PanelUpdateRequest{
+			Action: "settings", Automatic: &automatic,
+		})
+		settingsResult <- err
+	}()
+	select {
+	case err := <-settingsResult:
+		close(releaseUpdater)
+		<-updaterResult
+		t.Fatalf("settings did not wait for updater lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseUpdater)
+	if err := <-updaterResult; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-settingsResult; err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status update.Status
+	if err := json.Unmarshal(raw, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.AvailableRelease != "2.0.0" || status.Automatic {
+		t.Fatalf("settings overwrote concurrent updater status: %+v", status)
 	}
 }
 

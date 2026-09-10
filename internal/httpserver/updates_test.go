@@ -218,8 +218,74 @@ func TestUpdateMutationsRequireBearerAndSameOrigin(t *testing.T) {
 	assertAPIErrorCode(t, code, body, http.StatusForbidden, "ORIGIN_FORBIDDEN")
 }
 
+func TestUpdateMutationOriginBehindProductionProxy(t *testing.T) {
+	server := newUpdateTestServer(t)
+	code, body := proxiedUpdateRequest(
+		t,
+		server,
+		"panel.example",
+		"https",
+		"https://panel.example:8443",
+	)
+	if code != http.StatusAccepted {
+		t.Fatalf("production proxy origin: %d %v", code, body)
+	}
+
+	for _, origin := range []string{
+		"http://panel.example:8443",
+		"https://evil.panel.example:8443",
+		"https://panel.example.attacker.invalid:8443",
+		"https://panel.example@attacker.invalid:8443",
+	} {
+		code, body = proxiedUpdateRequest(t, server, "panel.example", "https", origin)
+		assertAPIErrorCode(t, code, body, http.StatusForbidden, "ORIGIN_FORBIDDEN")
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://panel.example/api/v1/server/updates/check", nil)
+	request.Host = "panel.example"
+	request.RemoteAddr = "198.51.100.10:43210"
+	request.Header.Set("Authorization", "Bearer "+server.admin)
+	request.Header.Set("Origin", "https://panel.example:8443")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	response := httptest.NewRecorder()
+	api := New(server.store, logging.New("test"), &operations.Host{Root: server.root})
+	api.Handler().ServeHTTP(response, request)
+	var untrustedBody map[string]any
+	_ = json.NewDecoder(response.Body).Decode(&untrustedBody)
+	assertAPIErrorCode(t, response.Code, untrustedBody, http.StatusForbidden, "ORIGIN_FORBIDDEN")
+}
+
+func proxiedUpdateRequest(
+	t *testing.T,
+	server updateTestServer,
+	host string,
+	forwardedProto string,
+	origin string,
+) (int, map[string]any) {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodPost, server.url+"/api/v1/server/updates/check", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = host
+	request.Header.Set("Authorization", "Bearer "+server.admin)
+	request.Header.Set("Origin", origin)
+	request.Header.Set("X-Forwarded-Proto", forwardedProto)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var body map[string]any
+	_ = json.NewDecoder(response.Body).Decode(&body)
+	return response.StatusCode, body
+}
+
 func TestUpdateSettingsAreReflectedInStatus(t *testing.T) {
 	server := newUpdateTestServer(t)
+	if err := os.MkdirAll(filepath.Join(server.root, "usr/local/panel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	configPath := filepath.Join(server.root, "etc/panel/update.env")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
 		t.Fatal(err)

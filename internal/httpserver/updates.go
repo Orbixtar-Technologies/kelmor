@@ -103,14 +103,19 @@ func updateMutationOriginAllowed(r *http.Request) bool {
 		return true
 	}
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+	if err != nil || parsed.User != nil || parsed.Path != "" ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
 	scheme := "http"
 	if requestIsHTTPS(r) {
 		scheme = "https"
 	}
-	return parsed.Scheme == scheme && strings.EqualFold(parsed.Host, r.Host)
+	requestHost := (&url.URL{Host: r.Host}).Hostname()
+	originHost := parsed.Hostname()
+	return strings.EqualFold(parsed.Scheme, scheme) &&
+		requestHost != "" &&
+		strings.EqualFold(originHost, requestHost)
 }
 
 func (a *API) runUpdateMutation(

@@ -11,13 +11,12 @@ import (
 	"syscall"
 
 	"github.com/hosting-panel/panel/internal/update"
-	"golang.org/x/sys/unix"
 )
 
 const (
 	panelUpdateConfigPath = "/etc/panel/update.env"
 	panelUpdateStatusPath = "/var/lib/panel/update-status.json"
-	panelUpdateLockPath   = "/run/panel/update-settings.lock"
+	defaultInstallRoot    = "/usr/local/panel"
 )
 
 type PanelUpdateRequest struct {
@@ -115,27 +114,28 @@ func decodePanelUpdateRequest(raw json.RawMessage) (PanelUpdateRequest, error) {
 }
 
 func (h *Host) writeAutomaticUpdateSetting(automatic bool) error {
-	lockPath, err := h.resolve(panelUpdateLockPath)
+	configPath, err := h.resolve(panelUpdateConfigPath)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o750); err != nil {
-		return fmt.Errorf("create update settings lock directory: %w", err)
-	}
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	content, err := os.ReadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("open update settings lock: %w", err)
+		return fmt.Errorf("read update settings: %w", err)
 	}
-	defer lock.Close()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
-		return fmt.Errorf("lock update settings: %w", err)
+	configuredRoot, err := panelUpdateInstallRoot(content)
+	if err != nil {
+		return err
 	}
-	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
-
-	return h.writeAutomaticUpdateSettingLocked(automatic)
+	installRoot, err := h.resolvePanelInstallRoot(configuredRoot)
+	if err != nil {
+		return err
+	}
+	return update.WithInstallOperationLock(installRoot, func() error {
+		return h.writeAutomaticUpdateSettingLocked(automatic, configuredRoot)
+	})
 }
 
-func (h *Host) writeAutomaticUpdateSettingLocked(automatic bool) error {
+func (h *Host) writeAutomaticUpdateSettingLocked(automatic bool, lockedInstallRoot string) error {
 	path, err := h.resolve(panelUpdateConfigPath)
 	if err != nil {
 		return err
@@ -154,6 +154,13 @@ func (h *Host) writeAutomaticUpdateSettingLocked(automatic bool) error {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read update settings: %w", err)
+	}
+	currentInstallRoot, err := panelUpdateInstallRoot(content)
+	if err != nil {
+		return err
+	}
+	if currentInstallRoot != lockedInstallRoot {
+		return fmt.Errorf("update install root changed while acquiring operation lock")
 	}
 
 	lines := strings.Split(string(content), "\n")
@@ -195,6 +202,52 @@ func (h *Host) writeAutomaticUpdateSettingLocked(automatic bool) error {
 		return fmt.Errorf("write update status: %w", err)
 	}
 	return nil
+}
+
+func panelUpdateInstallRoot(content []byte) (string, error) {
+	installRoot := defaultInstallRoot
+	found := false
+	for lineNumber, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return "", fmt.Errorf("invalid update config line %d", lineNumber+1)
+		}
+		if strings.TrimSpace(key) != "PANEL_UPDATE_INSTALL_ROOT" {
+			continue
+		}
+		if found {
+			return "", fmt.Errorf("duplicate PANEL_UPDATE_INSTALL_ROOT setting")
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 &&
+			((value[0] == '"' && value[len(value)-1] == '"') ||
+				(value[0] == '\'' && value[len(value)-1] == '\'')) {
+			value = value[1 : len(value)-1]
+		}
+		if value != "" {
+			installRoot = value
+		}
+		found = true
+	}
+	if !filepath.IsAbs(installRoot) || strings.ContainsRune(installRoot, 0) {
+		return "", fmt.Errorf("update install root must be absolute")
+	}
+	return filepath.Clean(installRoot), nil
+}
+
+func (h *Host) resolvePanelInstallRoot(installRoot string) (string, error) {
+	if !filepath.IsAbs(installRoot) || strings.ContainsRune(installRoot, 0) {
+		return "", fmt.Errorf("update install root must be absolute")
+	}
+	clean := filepath.Clean(installRoot)
+	if h.Root == "" {
+		return clean, nil
+	}
+	return filepath.Join(h.Root, strings.TrimPrefix(clean, "/")), nil
 }
 
 type updateFileMetadata struct {

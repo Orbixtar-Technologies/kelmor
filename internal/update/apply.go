@@ -46,6 +46,10 @@ type operationLock struct {
 }
 
 func acquireInstallLock(installRoot string) (*operationLock, error) {
+	return acquireOperationLock(installRoot, unix.LOCK_EX|unix.LOCK_NB)
+}
+
+func acquireOperationLock(installRoot string, flags int) (*operationLock, error) {
 	root, err := openSecureRoot(installRoot, "install root")
 	if err != nil {
 		return nil, err
@@ -55,15 +59,32 @@ func acquireInstallLock(installRoot string) (*operationLock, error) {
 		_ = root.Close()
 		return nil, err
 	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := unix.Flock(int(file.Fd()), flags); err != nil {
 		_ = file.Close()
 		_ = root.Close()
-		if errors.Is(err, unix.EWOULDBLOCK) {
+		if flags&unix.LOCK_NB != 0 && errors.Is(err, unix.EWOULDBLOCK) {
 			return nil, fmt.Errorf("update operation already in progress")
 		}
 		return nil, err
 	}
 	return &operationLock{root: root, file: file}, nil
+}
+
+// WithInstallOperationLock runs operation while holding the updater's
+// canonical install-root advisory lock. The callback must not call another
+// updater operation that acquires the same lock.
+func WithInstallOperationLock(installRoot string, operation func() error) (err error) {
+	if operation == nil {
+		return fmt.Errorf("update operation is required")
+	}
+	lock, err := acquireOperationLock(installRoot, unix.LOCK_EX)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, lock.Close())
+	}()
+	return operation()
 }
 
 func (lock *operationLock) Close() error {

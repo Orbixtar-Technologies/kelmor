@@ -3495,6 +3495,14 @@ func requestIsHTTPS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	proxyIP := net.ParseIP(strings.TrimSpace(host))
+	if proxyIP == nil || !proxyIP.IsLoopback() {
+		return false
+	}
 	forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
 	return strings.EqualFold(forwarded, "https")
 }
