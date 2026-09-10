@@ -76,12 +76,23 @@ func checkLocked(ctx context.Context, config Config, status Status) (*Status, er
 	if err != nil {
 		return finishStatus(config.StatusPath, status, err)
 	}
-	if err := validateManifest(manifest, config); err != nil {
+	if err := validateManifestForCheck(manifest, config); err != nil {
 		return finishStatus(config.StatusPath, status, err)
 	}
-
-	status.State = "available"
 	status.AvailableRelease = manifest.Release
+	available, err := parseSemanticVersion(manifest.Release)
+	if err != nil {
+		return finishStatus(config.StatusPath, status, fmt.Errorf("invalid release: %w", err))
+	}
+	installed, err := parseSemanticVersion(config.InstalledRelease)
+	if err != nil {
+		return finishStatus(config.StatusPath, status, fmt.Errorf("invalid installed release: %w", err))
+	}
+	if compareVersions(available, installed) <= 0 {
+		status.State = "idle"
+		return finishStatus(config.StatusPath, status, nil)
+	}
+	status.State = "available"
 	return finishStatus(config.StatusPath, status, nil)
 }
 
@@ -133,7 +144,7 @@ func fetchManifest(ctx context.Context, config Config) (*Manifest, error) {
 	return &manifest, nil
 }
 
-func validateManifest(manifest *Manifest, config Config) error {
+func validateManifestForCheck(manifest *Manifest, config Config) error {
 	if len(config.PublicKey) != ed25519.PublicKeySize {
 		return fmt.Errorf("invalid pinned public key")
 	}
@@ -142,6 +153,27 @@ func validateManifest(manifest *Manifest, config Config) error {
 	}
 	if manifest.Channel != config.Channel {
 		return fmt.Errorf("manifest channel %q does not match configured channel %q", manifest.Channel, config.Channel)
+	}
+	if _, err := parseSemanticVersion(manifest.Release); err != nil {
+		return fmt.Errorf("invalid release: %w", err)
+	}
+	installed, err := parseSemanticVersion(config.InstalledRelease)
+	if err != nil {
+		return fmt.Errorf("invalid installed release: %w", err)
+	}
+	minimum, err := parseSemanticVersion(manifest.MinimumRelease)
+	if err != nil {
+		return fmt.Errorf("invalid minimum release: %w", err)
+	}
+	if compareVersions(installed, minimum) < 0 {
+		return fmt.Errorf("installed release %s is below compatible minimum %s", config.InstalledRelease, manifest.MinimumRelease)
+	}
+	return validateArtifacts(manifest.Artifacts)
+}
+
+func validateManifest(manifest *Manifest, config Config) error {
+	if err := validateManifestForCheck(manifest, config); err != nil {
+		return err
 	}
 	available, err := parseSemanticVersion(manifest.Release)
 	if err != nil {
@@ -154,14 +186,7 @@ func validateManifest(manifest *Manifest, config Config) error {
 	if compareVersions(available, installed) <= 0 {
 		return fmt.Errorf("release %s is not newer than installed release %s", manifest.Release, config.InstalledRelease)
 	}
-	minimum, err := parseSemanticVersion(manifest.MinimumRelease)
-	if err != nil {
-		return fmt.Errorf("invalid minimum release: %w", err)
-	}
-	if compareVersions(installed, minimum) < 0 {
-		return fmt.Errorf("installed release %s is below compatible minimum %s", config.InstalledRelease, manifest.MinimumRelease)
-	}
-	return validateArtifacts(manifest.Artifacts)
+	return nil
 }
 
 func validateArtifacts(artifacts []Artifact) error {

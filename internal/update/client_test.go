@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -132,7 +133,7 @@ func TestCheckRejectsTraversalAndOversizedArtifacts(t *testing.T) {
 	}
 }
 
-func TestCheckRejectsNonIncreasingRelease(t *testing.T) {
+func TestCheckReportsIdleWhenFeedIsNotNewer(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -145,13 +146,16 @@ func TestCheckRejectsNonIncreasingRelease(t *testing.T) {
 	defer server.Close()
 	withHTTPClient(t, server.Client())
 
-	_, err = Check(context.Background(), Config{
+	status, err := Check(context.Background(), Config{
 		FeedURL: server.URL, Channel: "stable",
 		InstalledRelease: "1.10.0", PublicKey: pub,
-		InstallRoot: t.TempDir(),
+		InstallRoot: t.TempDir(), StatusPath: filepath.Join(t.TempDir(), "status.json"),
 	})
-	if err == nil || !strings.Contains(err.Error(), "newer") {
-		t.Fatalf("expected non-increasing release error, got %v", err)
+	if err != nil {
+		t.Fatalf("check should succeed when already current: %v", err)
+	}
+	if status.State != "idle" || status.AvailableRelease != "1.9.0" {
+		t.Fatalf("unexpected status: %#v", status)
 	}
 }
 

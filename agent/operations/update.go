@@ -201,7 +201,7 @@ func (h *Host) writeAutomaticUpdateSettingLocked(automatic bool, lockedInstallRo
 	if err := writeUpdateFileAtomic(statusPath, statusContent, statusMetadata); err != nil {
 		return fmt.Errorf("write update status: %w", err)
 	}
-	return nil
+	return update.ReconcileStatusPermissions(statusPath)
 }
 
 func panelUpdateInstallRoot(content []byte) (string, error) {
