@@ -1,3 +1,4 @@
+import { formatDate } from '../helpers'
 import type { Job } from '../types'
 
 const JOB_LABELS: Record<string, string> = {
@@ -84,6 +85,48 @@ export function describeJobFailure (job: Job): JobFailureSummary {
 export function jobMatchesAccount (job: Job, accountId: string): boolean {
 	if (!accountId) return true
 	return job.resource_id === accountId || job.payload.account_id === accountId
+}
+
+export interface JobTimelineEntry {
+	label: string
+	detail: string
+}
+
+export function describeJobTimeline (job: Job): JobTimelineEntry[] {
+	const entries: JobTimelineEntry[] = [
+		{ label: 'Queued', detail: formatDate(job.created_at) },
+	]
+	if (job.started_at) entries.push({ label: 'Started', detail: formatDate(job.started_at) })
+	if (job.finished_at) {
+		entries.push({
+			label: job.state === 'failed' ? 'Failed' : 'Finished',
+			detail: formatDate(job.finished_at),
+		})
+	}
+	entries.push({ label: 'Attempts', detail: `${job.attempts} of ${job.max_attempts}` })
+	const latest = extractErrorMessage(job.last_error || '').reason
+	const earlier = uniqueLogReasons(job.logs || []).filter((reason) => reason !== latest)
+	for (const reason of earlier) entries.push({ label: 'Earlier failure', detail: reason })
+	if (job.state === 'failed' && latest) entries.push({ label: 'Latest error', detail: latest })
+	return entries
+}
+
+export function jobRecoveryGuidance (job: Job): string {
+	const reason = describeJobFailure(job).reason.toLocaleLowerCase()
+	if (reason.includes('missing')) return 'Retry after the named resource exists on this account, or create it first.'
+	if (reason.includes('dns')) return 'Retry after the DNS record or authorization issue is resolved.'
+	if (reason.includes('permission') || reason.includes('denied')) return 'Retry after the listed permission issue is resolved.'
+	return 'Retry only after the named resource exists and any listed DNS or permission issue is resolved.'
+}
+
+function uniqueLogReasons (logs: string[]): string[] {
+	const reasons: string[] = []
+	for (const log of logs) {
+		const reason = extractErrorMessage(log).reason
+		if (!reason || reasons.includes(reason)) continue
+		reasons.push(reason)
+	}
+	return reasons
 }
 
 export function summarizeJobCounts (jobs: Job[]): { queued: number; running: number; succeeded: number; failed: number; total: number } {

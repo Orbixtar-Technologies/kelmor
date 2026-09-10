@@ -77,7 +77,7 @@ pre { max-height: 280px; overflow: auto; border: 1px solid var(--soft-border); b
 .topbar-brand { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; color: var(--navy); text-decoration: none; font-size: 13px; }
 .topbar-brand span { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 3px; background: var(--blue); color: #fff; font-weight: 800; }
 .global-find { position: relative; width: min(590px, 45vw); margin-right: auto; }
-.global-find input { height: 38px; padding: 8px 42px 8px 34px; background: #f7f9fb; }
+.global-find input { height: 38px; padding: 8px 42px 8px 34px; background: #f7f9fb; text-overflow: ellipsis; }
 .find-icon { position: absolute; z-index: 1; left: 11px; top: 7px; color: #617386; font-size: 18px; }
 .global-find kbd { position: absolute; right: 10px; top: 8px; padding: 1px 6px; border: 1px solid #bdc7d1; border-radius: 3px; background: #fff; color: #617386; }
 .find-results { position: absolute; top: 43px; left: 0; right: 0; z-index: 30; overflow: hidden; border: 1px solid #9eafc0; border-radius: 5px; background: #fff; box-shadow: 0 10px 28px rgba(24, 45, 66, .22); }
@@ -87,6 +87,7 @@ pre { max-height: 280px; overflow: auto; border: 1px solid var(--soft-border); b
 .find-results small { color: var(--muted); font-weight: 400; }
 .find-results em { color: #708295; font-size: 11px; font-style: normal; text-transform: uppercase; }
 .find-results p { padding: 12px; margin: 0; color: var(--muted); }
+.find-scope { border-bottom: 1px solid #e3e8ed; font-size: 12px; }
 .top-actions { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
 .icon-button { position: relative; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #c5d0da; border-radius: 6px; background: #fff; color: #334e68; padding: 0; font-size: 18px; }
 .icon-button svg { width: 18px; height: 18px; }
@@ -315,11 +316,16 @@ td small { display: block; color: var(--muted); }
 .loading-state { display: flex; align-items: center; gap: 9px; color: #476174; }
 .loading-state > span { width: 14px; height: 14px; border: 2px solid #a4bfd3; border-top-color: #17689f; border-radius: 50%; animation: spin .7s linear infinite; }
 .dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(14, 31, 46, .5); }
-.dialog { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow: auto; border: 1px solid #8293a2; border-radius: 5px; background: #fff; box-shadow: 0 18px 55px rgba(0,0,0,.3); }
+.dialog { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow: hidden; border: 1px solid #8293a2; border-radius: 5px; background: #fff; box-shadow: 0 18px 55px rgba(0,0,0,.3); }
 .dialog > header { position: sticky; z-index: 2; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; border-bottom: 1px solid var(--border); background: #edf2f6; }
 .dialog > header h2 { margin: 0; }
-.dialog-body { padding: 15px; }
+.dialog-body { min-height: 0; overflow: auto; padding: 15px; }
+.dialog > footer { flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 15px; border-top: 1px solid var(--soft-border); background: #fff; }
 .dialog-body > footer { margin-left: -15px; margin-right: -15px; margin-bottom: -15px; padding: 12px 15px; }
+.job-timeline { margin: 0 0 12px; padding-left: 18px; }
+.job-timeline li { margin: 0 0 8px; }
+.job-timeline strong { display: block; font-size: 12px; color: #4a5d6e; }
+.job-technical pre { max-height: 160px; }
 .danger-panel { border-left: 4px solid var(--danger); }
 .transfer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .transfer-grid form { display: grid; gap: 9px; }
@@ -387,7 +393,8 @@ progress { width: 100px; height: 8px; accent-color: #287eb8; }
 	.bulk-actions { margin-left: 0; }
 }
 @media (max-width: 480px) {
-	.metric-grid, .compact-metrics, .favorite-tools, .widget-grid, .home-status-strip, .home-quick-links, .home-columns, .summary-grid, .tool-groups, .transfer-grid, .state-columns { grid-template-columns: 1fr; }
+	.metric-grid, .favorite-tools, .widget-grid, .home-status-strip, .home-quick-links, .home-columns, .summary-grid, .tool-groups, .transfer-grid, .state-columns { grid-template-columns: 1fr; }
+	.compact-metrics { grid-template-columns: 1fr 1fr; }
 	.top-actions { gap: 3px; }
 	.topbar-brand { display: none; }
 	.notifications + .hostname { display: none; }

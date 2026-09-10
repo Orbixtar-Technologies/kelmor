@@ -26,7 +26,7 @@ export interface FindResult {
 	label: string
 	description: string
 	path: string
-	kind: 'tool' | 'account'
+	kind: 'tool' | 'account' | 'resource'
 	score: number
 }
 

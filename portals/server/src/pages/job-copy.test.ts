@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { describeJobFailure, formatJobType, jobMatchesAccount, summarizeJobCounts } from './job-copy'
+import { describeJobFailure, describeJobTimeline, formatJobType, jobMatchesAccount, jobRecoveryGuidance, summarizeJobCounts } from './job-copy'
 import type { Job } from '../types'
 
 function job (overrides: Partial<Job> = {}): Job {
@@ -51,6 +51,37 @@ describe('jobMatchesAccount', () => {
 		expect(jobMatchesAccount(job(), 'acc-1')).toBe(true)
 		expect(jobMatchesAccount(job({ resource_id: 'acc-1', payload: {} }), 'acc-1')).toBe(true)
 		expect(jobMatchesAccount(job(), 'other')).toBe(false)
+	})
+})
+
+describe('describeJobTimeline', () => {
+	test('orders queued, started, later log failures, and the latest error', () => {
+		const entries = describeJobTimeline(job({
+			attempts: 2,
+			started_at: '2026-09-10T00:01:00Z',
+			finished_at: '2026-09-10T00:02:00Z',
+			logs: [
+				'dns authorization failed for mail.shop.example.com',
+				'missing website resource',
+			],
+			last_error: 'missing website resource',
+		}))
+		expect(entries.map((entry) => entry.label)).toEqual([
+			'Queued',
+			'Started',
+			'Failed',
+			'Attempts',
+			'Earlier failure',
+			'Latest error',
+		])
+		expect(entries[4].detail).toContain('dns authorization')
+		expect(entries[5].detail).toBe('missing website resource')
+	})
+})
+
+describe('jobRecoveryGuidance', () => {
+	test('asks operators to recreate a missing resource before retry', () => {
+		expect(jobRecoveryGuidance(job({ last_error: 'missing website resource' }))).toMatch(/exists|create/i)
 	})
 })
 

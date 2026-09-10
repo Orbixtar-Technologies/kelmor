@@ -6,7 +6,7 @@ import { formatDate, messageFrom } from '../helpers'
 import { useCapabilities } from '../rbac'
 import { filterRows, paginateRows, sortRows } from '../table-helpers'
 import type { Job } from '../types'
-import { describeJobFailure, formatJobType, jobMatchesAccount, summarizeJobCounts } from './job-copy'
+import { describeJobFailure, describeJobTimeline, formatJobType, jobMatchesAccount, jobRecoveryGuidance, summarizeJobCounts } from './job-copy'
 
 export function JobsPage () {
 	const capabilities = useCapabilities()
@@ -61,7 +61,28 @@ export function JobsPage () {
 		})}</tbody></table></div>}
 		{!loading && !paged.items.length ? <EmptyState title="No jobs match" detail="Filters and state summaries remain available. Clear filters or start an account operation." /> : null}
 		<Pagination page={paged.page} pageCount={paged.pageCount} total={paged.total} onPage={setPage} />
-		<Dialog open={Boolean(selected)} title={selected ? `${formatJobType(selected.type)} details` : 'Job details'} onClose={() => setSelected(null)}>{selected && selectedFailure ? <><p className="job-summary">{selectedFailure.reason}</p><dl className="detail-list"><div><dt>Affected</dt><dd>{selectedFailure.resource}</dd></div><div><dt>State</dt><dd><StatusBadge value={selected.state} /></dd></div><div><dt>Created</dt><dd>{formatDate(selected.created_at)}</dd></div></dl>{selected.state === 'failed' ? <p className="subtle">Retry only after the named resource exists and any listed DNS or permission issue is resolved.</p> : null}<details className="job-technical"><summary>Technical details</summary><pre>{JSON.stringify(selected.payload, null, 2)}</pre><pre>{selected.logs?.join('\n') || 'No logs recorded.'}</pre>{selectedFailure.technical ? <pre>{selectedFailure.technical}</pre> : null}</details><footer className="dialog-form-actions"><button type="button" className="secondary" onClick={() => setSelected(null)}>Close</button>{selected.state === 'failed' && canRetryJob(selected, capabilities) ? <button type="button" onClick={() => retry(selected)}>Retry failed job</button> : null}</footer></> : null}</Dialog>
+		<Dialog
+			open={Boolean(selected)}
+			title={selected ? `${formatJobType(selected.type)} details` : 'Job details'}
+			onClose={() => setSelected(null)}
+			actions={selected ? <>
+				<button type="button" className="secondary" onClick={() => setSelected(null)}>Close</button>
+				{selected.state === 'failed' && canRetryJob(selected, capabilities) ? <button type="button" onClick={() => retry(selected)}>Retry failed job</button> : null}
+			</> : undefined}
+		>{selected && selectedFailure ? <>
+			<p className="job-summary">{selectedFailure.reason}</p>
+			<dl className="detail-list">
+				<div><dt>Affected</dt><dd>{selectedFailure.resource}</dd></div>
+				<div><dt>State</dt><dd><StatusBadge value={selected.state} /></dd></div>
+			</dl>
+			<ol className="job-timeline">
+				{describeJobTimeline(selected).map((entry) => (
+					<li key={`${entry.label}-${entry.detail}`}><strong>{entry.label}</strong>{entry.detail}</li>
+				))}
+			</ol>
+			{selected.state === 'failed' ? <p className="subtle">{jobRecoveryGuidance(selected)}</p> : null}
+			<details className="job-technical"><summary>Technical details</summary><pre>{JSON.stringify(selected.payload, null, 2)}</pre>{selectedFailure.technical ? <pre>{selectedFailure.technical}</pre> : null}</details>
+		</> : null}</Dialog>
 	</>
 }
 

@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Account, FindResult, ToolDefinition } from '../types'
+import { api, asList } from '../client'
+import { useCapabilities } from '../rbac'
+import type { Account, FindResult, ResourceItem, ToolDefinition } from '../types'
+
+export interface SearchableResource {
+	id: string
+	label: string
+	description: string
+	path: string
+}
+
+export interface AccountResourceCollections {
+	databases?: ResourceItem[]
+	domains?: ResourceItem[]
+	websites?: ResourceItem[]
+}
 
 function matchScore (query: string, primary: string, secondary: string): number {
 	const needle = query.toLocaleLowerCase()
@@ -14,7 +29,42 @@ function matchScore (query: string, primary: string, secondary: string): number 
 	return 0
 }
 
-export function rankFindResults (query: string, tools: ToolDefinition[], accounts: Account[]): FindResult[] {
+export function resourcesFromAccountCollections (account: Account, collections: AccountResourceCollections): SearchableResource[] {
+	const resources: SearchableResource[] = []
+	for (const database of collections.databases || []) {
+		const name = typeof database.name === 'string' ? database.name : ''
+		if (!name) continue
+		resources.push({
+			id: `${account.id}-database-${database.id}`,
+			label: name,
+			description: `Database · ${account.username}`,
+			path: `/sql?account=${account.id}`,
+		})
+	}
+	for (const domain of collections.domains || []) {
+		const name = typeof domain.ascii_fqdn === 'string' ? domain.ascii_fqdn : typeof domain.fqdn === 'string' ? domain.fqdn : ''
+		if (!name) continue
+		resources.push({
+			id: `${account.id}-domain-${domain.id}`,
+			label: name,
+			description: `Domain · ${account.username}`,
+			path: `/dns?account=${account.id}`,
+		})
+	}
+	for (const website of collections.websites || []) {
+		const name = typeof website.hostname === 'string' ? website.hostname : typeof website.document_root === 'string' ? website.document_root : ''
+		if (!name) continue
+		resources.push({
+			id: `${account.id}-website-${website.id}`,
+			label: name,
+			description: `Website · ${account.username}`,
+			path: `/files?account=${account.id}`,
+		})
+	}
+	return resources
+}
+
+export function rankFindResults (query: string, tools: ToolDefinition[], accounts: Account[], resources: SearchableResource[] = []): FindResult[] {
 	const needle = query.trim()
 	if (!needle) return []
 	const toolResults = tools.map((tool) => ({
@@ -33,10 +83,15 @@ export function rankFindResults (query: string, tools: ToolDefinition[], account
 		kind: 'account' as const,
 		score: Math.max(matchScore(needle, account.username, account.primary_domain), matchScore(needle, account.primary_domain, account.username) - 1),
 	}))
-	return [...toolResults, ...accountResults]
+	const resourceResults = resources.map((resource) => ({
+		...resource,
+		kind: 'resource' as const,
+		score: matchScore(needle, resource.label, resource.description),
+	}))
+	return [...toolResults, ...accountResults, ...resourceResults]
 		.filter((result) => result.score > 0)
 		.sort((left, right) => right.score - left.score || left.label.localeCompare(right.label))
-		.slice(0, 10)
+		.slice(0, 12)
 }
 
 export function shouldHandleFindShortcut (key: string, modified: boolean, target: EventTarget | null): boolean {
@@ -51,12 +106,31 @@ interface GlobalFindProps {
 }
 
 export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
+	const capabilities = useCapabilities()
 	const [query, setQuery] = useState('')
 	const [open, setOpen] = useState(false)
 	const [activeIndex, setActiveIndex] = useState(0)
+	const [resources, setResources] = useState<SearchableResource[]>([])
+	const loadedAccountsRef = useRef('')
 	const inputRef = useRef<HTMLInputElement>(null)
 	const navigate = useNavigate()
-	const results = rankFindResults(query, tools, accounts)
+	const results = rankFindResults(query, tools, accounts, resources)
+
+	async function loadResources () {
+		const accountKey = accounts.map((account) => account.id).join(',')
+		const canReadDatabases = Boolean(capabilities['databases.read'])
+		const canReadDomains = Boolean(capabilities['domains.read'])
+		if (!accountKey || loadedAccountsRef.current === accountKey || (!canReadDatabases && !canReadDomains)) return
+		loadedAccountsRef.current = accountKey
+		const collected = await Promise.all(accounts.slice(0, 20).map(async (account) => {
+			const [databases, domains] = await Promise.all([
+				canReadDatabases ? api<{ items: ResourceItem[] }>(`/api/v1/accounts/${account.id}/databases`).then(asList).catch(() => []) : Promise.resolve([]),
+				canReadDomains ? api<{ items: ResourceItem[] }>(`/api/v1/accounts/${account.id}/domains`).then(asList).catch(() => []) : Promise.resolve([]),
+			])
+			return resourcesFromAccountCollections(account, { databases, domains })
+		}))
+		setResources(collected.flat())
+	}
 	const activeResultId = results[activeIndex] ? `global-find-option-${results[activeIndex].kind}-${results[activeIndex].id}` : undefined
 
 	useEffect(() => {
@@ -94,7 +168,7 @@ export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
 				aria-expanded={open && Boolean(query)}
 				aria-controls="global-find-results"
 				aria-activedescendant={open ? activeResultId : undefined}
-				onFocus={() => setOpen(true)}
+				onFocus={() => { setOpen(true); void loadResources() }}
 				onChange={(event) => { setQuery(event.target.value); setOpen(true) }}
 				onKeyDown={(event) => {
 					if (event.key === 'Escape') { setOpen(false); inputRef.current?.blur() }
@@ -118,7 +192,8 @@ export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
 							<em>{result.kind}</em>
 						</button>
 					))}
-					{results.length === 0 ? <p>No matching tools or accounts.</p> : null}
+					<p className="find-scope">Matches tools, account names and domains, plus loaded databases and domains.</p>
+					{results.length === 0 ? <p>No matching tools, accounts, or resources.</p> : null}
 				</div>
 			) : null}
 		</div>
