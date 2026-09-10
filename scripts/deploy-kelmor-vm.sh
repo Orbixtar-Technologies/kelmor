@@ -14,10 +14,11 @@ bash "$ROOT/scripts/bootstrap-update-feed.sh"
 DEB="$(ls -1 "$ROOT"/dist/deb/hosting-panel_*_amd64.deb | tail -1)"
 echo "Using $DEB"
 
-"${SCP[@]}" "$DEB" \
-	"$ROOT/installer/phases/release.pub" \
-	"$ROOT/dist/update-feed/" \
+"${SSH[@]}" "${VM_USER}@${VM_HOST}" 'mkdir -p /tmp/kelmor-deploy/update-feed'
+"${SCP[@]}" "$DEB" "$ROOT/installer/phases/release.pub" \
 	"${VM_USER}@${VM_HOST}:/tmp/kelmor-deploy/"
+"${SCP[@]}" -r "$ROOT/dist/update-feed/." \
+	"${VM_USER}@${VM_HOST}:/tmp/kelmor-deploy/update-feed/"
 
 "${SSH[@]}" "${VM_USER}@${VM_HOST}" 'sudo bash -s' <<'REMOTE'
 set -euo pipefail
