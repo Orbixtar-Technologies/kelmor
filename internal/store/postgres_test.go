@@ -4,11 +4,24 @@ import (
 	"context"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/rbac"
 )
+
+func postgresTestAccountUsername(prefix string) string {
+	tag := strings.ReplaceAll(id.New(), "-", "")
+	max := 32 - len(prefix)
+	if max < 1 {
+		max = 1
+	}
+	if len(tag) > max {
+		tag = tag[:max]
+	}
+	return prefix + tag
+}
 
 func TestPostgresDesiredState(t *testing.T) {
 	dsn, explicitlyConfigured := os.LookupEnv("PANEL_DATABASE_URL")
@@ -113,9 +126,10 @@ func TestPostgresDesiredState(t *testing.T) {
 		t.Fatalf("failed enqueue did not roll back password: %+v", rolledBack)
 	}
 
+	accountName := postgresTestAccountUsername("atomic-")
 	account := &Account{
-		ID: id.New(), OwnerUserID: rollbackUserID, Username: "atomic-" + id.New(),
-		PrimaryDomain: "atomic-" + id.New() + ".test", LinuxUID: pg.AllocUID(), PackageID: pg.ListPackages()[0].ID,
+		ID: id.New(), OwnerUserID: rollbackUserID, Username: accountName,
+		PrimaryDomain: accountName + ".test", LinuxUID: pg.AllocUID(), PackageID: pg.ListPackages()[0].ID,
 		Status: "active", HomePath: "/home/postgres-atomic", ShellClass: "sftp-only", DesiredRevision: 1,
 	}
 	account.LinuxGID = account.LinuxUID
