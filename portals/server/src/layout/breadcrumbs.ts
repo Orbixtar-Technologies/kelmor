@@ -7,6 +7,7 @@ export function directorBreadcrumbs (
 	pathname: string,
 	labels: Record<string, string>,
 	accountName?: string,
+	toolAccountName?: string,
 ): BreadcrumbItem[] {
 	const parts = pathname.split('/').filter(Boolean)
 	const crumbs: BreadcrumbItem[] = [{ label: 'Home', to: '/' }]
@@ -31,5 +32,6 @@ export function directorBreadcrumbs (
 		const to = `/${parts.slice(0, index + 1).join('/')}`
 		crumbs.push(isLast ? { label } : { label, to })
 	})
+	if (toolAccountName) crumbs.push({ label: toolAccountName })
 	return crumbs
 }

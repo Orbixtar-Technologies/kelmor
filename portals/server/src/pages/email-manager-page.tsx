@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
+import { AccountScopeBar } from '../components/account-scope-bar'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
-import { formatBytes, messageFrom, valueOf } from '../helpers'
+import { formatBytes, formatDate, messageFrom, valueOf } from '../helpers'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
@@ -27,6 +28,7 @@ export function EmailManagerPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [updatedAt, setUpdatedAt] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('mail.write')
 	const accountId = params.get('account') || ''
@@ -65,6 +67,7 @@ export function EmailManagerPage () {
 			if (siteDomainResult.status === 'fulfilled') setAccountDomains(asList(siteDomainResult.value))
 			const failures = [domainResult, mailboxResult, aliasResult].filter((result) => result.status === 'rejected')
 			if (failures.length === 3) setError(messageFrom((failures[0] as PromiseRejectedResult).reason))
+			else setUpdatedAt(new Date().toISOString())
 		}).finally(() => {
 			if (requests.isCurrent(request) && currentAccountId.current === requestedAccountId) setLoading(false)
 		})
@@ -158,10 +161,12 @@ export function EmailManagerPage () {
 	return (
 		<>
 			<PageHeader
-				title="Email Management"
+				title={account ? `Email Management · ${account.username}` : 'Email Management'}
 				description="Manage mail domains, mailboxes, aliases, and routing policies across accounts."
-				actions={<Link className="button-link secondary-link" to="/webmail">Webmail</Link>}
+				actions={<Link className="button-link secondary-link" to={accountId ? `/webmail?account=${accountId}` : '/webmail'}>Webmail</Link>}
 			/>
+			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Email" onChange={(next) => setSearchParams({ account: next, tab }, { replace: true })} />
+			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			<div className="hub-toolbar panel">
 				<AccountPicker
 					accounts={accounts}
@@ -217,7 +222,7 @@ export function EmailManagerPage () {
 					</table></div> : null}
 					{!loading && tab === 'mailboxes' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Quota</th><th>Status</th><th>Actions</th></tr></thead>
-						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{valueOf(item, 'local_part')}@{account?.primary_domain}</td><td>{formatBytes(Number(item.quota_bytes || 0))}</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</td></tr>)}</tbody>
+						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{valueOf(item, 'local_part')}@{account?.primary_domain}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions"><Link to={`/webmail?account=${accountId}`}>Open webmail</Link><Link to={`/accounts/${accountId}/services?service=mailboxes`}>Manage</Link>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
 					</table></div> : null}
 					{!loading && tab === 'aliases' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Destination</th><th>Actions</th></tr></thead>

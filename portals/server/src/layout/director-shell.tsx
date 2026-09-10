@@ -88,7 +88,9 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 
 	const accountId = location.pathname.match(/^\/accounts\/([^/]+)/)?.[1]
 	const accountName = accountId && accountId !== 'create' ? accounts.find((account) => account.id === accountId)?.username : undefined
-	const crumbs = directorBreadcrumbs(location.pathname, crumbLabels, accountName)
+	const toolAccountId = new URLSearchParams(location.search).get('account') || ''
+	const toolAccountName = toolAccountId ? accounts.find((account) => account.id === toolAccountId)?.username : undefined
+	const crumbs = directorBreadcrumbs(location.pathname, crumbLabels, accountName, toolAccountName)
 	function dismissMobileNavigation () {
 		setMobileOpen(false)
 		menuButtonRef.current?.focus()
