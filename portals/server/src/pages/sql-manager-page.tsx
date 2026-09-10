@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
-import { EmptyState, ErrorState, LoadingState, PageHeader, SecretValue, StatusBadge } from '../components/ui'
+import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { messageFrom, valueOf } from '../helpers'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
+import { DatabaseConnectionPanel } from './database-connection-panel'
 
 export function SQLManagerPage () {
 	const [params, setParams] = useSearchParams()
@@ -113,20 +114,12 @@ export function SQLManagerPage () {
 			{error ? <ErrorState error={error} onRetry={() => loadDatabases(accountId)} /> : null}
 			{!accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage its databases." /> : null}
 			{accountId ? <>
-				<section className="panel">
-					<h2>Database administration</h2>
-					<p className="subtle">Database users are provisioned automatically. Use phpMyAdmin or direct SQL clients with the credentials below.</p>
-					{credentials ? <dl className="detail-list">
-						<div><dt>Host</dt><dd>{credentials.host || '127.0.0.1'}</dd></div>
-						<div><dt>Username</dt><dd><code>{credentials.username}</code></dd></div>
-						<div><dt>Password</dt><dd><SecretValue value={credentials.password || ''} /></dd></div>
-					</dl> : <p className="subtle">Credentials appear after the first database is provisioned.</p>}
-					<div className="admin-links">
-						{toolUrls?.phpmyadmin_url ? <a href={toolUrls.phpmyadmin_url} target="_blank" rel="noreferrer">Open phpMyAdmin</a> : null}
-						<Link to={`/accounts/${accountId}/services?service=databases`}>Account services</Link>
-						<Link to={`/files?account=${accountId}`}>File manager</Link>
-					</div>
-				</section>
+				<DatabaseConnectionPanel
+					accountId={accountId}
+					credentials={credentials}
+					phpmyadminUrl={toolUrls?.phpmyadmin_url}
+					source="sql"
+				/>
 				{canWrite ? <section className="panel">
 					<h2>Create database</h2>
 					<form className="inline-form" onSubmit={createDatabase}>

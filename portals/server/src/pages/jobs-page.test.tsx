@@ -73,4 +73,38 @@ describe('JobsPage account scope', () => {
 		expect(screen.getByLabelText('Account job totals')).toHaveTextContent('Succeeded1')
 		expect(screen.getByLabelText('Account job totals')).toHaveTextContent('Failed1')
 	})
+
+	it('keeps recovery actions visible and summarizes earlier log failures', async () => {
+		vi.mocked(api).mockResolvedValue({
+			items: [{
+				...failedJob,
+				payload: { account_id: 'acc-1' },
+				started_at: '2026-09-09T00:01:00Z',
+				finished_at: '2026-09-09T00:02:00Z',
+				attempts: 2,
+				logs: ['dns authorization failed', 'missing website resource'],
+				last_error: 'missing website resource',
+			}],
+		})
+
+		render(
+			<MemoryRouter initialEntries={['/jobs']}>
+				<CapProvider caps={{ 'websites.write': true }}>
+					<Routes>
+						<Route path="/jobs" element={<JobsPage />} />
+					</Routes>
+				</CapProvider>
+			</MemoryRouter>,
+		)
+
+		await waitFor(() => {
+			expect(screen.getAllByRole('button', { name: 'Details' }).length).toBeGreaterThan(0)
+		})
+		screen.getAllByRole('button', { name: 'Details' })[0].click()
+		expect(await screen.findByText('Earlier failure')).toBeInTheDocument()
+		expect(screen.getByText('Latest error')).toBeInTheDocument()
+		expect(screen.getByText(/named resource exists/i)).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Retry failed job' })).toBeInTheDocument()
+		expect(screen.getByText('Technical details')).toBeInTheDocument()
+	})
 })
