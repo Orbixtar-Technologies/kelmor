@@ -27,6 +27,7 @@ describe('tool discovery', () => {
 			'accounts.suspend': true,
 			'accounts.terminate': true,
 			'databases.read': true,
+			'files.read': true,
 			'mail.read': true,
 			'websites.read': true,
 		})
@@ -38,9 +39,11 @@ describe('tool discovery', () => {
 			'Suspend or Unsuspend',
 			'Terminate an Account',
 			'Force Password Change',
-			'SQL Services',
-			'Email Services',
-			'SSL Certificates',
+			'Database Manager',
+			'Email Management',
+			'SSL / TLS',
+			'File Manager',
+			'Webmail',
 		]))
 	})
 
@@ -75,10 +78,11 @@ describe('tool discovery', () => {
 		expect(discoverTools(toolCatalog, capabilities).some((tool) => tool.id === toolId)).toBe(true)
 	})
 
-	test('routes account service tools to the selected account section', () => {
-		expect(accountTaskTarget('databases', 'account-1')).toBe('/accounts/account-1/services?service=databases')
-		expect(accountTaskTarget('email', 'account-1')).toBe('/accounts/account-1/services?service=mailboxes')
-		expect(accountTaskTarget('certificates', 'account-1')).toBe('/accounts/account-1/services?service=certificates')
+	test('routes account service tools to dedicated hub pages', () => {
+		expect(accountTaskTarget('databases', 'account-1')).toBe('/sql?account=account-1')
+		expect(accountTaskTarget('email', 'account-1')).toBe('/email?account=account-1')
+		expect(accountTaskTarget('certificates', 'account-1')).toBe('/ssl?account=account-1')
+		expect(accountTaskTarget('files', 'account-1')).toBe('/files?account=account-1')
 	})
 
 	test.each(['password', 'terminate', 'package', 'modify', 'suspension', 'summary'])('preserves the %s lifecycle task after account selection', (task) => {

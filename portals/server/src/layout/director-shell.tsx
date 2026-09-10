@@ -17,6 +17,8 @@ const crumbLabels: Record<string, string> = {
 	packages: 'Packages', resellers: 'Resellers', dns: 'DNS Management',
 	status: 'Service Status', security: 'Security', transfers: 'Transfers & Backups',
 	jobs: 'Jobs', audit: 'Audit Trail', usage: 'Account Usage',
+	files: 'File Manager', sql: 'Database Manager', email: 'Email Management',
+	ssl: 'SSL / TLS', webmail: 'Webmail', updates: 'Software Updates',
 }
 
 export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
@@ -25,6 +27,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const [mobileOpen, setMobileOpen] = useState(false)
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [hostname, setHostname] = useState('host')
+	const [server, setServer] = useState<ServerOverview | null>(null)
 	const [notificationsOpen, setNotificationsOpen] = useState(false)
 	const [adminOpen, setAdminOpen] = useState(false)
 	const menuButtonRef = useRef<HTMLButtonElement>(null)
@@ -33,7 +36,15 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 
 	useEffect(() => {
 		if (capabilities['accounts.read']) api<{ items: Account[] }>('/api/v1/accounts').then((result) => setAccounts(asList(result))).catch(() => setAccounts([]))
-		if (capabilities['server.read']) api<ServerOverview>('/api/v1/server').then((result) => setHostname(result.system.hostname)).catch(() => setHostname('unavailable'))
+		if (capabilities['server.read']) {
+			api<ServerOverview>('/api/v1/server').then((result) => {
+				setServer(result)
+				setHostname(result.system.hostname)
+			}).catch(() => {
+				setServer(null)
+				setHostname('unavailable')
+			})
+		}
 	}, [capabilities])
 
 	const parts = location.pathname.split('/').filter(Boolean)
@@ -51,7 +62,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 
 	return (
 		<div className={`director ${collapsed ? 'nav-collapsed' : ''}`}>
-			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} />
+			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} server={server} canViewStatus={Boolean(capabilities['server.read'])} />
 			<div className="workspace">
 				<header className="topbar">
 					<button ref={menuButtonRef} type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen((open) => !open)}>☰</button>

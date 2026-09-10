@@ -15,9 +15,11 @@ export const toolCatalog: ToolDefinition[] = [
 	{ id: 'packages', label: 'Packages', description: 'Manage reusable account limits and assignments', category: 'Packages', path: '/packages', icon: 'box', capabilities: ['packages.read'] },
 	{ id: 'resellers', label: 'Resellers', description: 'Manage delegated operators and privileges', category: 'Resellers', path: '/resellers', icon: 'briefcase', capabilities: ['resellers.read'] },
 	{ id: 'dns', label: 'DNS Management', description: 'Select an account and edit zones, records, and DNSSEC', category: 'DNS Functions', path: '/dns', icon: 'globe', capabilities: ['accounts.read', 'dns.read'], matchAll: true },
-	{ id: 'sql', label: 'SQL Services', description: 'Select an account to manage databases and users', category: 'SQL Services', path: '/accounts?task=databases', icon: 'database', capabilities: ['accounts.read', 'databases.read'], matchAll: true },
-	{ id: 'email', label: 'Email Services', description: 'Select an account to manage domains, mailboxes, and aliases', category: 'Email Functions', path: '/accounts?task=email', icon: 'mail', capabilities: ['accounts.read', 'mail.read'], matchAll: true },
-	{ id: 'ssl', label: 'SSL Certificates', description: 'Select an account to inspect and request certificates', category: 'SSL/TLS', path: '/accounts?task=certificates', icon: 'lock', capabilities: ['accounts.read', 'websites.read'], matchAll: true },
+	{ id: 'files', label: 'File Manager', description: 'Browse, edit, and manage account files and web content', category: 'Files', path: '/files', icon: 'files', capabilities: ['accounts.read', 'files.read'], matchAll: true },
+	{ id: 'sql', label: 'Database Manager', description: 'Create and manage MariaDB, MySQL, and PostgreSQL databases', category: 'SQL Services', path: '/sql', icon: 'database', capabilities: ['accounts.read', 'databases.read'], matchAll: true },
+	{ id: 'email', label: 'Email Management', description: 'Manage mail domains, mailboxes, aliases, and routing', category: 'Email Functions', path: '/email', icon: 'mail', capabilities: ['accounts.read', 'mail.read'], matchAll: true },
+	{ id: 'webmail', label: 'Webmail', description: 'Launch webmail and review IMAP/SMTP settings for mailboxes', category: 'Email Functions', path: '/webmail', icon: 'webmail', capabilities: ['accounts.read', 'mail.read'], matchAll: true },
+	{ id: 'ssl', label: 'SSL / TLS', description: 'Review certificate inventory and request AutoSSL certificates', category: 'SSL/TLS', path: '/ssl', icon: 'lock', capabilities: ['accounts.read', 'websites.read'], matchAll: true },
 	{ id: 'services', label: 'Service Status', description: 'Inspect server health, services, vitals, and processes', category: 'Server Status', path: '/status', icon: 'pulse', capabilities: ['server.read'] },
 	{ id: 'security', label: 'Security & Host Configuration', description: 'Audit, firewall configuration, and host reboot', category: 'Security Center', path: '/security', icon: 'shield', capabilities: ['server.read'] },
 	{ id: 'transfers', label: 'Transfers & Backups', description: 'Native transfer, extracted archive import, backup, and restore', category: 'Transfers', path: '/transfers', icon: 'transfer', capabilities: ['accounts.read'] },
@@ -45,7 +47,15 @@ export function accountTaskTarget (task: string, accountId: string): string {
 		databases: 'databases',
 		email: 'mailboxes',
 		certificates: 'certificates',
+		files: 'files',
 	}
+	const hubByTask: Record<string, string> = {
+		databases: '/sql',
+		email: '/email',
+		certificates: '/ssl',
+		files: '/files',
+	}
+	if (hubByTask[task]) return `${hubByTask[task]}?account=${accountId}`
 	const service = serviceByTask[task]
 	if (service) return `/accounts/${accountId}/services?service=${service}`
 	if (['password', 'terminate', 'package', 'modify', 'suspension', 'summary'].includes(task)) {

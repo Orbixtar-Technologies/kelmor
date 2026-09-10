@@ -8,7 +8,12 @@ import { AccountsPage } from './pages/accounts-page'
 import { AuditPage } from './pages/audit-page'
 import { CreateAccountPage } from './pages/create-account-page'
 import { DNSPage } from './pages/dns-page'
+import { EmailManagerPage } from './pages/email-manager-page'
+import { FileManagerPage } from './pages/file-manager-page'
 import { HomePage } from './pages/home-page'
+import { SQLManagerPage } from './pages/sql-manager-page'
+import { SSLManagerPage } from './pages/ssl-manager-page'
+import { WebmailPage } from './pages/webmail-page'
 import { JobsPage } from './pages/jobs-page'
 import { PackagesPage } from './pages/packages-page'
 import { ResellersPage } from './pages/resellers-page'
@@ -47,6 +52,11 @@ export function App () {
 					<Route path="packages" element={allowed('packages.read', <PackagesPage />)} />
 					<Route path="resellers" element={allowed('resellers.read', <ResellersPage />)} />
 					<Route path="dns" element={allowed('dns.read', <DNSPage />)} />
+					<Route path="files" element={allowed(['accounts.read', 'files.read'], <FileManagerPage />)} />
+					<Route path="sql" element={allowed(['accounts.read', 'databases.read'], <SQLManagerPage />)} />
+					<Route path="email" element={allowed(['accounts.read', 'mail.read'], <EmailManagerPage />)} />
+					<Route path="webmail" element={allowed(['accounts.read', 'mail.read'], <WebmailPage />)} />
+					<Route path="ssl" element={allowed(['accounts.read', 'websites.read'], <SSLManagerPage />)} />
 					<Route path="status" element={allowed('server.read', <ServiceStatusPage />)} />
 					<Route path="security" element={allowed('server.read', <SecurityPage />)} />
 					<Route path="transfers" element={allowed('accounts.read', <TransfersPage />)} />
