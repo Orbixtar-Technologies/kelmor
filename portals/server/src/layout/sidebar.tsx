@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { groupTools } from '../tool-catalog'
 import type { ToolDefinition } from '../types'
+import { isDirectorToolActive, navScopeForCategory } from './nav-active'
 
 const icons: Record<string, string> = {
 	home: '⌂', users: '👤', pause: 'Ⅱ', meter: '◔', plus: '+', box: '▣',
@@ -25,6 +26,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	const [closedCategories, setClosedCategories] = useState<Set<string>>(new Set())
 	const [isMobile, setIsMobile] = useState(() => window.matchMedia?.('(max-width: 780px)').matches ?? false)
 	const sidebarRef = useRef<HTMLElement>(null)
+	const location = useLocation()
 	const groups = useMemo(() => groupTools(tools.filter((tool) => `${tool.label} ${tool.category}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()))), [tools, filter])
 
 	useEffect(() => {
@@ -39,6 +41,8 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	useEffect(() => {
 		if (!isMobile || !mobileOpen) return
 		sidebarRef.current?.querySelector<HTMLElement>('input, button, a[href]')?.focus()
+		const current = sidebarRef.current?.querySelector<HTMLElement>('a.active')
+		if (typeof current?.scrollIntoView === 'function') current.scrollIntoView({ block: 'nearest' })
 	}, [isMobile, mobileOpen])
 
 	function setAll (closed: boolean) {
@@ -68,19 +72,24 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 			<nav className="feature-nav" aria-label="Director tools">
 				{[...groups.entries()].map(([category, entries]) => {
 					const closed = closedCategories.has(category)
+					const scope = navScopeForCategory(category)
+					const containsCurrent = entries.some((tool) => isDirectorToolActive(tool, location.pathname, location.search))
 					return (
-						<section key={category}>
-							<button type="button" className="category-heading" aria-expanded={!closed} onClick={() => {
+						<section key={category} data-scope={scope}>
+							<button type="button" className={`category-heading ${containsCurrent ? 'category-current' : ''}`} aria-expanded={!closed} onClick={() => {
 								const next = new Set(closedCategories)
 								if (closed) next.delete(category)
 								else next.add(category)
 								setClosedCategories(next)
-							}}><span>{category}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
-							{closed ? null : entries.map((tool) => (
-								<NavLink key={tool.id} to={tool.path} end={tool.path === '/'} title={collapsed ? tool.label : undefined} onClick={onNavigate}>
-									<span className="nav-icon" aria-hidden="true">{icons[tool.icon] ?? '•'}</span><span>{tool.label}</span>
-								</NavLink>
-							))}
+							}}><span>{category}</span><span className="nav-scope">{scope === 'account' ? 'Account' : 'Host'}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
+							{closed ? null : entries.map((tool) => {
+								const isCurrent = isDirectorToolActive(tool, location.pathname, location.search)
+								return (
+									<Link key={tool.id} to={tool.path} className={isCurrent ? 'active' : undefined} aria-current={isCurrent ? 'page' : undefined} title={collapsed ? tool.label : undefined} onClick={onNavigate}>
+										<span className="nav-icon" aria-hidden="true">{icons[tool.icon] ?? '•'}</span><span>{tool.label}</span>
+									</Link>
+								)
+							})}
 						</section>
 					)
 				})}

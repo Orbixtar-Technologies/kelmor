@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, asList } from '../client'
 import { WidgetCard } from '../components/widget-card'
 import { ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
-import { messageFrom, percent } from '../helpers'
+import { messageFrom } from '../helpers'
 import { discoverTools, groupTools, toolCatalog } from '../tool-catalog'
 import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, ServerOverview } from '../types'
@@ -51,18 +51,18 @@ export function HomePage () {
 		<>
 			<PageHeader title="Home" description="Host operations, account health, and frequently used administration tools." actions={canCreate ? <Link className="button-link" to="/accounts/create">Create account</Link> : undefined} />
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
-			{system ? <section className="home-status-strip">
-				<article><span>Load</span><strong>{Number(system.load1).toFixed(2)}</strong><small>1 minute</small></article>
-				<article><span>Memory</span><strong>{percent(system.memory_used, system.memory_total)}%</strong><small>{system.hostname}</small></article>
-				<article><span>Disk</span><strong>{percent(system.disk_used, system.disk_total)}%</strong><small>{system.uptime_seconds ? `${Math.floor(system.uptime_seconds / 3600)}h uptime` : 'Host online'}</small></article>
-				<article><span>Accounts</span><strong>{server?.stats.accounts ?? accounts.length}</strong><small>{accounts.filter((account) => account.status === 'suspended').length} suspended</small></article>
+			{server ? <section className="home-status-strip" aria-label="Account and service health">
+				<article><span>Accounts</span><strong>{server.stats.accounts ?? accounts.length}</strong><small>{accounts.filter((account) => account.status === 'suspended').length} suspended</small></article>
+				<article><span>Services</span><strong>{`${server.services.filter((service) => service.observed_running).length}/${server.services.length}`}</strong><small>running</small></article>
+				<article><span>Failed jobs</span><strong>{server.stats.failedJobs}</strong><small>open in Jobs</small></article>
+				<article><span>Host</span><strong>{system?.hostname || '—'}</strong><small>Vitals are in Host resources</small></article>
 			</section> : null}
 			<nav className="home-quick-links" aria-label="Operations shortcuts">
 				{toolById.has('services') ? <Link to="/status"><strong>Service status</strong><span>Managed services and host vitals</span></Link> : null}
 				{toolById.has('jobs') ? <Link to="/jobs"><strong>Jobs</strong><span>Background work and retries</span></Link> : null}
 				{capabilities['security.audit.read'] ? <Link to="/audit"><strong>Audit trail</strong><span>Privileged activity history</span></Link> : null}
 			</nav>
-			<SectionHeading title="Administration" detail="WHM-style shortcuts to common server and account tools." />
+			<SectionHeading title="Administration" detail="Shortcuts to common server and account tools." />
 			<div className="widget-grid">
 				{featured.map((tool, index) => (
 					<WidgetCard

@@ -1,13 +1,16 @@
 import { Link } from 'react-router-dom'
-import { formatBytes, percent } from '../helpers'
+import { formatBytes, formatDate, percent } from '../helpers'
 import type { ServerOverview } from '../types'
 
 interface ResourcesSidebarProps {
 	server: ServerOverview | null
 	canViewStatus: boolean
+	updatedAt?: string
+	collapsed?: boolean
+	onToggle?: () => void
 }
 
-export function ResourcesSidebar ({ server, canViewStatus }: ResourcesSidebarProps) {
+export function ResourcesSidebar ({ server, canViewStatus, updatedAt, collapsed, onToggle }: ResourcesSidebarProps) {
 	if (!server || !canViewStatus) return null
 	const system = server.system
 	const loadTone = system.load1 >= 4 ? 'critical' : system.load1 >= 2 ? 'warn' : 'good'
@@ -16,15 +19,28 @@ export function ResourcesSidebar ({ server, canViewStatus }: ResourcesSidebarPro
 	const memTone = memPct >= 90 ? 'critical' : memPct >= 75 ? 'warn' : 'good'
 	const diskTone = diskPct >= 90 ? 'critical' : diskPct >= 75 ? 'warn' : 'good'
 
+	if (collapsed) {
+		return (
+			<aside className="resources-sidebar collapsed" aria-label="Host resources">
+				<button type="button" className="resources-toggle" onClick={onToggle} aria-expanded={false}>Show host resources</button>
+			</aside>
+		)
+	}
+
 	return (
-		<aside className="resources-sidebar" aria-label="Server resources">
+		<aside className="resources-sidebar" aria-label="Host resources">
 			<header className="resources-sidebar-head">
 				<div>
-					<h2>Resources</h2>
+					<p className="resource-scope">Host</p>
+					<h2>Host resources</h2>
 					<p>{system.hostname}</p>
 				</div>
-				<Link to="/status" className="resources-sidebar-link">Details</Link>
+				<div className="resources-sidebar-actions">
+					{onToggle ? <button type="button" className="link-button" onClick={onToggle} aria-expanded>Hide</button> : null}
+					<Link to="/status" className="resources-sidebar-link">Details</Link>
+				</div>
 			</header>
+			<p className="resources-freshness">{updatedAt ? `Updated ${formatDate(updatedAt)}` : 'Host vitals for this server'}</p>
 			<div className="resource-bars">
 				<ResourceBar label="Load" value={`${system.load1.toFixed(2)}`} percent={Math.min(system.load1 * 25, 100)} tone={loadTone} detail="1 min avg" />
 				<ResourceBar label="Memory" value={`${memPct}%`} percent={memPct} tone={memTone} detail={`${formatBytes(system.memory_used)} / ${formatBytes(system.memory_total)}`} />

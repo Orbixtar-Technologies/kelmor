@@ -81,13 +81,13 @@ export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
 
 	return (
 		<div className="global-find">
-			<label className="sr-only" htmlFor="global-find">Search or find</label>
+			<label className="sr-only" htmlFor="global-find">Search tools and accounts</label>
 			<span aria-hidden="true" className="find-icon">⌕</span>
 			<input
 				id="global-find"
 				ref={inputRef}
 				value={query}
-				placeholder="Search or Find…"
+				placeholder="Search tools and accounts"
 				autoComplete="off"
 				role="combobox"
 				aria-autocomplete="list"

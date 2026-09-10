@@ -6,6 +6,7 @@ import { ResourcesSidebar } from '../components/resources-sidebar'
 import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
 import { GlobalFind } from './global-find'
+import { directorBreadcrumbs } from './breadcrumbs'
 import { Sidebar } from './sidebar'
 import type { Account, Me, ServerOverview } from '../types'
 
@@ -30,6 +31,8 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [hostname, setHostname] = useState('host')
 	const [server, setServer] = useState<ServerOverview | null>(null)
+	const [serverFetchedAt, setServerFetchedAt] = useState<string>('')
+	const [resourcesCollapsed, setResourcesCollapsed] = useState(false)
 	const [notificationsOpen, setNotificationsOpen] = useState(false)
 	const [adminOpen, setAdminOpen] = useState(false)
 	const menuButtonRef = useRef<HTMLButtonElement>(null)
@@ -45,6 +48,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 			api<ServerOverview>('/api/v1/server').then((result) => {
 				setServer(result)
 				setHostname(result.system.hostname)
+				setServerFetchedAt(new Date().toISOString())
 			}).catch(() => {
 				setServer(null)
 				setHostname('unavailable')
@@ -62,11 +66,29 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 				setAdminOpen(false)
 			}
 		}
+		function handleKeyDown (event: KeyboardEvent) {
+			if (event.key !== 'Escape') return
+			if (notificationsOpen) {
+				event.preventDefault()
+				setNotificationsOpen(false)
+				notificationsRef.current?.querySelector('button')?.focus()
+			}
+			if (adminOpen) {
+				event.preventDefault()
+				setAdminOpen(false)
+			}
+		}
 		document.addEventListener('mousedown', handlePointerDown)
-		return () => document.removeEventListener('mousedown', handlePointerDown)
+		document.addEventListener('keydown', handleKeyDown)
+		return () => {
+			document.removeEventListener('mousedown', handlePointerDown)
+			document.removeEventListener('keydown', handleKeyDown)
+		}
 	}, [notificationsOpen, adminOpen])
 
-	const parts = location.pathname.split('/').filter(Boolean)
+	const accountId = location.pathname.match(/^\/accounts\/([^/]+)/)?.[1]
+	const accountName = accountId && accountId !== 'create' ? accounts.find((account) => account.id === accountId)?.username : undefined
+	const crumbs = directorBreadcrumbs(location.pathname, crumbLabels, accountName)
 	function dismissMobileNavigation () {
 		setMobileOpen(false)
 		menuButtonRef.current?.focus()
@@ -80,7 +102,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	}
 
 	return (
-		<div className={`director ${collapsed ? 'nav-collapsed' : ''}`}>
+		<div className={`director ${collapsed ? 'nav-collapsed' : ''} ${resourcesCollapsed ? 'resources-collapsed' : ''}`}>
 			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} />
 			<div className="workspace">
 				<header className="topbar">
@@ -118,15 +140,25 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 						</div>
 					</div>
 				</header>
-				<div className="breadcrumbs" aria-label="Breadcrumb">
-					<Link to="/">Home</Link>
-					{parts.map((part, index) => <span key={`${part}-${index}`}>/ <span>{crumbLabels[part] || (index === 1 && parts[0] === 'accounts' ? accounts.find((account) => account.id === part)?.username : undefined) || part}</span></span>)}
-				</div>
-				<div className={`page-body ${canViewResources ? 'with-resources' : ''}`}>
+				<nav className="breadcrumbs" aria-label="Breadcrumb">
+					{crumbs.map((crumb, index) => (
+						<span key={`${crumb.label}-${index}`}>
+							{index > 0 ? ' / ' : null}
+							{crumb.to && index < crumbs.length - 1 ? <Link to={crumb.to}>{crumb.label}</Link> : <span>{crumb.label}</span>}
+						</span>
+					))}
+				</nav>
+				<div className={`page-body ${canViewResources ? 'with-resources' : ''} ${resourcesCollapsed ? 'resources-collapsed' : ''}`}>
 					<main className="page-content">
 						<Outlet />
 					</main>
-					<ResourcesSidebar server={server} canViewStatus={canViewResources} />
+					<ResourcesSidebar
+						server={server}
+						canViewStatus={canViewResources}
+						updatedAt={serverFetchedAt}
+						collapsed={resourcesCollapsed}
+						onToggle={() => setResourcesCollapsed((current) => !current)}
+					/>
 				</div>
 				<footer className="workspace-footer">Kelmor Director · Connected to {hostname} {location.state && typeof location.state === 'object' && 'message' in location.state ? `· ${String(location.state.message)}` : ''}</footer>
 			</div>
