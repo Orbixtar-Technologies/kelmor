@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -29,11 +28,10 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	privBytes, err := hex.DecodeString(strings.TrimSpace(string(privRaw)))
-	if err != nil || len(privBytes) != ed25519.PrivateKeySize {
-		fatal(fmt.Errorf("invalid private key"))
+	priv, err := update.ParsePrivateKeyHex(string(privRaw))
+	if err != nil {
+		fatal(fmt.Errorf("invalid private key: %w", err))
 	}
-	priv := ed25519.PrivateKey(privBytes)
 
 	var artifacts []update.Artifact
 	err = filepath.WalkDir(*stage, func(path string, entry os.DirEntry, walkErr error) error {
