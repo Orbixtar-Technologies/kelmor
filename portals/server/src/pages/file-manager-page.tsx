@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
-import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/ui'
-import { formatBytes, messageFrom } from '../helpers'
+import { AccountScopeBar } from '../components/account-scope-bar'
+import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from '../components/ui'
+import { formatBytes, formatDate, messageFrom } from '../helpers'
+import { paginateRows } from '../table-helpers'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
-import type { Account, ResourceItem } from '../types'
+import type { Account } from '../types'
+import { fileKindLabel, isProtectedName, isProtectedPath, protectedPathWarning } from './file-path-guards'
 
 interface FileEntry {
 	name: string
@@ -26,6 +29,11 @@ export function FileManagerPage () {
 	const [editorOpen, setEditorOpen] = useState(false)
 	const [editorPath, setEditorPath] = useState('')
 	const [editorContent, setEditorContent] = useState('')
+	const [query, setQuery] = useState('')
+	const [sortKey, setSortKey] = useState<'name' | 'size'>('name')
+	const [page, setPage] = useState(1)
+	const [updatedAt, setUpdatedAt] = useState('')
+	const [pendingDelete, setPendingDelete] = useState<FileEntry | null>(null)
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('files.write')
 	const accountId = params.get('account') || ''
@@ -54,6 +62,8 @@ export function FileManagerPage () {
 			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			setItems(asList(result))
 			setCurrentPath(result.path || path)
+			setUpdatedAt(new Date().toISOString())
+			setPage(1)
 		}).catch((requestError) => {
 			if (requests.isCurrent(request) && currentAccountId.current === requestedAccountId) setError(messageFrom(requestError))
 		}).finally(() => {
@@ -127,13 +137,24 @@ export function FileManagerPage () {
 	}
 
 	async function deleteEntry (entry: FileEntry) {
-		if (!accountId || !window.confirm(`Delete ${entry.name}?`)) return
+		if (!accountId) return
+		if (isProtectedName(entry.name) || isProtectedPath(currentPath, entry.name)) {
+			setPendingDelete(entry)
+			return
+		}
+		if (!window.confirm(`Delete ${entry.name}? This cannot be undone from this page.`)) return
+		await confirmDelete(entry)
+	}
+
+	async function confirmDelete (entry: FileEntry) {
+		if (!accountId) return
 		try {
 			await api(`/api/v1/accounts/${accountId}/files`, {
 				method: 'DELETE',
 				body: JSON.stringify({ path: entryPath(entry) }),
 			})
 			setMessage(`Deleted ${entry.name}`)
+			setPendingDelete(null)
 			loadDirectory(accountId, currentPath)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
@@ -194,18 +215,24 @@ export function FileManagerPage () {
 		}
 	}
 
-	const sortedItems = [...items].sort((left, right) => {
+	const filteredItems = items.filter((entry) => entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+	const sortedItems = [...filteredItems].sort((left, right) => {
 		if (Boolean(left.dir) !== Boolean(right.dir)) return left.dir ? -1 : 1
-		return left.name.localeCompare(right.name)
+		if (sortKey === 'size') return Number(left.size || 0) - Number(right.size || 0)
+		return left.name.localeCompare(right.name, undefined, { numeric: true })
 	})
+	const paged = paginateRows(sortedItems, page, 40)
+	const totalBytes = items.filter((entry) => !entry.dir).reduce((sum, entry) => sum + Number(entry.size || 0), 0)
+	const pathWarning = protectedPathWarning(currentPath)
 
 	return (
 		<>
 			<PageHeader
-				title="File Manager"
+				title={account ? `File Manager · ${account.username}` : 'File Manager'}
 				description="Browse account home directories, edit text files, and manage web content paths."
 				actions={account ? <Link className="button-link secondary-link" to={`/accounts/${accountId}/services?service=files`}>Account services</Link> : undefined}
 			/>
+			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Files" onChange={(next) => setParams({ account: next }, { replace: true })} />
 			<div className="hub-toolbar panel">
 				<AccountPicker
 					accounts={accounts}
@@ -228,7 +255,11 @@ export function FileManagerPage () {
 						</span>
 					))}
 				</nav>
+				{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)} · {items.length} entries · {formatBytes(totalBytes)}</p> : null}
+				{pathWarning ? <p className="feedback" role="status">{pathWarning}</p> : null}
 				<div className="file-toolbar">
+					<label>Search files<input type="search" value={query} placeholder="Filter this folder" onChange={(event) => { setQuery(event.target.value); setPage(1) }} /></label>
+					<label>Sort<select value={sortKey} onChange={(event) => setSortKey(event.target.value as 'name' | 'size')}><option value="name">Name</option><option value="size">Size</option></select></label>
 					<button type="button" className="secondary compact" disabled={currentPath === '/'} onClick={() => navigateTo(currentPath.split('/').slice(0, -1).join('/') || '/')}>Up</button>
 					<button type="button" className="secondary compact" onClick={() => navigateTo('/public_html')}>public_html</button>
 					{canWrite ? <>
@@ -243,28 +274,33 @@ export function FileManagerPage () {
 				{!loading ? <div className="table-wrap"><table className="dense-table file-table">
 					<thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Actions</th></tr></thead>
 					<tbody>
-						{sortedItems.map((entry) => (
-							<tr key={entry.name}>
+						{paged.items.map((entry) => (
+							<tr key={entry.name} className={isProtectedName(entry.name) ? 'file-row-protected' : undefined}>
 								<td>
 									<button type="button" className="file-name link-button" onClick={() => entry.dir ? navigateTo(currentPath.endsWith('/') ? `${currentPath}${entry.name}` : `${currentPath}/${entry.name}`) : readFile(entry)}>
 										<span aria-hidden="true">{entry.dir ? '📁' : '📄'}</span> {entry.name}{entry.dir ? '/' : ''}
 									</button>
 								</td>
 								<td>{entry.dir ? '—' : formatBytes(Number(entry.size || 0))}</td>
-								<td>{entry.dir ? 'Directory' : 'File'}</td>
+								<td>{fileKindLabel(entry.name, entry.dir)}</td>
 								<td className="row-actions">
 									{!entry.dir && canWrite ? <button type="button" className="link-button" onClick={() => readFile(entry)}>Edit</button> : null}
-									{canWrite ? <>
-										<button type="button" className="link-button" onClick={() => renameEntry(entry)}>Rename</button>
-										<button type="button" className="link-button danger-text" onClick={() => deleteEntry(entry)}>Delete</button>
-									</> : null}
+									{canWrite ? <button type="button" className="link-button" onClick={() => renameEntry(entry)}>Rename</button> : null}
+									{canWrite ? <button type="button" className="link-button danger-text" onClick={() => deleteEntry(entry)}>Delete</button> : null}
 								</td>
 							</tr>
 						))}
 					</tbody>
 				</table></div> : null}
+				{!loading ? <Pagination page={paged.page} pageCount={paged.pageCount} total={paged.total} onPage={setPage} /> : null}
 				{!loading && !sortedItems.length ? <EmptyState title="Empty directory" detail="This folder has no visible entries yet." action={canWrite ? <button type="button" onClick={() => openEditor('/public_html/index.html', '<!DOCTYPE html>\n<html>\n<head><title>Welcome</title></head>\n<body><h1>It works!</h1></body>\n</html>\n')}>Create index.html</button> : undefined} /> : null}
 			</section> : null}
+			<Dialog open={Boolean(pendingDelete)} title="Delete protected path" onClose={() => setPendingDelete(null)} actions={<>
+				<button type="button" className="secondary" onClick={() => setPendingDelete(null)}>Cancel</button>
+				<button type="button" className="danger" onClick={() => pendingDelete && confirmDelete(pendingDelete)}>Delete {pendingDelete?.name}</button>
+			</>}>
+				<p>This path is system-managed. Deleting it can break SSH, backups, mail, or panel metadata for the account.</p>
+			</Dialog>
 			<Dialog open={editorOpen} title={`Edit ${editorPath}`} onClose={() => setEditorOpen(false)}>
 				<label>Path<input value={editorPath} onChange={(event) => setEditorPath(event.target.value)} /></label>
 				<label>Contents<textarea rows={16} value={editorContent} onChange={(event) => setEditorContent(event.target.value)} /></label>

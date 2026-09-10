@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
-import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
-import { messageFrom, valueOf } from '../helpers'
+import { AccountScopeBar } from '../components/account-scope-bar'
+import { CopyableValue, EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
+import { formatDate, messageFrom, valueOf } from '../helpers'
+import { mailConnectionSettings, resolvedWebmailUrl } from './mail-connection'
 import { RequestSequence } from '../request-sequence'
 import type { Account, ResourceItem } from '../types'
 
@@ -22,6 +24,7 @@ export function WebmailPage () {
 	const [hostname, setHostname] = useState('')
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
+	const [updatedAt, setUpdatedAt] = useState('')
 	const [viewAll, setViewAll] = useState(!params.get('account'))
 	const [toolUrls, setToolUrls] = useState<Record<string, { webmail_url?: string }>>({})
 	const requests = useRef(new RequestSequence()).current
@@ -65,6 +68,7 @@ export function WebmailPage () {
 			}))
 			if (!requests.isCurrent(request)) return
 			setMailboxes(results.flatMap((result) => result.status === 'fulfilled' ? result.value : []))
+			setUpdatedAt(new Date().toISOString())
 		} catch (requestError) {
 			if (requests.isCurrent(request)) setError(messageFrom(requestError))
 		} finally {
@@ -83,18 +87,24 @@ export function WebmailPage () {
 		else setLoading(false)
 	}, [accountId, accounts, loadMailboxes, viewAll])
 
-	const imapHost = useMemo(() => hostname ? `mail.${hostname.split('.').slice(1).join('.') || hostname}` : 'mail.example.com', [hostname])
+	const settings = useMemo(() => mailConnectionSettings(hostname), [hostname])
+	const scopedAccount = accounts.find((entry) => entry.id === accountId)
+	const resolvedMail = resolvedWebmailUrl(accountId ? toolUrls[accountId]?.webmail_url : undefined, scopedAccount?.primary_domain)
 
-	async function ensureToolUrls (accountId: string) {
-		if (toolUrls[accountId]) return toolUrls[accountId]
+	const ensureToolUrls = useCallback(async (requestedAccountId: string) => {
 		try {
-			const result = await api<{ webmail_url: string }>(`/api/v1/accounts/${accountId}/admin-tools`)
-			setToolUrls((current) => ({ ...current, [accountId]: result }))
+			const result = await api<{ webmail_url: string }>(`/api/v1/accounts/${requestedAccountId}/admin-tools`)
+			setToolUrls((current) => current[requestedAccountId] ? current : { ...current, [requestedAccountId]: result })
 			return result
 		} catch {
-			return { webmail_url: `https://webmail.${mailboxes.find((entry) => entry.account_id === accountId)?.domain_name || 'example.com'}/` }
+			const domain = accounts.find((entry) => entry.id === requestedAccountId)?.primary_domain || 'example.com'
+			return { webmail_url: `https://webmail.${domain}/` }
 		}
-	}
+	}, [accounts])
+
+	useEffect(() => {
+		if (accountId) void ensureToolUrls(accountId)
+	}, [accountId, ensureToolUrls])
 
 	async function openWebmail (mailbox: MailboxRow) {
 		const tools = await ensureToolUrls(mailbox.account_id)
@@ -104,10 +114,12 @@ export function WebmailPage () {
 	return (
 		<>
 			<PageHeader
-				title="Webmail"
+				title={scopedAccount ? `Webmail · ${scopedAccount.username}` : 'Webmail'}
 				description="Launch webmail sessions and review IMAP/SMTP connection settings for account mailboxes."
-				actions={<Link className="button-link secondary-link" to="/email">Email management</Link>}
+				actions={<Link className="button-link secondary-link" to={accountId ? `/email?account=${accountId}` : '/email'}>Email management</Link>}
 			/>
+			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Webmail" onChange={(next) => setParams({ account: next }, { replace: true })} /> : null}
+			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			<div className="hub-toolbar panel">
 				<label className="checkbox-label"><input type="checkbox" checked={viewAll} onChange={(event) => setViewAll(event.target.checked)} />Show all accounts</label>
 				{!viewAll ? <AccountPicker
@@ -121,11 +133,11 @@ export function WebmailPage () {
 			<section className="panel">
 				<h2>Mail server settings</h2>
 				<dl className="detail-list">
-					<div><dt>IMAP</dt><dd>{imapHost}:993 (SSL/TLS)</dd></div>
-					<div><dt>SMTP</dt><dd>{imapHost}:587 (STARTTLS)</dd></div>
-					<div><dt>Webmail URL</dt><dd><code>https://webmail.&lt;domain&gt;/</code></dd></div>
+					<div><dt>IMAP</dt><dd><CopyableValue value={settings.imap} label="IMAP" /></dd></div>
+					<div><dt>SMTP</dt><dd><CopyableValue value={settings.smtp} label="SMTP" /></dd></div>
+					<div><dt>Webmail URL</dt><dd>{resolvedMail.url ? <CopyableValue value={resolvedMail.url} label="webmail URL" /> : <code>https://webmail.&lt;domain&gt;/</code>}</dd></div>
 				</dl>
-				<p className="subtle">Webmail opens the account domain&apos;s webmail vhost when configured. Mailboxes can also sign in through Kelmor Control under Email.</p>
+				<p className="subtle">{resolvedMail.configured ? 'This URL is the resolved webmail vhost for the selected account.' : 'The URL is inferred from the account domain until admin-tools reports a configured vhost. mail.hosting-style hosts come from the live panel hostname, not a placeholder product name.'}</p>
 			</section>
 			{error ? <ErrorState error={error} onRetry={() => loadMailboxes(viewAll ? accounts : accounts.filter((entry) => entry.id === accountId))} /> : null}
 			<section className="panel">

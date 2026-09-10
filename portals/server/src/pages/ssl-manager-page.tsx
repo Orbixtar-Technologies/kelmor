@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
+import { AccountScopeBar } from '../components/account-scope-bar'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
+import { certExpiryLabel, certRenewalState } from './cert-copy'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
@@ -17,6 +19,7 @@ export function SSLManagerPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [updatedAt, setUpdatedAt] = useState('')
 	const [viewAll, setViewAll] = useState(false)
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('websites.write')
@@ -45,6 +48,7 @@ export function SSLManagerPage () {
 		api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/certificates`).then((result) => {
 			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			setCertificates(asList(result))
+			setUpdatedAt(new Date().toISOString())
 		}).catch((requestError) => {
 			if (requests.isCurrent(request) && currentAccountId.current === requestedAccountId) setError(messageFrom(requestError))
 		}).finally(() => {
@@ -68,6 +72,7 @@ export function SSLManagerPage () {
 			}))
 			if (!requests.isCurrent(request)) return
 			setAllCertificates(results.flatMap((result) => result.status === 'fulfilled' ? result.value : []))
+			setUpdatedAt(new Date().toISOString())
 		} catch (requestError) {
 			if (requests.isCurrent(request)) setError(messageFrom(requestError))
 		} finally {
@@ -114,10 +119,12 @@ export function SSLManagerPage () {
 	return (
 		<>
 			<PageHeader
-				title="SSL / TLS Management"
+				title={account && !viewAll ? `SSL / TLS · ${account.username}` : 'SSL / TLS Management'}
 				description="Review certificate inventory, request AutoSSL certificates, and monitor expiry across accounts."
 				actions={<button type="button" className="secondary" onClick={() => setViewAll((current) => !current)}>{viewAll ? 'Account view' : 'Server-wide inventory'}</button>}
 			/>
+			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="SSL" onChange={(next) => setParams({ account: next }, { replace: true })} /> : null}
+			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			{!viewAll ? <div className="hub-toolbar panel">
 				<AccountPicker
 					accounts={accounts}
@@ -142,16 +149,17 @@ export function SSLManagerPage () {
 				<h2>{viewAll ? 'All account certificates' : `Certificates for ${account?.username}`}</h2>
 				{loading ? <LoadingState label="Loading certificates…" /> : null}
 				{!loading ? <div className="table-wrap"><table className="dense-table">
-					<thead><tr><th>Hostname</th><th>Account</th><th>Kind</th><th>Status</th><th>Expires</th><th>Actions</th></tr></thead>
+					<thead><tr><th>Hostname</th><th>Account</th><th>Kind</th><th>Status</th><th>Expiry</th><th>Issuer</th><th>Actions</th></tr></thead>
 					<tbody>
 						{rows.map((certificate) => (
 							<tr key={`${certificate.account_id}-${certificate.id}`}>
 								<td><strong>{valueOf(certificate, 'hostname')}</strong></td>
 								<td>{viewAll ? <Link to={`/ssl?account=${certificate.account_id}`}>{certificate.account_name}</Link> : certificate.account_name}</td>
 								<td>{valueOf(certificate, 'kind')}</td>
-								<td><StatusBadge value={valueOf(certificate, 'status')} /></td>
-								<td>{certificate.not_after ? formatDate(String(certificate.not_after)) : '—'}</td>
-								<td><Link className="link-button" to={`/accounts/${certificate.account_id}/services?service=certificates`}>Manage</Link></td>
+								<td><StatusBadge value={valueOf(certificate, 'status')} /><small>{certRenewalState(valueOf(certificate, 'status'), certificate.not_after ? String(certificate.not_after) : undefined)}</small></td>
+								<td>{certExpiryLabel(certificate.not_after ? String(certificate.not_after) : undefined)}<small>{certificate.not_after ? formatDate(String(certificate.not_after)) : ''}</small></td>
+								<td>{valueOf(certificate, 'issuer')}</td>
+								<td><div className="row-actions"><Link className="link-button" to={`/accounts/${certificate.account_id}/services?service=certificates`}>Manage</Link>{valueOf(certificate, 'status').toLocaleLowerCase() === 'failed' && canWrite ? <button type="button" className="link-button" onClick={() => api(`/api/v1/accounts/${certificate.account_id}/certificates`, { method: 'POST', body: JSON.stringify({ hostname: valueOf(certificate, 'hostname') }) }).then(() => setMessage('Certificate retry queued.')).catch((requestError) => setMessage(messageFrom(requestError)))}>Retry request</button> : null}<Link to={`/jobs?account=${certificate.account_id}`}>Jobs</Link></div></td>
 							</tr>
 						))}
 					</tbody>

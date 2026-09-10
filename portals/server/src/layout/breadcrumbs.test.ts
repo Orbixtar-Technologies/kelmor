@@ -19,4 +19,12 @@ describe('directorBreadcrumbs', () => {
 			{ label: 'Jobs' },
 		])
 	})
+
+	test('appends the selected tool account after the tool crumb', () => {
+		expect(directorBreadcrumbs('/dns', { dns: 'DNS Management' }, undefined, 'kelmor-demo')).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'DNS Management' },
+			{ label: 'kelmor-demo' },
+		])
+	})
 })
