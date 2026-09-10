@@ -812,15 +812,8 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	if err := w.applyDNSSECState(z); err != nil {
 		return err
 	}
-	p := &dns.PowerDNS{BaseURL: os.Getenv("PANEL_PDNS_URL"), APIKey: os.Getenv("PANEL_PDNS_API_KEY")}
-	if err := p.CreateZone(context.Background(), z.Name); err != nil {
-		return err
-	}
-	for _, rec := range w.Store.ListRecords(z.ID) {
-		if err := p.UpsertRecord(context.Background(), z.Name, dns.Record{Name: rec.Name, Type: rec.Type, Content: rec.Content, TTL: rec.TTL}); err != nil {
-			return err
-		}
-	}
+	// Bind-backed PowerDNS reads zone files written above; the HTTP API cannot
+	// edit those records ("Hosting backend does not support editing records").
 	z.ObservedRevision = z.DesiredRevision
 	w.Store.PutZone(z)
 	return nil
@@ -1022,10 +1015,6 @@ func (w *Worker) publishDKIMTXT(domain, txt string) {
 			z.DesiredRevision++
 			w.Store.PutZone(z)
 			_ = w.writeZone(z)
-			p := &dns.PowerDNS{BaseURL: os.Getenv("PANEL_PDNS_URL"), APIKey: os.Getenv("PANEL_PDNS_API_KEY")}
-			_ = p.UpsertRecord(context.Background(), z.Name, dns.Record{
-				Name: "default._domainkey", Type: "TXT", Content: txt, TTL: 3600,
-			})
 			return
 		}
 	}
