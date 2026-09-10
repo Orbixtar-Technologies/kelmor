@@ -2,6 +2,26 @@ package configuration
 
 import "testing"
 
+func TestPortalHTTPRedirect(t *testing.T) {
+	conf := PortalHTTPRedirect("lab.kelmor.host", 8443)
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"server_name lab.kelmor.host www.lab.kelmor.host;",
+		"server_name kelmor.host www.kelmor.host;",
+		"return 301 https://lab.kelmor.host:8443$request_uri;",
+		"/.well-known/acme-challenge/",
+	} {
+		if !contains(conf, want) {
+			t.Fatalf("missing %q in %s", want, conf)
+		}
+	}
+	if PortalHTTPRedirect("localhost", 8443) != "" {
+		t.Fatal("localhost must not emit portal HTTP config")
+	}
+}
+
 func TestNginxAliasServerNames(t *testing.T) {
 	conf := NginxSite(WebsiteSpec{
 		WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html",
