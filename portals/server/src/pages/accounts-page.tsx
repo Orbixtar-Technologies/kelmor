@@ -124,11 +124,11 @@ export function AccountsPage () {
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
 			{loading ? <LoadingState label="Loading account inventory…" /> : (
 				<div className="table-wrap"><table className="dense-table">
-					<thead><tr><th><input type="checkbox" aria-label="Select page" checked={paged.items.length > 0 && paged.items.every((account) => selected.has(account.id))} onChange={(event) => {
+					<thead><tr><th>{paged.items.length ? <input type="checkbox" aria-label="Select page" checked={paged.items.every((account) => selected.has(account.id))} onChange={(event) => {
 						const next = new Set(selected)
 						paged.items.forEach((account) => event.target.checked ? next.add(account.id) : next.delete(account.id))
 						setSelected(next)
-					}} /></th>
+					}} /> : null}</th>
 					{[['username', 'User'], ['primary_domain', 'Primary domain'], ['status', 'Status'], ['linux_uid', 'UID']].map(([key, label]) => <th key={key}><button type="button" className="sort-button" onClick={() => changeSort(key as keyof Account)}>{label}{sort === key ? (direction === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>)}
 					<th>Package</th><th>Disk quota</th><th>Actions</th></tr></thead>
 					<tbody>{paged.items.map((account) => {
@@ -138,8 +138,8 @@ export function AccountsPage () {
 							<td><input type="checkbox" aria-label={`Select ${account.username}`} checked={selected.has(account.id)} onChange={(event) => { const next = new Set(selected); event.target.checked ? next.add(account.id) : next.delete(account.id); setSelected(next) }} /></td>
 							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'}</small></td>
 							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td>{pkg?.name || account.package_id}</td>
-							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)}</small></> : '—'}</td>
-							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className="link-button" onClick={async () => {
+							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)} / {formatBytes(pkg?.disk_bytes)}</small></> : '—'}</td>
+							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={async () => {
 								const action = account.status === 'suspended' ? 'unsuspend' : 'suspend'
 								if (action === 'suspend' && !window.confirm(`Suspend ${account.username}? Its hosted services will become unavailable.`)) return
 								try { await stateAction(account.id, action); await loadAccounts() } catch (requestError) { setMessage(messageFrom(requestError)) }
@@ -148,7 +148,7 @@ export function AccountsPage () {
 					})}</tbody>
 				</table></div>
 			)}
-			{!loading && !error && paged.items.length === 0 ? <EmptyState title={`No ${view === 'all' ? '' : `${view} `}accounts match`} detail="Filters remain available above. Clear the search or choose another account view." /> : null}
+			{!loading && !error && paged.items.length === 0 ? <EmptyState title={view === 'suspended' && !query ? 'No suspended accounts' : `No ${view === 'all' ? '' : `${view} `}accounts match`} detail="Filters remain available above. Clear the search or choose another account view." action={view !== 'all' ? <button type="button" className="secondary" onClick={() => { const next = new URLSearchParams(params); next.delete('view'); setParams(next); setPage(1) }}>Show all accounts</button> : undefined} /> : null}
 			<Pagination page={paged.page} pageCount={paged.pageCount} total={paged.total} onPage={setPage} />
 		</>
 	)

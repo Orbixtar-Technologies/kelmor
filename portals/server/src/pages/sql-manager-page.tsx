@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
-import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
+import { EmptyState, ErrorState, LoadingState, PageHeader, SecretValue, StatusBadge } from '../components/ui'
 import { messageFrom, valueOf } from '../helpers'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
@@ -96,9 +96,9 @@ export function SQLManagerPage () {
 	return (
 		<>
 			<PageHeader
-				title="Database Manager"
+				title={account ? `Database Manager · ${account.username}` : 'Database Manager'}
 				description="Create and manage MariaDB, MySQL, and PostgreSQL databases across hosting accounts."
-				actions={account ? <Link className="button-link secondary-link" to={`/accounts/${accountId}/services?service=databases`}>Full account view</Link> : undefined}
+				actions={account ? <Link className="button-link secondary-link" to={`/accounts/${accountId}`}>Return to account</Link> : undefined}
 			/>
 			<div className="hub-toolbar panel">
 				<AccountPicker
@@ -119,7 +119,7 @@ export function SQLManagerPage () {
 					{credentials ? <dl className="detail-list">
 						<div><dt>Host</dt><dd>{credentials.host || '127.0.0.1'}</dd></div>
 						<div><dt>Username</dt><dd><code>{credentials.username}</code></dd></div>
-						<div><dt>Password</dt><dd><code>{credentials.password}</code></dd></div>
+						<div><dt>Password</dt><dd><SecretValue value={credentials.password || ''} /></dd></div>
 					</dl> : <p className="subtle">Credentials appear after the first database is provisioned.</p>}
 					<div className="admin-links">
 						{toolUrls?.phpmyadmin_url ? <a href={toolUrls.phpmyadmin_url} target="_blank" rel="noreferrer">Open phpMyAdmin</a> : null}
@@ -147,7 +147,7 @@ export function SQLManagerPage () {
 									<td>{valueOf(database, 'engine')}</td>
 									<td><StatusBadge value={valueOf(database, 'status')} /></td>
 									<td>{Array.isArray(database.users) ? database.users.length : '—'}</td>
-									<td>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeDatabase(database.id)}>Delete</button> : null}</td>
+									<td><div className="row-actions"><Link to={`/accounts/${accountId}/services?service=databases`}>Details</Link>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeDatabase(database.id)}>Delete</button> : null}</div></td>
 								</tr>
 							))}
 						</tbody>
