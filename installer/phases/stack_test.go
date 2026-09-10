@@ -63,6 +63,11 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/systemd/system/multi-user.target.wants/panel-worker.service",
 		"var/panel/host/etc/systemd/system/multi-user.target.wants/pebble.service",
 		"var/panel/host/etc/systemd/system/panel-smtp-policy.service",
+		"var/panel/host/etc/systemd/system/panel-update@.service",
+		"var/panel/host/etc/systemd/system/panel-update.timer",
+		"var/panel/host/etc/systemd/system/timers.target.wants/panel-update.timer",
+		"var/panel/host/etc/panel/update.env",
+		"var/panel/host/etc/panel/update.pub",
 		"var/panel/host/var/lib/panel/health-report.txt",
 		"var/panel/host/var/lib/panel/public.env",
 	}

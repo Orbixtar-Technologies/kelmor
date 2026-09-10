@@ -1,0 +1,11 @@
+[Unit]
+Description=Kelmor panel update (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/panel/bin/panel-updater %i --config /etc/panel/update.env
+
+[Install]
+WantedBy=multi-user.target

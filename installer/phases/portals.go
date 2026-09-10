@@ -193,6 +193,11 @@ func portalNginxServer(port int, serverName, cert, key, abs string) string {
     ssl_protocols TLSv1.2 TLSv1.3;
     root %s;
     index index.html;
+    location /updates/ {
+        alias /usr/local/panel/share/updates/;
+        autoindex off;
+        default_type application/octet-stream;
+    }
     location /api/ {
         proxy_pass http://127.0.0.1:18080;
         proxy_http_version 1.1;

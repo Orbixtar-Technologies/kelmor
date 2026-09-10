@@ -9,3 +9,5 @@ node_modules/
 !.run/validation/README.md
 portals/server/dist
 portals/account/dist
+packaging/update/release.priv
+dist/update-feed/

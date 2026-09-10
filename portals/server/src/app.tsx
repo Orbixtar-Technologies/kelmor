@@ -15,6 +15,7 @@ import { ResellersPage } from './pages/resellers-page'
 import { SecurityPage } from './pages/security-page'
 import { ServiceStatusPage } from './pages/service-status-page'
 import { TransfersPage } from './pages/transfers-page'
+import { UpdatesPage } from './pages/updates-page'
 import { UsagePage } from './pages/usage-page'
 import { CapProvider, Forbidden, hasCapabilities } from './rbac'
 import type { ReactNode } from 'react'
@@ -51,6 +52,7 @@ export function App () {
 					<Route path="transfers" element={allowed('accounts.read', <TransfersPage />)} />
 					<Route path="import" element={allowed('accounts.read', <TransfersPage />)} />
 					<Route path="jobs" element={(capabilities['server.read'] || capabilities['accounts.read']) ? <JobsPage /> : <Forbidden title="Jobs" />} />
+					<Route path="updates" element={allowed('server.read', <UpdatesPage />)} />
 					<Route path="audit" element={allowed('security.audit.read', <AuditPage />)} />
 					<Route path="usage" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />
 					<Route path="monitor" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />

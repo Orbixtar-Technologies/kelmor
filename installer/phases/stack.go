@@ -21,8 +21,11 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-//go:embed units/*.service
+//go:embed units/*.service units/*.timer
 var systemdUnits embed.FS
+
+//go:embed release.pub
+var defaultUpdatePublicKey []byte
 
 func applyDNS(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/powerdns"), 0o755); err != nil {
@@ -950,6 +953,21 @@ func verifySystemd(c Config) error {
 	if _, err := os.Stat(root(c, "etc/systemd/system/multi-user.target.wants/pebble.service")); err != nil {
 		return fmt.Errorf("pebble.service is not enabled for multi-user boot")
 	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/panel-update@.service")); err != nil {
+		return fmt.Errorf("panel-update@.service missing")
+	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/panel-update.timer")); err != nil {
+		return fmt.Errorf("panel-update.timer missing")
+	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/timers.target.wants/panel-update.timer")); err != nil {
+		return fmt.Errorf("panel-update.timer is not enabled")
+	}
+	if _, err := os.Stat(root(c, "etc/panel/update.env")); err != nil {
+		return fmt.Errorf("update.env missing")
+	}
+	if _, err := os.Stat(root(c, "etc/panel/update.pub")); err != nil {
+		return fmt.Errorf("update.pub missing")
+	}
 	return nil
 }
 
@@ -965,18 +983,82 @@ func applySystemd(c Config) error {
 		return fmt.Errorf("embedded systemd units missing")
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".service") {
+		if e.IsDir() {
 			continue
 		}
-		body, err := systemdUnits.ReadFile("units/" + e.Name())
+		name := e.Name()
+		if !strings.HasSuffix(name, ".service") && !strings.HasSuffix(name, ".timer") {
+			continue
+		}
+		body, err := systemdUnits.ReadFile("units/" + name)
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(root(c, "etc/systemd/system/"+e.Name()), body, 0o644); err != nil {
+		if err := os.WriteFile(root(c, "etc/systemd/system/"+name), body, 0o644); err != nil {
 			return err
 		}
 	}
-	return enableBootUnits(c)
+	if err := applyUpdatePolicy(c); err != nil {
+		return err
+	}
+	if err := enableBootUnits(c); err != nil {
+		return err
+	}
+	return enableUpdateTimer(c)
+}
+
+func applyUpdatePolicy(c Config) error {
+	if err := os.MkdirAll(root(c, "etc/panel"), 0o755); err != nil {
+		return err
+	}
+	host := strings.TrimSpace(c.Hostname)
+	if host == "" {
+		host = "localhost"
+	}
+	feedURL := fmt.Sprintf("https://%s:8443/updates", host)
+	body := fmt.Sprintf(`PANEL_UPDATE_FEED_URL=%s
+PANEL_UPDATE_CHANNEL=stable
+PANEL_UPDATE_AUTOMATIC=true
+PANEL_UPDATE_INSTALL_ROOT=/usr/local/panel
+PANEL_UPDATE_STATUS_PATH=/var/lib/panel/update-status.json
+PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
+`, feedURL)
+	configPath := root(c, "etc/panel/update.env")
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		return err
+	}
+	pubPath := root(c, "etc/panel/update.pub")
+	if len(defaultUpdatePublicKey) == 0 {
+		return fmt.Errorf("embedded update public key missing")
+	}
+	if err := os.WriteFile(pubPath, defaultUpdatePublicKey, 0o644); err != nil {
+		return err
+	}
+	statusPath := root(c, "var/lib/panel/update-status.json")
+	if _, err := os.Stat(statusPath); os.IsNotExist(err) {
+		initial := fmt.Sprintf(`{"state":"idle","installed_release":"0.1.0","automatic":true,"channel":"stable"}
+`)
+		if err := os.MkdirAll(filepath.Dir(statusPath), 0o750); err != nil {
+			return err
+		}
+		if err := os.WriteFile(statusPath, []byte(initial), 0o600); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(root(c, "usr/local/panel/share/updates"), 0o755); err != nil {
+		return err
+	}
+	return nil
+}
+
+func enableUpdateTimer(c Config) error {
+	wants := root(c, "etc/systemd/system/timers.target.wants")
+	if err := os.MkdirAll(wants, 0o755); err != nil {
+		return err
+	}
+	link := filepath.Join(wants, "panel-update.timer")
+	_ = os.Remove(link)
+	return os.Symlink("../panel-update.timer", link)
 }
 
 func enableBootUnits(c Config) error {
