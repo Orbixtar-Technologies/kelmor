@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -80,6 +81,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/server/updates/install", a.installUpdate)
 			r.Patch("/server/updates/settings", a.updateSettings)
 			r.Post("/server/reboot", a.rebootHost)
+			r.Post("/server/services/{serviceName}/{action}", a.controlService)
 			r.Post("/server/firewall/apply", a.applyFirewall)
 			r.Get("/server/firewall", a.getFirewall)
 			r.Get("/server/dns/zones", a.listAllZones)
@@ -151,6 +153,9 @@ func (a *API) Handler() http.Handler {
 				r.Get("/export", a.exportAccount)
 				r.Get("/files", a.listFiles)
 				r.Post("/files", a.writeFile)
+				a.registerFileRoutes(r)
+				r.Get("/databases/credentials", a.databaseCredentials)
+				r.Get("/admin-tools", a.accountAdminTools)
 				r.Get("/cron", a.listCron)
 				r.Post("/cron", a.createCron)
 				r.Delete("/cron/{cronID}", a.deleteCron)
@@ -2995,8 +3000,9 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
+		Path       string `json:"path"`
+		Content    string `json:"content"`
+		ContentB64 string `json:"content_b64"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	acc := a.Store.GetAccount(aid)
@@ -3006,7 +3012,16 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "PATH_DENIED", err.Error(), false)
 		return
 	}
-	if err := a.enforceDiskQuota(r.Context(), acc, int64(len(in.Content))); err != nil {
+	body := []byte(in.Content)
+	if in.ContentB64 != "" {
+		dec, decErr := base64.StdEncoding.DecodeString(in.ContentB64)
+		if decErr != nil {
+			a.fail(w, r, 400, "VALIDATION", "invalid content_b64", false)
+			return
+		}
+		body = dec
+	}
+	if err := a.enforceDiskQuota(r.Context(), acc, int64(len(body))); err != nil {
 		a.rejectLimit(w, r, err)
 		return
 	}
@@ -3014,7 +3029,7 @@ func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(clean, "/public_html/") || strings.HasSuffix(clean, "/public_html") {
 		mode = 0o644
 	}
-	_, err = a.Agent.ApplyFile(clean, []byte(in.Content), mode)
+	_, err = a.Agent.ApplyFile(clean, body, mode)
 	if err != nil {
 		a.fail(w, r, 400, "FILE_ERROR", err.Error(), false)
 		return

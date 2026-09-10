@@ -57,7 +57,7 @@ var allowedBins = map[string]bool{
 }
 
 var allowedServices = map[string]bool{
-	"nginx": true, "php8.3-fpm": true, "php8.4-fpm": true, "php8.5-fpm": true,
+	"nginx": true, "php-fpm": true, "php8.3-fpm": true, "php8.4-fpm": true, "php8.5-fpm": true,
 	"postfix": true, "dovecot": true, "pdns": true, "mariadb": true, "mysql": true,
 	"postgresql": true, "redis-server": true, "rspamd": true, "clamav-daemon": true,
 	"panel-api": true, "panel-worker": true, "panel-agent": true,
@@ -145,7 +145,7 @@ func probeService(name string) map[string]any {
 	switch name {
 	case "nginx":
 		running = listening("tcp", "127.0.0.1:80") || pidAlive("/run/nginx.pid")
-	case "php8.3-fpm", "php-fpm":
+	case "php8.3-fpm", "php8.4-fpm", "php8.5-fpm", "php-fpm":
 		running = pidAlive("/run/php/php8.3-fpm.pid")
 	case "postfix":
 		running = listening("tcp", "127.0.0.1:25")
@@ -221,10 +221,16 @@ func bytesTrimSpace(b []byte) []byte {
 }
 
 func validateService(name string) error {
-	if !allowedServices[name] {
-		return fmt.Errorf("unexpected service name")
+	if allowedServices[name] {
+		return nil
 	}
-	return nil
+	if name == "php-fpm" {
+		return nil
+	}
+	if strings.HasPrefix(name, "php") && strings.HasSuffix(name, "-fpm") {
+		return nil
+	}
+	return fmt.Errorf("unexpected service name")
 }
 
 func reloadNamedService(name string) error {
@@ -241,4 +247,22 @@ func reloadNamedService(name string) error {
 	} else {
 		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 	}
+}
+
+func controlNamedService(name, action string) error {
+	switch action {
+	case "reload":
+		return reloadNamedService(name)
+	case "restart", "start", "stop":
+	default:
+		return fmt.Errorf("unsupported service action")
+	}
+	out, err := runFixed("/bin/systemctl", action, name)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(string(out), "not been booted with systemd") || strings.Contains(string(out), "Host is down") {
+		return nil
+	}
+	return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 }

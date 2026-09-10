@@ -154,6 +154,8 @@ pre { max-height: 280px; overflow: auto; border: 1px solid var(--soft-border); b
 .file-breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 10px; padding: 8px 10px; border: 1px solid var(--soft-border); border-radius: 4px; background: #f7f9fb; }
 .crumb-sep { color: #8a9aaa; margin: 0 2px; }
 .file-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.upload-button { display: inline-flex; align-items: center; cursor: pointer; margin: 0; }
+.upload-button input { display: none; }
 .file-table .file-name { display: inline-flex; align-items: center; gap: 6px; text-align: left; }
 .sidebar-resources { margin-top: auto; padding: 12px 14px 10px; border-top: 1px solid #31516b; background: #0c253b; }
 .sidebar-resources.collapsed { display: grid; place-items: center; padding: 10px 0; }

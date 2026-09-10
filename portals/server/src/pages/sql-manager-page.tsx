@@ -16,6 +16,8 @@ export function SQLManagerPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [credentials, setCredentials] = useState<Record<string, string> | null>(null)
+	const [toolUrls, setToolUrls] = useState<{ phpmyadmin_url?: string; webmail_url?: string } | null>(null)
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('databases.write')
 	const accountId = params.get('account') || ''
@@ -53,9 +55,14 @@ export function SQLManagerPage () {
 	useEffect(() => {
 		requests.invalidate('databases')
 		setDatabases([])
+		setCredentials(null)
+		setToolUrls(null)
 		setMessage('')
-		if (accountId) loadDatabases(accountId)
-		else setLoading(false)
+		if (accountId) {
+			loadDatabases(accountId)
+			api<{ credentials: Record<string, string> }>(`/api/v1/accounts/${accountId}/databases/credentials?engine=mariadb`).then((result) => setCredentials(result.credentials)).catch(() => setCredentials(null))
+			api<{ phpmyadmin_url: string; webmail_url: string }>(`/api/v1/accounts/${accountId}/admin-tools`).then(setToolUrls).catch(() => setToolUrls(null))
+		} else setLoading(false)
 	}, [accountId, loadDatabases, requests])
 
 	async function createDatabase (event: React.FormEvent<HTMLFormElement>) {
@@ -108,10 +115,16 @@ export function SQLManagerPage () {
 			{accountId ? <>
 				<section className="panel">
 					<h2>Database administration</h2>
-					<p className="subtle">Use SFTP or SSH credentials from the account&apos;s Files tab for direct SQL access. Database users are provisioned automatically with each database.</p>
+					<p className="subtle">Database users are provisioned automatically. Use phpMyAdmin or direct SQL clients with the credentials below.</p>
+					{credentials ? <dl className="detail-list">
+						<div><dt>Host</dt><dd>{credentials.host || '127.0.0.1'}</dd></div>
+						<div><dt>Username</dt><dd><code>{credentials.username}</code></dd></div>
+						<div><dt>Password</dt><dd><code>{credentials.password}</code></dd></div>
+					</dl> : <p className="subtle">Credentials appear after the first database is provisioned.</p>}
 					<div className="admin-links">
-						<Link to={`/accounts/${accountId}/services?service=databases`}>Manage users &amp; credentials</Link>
-						<Link to={`/files?account=${accountId}`}>Open file manager</Link>
+						{toolUrls?.phpmyadmin_url ? <a href={toolUrls.phpmyadmin_url} target="_blank" rel="noreferrer">Open phpMyAdmin</a> : null}
+						<Link to={`/accounts/${accountId}/services?service=databases`}>Account services</Link>
+						<Link to={`/files?account=${accountId}`}>File manager</Link>
 					</div>
 				</section>
 				{canWrite ? <section className="panel">

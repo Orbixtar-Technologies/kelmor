@@ -19,6 +19,7 @@ var allowedPackages = map[string]bool{
 	"nftables": true, "acl": true,
 	"vsftpd": true, "libpam-pwdfile": true,
 	"curl": true, "ca-certificates": true,
+	"phpmyadmin": true, "roundcube-core": true, "roundcube-mysql": true,
 }
 
 func InstallPackages(names []string) error {
@@ -72,6 +73,7 @@ func applySystemPackages(c Config) error {
 		"libnginx-mod-http-modsecurity", "nodejs", "python3", "openssh-server",
 		"nftables", "acl", "vsftpd", "libpam-pwdfile",
 		"curl", "ca-certificates",
+		"phpmyadmin", "roundcube-core", "roundcube-mysql",
 	})
 }
 
