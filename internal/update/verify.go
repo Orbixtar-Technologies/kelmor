@@ -2,6 +2,7 @@ package update
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 type Manifest struct {
@@ -53,6 +56,19 @@ func Sign(m *Manifest, priv ed25519.PrivateKey) error {
 		return err
 	}
 	m.Signature = hex.EncodeToString(ed25519.Sign(priv, body))
+	return nil
+}
+
+func SignWithSigner(m *Manifest, signer ssh.Signer) error {
+	body, err := canonical(m)
+	if err != nil {
+		return err
+	}
+	sig, err := signer.Sign(rand.Reader, body)
+	if err != nil {
+		return fmt.Errorf("sign manifest: %w", err)
+	}
+	m.Signature = hex.EncodeToString(sig.Blob)
 	return nil
 }
 

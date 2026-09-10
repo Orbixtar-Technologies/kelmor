@@ -28,7 +28,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	priv, err := update.ParsePrivateKeyHex(string(privRaw))
+	signer, err := update.ParseSigningSigner(string(privRaw))
 	if err != nil {
 		fatal(fmt.Errorf("invalid private key: %w", err))
 	}
@@ -72,7 +72,7 @@ func main() {
 		Release: *release, Channel: *channel, MinimumRelease: "0.1.0",
 		Artifacts: artifacts,
 	}
-	if err := update.Sign(manifest, priv); err != nil {
+	if err := update.SignWithSigner(manifest, signer); err != nil {
 		fatal(err)
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")

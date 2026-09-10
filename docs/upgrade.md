@@ -27,7 +27,7 @@ Required GitHub secrets for signed CI releases:
 
 | Secret | Purpose |
 | --- | --- |
-| `PANEL_UPDATE_SIGNING_KEY` | Ed25519 **private** key as hex (128 chars, or 64-char seed). Must match `installer/phases/release.pub`. Do not paste `release.pub` itself. |
+| `PANEL_UPDATE_SIGNING_KEY` | Ed25519 **private** key. Accepted formats: 128-char hex private key, 64-char hex seed, OpenSSH PEM (`-----BEGIN OPENSSH PRIVATE KEY-----`), or the PEM file hex-encoded. Must match `installer/phases/release.pub`. Do not paste `release.pub` itself. |
 | `KELMOR_VM_HOST` | Optional VM to publish the feed |
 | `KELMOR_VM_USER` | SSH user (default `ubuntu`) |
 | `KELMOR_VM_SSH_KEY` | Private SSH key for the VM |
