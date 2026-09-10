@@ -38,7 +38,13 @@ export function CreateAccountPage () {
 	function next () {
 		const nextErrors = validateAccountStep(step, draft)
 		setErrors(nextErrors)
-		if (!Object.keys(nextErrors).length) setStep(step + 1)
+		if (!Object.keys(nextErrors).length) {
+			setStep(step + 1)
+			return
+		}
+		const fieldNames: Record<string, string> = { username: 'username', primaryDomain: 'domain', ownerEmail: 'email', ownerPassword: 'password', packageId: 'package_id' }
+		const first = fieldNames[Object.keys(nextErrors)[0]]
+		document.querySelector<HTMLElement>(`[name="${first}"]`)?.focus()
 	}
 	async function submit () {
 		setSubmitting(true)
@@ -67,12 +73,13 @@ export function CreateAccountPage () {
 			{loadError ? <ErrorState title="Account could not be created" error={loadError} /> : null}
 			<section className="form-panel">
 				{step === 1 ? <>
-					<div className="form-section-heading"><h2>Account identity</h2><p>The username becomes the Linux identity and home directory.</p></div>
+					<div className="form-section-heading"><h2>Account identity</h2><p>The username becomes the Linux identity and home directory. Username, domain, and password are required. Owner email is optional and defaults to username@domain.</p></div>
+					{Object.keys(errors).length ? <p className="error-state" role="alert">Fix the highlighted fields before continuing.</p> : null}
 					<div className="form-grid">
-						<label>Username<input name="username" autoFocus value={draft.username} onChange={(event) => update('username', event.target.value)} aria-invalid={Boolean(errors.username)} />{errors.username ? <small className="field-error">{errors.username}</small> : null}</label>
-						<label>Primary domain<input name="domain" value={draft.primaryDomain} placeholder="example.com" onChange={(event) => update('primaryDomain', event.target.value)} aria-invalid={Boolean(errors.primaryDomain)} />{errors.primaryDomain ? <small className="field-error">{errors.primaryDomain}</small> : null}</label>
-						<label>Owner email<input name="email" type="email" value={draft.ownerEmail} onChange={(event) => update('ownerEmail', event.target.value)} aria-invalid={Boolean(errors.ownerEmail)} />{errors.ownerEmail ? <small className="field-error">{errors.ownerEmail}</small> : null}</label>
-						<label>Initial owner password<input name="password" type="password" value={draft.ownerPassword} onChange={(event) => update('ownerPassword', event.target.value)} aria-invalid={Boolean(errors.ownerPassword)} />{errors.ownerPassword ? <small className="field-error">{errors.ownerPassword}</small> : null}</label>
+						<label>Username <small>Required · 3–32 lowercase characters</small><input name="username" autoComplete="username" autoFocus value={draft.username} onChange={(event) => update('username', event.target.value)} aria-invalid={Boolean(errors.username)} />{errors.username ? <small className="field-error">{errors.username}</small> : null}</label>
+						<label>Primary domain <small>Required</small><input name="domain" autoComplete="off" value={draft.primaryDomain} placeholder="example.com" onChange={(event) => update('primaryDomain', event.target.value)} aria-invalid={Boolean(errors.primaryDomain)} />{errors.primaryDomain ? <small className="field-error">{errors.primaryDomain}</small> : null}</label>
+						<label>Owner email <small>Optional</small><input name="email" type="email" autoComplete="email" value={draft.ownerEmail} onChange={(event) => update('ownerEmail', event.target.value)} aria-invalid={Boolean(errors.ownerEmail)} />{errors.ownerEmail ? <small className="field-error">{errors.ownerEmail}</small> : null}</label>
+						<label>Initial owner password <small>Required · at least 12 characters</small><input name="password" type="password" autoComplete="new-password" value={draft.ownerPassword} onChange={(event) => update('ownerPassword', event.target.value)} aria-invalid={Boolean(errors.ownerPassword)} />{errors.ownerPassword ? <small className="field-error">{errors.ownerPassword}</small> : null}</label>
 					</div>
 				</> : null}
 				{step === 2 ? <>

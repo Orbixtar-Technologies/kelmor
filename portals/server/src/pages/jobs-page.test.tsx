@@ -1,6 +1,17 @@
-import { describe, expect, it } from 'vitest'
-import { canRetryJob } from './jobs-page'
+// @vitest-environment jsdom
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { CapProvider } from '../rbac'
+import { canRetryJob, JobsPage } from './jobs-page'
 import type { Job } from '../types'
+
+vi.mock('../client', () => ({
+	api: vi.fn(),
+	asList: (value: { items?: unknown[] }) => value.items || [],
+}))
+
+import { api } from '../client'
 
 const failedJob: Job = {
 	id: 'job-1',
@@ -24,5 +35,42 @@ describe('canRetryJob', () => {
 
 	it('allows an eligible job when the capability is present', () => {
 		expect(canRetryJob({ ...failedJob, retryable: true }, { 'websites.write': true })).toBe(true)
+	})
+})
+
+afterEach(() => {
+	cleanup()
+	vi.clearAllMocks()
+})
+
+describe('JobsPage account scope', () => {
+	it('keeps card totals aligned with the account-filtered list', async () => {
+		vi.mocked(api).mockResolvedValue({
+			items: [
+				{ ...failedJob, id: 'job-acc', payload: { account_id: 'acc-1' }, last_error: '{"error":"dns authorization failed"}', state: 'failed' },
+				{ ...failedJob, id: 'job-other', payload: { account_id: 'other' }, state: 'succeeded', last_error: undefined },
+				{ ...failedJob, id: 'job-acc-ok', payload: { account_id: 'acc-1' }, state: 'succeeded', last_error: undefined },
+			],
+		})
+
+		render(
+			<MemoryRouter initialEntries={['/jobs?account=acc-1']}>
+				<CapProvider caps={{ 'accounts.read': true, 'websites.write': true }}>
+					<Routes>
+						<Route path="/jobs" element={<JobsPage />} />
+					</Routes>
+				</CapProvider>
+			</MemoryRouter>,
+		)
+
+		await waitFor(() => {
+			expect(screen.getByText(/Showing jobs for this account/)).toBeInTheDocument()
+		})
+		expect(screen.getByRole('link', { name: 'Return to account' })).toHaveAttribute('href', '/accounts/acc-1')
+		expect(screen.getAllByText('Create website').length).toBeGreaterThan(0)
+		expect(screen.getAllByText('dns authorization failed').length).toBeGreaterThan(0)
+		expect(screen.queryByText('{"error":"dns authorization failed"}')).not.toBeInTheDocument()
+		expect(screen.getByLabelText('Account job totals')).toHaveTextContent('Succeeded1')
+		expect(screen.getByLabelText('Account job totals')).toHaveTextContent('Failed1')
 	})
 })

@@ -16,6 +16,10 @@ vi.mock('../client', () => ({
 const tools: ToolDefinition[] = [
 	{ id: 'home', label: 'Home', description: 'Overview', category: 'Kelmor Director', path: '/', icon: 'home', capabilities: ['server.read'] },
 	{ id: 'accounts', label: 'List Accounts', description: 'Accounts', category: 'Account Information', path: '/accounts', icon: 'users', capabilities: ['accounts.read'] },
+	{ id: 'account-summary', label: 'Account Summary', description: 'Account hub', category: 'Account Information', path: '/accounts?task=summary', icon: 'account', capabilities: ['accounts.read'] },
+	{ id: 'suspended', label: 'Suspended Accounts', description: 'Suspended', category: 'Account Information', path: '/accounts?view=suspended', icon: 'pause', capabilities: ['accounts.read'] },
+	{ id: 'modify-account', label: 'Modify an Account', description: 'Modify', category: 'Account Functions', path: '/accounts?task=modify', icon: 'edit', capabilities: ['accounts.read'] },
+	{ id: 'terminate-account', label: 'Terminate an Account', description: 'Terminate', category: 'Account Functions', path: '/accounts?task=terminate', icon: 'trash', capabilities: ['accounts.read'] },
 ]
 
 const me: Me = {
@@ -87,5 +91,18 @@ describe('Sidebar interactions', () => {
 		expect(within(sidebar).queryByRole('textbox')).not.toBeInTheDocument()
 		expect(sidebar).toHaveAttribute('aria-hidden', 'true')
 		expect(sidebar).toHaveAttribute('inert')
+	})
+
+	test('marks only the current destination active on an account hub', () => {
+		render(
+			<MemoryRouter initialEntries={['/accounts/acc-1']}>
+				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
+			</MemoryRouter>,
+		)
+
+		expect(screen.getByRole('link', { name: /Account Summary/ })).toHaveAttribute('aria-current', 'page')
+		expect(screen.getByRole('link', { name: /List Accounts/ })).not.toHaveAttribute('aria-current')
+		expect(screen.getByRole('link', { name: /Modify an Account/ })).not.toHaveAttribute('aria-current')
+		expect(screen.getByRole('link', { name: /Terminate an Account/ })).not.toHaveAttribute('aria-current')
 	})
 })

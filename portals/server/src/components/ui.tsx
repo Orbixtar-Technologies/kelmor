@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Link, NavLink } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useCapabilities } from '../rbac'
 
@@ -139,10 +139,60 @@ export function AccountTabs ({ id }: { id: string }) {
 	const capabilities = useCapabilities()
 	return (
 		<nav className="tabs" aria-label="Account sections">
-			<Link to={`/accounts/${id}`}>Summary</Link>
-			<Link to={`/accounts/${id}/services`}>Account services</Link>
-			{capabilities['dns.read'] ? <Link to={`/dns?account=${id}`}>DNS</Link> : null}
-			{capabilities['server.read'] || capabilities['accounts.read'] ? <Link to={`/jobs?account=${id}`}>Related jobs</Link> : null}
+			<NavLink to={`/accounts/${id}`} end>Overview</NavLink>
+			<NavLink to={`/accounts/${id}/services`}>Services</NavLink>
+			{capabilities['dns.read'] ? <NavLink to={`/dns?account=${id}`}>DNS</NavLink> : null}
+			{capabilities['server.read'] || capabilities['accounts.read'] ? <NavLink to={`/jobs?account=${id}`}>Activity</NavLink> : null}
 		</nav>
+	)
+}
+
+interface CopyableValueProps {
+	value: string
+	label: string
+}
+
+export function CopyableValue ({ value, label }: CopyableValueProps) {
+	const [copied, setCopied] = useState(false)
+	if (!value) return <span>—</span>
+	return (
+		<span className="copyable-value">
+			<span>{value}</span>
+			<button type="button" className="link-button" onClick={async () => {
+				try {
+					await navigator.clipboard?.writeText(value)
+				} catch {
+					// Clipboard may be unavailable in older browsers or tests.
+				}
+				setCopied(true)
+			}}>{copied ? 'Copied' : `Copy ${label}`}</button>
+		</span>
+	)
+}
+
+interface SecretValueProps {
+	value: string
+	label?: string
+}
+
+export function SecretValue ({ value, label = 'password' }: SecretValueProps) {
+	const [revealed, setRevealed] = useState(false)
+	const [copied, setCopied] = useState(false)
+	if (!value) return <span>—</span>
+	return (
+		<span className="secret-value">
+			<code>{revealed ? value : '••••••••'}</code>
+			<button type="button" className="link-button" onClick={() => setRevealed((current) => !current)}>
+				{revealed ? `Hide ${label}` : `Reveal ${label}`}
+			</button>
+			<button type="button" className="link-button" onClick={async () => {
+				try {
+					await navigator.clipboard?.writeText(value)
+				} catch {
+					// Clipboard may be unavailable in older browsers or tests.
+				}
+				setCopied(true)
+			}}>{copied ? 'Copied' : `Copy ${label}`}</button>
+		</span>
 	)
 }
