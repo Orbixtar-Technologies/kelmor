@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
+import { AccountScopeBar } from '../components/account-scope-bar'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
-import { messageFrom, valueOf } from '../helpers'
+import { formatDate, messageFrom, valueOf } from '../helpers'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
@@ -17,6 +18,7 @@ export function SQLManagerPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [updatedAt, setUpdatedAt] = useState('')
 	const [credentials, setCredentials] = useState<Record<string, string> | null>(null)
 	const [toolUrls, setToolUrls] = useState<{ phpmyadmin_url?: string; webmail_url?: string } | null>(null)
 	const requests = useRef(new RequestSequence()).current
@@ -46,6 +48,7 @@ export function SQLManagerPage () {
 		api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/databases`).then((result) => {
 			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			setDatabases(asList(result))
+			setUpdatedAt(new Date().toISOString())
 		}).catch((requestError) => {
 			if (requests.isCurrent(request) && currentAccountId.current === requestedAccountId) setError(messageFrom(requestError))
 		}).finally(() => {
@@ -101,6 +104,8 @@ export function SQLManagerPage () {
 				description="Create and manage MariaDB, MySQL, and PostgreSQL databases across hosting accounts."
 				actions={account ? <Link className="button-link secondary-link" to={`/accounts/${accountId}`}>Return to account</Link> : undefined}
 			/>
+			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Databases" onChange={(next) => setParams({ account: next }, { replace: true })} />
+			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			<div className="hub-toolbar panel">
 				<AccountPicker
 					accounts={accounts}

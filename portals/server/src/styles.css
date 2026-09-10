@@ -270,6 +270,10 @@ td small { display: block; color: var(--muted); }
 .service-group button { display: inline-flex; align-items: center; gap: 6px; border-color: #aab8c5; background: #fff; color: #344c60; font-size: 12px; padding: 5px 8px; }
 .service-group button[aria-selected="true"] { border-color: #246b9f; background: #e3f1fb; color: #0b568d; }
 .context-chip { display: flex; flex-wrap: wrap; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border: 1px solid #9fc3df; border-radius: 4px; background: #eef7fd; color: #244c69; font-size: 13px; }
+.scope-change { display: inline-flex; align-items: center; gap: 6px; }
+.scope-change select { width: auto; }
+.file-row-protected { background: #fdf6f0; }
+.dense-table small { display: block; font-weight: 400; color: var(--muted); }
 .copyable-value, .secret-value { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .job-cards { display: none; list-style: none; margin: 0 0 12px; padding: 0; }
 .job-card { display: grid; gap: 6px; margin-bottom: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
