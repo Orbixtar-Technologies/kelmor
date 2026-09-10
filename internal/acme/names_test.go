@@ -4,8 +4,16 @@ import "testing"
 
 func TestHostnamesForPortal(t *testing.T) {
 	got := HostnamesForPortal("lab.kelmor.host")
-	if len(got) != 2 || got[0] != "lab.kelmor.host" || got[1] != "www.lab.kelmor.host" {
+	want := map[string]bool{
+		"lab.kelmor.host": true, "www.lab.kelmor.host": true, "kelmor.host": true,
+	}
+	if len(got) != len(want) {
 		t.Fatalf("portal names: %v", got)
+	}
+	for _, name := range got {
+		if !want[name] {
+			t.Fatalf("unexpected %q in %v", name, got)
+		}
 	}
 	if HostnamesForPortal("localhost") != nil {
 		t.Fatal("localhost excluded")

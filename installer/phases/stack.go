@@ -743,8 +743,12 @@ func vsftpdPID() int {
 }
 
 func applyTLS(c Config) error {
-	if err := os.MkdirAll(root(c, "var/lib/panel/acme-www/.well-known/acme-challenge"), 0o755); err != nil {
+	challengeDir := root(c, "var/lib/panel/acme-www/.well-known/acme-challenge")
+	if err := os.MkdirAll(challengeDir, 0o775); err != nil {
 		return err
+	}
+	if !c.Dev && installPrefix(c) == "" {
+		_ = exec.Command("/bin/chgrp", "panel", challengeDir).Run()
 	}
 	if err := os.MkdirAll(root(c, "var/lib/panel/certs"), 0o750); err != nil {
 		return err

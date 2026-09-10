@@ -12,6 +12,9 @@ func HostnamesForPortal(host string) []string {
 	if !strings.HasPrefix(host, "www.") {
 		names = append(names, "www."+host)
 	}
+	if strings.HasSuffix(host, ".kelmor.host") && host != "kelmor.host" {
+		names = append(names, "kelmor.host")
+	}
 	return uniqNames(names)
 }
 

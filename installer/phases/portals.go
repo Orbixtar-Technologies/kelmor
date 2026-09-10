@@ -294,7 +294,8 @@ func tryIssuePortalHostnameCertificate(c Config) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	if _, err := acme.IssueNames(ctx, &operations.Host{}, acme.HostnamesForPortal(host), contact, directory); err != nil {
+	agent := &operations.Host{Sock: strings.TrimSpace(os.Getenv("PANEL_AGENT_SOCK"))}
+	if _, err := acme.IssueNames(ctx, agent, acme.HostnamesForPortal(host), contact, directory); err != nil {
 		if status == "issued" {
 			status = "acme: " + err.Error()
 		} else {
@@ -307,8 +308,8 @@ func tryIssuePortalHostnameCertificate(c Config) {
 func publishPanelHostnameZone(host string) error {
 	ip := netaddr.PublicIPv4()
 	serial := time.Now().Unix()
-	body := fmt.Sprintf("$ORIGIN %s.\n$TTL 3600\n@ IN SOA ns1.%s. hostmaster.%s. (%d 7200 3600 1209600 3600)\n@ IN NS ns1.%s.\n@ 300 IN A %s\nns1 300 IN A %s\nns2 300 IN A %s\n",
-		host, host, host, serial, host, ip, ip, ip)
+	body := fmt.Sprintf("$ORIGIN %s.\n$TTL 3600\n@ IN SOA ns1.%s. hostmaster.%s. (%d 7200 3600 1209600 3600)\n@ IN NS ns1.%s.\n@ IN NS ns2.%s.\n@ 300 IN A %s\nwww 300 IN A %s\nns1 300 IN A %s\nns2 300 IN A %s\n",
+		host, host, host, serial, host, host, ip, ip, ip, ip)
 	params, err := json.Marshal(map[string]any{"name": host, "body": body})
 	if err != nil {
 		return err
