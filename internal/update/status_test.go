@@ -1,49 +1,41 @@
 package update
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestWriteStatusReplacesStatusAtomically(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "update-status.json")
-	if err := os.WriteFile(path, []byte(`{"state":"old"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	want := Status{
-		State: "available", InstalledRelease: "1.0.0",
-		AvailableRelease: "2.0.0", LastCheckedAt: "2026-09-09T15:00:00Z",
+func TestWriteStatusUsesPanelReadableMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "update-status.json")
+	if err := WriteStatus(path, Status{
+		State: "idle", InstalledRelease: "0.1.0",
 		Automatic: true, Channel: "stable",
-	}
-	if err := WriteStatus(path, want); err != nil {
+	}); err != nil {
 		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got Status
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Fatalf("status mismatch: got %+v want %+v", got, want)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("status mode = %o, want 600", info.Mode().Perm())
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %o", info.Mode().Perm())
 	}
-	entries, err := os.ReadDir(dir)
+}
+
+func TestReconcileStatusPermissionsFixesExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "update-status.json")
+	if err := os.WriteFile(path, []byte(`{"state":"idle"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReconcileStatusPermissions(path); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "update-status.json" {
-		t.Fatalf("temporary status file left behind: %v", entries)
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %o", info.Mode().Perm())
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -51,15 +52,46 @@ func (p *PowerDNS) ListRecords(ctx context.Context, zone string) ([]Record, erro
 func (p *PowerDNS) UpsertRecord(ctx context.Context, zone string, rec Record) error {
 	return p.roundTrip(ctx, "PATCH", "/api/v1/servers/localhost/zones/"+zone+".", map[string]any{
 		"rrsets": []map[string]any{{
-			"name": rec.Name, "type": rec.Type, "ttl": rec.TTL, "changetype": "REPLACE",
-			"records": []map[string]any{{"content": rec.Content, "disabled": false}},
+			"name": canonicalRecordName(zone, rec.Name), "type": rec.Type, "ttl": rec.TTL, "changetype": "REPLACE",
+			"records": []map[string]any{{"content": canonicalRecordContent(rec), "disabled": false}},
 		}},
 	})
 }
 func (p *PowerDNS) DeleteRecord(ctx context.Context, zone string, rec Record) error {
 	return p.roundTrip(ctx, "PATCH", "/api/v1/servers/localhost/zones/"+zone+".", map[string]any{
-		"rrsets": []map[string]any{{"name": rec.Name, "type": rec.Type, "changetype": "DELETE"}},
+		"rrsets": []map[string]any{{"name": canonicalRecordName(zone, rec.Name), "type": rec.Type, "changetype": "DELETE"}},
 	})
+}
+
+func canonicalRecordName(zone, name string) string {
+	zone = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(zone)), ".")
+	name = strings.TrimSpace(name)
+	if name == "" || name == "@" {
+		return zone + "."
+	}
+	if strings.HasSuffix(name, ".") {
+		return name
+	}
+	lowerName := strings.ToLower(name)
+	if strings.HasSuffix(lowerName, "."+zone) {
+		return name + "."
+	}
+	return name + "." + zone + "."
+}
+
+func canonicalRecordContent(rec Record) string {
+	content := strings.TrimSpace(rec.Content)
+	switch rec.Type {
+	case "MX", "CNAME", "NS", "SRV":
+		if content != "" && !strings.HasSuffix(content, ".") && !strings.Contains(content, ":") {
+			return content + "."
+		}
+	case "TXT":
+		if content != "" && !strings.HasPrefix(content, `"`) {
+			return `"` + strings.ReplaceAll(content, `"`, `\"`) + `"`
+		}
+	}
+	return content
 }
 func (p *PowerDNS) EnableDNSSEC(ctx context.Context, zone string) error {
 	return p.roundTrip(ctx, "PUT", "/api/v1/servers/localhost/zones/"+zone+"./cryptokeys", map[string]any{"active": true})
@@ -95,6 +127,9 @@ func (p *PowerDNS) roundTrip(ctx context.Context, method, path string, body any)
 		return err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusConflict {
+		return nil
+	}
 	if res.StatusCode >= 400 {
 		b, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("powerdns %s: %s", res.Status, string(b))

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { ServerResourceStrip } from '../components/server-resource-strip'
 import { groupTools } from '../tool-catalog'
-import type { ToolDefinition } from '../types'
+import type { ServerOverview, ToolDefinition } from '../types'
 
 const icons: Record<string, string> = {
 	home: '⌂', users: '👤', pause: 'Ⅱ', meter: '◔', plus: '+', box: '▣',
 	briefcase: '▤', globe: '◎', pulse: '⌁', shield: '◇', transfer: '⇄',
 	jobs: '≡', audit: '✓', chart: '▥', account: '◉', edit: '✎',
 	trash: '×', key: '⌘', database: '▰', mail: '✉', lock: '▧',
+	files: '▤', webmail: '✉',
 }
 
 interface SidebarProps {
@@ -17,9 +19,11 @@ interface SidebarProps {
 	mobileOpen: boolean
 	onNavigate: () => void
 	onMobileDismiss: () => void
+	server: ServerOverview | null
+	canViewStatus: boolean
 }
 
-export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate, onMobileDismiss }: SidebarProps) {
+export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate, onMobileDismiss, server, canViewStatus }: SidebarProps) {
 	const [filter, setFilter] = useState('')
 	const [closedCategories, setClosedCategories] = useState<Set<string>>(new Set())
 	const [isMobile, setIsMobile] = useState(() => window.matchMedia?.('(max-width: 780px)').matches ?? false)
@@ -84,6 +88,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 					)
 				})}
 			</nav>
+			<ServerResourceStrip server={server} collapsed={collapsed} canViewStatus={canViewStatus} />
 			<button type="button" className="collapse-sidebar" onClick={onCollapse}>{collapsed ? '›' : '‹'}<span>{collapsed ? 'Expand navigation' : 'Collapse navigation'}</span></button>
 		</aside>
 	)

@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/panel/bin/panel-updater %i --config /etc/panel/update.env
+ExecStartPost=/bin/sh -c 'chown panel:panel /var/lib/panel/update-status.json 2>/dev/null || true; chmod 640 /var/lib/panel/update-status.json 2>/dev/null || true'
 
 [Install]
 WantedBy=multi-user.target

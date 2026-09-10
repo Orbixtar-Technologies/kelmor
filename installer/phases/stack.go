@@ -17,6 +17,7 @@ import (
 
 	"github.com/hosting-panel/panel/internal/firewall"
 	"github.com/hosting-panel/panel/internal/netaddr"
+	"github.com/hosting-panel/panel/internal/update"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -1042,14 +1043,14 @@ PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
 	}
 	statusPath := root(c, "var/lib/panel/update-status.json")
 	if _, err := os.Stat(statusPath); os.IsNotExist(err) {
-		initial := fmt.Sprintf(`{"state":"idle","installed_release":"0.1.0","automatic":true,"channel":"stable"}
-`)
-		if err := os.MkdirAll(filepath.Dir(statusPath), 0o750); err != nil {
+		if err := update.WriteStatus(statusPath, update.Status{
+			State: "idle", InstalledRelease: "0.1.0",
+			Automatic: true, Channel: "stable",
+		}); err != nil {
 			return err
 		}
-		if err := os.WriteFile(statusPath, []byte(initial), 0o600); err != nil {
-			return err
-		}
+	} else if err := update.ReconcileStatusPermissions(statusPath); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(root(c, "usr/local/panel/share/updates"), 0o755); err != nil {
 		return err

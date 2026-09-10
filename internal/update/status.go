@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 )
 
 type Status struct {
@@ -55,10 +57,36 @@ func WriteStatus(path string, status Status) error {
 	if err := os.Rename(tmpPath, path); err != nil {
 		return err
 	}
+	if err := finalizeStatusPermissions(path); err != nil {
+		return err
+	}
 	directory, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
 	defer directory.Close()
 	return directory.Sync()
+}
+
+func ReconcileStatusPermissions(path string) error {
+	return finalizeStatusPermissions(path)
+}
+
+func finalizeStatusPermissions(path string) error {
+	if err := os.Chmod(path, 0o640); err != nil {
+		return err
+	}
+	panelUser, err := user.Lookup("panel")
+	if err != nil {
+		return nil
+	}
+	uid, convErr := strconv.Atoi(panelUser.Uid)
+	if convErr != nil {
+		return nil
+	}
+	gid, convErr := strconv.Atoi(panelUser.Gid)
+	if convErr != nil {
+		return nil
+	}
+	return os.Chown(path, uid, gid)
 }
