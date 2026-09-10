@@ -95,6 +95,9 @@ func (p *PowerDNS) roundTrip(ctx context.Context, method, path string, body any)
 		return err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusConflict {
+		return nil
+	}
 	if res.StatusCode >= 400 {
 		b, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("powerdns %s: %s", res.Status, string(b))
