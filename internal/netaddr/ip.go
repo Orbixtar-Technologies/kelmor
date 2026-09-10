@@ -62,12 +62,83 @@ func readPublicEnvFile() string {
 	return ""
 }
 
-// DNSListenIPv4 is 127.0.0.1 plus PublicIPv4 when that address is
-// non-loopback, so the resolver stays reachable locally and on the NIC.
+// DNSListenIPv4 is 127.0.0.1 plus an address PowerDNS can bind on the
+// host. PublicIPv4 is used when it is assigned locally; otherwise the
+// primary non-loopback NIC address is used for NAT/cloud deployments.
 func DNSListenIPv4() []string {
+	addrs := []string{"127.0.0.1"}
 	pub := PublicIPv4()
 	if pub == "127.0.0.1" {
-		return []string{"127.0.0.1"}
+		return addrs
 	}
-	return []string{"127.0.0.1", pub}
+	if isAssignedIPv4(pub) {
+		return append(addrs, pub)
+	}
+	if nic := primaryInterfaceIPv4(); nic != "" {
+		return append(addrs, nic)
+	}
+	return addrs
+}
+
+func isAssignedIPv4(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.To4() == nil {
+		return false
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var host net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				host = v.IP
+			case *net.IPAddr:
+				host = v.IP
+			default:
+				continue
+			}
+			if host.To4() != nil && host.Equal(parsed) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func primaryInterfaceIPv4() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var host net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				host = v.IP
+			case *net.IPAddr:
+				host = v.IP
+			default:
+				continue
+			}
+			if v4 := host.To4(); v4 != nil && !v4.IsLoopback() {
+				return v4.String()
+			}
+		}
+	}
+	return ""
 }

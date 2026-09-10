@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,8 +21,11 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-//go:embed units/*.service
+//go:embed units/*.service units/*.timer
 var systemdUnits embed.FS
+
+//go:embed release.pub
+var defaultUpdatePublicKey []byte
 
 func applyDNS(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/powerdns"), 0o755); err != nil {
@@ -48,13 +52,7 @@ api-key=panel-loopback
 	if err := writeUnlessExists(pdnsConf, []byte(body), 0o640); err != nil {
 		return err
 	}
-	if err := ensureFileContains(pdnsConf, "bind-config=/etc/powerdns/named.conf\n"); err != nil {
-		return err
-	}
-	if err := ensureFileContains(pdnsConf, "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3\n"); err != nil {
-		return err
-	}
-	if err := replaceConfigLine(pdnsConf, "local-address=", "local-address="+listen+"\n"); err != nil {
+	if err := reconcilePowerDNSConfig(pdnsConf, listen); err != nil {
 		return err
 	}
 	if err := writePublicEnv(c); err != nil {
@@ -848,6 +846,62 @@ func replaceConfigLine(path, prefix, line string) error {
 	return os.WriteFile(path, []byte(out), 0o640)
 }
 
+func reconcilePowerDNSConfig(path, listen string) error {
+	settings := map[string]string{
+		"bind-config":       "/etc/powerdns/named.conf",
+		"bind-dnssec-db":    "/var/lib/panel/dns/bind-dnssec.sqlite3",
+		"local-address":     listen,
+		"local-port":        "53",
+		"webserver":         "yes",
+		"webserver-address": "127.0.0.1",
+		"webserver-port":    "8081",
+		"api":               "yes",
+		"api-key":           "panel-loopback",
+	}
+	return replacePowerDNSSettings(path, settings)
+}
+
+func replacePowerDNSSettings(path string, settings map[string]string) error {
+	keys := make([]string, 0, len(settings))
+	for key := range settings {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		prefix := key + "="
+		lines := strings.Split(string(b), "\n")
+		out := make([]string, 0, len(lines))
+		found := false
+		for _, line := range lines {
+			candidate := strings.TrimSpace(line)
+			candidate = strings.TrimSpace(strings.TrimPrefix(candidate, "#"))
+			if strings.HasPrefix(candidate, prefix) {
+				if found {
+					continue
+				}
+				out = append(out, candidate)
+				found = true
+				continue
+			}
+			out = append(out, line)
+		}
+		if found {
+			if err := os.WriteFile(path, []byte(strings.Join(out, "\n")), 0o640); err != nil {
+				return err
+			}
+		}
+		if err := replaceConfigLine(path, prefix, prefix+settings[key]+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ensureFileContains(path, line string) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -899,6 +953,31 @@ func verifySystemd(c Config) error {
 	if _, err := os.Stat(root(c, "etc/systemd/system/multi-user.target.wants/pebble.service")); err != nil {
 		return fmt.Errorf("pebble.service is not enabled for multi-user boot")
 	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/panel-update@.service")); err != nil {
+		return fmt.Errorf("panel-update@.service missing")
+	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/panel-update.timer")); err != nil {
+		return fmt.Errorf("panel-update.timer missing")
+	}
+	if _, err := os.Stat(root(c, "etc/systemd/system/timers.target.wants/panel-update.timer")); err != nil {
+		return fmt.Errorf("panel-update.timer is not enabled")
+	}
+	if _, err := os.Stat(root(c, "etc/panel/update.env")); err != nil {
+		return fmt.Errorf("update.env missing")
+	}
+	if _, err := os.Stat(root(c, "etc/panel/update.pub")); err != nil {
+		return fmt.Errorf("update.pub missing")
+	}
+	if _, err := os.Stat(root(c, "usr/local/panel/current-release")); err != nil {
+		return fmt.Errorf("current-release missing")
+	}
+	updateEnv, err := os.ReadFile(root(c, "etc/panel/update.env"))
+	if err != nil {
+		return fmt.Errorf("update.env missing")
+	}
+	if !strings.Contains(string(updateEnv), "PANEL_UPDATE_FEED_URL=https://127.0.0.1:8443/updates") {
+		return fmt.Errorf("update.env is not configured for the local signed feed")
+	}
 	return nil
 }
 
@@ -914,18 +993,84 @@ func applySystemd(c Config) error {
 		return fmt.Errorf("embedded systemd units missing")
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".service") {
+		if e.IsDir() {
 			continue
 		}
-		body, err := systemdUnits.ReadFile("units/" + e.Name())
+		name := e.Name()
+		if !strings.HasSuffix(name, ".service") && !strings.HasSuffix(name, ".timer") {
+			continue
+		}
+		body, err := systemdUnits.ReadFile("units/" + name)
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(root(c, "etc/systemd/system/"+e.Name()), body, 0o644); err != nil {
+		if err := os.WriteFile(root(c, "etc/systemd/system/"+name), body, 0o644); err != nil {
 			return err
 		}
 	}
-	return enableBootUnits(c)
+	if err := applyUpdatePolicy(c); err != nil {
+		return err
+	}
+	if err := enableBootUnits(c); err != nil {
+		return err
+	}
+	return enableUpdateTimer(c)
+}
+
+func applyUpdatePolicy(c Config) error {
+	if err := os.MkdirAll(root(c, "etc/panel"), 0o755); err != nil {
+		return err
+	}
+	feedURL := "https://127.0.0.1:8443/updates"
+	body := fmt.Sprintf(`PANEL_UPDATE_FEED_URL=%s
+PANEL_UPDATE_CHANNEL=stable
+PANEL_UPDATE_AUTOMATIC=true
+PANEL_UPDATE_INSTALL_ROOT=/usr/local/panel
+PANEL_UPDATE_STATUS_PATH=/var/lib/panel/update-status.json
+PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
+`, feedURL)
+	configPath := root(c, "etc/panel/update.env")
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		return err
+	}
+	pubPath := root(c, "etc/panel/update.pub")
+	if len(defaultUpdatePublicKey) == 0 {
+		return fmt.Errorf("embedded update public key missing")
+	}
+	if err := os.WriteFile(pubPath, defaultUpdatePublicKey, 0o644); err != nil {
+		return err
+	}
+	statusPath := root(c, "var/lib/panel/update-status.json")
+	if _, err := os.Stat(statusPath); os.IsNotExist(err) {
+		initial := fmt.Sprintf(`{"state":"idle","installed_release":"0.1.0","automatic":true,"channel":"stable"}
+`)
+		if err := os.MkdirAll(filepath.Dir(statusPath), 0o750); err != nil {
+			return err
+		}
+		if err := os.WriteFile(statusPath, []byte(initial), 0o600); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(root(c, "usr/local/panel/share/updates"), 0o755); err != nil {
+		return err
+	}
+	releasePath := root(c, "usr/local/panel/current-release")
+	if _, err := os.Stat(releasePath); os.IsNotExist(err) {
+		if err := os.WriteFile(releasePath, []byte("0.1.0\n"), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func enableUpdateTimer(c Config) error {
+	wants := root(c, "etc/systemd/system/timers.target.wants")
+	if err := os.MkdirAll(wants, 0o755); err != nil {
+		return err
+	}
+	link := filepath.Join(wants, "panel-update.timer")
+	_ = os.Remove(link)
+	return os.Symlink("../panel-update.timer", link)
 }
 
 func enableBootUnits(c Config) error {
@@ -1019,8 +1164,29 @@ func verifyDNS(c Config) error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(b), "bind-dnssec-db=") {
-		return fmt.Errorf("pdns.conf missing bind-dnssec-db")
+	listen := strings.Join(netaddr.DNSListenIPv4(), ",")
+	settings := []string{
+		"bind-config=/etc/powerdns/named.conf",
+		"bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3",
+		"local-address=" + listen,
+		"local-port=53",
+		"webserver=yes",
+		"webserver-address=127.0.0.1",
+		"webserver-port=8081",
+		"api=yes",
+		"api-key=panel-loopback",
+	}
+	for _, setting := range settings {
+		found := false
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.TrimSpace(line) == setting {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("pdns.conf missing active %s", setting)
+		}
 	}
 	// Ubuntu ships launch= (parent) plus pdns.d/bind.conf launch+=bind.
 	// Do not require launch=bind in the main file.

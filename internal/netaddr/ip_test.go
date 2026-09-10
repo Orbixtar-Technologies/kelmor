@@ -12,8 +12,15 @@ func TestPublicIPv4HonorsEnv(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 	addrs := DNSListenIPv4()
-	if len(addrs) != 2 || addrs[0] != "127.0.0.1" || addrs[1] != "203.0.113.9" {
+	if len(addrs) < 1 || addrs[0] != "127.0.0.1" {
 		t.Fatalf("%v", addrs)
+	}
+	if isAssignedIPv4("203.0.113.9") {
+		if len(addrs) != 2 || addrs[1] != "203.0.113.9" {
+			t.Fatalf("%v", addrs)
+		}
+	} else if len(addrs) != 2 || addrs[1] != primaryInterfaceIPv4() {
+		t.Fatalf("expected NIC fallback, got %v", addrs)
 	}
 }
 

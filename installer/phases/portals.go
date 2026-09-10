@@ -142,6 +142,9 @@ func verifyPortalTLS(c Config) error {
 	if !strings.Contains(string(server), "listen 8443 ssl") || !strings.Contains(string(server), "ssl_certificate") {
 		return fmt.Errorf("kelmor director nginx is not listening TLS on 8443")
 	}
+	if !strings.Contains(string(server), "location /updates/") {
+		return fmt.Errorf("kelmor director nginx is missing the signed update feed location")
+	}
 	if !strings.Contains(string(account), "listen 8444 ssl") || !strings.Contains(string(account), "ssl_certificate") {
 		return fmt.Errorf("kelmor control nginx is not listening TLS on 8444")
 	}
@@ -193,10 +196,16 @@ func portalNginxServer(port int, serverName, cert, key, abs string) string {
     ssl_protocols TLSv1.2 TLSv1.3;
     root %s;
     index index.html;
+    location /updates/ {
+        alias /usr/local/panel/share/updates/;
+        autoindex off;
+        default_type application/octet-stream;
+    }
     location /api/ {
         proxy_pass http://127.0.0.1:18080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $http_host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }

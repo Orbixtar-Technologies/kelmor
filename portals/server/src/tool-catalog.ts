@@ -22,6 +22,7 @@ export const toolCatalog: ToolDefinition[] = [
 	{ id: 'security', label: 'Security & Host Configuration', description: 'Audit, firewall configuration, and host reboot', category: 'Security Center', path: '/security', icon: 'shield', capabilities: ['server.read'] },
 	{ id: 'transfers', label: 'Transfers & Backups', description: 'Native transfer, extracted archive import, backup, and restore', category: 'Transfers', path: '/transfers', icon: 'transfer', capabilities: ['accounts.read'] },
 	{ id: 'jobs', label: 'Jobs', description: 'Inspect and retry background operations', category: 'System Tools', path: '/jobs', icon: 'jobs', capabilities: ['server.read', 'accounts.read'] },
+	{ id: 'updates', label: 'Software Updates', description: 'Check, install, and schedule verified Kelmor releases', category: 'System Tools', path: '/updates', icon: 'box', capabilities: ['server.read'] },
 	{ id: 'audit', label: 'Audit Trail', description: 'Search privileged actions and before/after state', category: 'Security Center', path: '/audit', icon: 'audit', capabilities: ['security.audit.read'] },
 	{ id: 'usage', label: 'Account Usage', description: 'Compare disk, bandwidth, process, and memory usage', category: 'Account Information', path: '/usage', icon: 'chart', capabilities: ['billing.usage.read', 'accounts.read', 'packages.read'], matchAll: true },
 ]

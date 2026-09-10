@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hosting-panel/panel/internal/netaddr"
 )
 
 func TestDevInstallWritesHostStack(t *testing.T) {
@@ -63,6 +65,12 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/systemd/system/multi-user.target.wants/panel-worker.service",
 		"var/panel/host/etc/systemd/system/multi-user.target.wants/pebble.service",
 		"var/panel/host/etc/systemd/system/panel-smtp-policy.service",
+		"var/panel/host/etc/systemd/system/panel-update@.service",
+		"var/panel/host/etc/systemd/system/panel-update.timer",
+		"var/panel/host/etc/systemd/system/timers.target.wants/panel-update.timer",
+		"var/panel/host/etc/panel/update.env",
+		"var/panel/host/etc/panel/update.pub",
+		"var/panel/host/usr/local/panel/current-release",
 		"var/panel/host/var/lib/panel/health-report.txt",
 		"var/panel/host/var/lib/panel/public.env",
 	}
@@ -121,8 +129,9 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(pdns), "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3") {
 		t.Fatalf("pdns.conf missing DNSSEC db: %s", pdns)
 	}
-	if !contains(string(pdns), "local-address=127.0.0.1,203.0.113.10") {
-		t.Fatalf("pdns.conf missing public listen: %s", pdns)
+	wantListen := "local-address=" + strings.Join(netaddr.DNSListenIPv4(), ",")
+	if !contains(string(pdns), wantListen) {
+		t.Fatalf("pdns.conf missing DNS listen %q: %s", wantListen, pdns)
 	}
 	pubenv, err := os.ReadFile(filepath.Join(dir, "var/panel/host/var/lib/panel/public.env"))
 	if err != nil {
@@ -241,6 +250,73 @@ func TestApplyDNSForcesBindLaunchOnPackagedConf(t *testing.T) {
 	}
 	if !contains(string(body), "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3") {
 		t.Fatalf("missing bind-dnssec-db: %s", body)
+	}
+}
+
+func TestApplyDNSReconcilesPowerDNSAPIOnUpgrade(t *testing.T) {
+	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.10")
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	cfg := Config{Hostname: "panel.example.net", AdminEmail: "ops@example.net", Dev: true}
+	pdnsConf := filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf")
+	if err := os.MkdirAll(filepath.Dir(pdnsConf), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packaged := `include-dir=/etc/powerdns/pdns.d
+launch=
+# api=no
+# api-key=
+# webserver=no
+# webserver-address=127.0.0.1
+# webserver-port=8081
+`
+	if err := os.WriteFile(pdnsConf, []byte(packaged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyDNS(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyDNS(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(pdnsConf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsExactLine(string(body), "launch=") {
+		t.Fatalf("Ubuntu packaged launch= parent must stay: %s", body)
+	}
+	want := []string{
+		"bind-config=/etc/powerdns/named.conf",
+		"bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3",
+		"local-address=" + strings.Join(netaddr.DNSListenIPv4(), ","),
+		"local-port=53",
+		"webserver=yes",
+		"webserver-address=127.0.0.1",
+		"webserver-port=8081",
+		"api=yes",
+		"api-key=panel-loopback",
+	}
+	for _, line := range want {
+		count := 0
+		for _, got := range strings.Split(string(body), "\n") {
+			if strings.TrimSpace(got) == line {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("expected exactly one %q, got %d in:\n%s", line, count, body)
+		}
 	}
 }
 
