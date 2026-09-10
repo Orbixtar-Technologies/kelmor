@@ -4,9 +4,11 @@ import { api, asList } from '../client'
 import { AccountTabs, Dialog, EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, messageFrom, valueOf } from '../helpers'
 import { groupAccountServices, resourceManagePath, resourcePrimaryLabel, serviceActionLabel } from './account-service-groups'
+import { backupDestinationReadiness, backupScopeSummary } from './backup-copy'
+import { DatabaseConnectionPanel } from './database-connection-panel'
 import { RequestSequence } from '../request-sequence'
 import { useCapabilities } from '../rbac'
-import type { Account, ResourceItem } from '../types'
+import type { Account, Package, ResourceItem } from '../types'
 
 interface ServiceDefinition {
 	id: string
@@ -52,8 +54,11 @@ export function AccountServicesPage () {
 	const [errors, setErrors] = useState<Record<string, string>>({})
 	const [loading, setLoading] = useState(true)
 	const [message, setMessage] = useState('')
+	const [pkg, setPkg] = useState<Package | null>(null)
 	const [restoreBackup, setRestoreBackup] = useState<ResourceItem | null>(null)
 	const [detail, setDetail] = useState<ResourceItem | null>(null)
+	const [credentials, setCredentials] = useState<Record<string, string> | null>(null)
+	const [toolUrls, setToolUrls] = useState<{ phpmyadmin_url?: string } | null>(null)
 	const requests = useRef(new RequestSequence()).current
 	const currentAccountId = useRef(id)
 	currentAccountId.current = id
@@ -78,11 +83,20 @@ export function AccountServicesPage () {
 		setErrors({})
 		setMessage('')
 		setRestoreBackup(null)
+		setPkg(null)
+		setCredentials(null)
+		setToolUrls(null)
 
 		const accountLoad = api<Account>(`/api/v1/accounts/${requestedAccountId}`).then((result) => {
 			if (!requests.isCurrent(accountRequest) || currentAccountId.current !== requestedAccountId) return
 			setAccount(result)
 			setLoadedAccountId(requestedAccountId)
+			api<{ items: Package[] }>('/api/v1/packages').then((packages) => {
+				if (!requests.isCurrent(accountRequest) || currentAccountId.current !== requestedAccountId) return
+				setPkg(asList(packages).find((entry) => entry.id === result.package_id) || null)
+			}).catch(() => {
+				if (requests.isCurrent(accountRequest) && currentAccountId.current === requestedAccountId) setPkg(null)
+			})
 		}).catch((error) => {
 			if (!requests.isCurrent(accountRequest) || currentAccountId.current !== requestedAccountId) return
 			setErrors((current) => ({ ...current, account: messageFrom(error) }))
@@ -101,6 +115,20 @@ export function AccountServicesPage () {
 		})
 	}, [id, requests, visibleServices])
 	useEffect(load, [load])
+	useEffect(() => {
+		if (!id || requestedService !== 'databases') return
+		const request = requests.begin('database-connection')
+		api<{ credentials: Record<string, string> }>(`/api/v1/accounts/${id}/databases/credentials?engine=mariadb`).then((result) => {
+			if (requests.isCurrent(request) && currentAccountId.current === id) setCredentials(result.credentials)
+		}).catch(() => {
+			if (requests.isCurrent(request) && currentAccountId.current === id) setCredentials(null)
+		})
+		api<{ phpmyadmin_url?: string }>(`/api/v1/accounts/${id}/admin-tools`).then((result) => {
+			if (requests.isCurrent(request) && currentAccountId.current === id) setToolUrls(result)
+		}).catch(() => {
+			if (requests.isCurrent(request) && currentAccountId.current === id) setToolUrls(null)
+		})
+	}, [id, requestedService, requests])
 
 	async function refreshService (requestedAccountId: string, serviceId: string) {
 		const service = visibleServices.find((entry) => entry.id === serviceId)
@@ -193,10 +221,11 @@ export function AccountServicesPage () {
 				</div>
 			</div>
 			{message ? <p className="feedback" role="status">{message}</p> : null}
+			{definition?.id === 'databases' ? <DatabaseConnectionPanel accountId={id} credentials={credentials} phpmyadminUrl={toolUrls?.phpmyadmin_url} /> : null}
 			<section className="panel service-panel">
 				<div className="section-heading"><div><h2>{definition?.label} · {items.length}</h2><p>Queued changes appear in Activity. Use Details to inspect an existing resource.</p></div></div>
 				{definition?.id === 'mail-domains' && capabilities['mail.write'] ? <MailDomainForm domains={items} onPatch={patchMailDomain} /> : definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} account={currentAccount} resources={resources} canListWebsites={Boolean(capabilities['websites.read'])} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
-				{definition?.id === 'backups' ? <p className="subtle">A full encrypted backup includes website files, databases, and mail data for this account. Local destinations are ready on this host; SFTP and S3 need destination credentials. Restore and import remain available from Transfers after a backup succeeds.</p> : null}
+				{definition?.id === 'backups' ? <p className="subtle">{backupScopeSummary(pkg?.backup_retention_days)}</p> : null}
 				{errors[active] ? <ErrorState title={`${definition?.label} unavailable`} error={errors[active]} onRetry={load} /> : null}
 				{loading ? <LoadingState /> : null}
 				{!loading && !errors[active] && definition ? <div className="table-wrap"><table className="dense-table"><thead><tr><th>Resource</th>{definition.columns.map((column) => <th key={column} scope="col">{column.replaceAll('_', ' ')}</th>)}<th scope="col">Actions</th></tr></thead>
@@ -208,7 +237,13 @@ export function AccountServicesPage () {
 						{definition.isDeletable && definition.writeCapability && capabilities[definition.writeCapability] ? <button type="button" className="link-button danger-text" onClick={() => remove(definition.endpoint, item.id)}>Delete</button> : null}
 					</div></td></tr>)}</tbody>
 				</table></div> : null}
-				{!loading && !errors[active] && !items.length ? <EmptyState title={`No ${definition?.label.toLocaleLowerCase()} yet`} detail={`Use ${serviceActionLabel(definition?.id || '')} above where available. New items stay listed here after they are queued.`} /> : null}
+				{!loading && !errors[active] && !items.length ? <EmptyState
+					title={definition?.id === 'backups' ? 'No backups yet' : `No ${definition?.label.toLocaleLowerCase()} yet`}
+					detail={definition?.id === 'backups'
+						? 'Queue a local backup to create the first encrypted archive. Restore and import stay available from Transfers after a backup succeeds.'
+						: `Use ${serviceActionLabel(definition?.id || '')} above where available. New items stay listed here after they are queued.`}
+					action={definition?.id === 'backups' ? <Link className="button-link secondary-link" to="/transfers">Open Transfers & restore</Link> : undefined}
+				/> : null}
 			</section>
 			<Dialog open={Boolean(detail)} title={detail ? resourcePrimaryLabel(definition?.id || '', detail) : 'Resource details'} onClose={() => setDetail(null)}>
 				{detail ? <dl className="detail-list">{Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl> : null}
@@ -223,6 +258,27 @@ export function AccountServicesPage () {
 				<footer className="dialog-form-actions"><button type="button" className="secondary" onClick={() => setRestoreBackup(null)}>Cancel</button><button type="button" onClick={restore}>Queue restore</button></footer>
 			</Dialog>
 		</>
+	)
+}
+
+function BackupCreateForm ({ onCreate }: { onCreate: (endpoint: string, body: Record<string, unknown>) => Promise<void> }) {
+	const [destination, setDestination] = useState('local')
+	const readiness = backupDestinationReadiness(destination)
+	return (
+		<form className="inline-form" onSubmit={(event) => {
+			event.preventDefault()
+			onCreate('backups', { kind: 'full', destination })
+		}}>
+			<label>Destination
+				<select name="destination" value={destination} onChange={(event) => setDestination(event.target.value)}>
+					<option value="local">local</option>
+					<option value="sftp">sftp</option>
+					<option value="s3">s3</option>
+				</select>
+			</label>
+			<button type="submit">Queue encrypted backup</button>
+			<p className="subtle">{readiness.label}. {readiness.detail} Restore an existing archive from the list below or from Transfers.</p>
+		</form>
 	)
 }
 
@@ -252,7 +308,7 @@ export function ServiceCreateForm ({ service, account, resources, canListWebsite
 	if (service === 'aliases') return <form className="inline-form" onSubmit={(event) => submit(event, 'mail/aliases', (data) => ({ domain_id: data.get('domain_id'), address: data.get('address'), destination: data.get('destination') }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Address<input name="address" required /></label><label>Destination<input name="destination" required /></label><button type="submit">Create alias</button></form>
 	if (service === 'certificates') return <form className="inline-form" onSubmit={(event) => submit(event, 'certificates', (data) => ({ hostname: data.get('hostname') }))}><label>Hostname<input name="hostname" defaultValue={account.primary_domain} required /></label><button type="submit">Request certificate</button></form>
 	if (service === 'files') return <form className="stack-form" onSubmit={(event) => submit(event, 'files', (data) => ({ path: data.get('path'), content: data.get('content') }))}><label>Path<input name="path" defaultValue="/public_html/index.html" required /></label><label>Contents<textarea name="content" rows={4} required /></label><button type="submit">Write file</button></form>
-	if (service === 'backups') return <form className="inline-form" onSubmit={(event) => submit(event, 'backups', (data) => ({ kind: 'full', destination: data.get('destination') }))}><label>Destination<select name="destination"><option>local</option><option>sftp</option><option>s3</option></select></label><button type="submit">Queue encrypted backup</button></form>
+	if (service === 'backups') return <BackupCreateForm onCreate={onCreate} />
 	if (service === 'cron') return <form className="inline-form" onSubmit={(event) => submit(event, 'cron', (data) => ({ schedule: data.get('schedule'), command: data.get('command'), working_directory: account.home_path, enabled: true }))}><label>Schedule<input name="schedule" defaultValue="0 * * * *" required /></label><label>Command<input name="command" required /></label><button type="submit">Add cron job</button></form>
 	if (service === 'ssh') return <><form className="stack-form" onSubmit={(event) => submit(event, 'ssh-keys', (data) => ({ label: data.get('label'), public_key: data.get('public_key') }))}><label>Key label<input name="label" required /></label><label>Public key<textarea name="public_key" rows={3} required /></label><button type="submit">Add SSH key</button></form><form className="inline-form" onSubmit={(event) => submit(event, 'sftp-password', (data) => ({ password: data.get('password') }))}><label>SFTP password<input name="password" type="password" required /></label><button type="submit">Set SFTP password</button></form></>
 	if (service === 'ftp') return <form className="inline-form" onSubmit={(event) => submit(event, 'ftp', (data) => ({ username: data.get('username'), password: data.get('password'), home_path: data.get('home_path') }))}><label>Username<input name="username" required /></label><label>Password<input name="password" type="password" required /></label><label>Home path<input name="home_path" defaultValue={`${account.home_path}/public_html`} required /></label><button type="submit">Create FTP user</button></form>

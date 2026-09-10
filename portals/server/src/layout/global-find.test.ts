@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { rankFindResults, shouldHandleFindShortcut } from './global-find'
+import { rankFindResults, resourcesFromAccountCollections, shouldHandleFindShortcut } from './global-find'
 import type { Account, ToolDefinition } from '../types'
 
 const tools: ToolDefinition[] = [
@@ -62,5 +62,18 @@ describe('global find ranking', () => {
 		expect(shouldHandleFindShortcut('/', false, div)).toBe(true)
 		expect(shouldHandleFindShortcut('/', false, input)).toBe(false)
 		expect(shouldHandleFindShortcut('/', true, div)).toBe(false)
+	})
+
+	test('matches an exact database name and opens the account database manager', () => {
+		const resources = resourcesFromAccountCollections(accounts[0], {
+			databases: [{ id: 'db-1', name: 'shop_orders' }],
+			domains: [{ id: 'dom-1', ascii_fqdn: 'shop.example.test' }],
+		})
+		const results = rankFindResults('shop_orders', tools, accounts, resources)
+
+		expect(results[0]?.label).toBe('shop_orders')
+		expect(results[0]?.kind).toBe('resource')
+		expect(results[0]?.path).toBe('/sql?account=a1')
+		expect(results[0]?.description).toContain('kelmor-demo')
 	})
 })
