@@ -277,7 +277,7 @@ func tryIssuePortalHostnameCertificate(c Config) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	if _, err := acme.Issue(ctx, &operations.Host{}, host, contact, directory); err != nil {
+	if _, err := acme.IssueNames(ctx, &operations.Host{}, acme.HostnamesForPortal(host), contact, directory); err != nil {
 		if status == "issued" {
 			status = "acme: " + err.Error()
 		} else {
