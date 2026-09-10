@@ -44,19 +44,7 @@ jobs:
             echo "PANEL_UPDATE_SIGNING_KEY secret is required for signed releases." >&2
             exit 1
           fi
-<<<<<<< HEAD
           bash scripts/ci/prepare-signing-key.sh "$RUNNER_TEMP/signing/update-signing.priv"
-=======
-          install -d -m 700 "$RUNNER_TEMP/signing"
-          # Remove any trailing whitespace and convert hex to binary
-          printf '%s' "$SIGNING_KEY" | sed 's/[[:space:]]*$//' | xxd -r -p > "$RUNNER_TEMP/signing/update-signing.priv"
-          chmod 600 "$RUNNER_TEMP/signing/update-signing.priv"
-          # Verify the key file has content
-          if [[ ! -s "$RUNNER_TEMP/signing/update-signing.priv" ]]; then
-            echo "Failed to convert hex key to binary - result is empty" >&2
-            exit 1
-          fi
->>>>>>> github/main
 
       - name: Build, package, and sign update feed
         env:
