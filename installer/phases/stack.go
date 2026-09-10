@@ -971,6 +971,13 @@ func verifySystemd(c Config) error {
 	if _, err := os.Stat(root(c, "usr/local/panel/current-release")); err != nil {
 		return fmt.Errorf("current-release missing")
 	}
+	updateEnv, err := os.ReadFile(root(c, "etc/panel/update.env"))
+	if err != nil {
+		return fmt.Errorf("update.env missing")
+	}
+	if !strings.Contains(string(updateEnv), "PANEL_UPDATE_FEED_URL=https://127.0.0.1:8443/updates") {
+		return fmt.Errorf("update.env is not configured for the local signed feed")
+	}
 	return nil
 }
 
@@ -1014,11 +1021,7 @@ func applyUpdatePolicy(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/panel"), 0o755); err != nil {
 		return err
 	}
-	host := strings.TrimSpace(c.Hostname)
-	if host == "" {
-		host = "localhost"
-	}
-	feedURL := fmt.Sprintf("https://%s:8443/updates", host)
+	feedURL := "https://127.0.0.1:8443/updates"
 	body := fmt.Sprintf(`PANEL_UPDATE_FEED_URL=%s
 PANEL_UPDATE_CHANNEL=stable
 PANEL_UPDATE_AUTOMATIC=true

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -315,10 +316,15 @@ func newManifestServer(t *testing.T, manifest *Manifest) *httptest.Server {
 
 func withHTTPClient(t *testing.T, client *http.Client) {
 	t.Helper()
-	previous := http.DefaultClient
-	http.DefaultClient = client
+	previous := feedClientFactory
+	feedClientFactory = func(base *url.URL, timeout time.Duration) *http.Client {
+		cloned := *client
+		cloned.Timeout = timeout
+		cloned.CheckRedirect = sameHostRedirectPolicy(base)
+		return &cloned
+	}
 	t.Cleanup(func() {
-		http.DefaultClient = previous
+		feedClientFactory = previous
 	})
 }
 

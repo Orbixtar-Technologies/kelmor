@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -727,15 +728,20 @@ func newInstallConfig(t *testing.T, root string, artifacts map[string]testArtifa
 			http.NotFound(w, r)
 		}
 	}))
-	previous := http.DefaultClient
-	http.DefaultClient = server.Client()
+	previous := feedClientFactory
+	feedClientFactory = func(base *url.URL, timeout time.Duration) *http.Client {
+		client := server.Client()
+		client.Timeout = timeout
+		client.CheckRedirect = sameHostRedirectPolicy(base)
+		return client
+	}
 	return Config{
 			FeedURL: server.URL, Channel: "stable", InstalledRelease: "1.0.0",
 			PublicKey: pub, InstallRoot: root,
 			StatusPath: filepath.Join(t.TempDir(), "update-status.json"),
 			Automatic:  true,
 		}, func() {
-			http.DefaultClient = previous
+			feedClientFactory = previous
 			server.Close()
 		}
 }

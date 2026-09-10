@@ -104,19 +104,7 @@ func fetchManifest(ctx context.Context, config Config) (*Manifest, error) {
 	requestContext, cancel := context.WithTimeout(request.Context(), manifestRequestTimeout)
 	defer cancel()
 	request = request.WithContext(requestContext)
-	client := *http.DefaultClient
-	if client.Timeout == 0 || client.Timeout > manifestRequestTimeout {
-		client.Timeout = manifestRequestTimeout
-	}
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return fmt.Errorf("too many redirects")
-		}
-		if req.URL.Scheme != "https" || req.URL.Host != base.Host {
-			return fmt.Errorf("redirect to a different scheme or host is refused")
-		}
-		return nil
-	}
+	client := feedClientFactory(base, manifestRequestTimeout)
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch manifest: %w", err)

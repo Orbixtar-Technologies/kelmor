@@ -431,11 +431,7 @@ func downloadArtifacts(ctx context.Context, config Config, manifest *Manifest, r
 	if err != nil {
 		return err
 	}
-	client := *http.DefaultClient
-	client.CheckRedirect = sameHostRedirectPolicy(base)
-	if client.Timeout == 0 || client.Timeout > artifactRequestTimeout {
-		client.Timeout = artifactRequestTimeout
-	}
+	client := feedClientFactory(base, artifactRequestTimeout)
 	for _, artifact := range manifest.Artifacts {
 		artifactURL, err := url.JoinPath(base.String(), config.Channel, manifest.Release, artifact.Path)
 		if err != nil {
