@@ -84,6 +84,15 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 	if !strings.Contains(string(conf), "server_name panel.example.net") || !strings.Contains(string(conf), hostCert) {
 		t.Fatalf("missing hostname ACME vhost: %s", conf)
 	}
+	httpConf, err := os.ReadFile(filepath.Join(dir, "etc/nginx/panel-sites/89-portal-http.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(httpConf), "server_name panel.example.net") ||
+		!strings.Contains(string(httpConf), "return 301 https://panel.example.net:8443") ||
+		!strings.Contains(string(httpConf), "acme-challenge") {
+		t.Fatalf("portal HTTP redirect: %s", httpConf)
+	}
 }
 
 func TestVerifyPortalsRequiresTLS(t *testing.T) {
