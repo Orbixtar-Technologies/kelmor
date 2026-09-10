@@ -199,6 +199,37 @@ php_admin_value[open_basedir] = /home/%s:/tmp:/usr/share/php
 `, account, account, group, account, maxChildren, account)
 }
 
+const defaultDirectorHTTPSPort = 8443
+
+// PortalHTTPRedirect returns nginx :80 vhosts for the panel hostname. Each
+// block serves HTTP-01 challenges and redirects browsers to the Director HTTPS
+// port (default 8443).
+func PortalHTTPRedirect(hostname string, directorPort int) string {
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" || hostname == "localhost" {
+		return ""
+	}
+	if directorPort < 1 {
+		directorPort = defaultDirectorHTTPSPort
+	}
+	var b strings.Builder
+	writePortalHTTPBlock(&b, []string{hostname, "www." + hostname}, hostname, directorPort)
+	if strings.HasSuffix(hostname, ".kelmor.host") && hostname != "kelmor.host" {
+		writePortalHTTPBlock(&b, []string{"kelmor.host", "www.kelmor.host"}, hostname, directorPort)
+	}
+	return b.String()
+}
+
+func writePortalHTTPBlock(b *strings.Builder, serverNames []string, redirectHost string, directorPort int) {
+	b.WriteString("server {\n")
+	b.WriteString("    listen 80;\n")
+	b.WriteString("    listen [::]:80;\n")
+	fmt.Fprintf(b, "    server_name %s;\n", strings.Join(serverNames, " "))
+	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+	fmt.Fprintf(b, "    location / { return 301 https://%s:%d$request_uri; }\n", redirectHost, directorPort)
+	b.WriteString("}\n")
+}
+
 type ToolSiteSpec struct {
 	SiteID       string
 	Hostname     string

@@ -14,6 +14,7 @@ import (
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/acme"
 	"github.com/hosting-panel/panel/internal/brand"
+	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/netaddr"
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
@@ -34,6 +35,9 @@ func applyPortals(c Config) error {
 		return err
 	}
 	if err := writePortalNginx(c, "91-account-portal.conf", 8444, "usr/local/panel/share/portals/account"); err != nil {
+		return err
+	}
+	if err := writePortalHTTPNginx(c); err != nil {
 		return err
 	}
 	return reloadNginxIfLive(c)
@@ -162,6 +166,19 @@ func verifyPortalTLS(c Config) error {
 		}
 	}
 	return nil
+}
+
+func writePortalHTTPNginx(c Config) error {
+	host := strings.TrimSpace(c.Hostname)
+	body := configuration.PortalHTTPRedirect(host, 8443)
+	path := root(c, "etc/nginx/panel-sites/89-portal-http.conf")
+	if body == "" {
+		return os.Remove(path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(body), 0o644)
 }
 
 func writePortalNginx(c Config, name string, port int, rootRel string) error {
