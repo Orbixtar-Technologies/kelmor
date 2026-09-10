@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { api, asList } from '../client'
+import { NotificationBell } from '../components/notification-bell'
+import { ResourcesSidebar } from '../components/resources-sidebar'
 import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
 import { GlobalFind } from './global-find'
@@ -31,8 +33,11 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const [notificationsOpen, setNotificationsOpen] = useState(false)
 	const [adminOpen, setAdminOpen] = useState(false)
 	const menuButtonRef = useRef<HTMLButtonElement>(null)
+	const notificationsRef = useRef<HTMLDivElement>(null)
+	const adminRef = useRef<HTMLDivElement>(null)
 	const location = useLocation()
 	const tools = discoverTools(toolCatalog, capabilities)
+	const canViewResources = Boolean(capabilities['server.read'])
 
 	useEffect(() => {
 		if (capabilities['accounts.read']) api<{ items: Account[] }>('/api/v1/accounts').then((result) => setAccounts(asList(result))).catch(() => setAccounts([]))
@@ -46,6 +51,20 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 			})
 		}
 	}, [capabilities])
+
+	useEffect(() => {
+		function handlePointerDown (event: MouseEvent) {
+			const target = event.target as Node
+			if (notificationsOpen && notificationsRef.current && !notificationsRef.current.contains(target)) {
+				setNotificationsOpen(false)
+			}
+			if (adminOpen && adminRef.current && !adminRef.current.contains(target)) {
+				setAdminOpen(false)
+			}
+		}
+		document.addEventListener('mousedown', handlePointerDown)
+		return () => document.removeEventListener('mousedown', handlePointerDown)
+	}, [notificationsOpen, adminOpen])
 
 	const parts = location.pathname.split('/').filter(Boolean)
 	function dismissMobileNavigation () {
@@ -62,21 +81,40 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 
 	return (
 		<div className={`director ${collapsed ? 'nav-collapsed' : ''}`}>
-			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} server={server} canViewStatus={Boolean(capabilities['server.read'])} />
+			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} />
 			<div className="workspace">
 				<header className="topbar">
-					<button ref={menuButtonRef} type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen((open) => !open)}>☰</button>
+					<button ref={menuButtonRef} type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen((open) => !open)}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+					</button>
 					<Link className="topbar-brand" to="/" aria-label="Kelmor Director home"><span>K</span><strong>Kelmor Director</strong></Link>
 					<GlobalFind tools={tools} accounts={accounts} />
 					<div className="top-actions">
-						<div className="popover-wrap">
-							<button type="button" className="icon-button" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(!notificationsOpen)}>♢<span className="notification-dot" /></button>
-							{notificationsOpen ? <div className="popover notifications"><strong>Notifications</strong><p>No unread alerts.{tools.some((tool) => tool.id === 'jobs') ? ' Failed jobs remain visible in Jobs.' : ''}</p>{tools.some((tool) => tool.id === 'jobs') ? <Link to="/jobs" onClick={() => setNotificationsOpen(false)}>Open Jobs</Link> : null}</div> : null}
+						<div className="popover-wrap" ref={notificationsRef}>
+							<button type="button" className="icon-button notifications-trigger" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen(!notificationsOpen); setAdminOpen(false) }}>
+								<NotificationBell />
+							</button>
+							{notificationsOpen ? (
+								<div className="popover notifications-popover" role="dialog" aria-label="Notifications">
+									<header className="popover-header"><strong>Notifications</strong></header>
+									<p className="popover-empty">No unread alerts.{tools.some((tool) => tool.id === 'jobs') ? ' Failed jobs remain visible in Jobs.' : ''}</p>
+									{tools.some((tool) => tool.id === 'jobs') ? <Link className="popover-action" to="/jobs" onClick={() => setNotificationsOpen(false)}>Open Jobs</Link> : null}
+								</div>
+							) : null}
 						</div>
-						<span className="hostname" title="Live hostname">● {hostname}</span>
-						<div className="popover-wrap">
-							<button type="button" className="admin-button" aria-expanded={adminOpen} onClick={() => setAdminOpen(!adminOpen)}><span>{me.user.username.slice(0, 1).toLocaleUpperCase()}</span>{me.user.username}⌄</button>
-							{adminOpen ? <div className="popover admin-menu"><strong>{me.user.display_name || me.user.username}</strong><small>{me.user.email}</small><button type="button" onClick={onSignOut}>Sign out</button></div> : null}
+						<span className="hostname" title="Live hostname"><span className="hostname-dot" aria-hidden="true" />{hostname}</span>
+						<div className="popover-wrap" ref={adminRef}>
+							<button type="button" className="admin-button" aria-expanded={adminOpen} aria-haspopup="true" onClick={() => { setAdminOpen(!adminOpen); setNotificationsOpen(false) }}>
+								<span>{me.user.username.slice(0, 1).toLocaleUpperCase()}</span>
+								<span className="admin-button-label">{me.user.username}</span>
+								<svg className="admin-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+							</button>
+							{adminOpen ? (
+								<div className="popover admin-menu" role="menu">
+									<header className="popover-header"><strong>{me.user.display_name || me.user.username}</strong><small>{me.user.email}</small></header>
+									<button type="button" role="menuitem" onClick={onSignOut}>Sign out</button>
+								</div>
+							) : null}
 						</div>
 					</div>
 				</header>
@@ -84,9 +122,12 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 					<Link to="/">Home</Link>
 					{parts.map((part, index) => <span key={`${part}-${index}`}>/ <span>{crumbLabels[part] || (index === 1 && parts[0] === 'accounts' ? accounts.find((account) => account.id === part)?.username : undefined) || part}</span></span>)}
 				</div>
-				<main className="page-content">
-					<Outlet />
-				</main>
+				<div className={`page-body ${canViewResources ? 'with-resources' : ''}`}>
+					<main className="page-content">
+						<Outlet />
+					</main>
+					<ResourcesSidebar server={server} canViewStatus={canViewResources} />
+				</div>
 				<footer className="workspace-footer">Kelmor Director · Connected to {hostname} {location.state && typeof location.state === 'object' && 'message' in location.state ? `· ${String(location.state.message)}` : ''}</footer>
 			</div>
 		</div>

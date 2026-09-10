@@ -2,13 +2,12 @@ import { Link } from 'react-router-dom'
 import { formatBytes, percent } from '../helpers'
 import type { ServerOverview } from '../types'
 
-interface ServerResourceStripProps {
+interface ResourcesSidebarProps {
 	server: ServerOverview | null
-	collapsed: boolean
 	canViewStatus: boolean
 }
 
-export function ServerResourceStrip ({ server, collapsed, canViewStatus }: ServerResourceStripProps) {
+export function ResourcesSidebar ({ server, canViewStatus }: ResourcesSidebarProps) {
 	if (!server || !canViewStatus) return null
 	const system = server.system
 	const loadTone = system.load1 >= 4 ? 'critical' : system.load1 >= 2 ? 'warn' : 'good'
@@ -17,30 +16,26 @@ export function ServerResourceStrip ({ server, collapsed, canViewStatus }: Serve
 	const memTone = memPct >= 90 ? 'critical' : memPct >= 75 ? 'warn' : 'good'
 	const diskTone = diskPct >= 90 ? 'critical' : diskPct >= 75 ? 'warn' : 'good'
 
-	if (collapsed) {
-		return (
-			<div className="sidebar-resources collapsed" title={`Load ${system.load1.toFixed(1)} · Mem ${memPct}% · Disk ${diskPct}%`}>
-				<span className={`resource-dot ${loadTone}`} aria-hidden="true" />
-			</div>
-		)
-	}
-
 	return (
-		<section className="sidebar-resources" aria-label="Server resources">
-			<div className="sidebar-resources-head">
-				<strong>{system.hostname}</strong>
-				{canViewStatus ? <Link to="/status">Details</Link> : null}
-			</div>
+		<aside className="resources-sidebar" aria-label="Server resources">
+			<header className="resources-sidebar-head">
+				<div>
+					<h2>Resources</h2>
+					<p>{system.hostname}</p>
+				</div>
+				<Link to="/status" className="resources-sidebar-link">Details</Link>
+			</header>
 			<div className="resource-bars">
 				<ResourceBar label="Load" value={`${system.load1.toFixed(2)}`} percent={Math.min(system.load1 * 25, 100)} tone={loadTone} detail="1 min avg" />
 				<ResourceBar label="Memory" value={`${memPct}%`} percent={memPct} tone={memTone} detail={`${formatBytes(system.memory_used)} / ${formatBytes(system.memory_total)}`} />
 				<ResourceBar label="Disk" value={`${diskPct}%`} percent={diskPct} tone={diskTone} detail={`${formatBytes(system.disk_used)} / ${formatBytes(system.disk_total)}`} />
 			</div>
-			<div className="resource-stats">
-				<span>{server.stats.accounts} accounts</span>
-				<span>{server.services.filter((service) => service.observed_running).length}/{server.services.length} services up</span>
-			</div>
-		</section>
+			<dl className="resources-sidebar-stats">
+				<div><dt>Accounts</dt><dd>{server.stats.accounts}</dd></div>
+				<div><dt>Services up</dt><dd>{server.services.filter((service) => service.observed_running).length}/{server.services.length}</dd></div>
+				<div><dt>Uptime</dt><dd>{system.uptime_seconds ? `${Math.floor(system.uptime_seconds / 3600)}h` : 'Online'}</dd></div>
+			</dl>
+		</aside>
 	)
 }
 

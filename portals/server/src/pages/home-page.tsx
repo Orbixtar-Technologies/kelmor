@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, asList } from '../client'
 import { WidgetCard } from '../components/widget-card'
-import { EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading, StatusBadge } from '../components/ui'
-import { formatDate, messageFrom, percent } from '../helpers'
+import { ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
+import { messageFrom, percent } from '../helpers'
 import { discoverTools, groupTools, toolCatalog } from '../tool-catalog'
 import { hasCapabilities, useCapabilities } from '../rbac'
-import type { Account, AuditEvent, Job, ServerOverview } from '../types'
+import type { Account, ServerOverview } from '../types'
 
 const featuredToolIds = [
 	'accounts', 'create-account', 'files', 'sql', 'email', 'webmail',
@@ -18,8 +18,6 @@ export function HomePage () {
 	const canCreate = hasCapabilities(capabilities, ['accounts.create', 'packages.read'])
 	const [server, setServer] = useState<ServerOverview | null>(null)
 	const [accounts, setAccounts] = useState<Account[]>([])
-	const [jobs, setJobs] = useState<Job[]>([])
-	const [activity, setActivity] = useState<AuditEvent[]>([])
 	const [error, setError] = useState('')
 	const [loading, setLoading] = useState(true)
 	const tools = discoverTools(toolCatalog, capabilities)
@@ -36,24 +34,17 @@ export function HomePage () {
 		if (capabilities['accounts.read']) {
 			requests.push(api<{ items: Account[] }>('/api/v1/accounts').then((result) => setAccounts(asList(result))).catch((reason) => setError(messageFrom(reason))))
 		}
-		if (capabilities['server.read'] || capabilities['accounts.read']) {
-			requests.push(api<{ items: Job[] }>('/api/v1/jobs').then((result) => setJobs(asList(result))).catch((reason) => setError(messageFrom(reason))))
-		}
-		if (capabilities['security.audit.read']) {
-			requests.push(api<{ items: AuditEvent[] }>('/api/v1/audit-events').then((result) => setActivity(asList(result))).catch((reason) => setError(messageFrom(reason))))
-		}
 		Promise.allSettled(requests).finally(() => setLoading(false))
 	}
 
 	useEffect(load, [])
 	if (loading) return <><PageHeader title="Home" description="Live host health and operator activity." /><LoadingState label="Loading Kelmor Director overview…" /></>
 	const system = server?.system
-	const runningJobs = jobs.filter((job) => ['queued', 'running'].includes(job.state)).length
 	const grouped = groupTools(tools.filter((tool) => tool.path !== '/' && !featuredToolIds.includes(tool.id)))
 	const widgetMetrics: Record<string, { value?: string | number; detail?: string }> = {
 		accounts: { value: server?.stats.accounts ?? accounts.length, detail: `${accounts.filter((account) => account.status === 'suspended').length} suspended` },
 		services: { value: server ? `${server.services.filter((service) => service.observed_running).length}/${server.services.length}` : '—', detail: 'services running' },
-		jobs: { value: runningJobs, detail: `${jobs.filter((job) => job.state === 'failed').length} failed` },
+		jobs: { value: '—', detail: 'View in Jobs' },
 	}
 
 	return (
@@ -66,6 +57,11 @@ export function HomePage () {
 				<article><span>Disk</span><strong>{percent(system.disk_used, system.disk_total)}%</strong><small>{system.uptime_seconds ? `${Math.floor(system.uptime_seconds / 3600)}h uptime` : 'Host online'}</small></article>
 				<article><span>Accounts</span><strong>{server?.stats.accounts ?? accounts.length}</strong><small>{accounts.filter((account) => account.status === 'suspended').length} suspended</small></article>
 			</section> : null}
+			<nav className="home-quick-links" aria-label="Operations shortcuts">
+				{toolById.has('services') ? <Link to="/status"><strong>Service status</strong><span>Managed services and host vitals</span></Link> : null}
+				{toolById.has('jobs') ? <Link to="/jobs"><strong>Jobs</strong><span>Background work and retries</span></Link> : null}
+				{capabilities['security.audit.read'] ? <Link to="/audit"><strong>Audit trail</strong><span>Privileged activity history</span></Link> : null}
+			</nav>
 			<SectionHeading title="Administration" detail="WHM-style shortcuts to common server and account tools." />
 			<div className="widget-grid">
 				{featured.map((tool, index) => (
@@ -82,33 +78,12 @@ export function HomePage () {
 					/>
 				))}
 			</div>
-			<div className="home-columns">
-				<section className="panel">
-					<SectionHeading title="Service status" action={toolById.has('services') ? <Link to="/status">View details</Link> : undefined} />
-					<div className="table-wrap"><table><thead><tr><th>Service</th><th>Health</th><th>Observed</th></tr></thead><tbody>
-						{server?.services.map((service) => <tr key={service.name}><td>{service.name}</td><td><StatusBadge value={service.health} /></td><td>{service.observed_running ? 'Running' : 'Stopped'}</td></tr>)}
-					</tbody></table></div>
-					{!server?.services.length ? <EmptyState title="No service readings" detail="Open Service Status to retry host telemetry." /> : null}
-				</section>
-				<section className="panel">
-					<SectionHeading title="Recent jobs" action={toolById.has('jobs') ? <Link to="/jobs">All jobs</Link> : undefined} />
-					<ul className="activity-list">
-						{jobs.slice(0, 7).map((job) => <li key={job.id}><span><strong>{job.type}</strong><small>{formatDate(job.created_at)}</small></span><StatusBadge value={job.state} /></li>)}
-					</ul>
-					{jobs.length === 0 ? <EmptyState title="No recent jobs" detail="Provisioning and maintenance operations appear here." /> : null}
-				</section>
-			</div>
 			{grouped.size ? <>
 				<SectionHeading title="More tools" detail="Additional capability-aware administration tools grouped by task." />
 				<div className="tool-groups">
 					{[...grouped.entries()].map(([category, entries]) => <section className="panel tool-group" key={category}><h3>{category}</h3>{entries.map((tool) => <Link key={tool.id} to={tool.path}><strong>{tool.label}</strong><span>{tool.description}</span></Link>)}</section>)}
 				</div>
 			</> : null}
-			{capabilities['security.audit.read'] ? <section className="panel">
-				<SectionHeading title="Recent activity" action={<Link to="/audit">Open audit trail</Link>} />
-				<ul className="activity-list">{activity.slice(0, 8).map((event) => <li key={event.id}><span><strong>{event.action}</strong><small>{event.resource_type || 'system'} · {formatDate(event.occurred_at)}</small></span><StatusBadge value={event.success} /></li>)}</ul>
-				{activity.length === 0 ? <EmptyState title="No visible activity" detail="Audit entries appear as privileged work occurs." /> : null}
-			</section> : null}
 		</>
 	)
 }
