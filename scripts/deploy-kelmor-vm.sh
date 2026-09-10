@@ -26,7 +26,8 @@ DEB="$(ls -1 /tmp/kelmor-deploy/hosting-panel_*_amd64.deb | tail -1)"
 sudo dpkg -i "$DEB" || sudo apt-get -f install -y
 sudo cp -a /tmp/kelmor-deploy/release.pub /etc/panel/update.pub
 sudo rm -rf /usr/local/panel/share/updates
-sudo cp -a /tmp/kelmor-deploy/update-feed /usr/local/panel/share/updates
+sudo cp -a /tmp/kelmor-deploy/update-feed/. /usr/local/panel/share/updates/
+sudo chown -R root:root /usr/local/panel/share/updates
 sudo /usr/local/panel/bin/panel-install --non-interactive --hostname lab.kelmor.host --admin-email ops@kelmor.host
 sudo systemctl daemon-reload
 sudo systemctl restart pdns panel-agent panel-api panel-worker panel-object-store nginx

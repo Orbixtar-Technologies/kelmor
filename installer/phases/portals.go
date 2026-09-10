@@ -142,6 +142,9 @@ func verifyPortalTLS(c Config) error {
 	if !strings.Contains(string(server), "listen 8443 ssl") || !strings.Contains(string(server), "ssl_certificate") {
 		return fmt.Errorf("kelmor director nginx is not listening TLS on 8443")
 	}
+	if !strings.Contains(string(server), "location /updates/") {
+		return fmt.Errorf("kelmor director nginx is missing the signed update feed location")
+	}
 	if !strings.Contains(string(account), "listen 8444 ssl") || !strings.Contains(string(account), "ssl_certificate") {
 		return fmt.Errorf("kelmor control nginx is not listening TLS on 8444")
 	}

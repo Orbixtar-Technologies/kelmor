@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hosting-panel/panel/internal/netaddr"
 )
 
 func TestDevInstallWritesHostStack(t *testing.T) {
@@ -68,6 +70,7 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/systemd/system/timers.target.wants/panel-update.timer",
 		"var/panel/host/etc/panel/update.env",
 		"var/panel/host/etc/panel/update.pub",
+		"var/panel/host/usr/local/panel/current-release",
 		"var/panel/host/var/lib/panel/health-report.txt",
 		"var/panel/host/var/lib/panel/public.env",
 	}
@@ -126,8 +129,9 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(pdns), "bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3") {
 		t.Fatalf("pdns.conf missing DNSSEC db: %s", pdns)
 	}
-	if !contains(string(pdns), "local-address=127.0.0.1,203.0.113.10") {
-		t.Fatalf("pdns.conf missing public listen: %s", pdns)
+	wantListen := "local-address=" + strings.Join(netaddr.DNSListenIPv4(), ",")
+	if !contains(string(pdns), wantListen) {
+		t.Fatalf("pdns.conf missing DNS listen %q: %s", wantListen, pdns)
 	}
 	pubenv, err := os.ReadFile(filepath.Join(dir, "var/panel/host/var/lib/panel/public.env"))
 	if err != nil {
@@ -295,7 +299,7 @@ launch=
 	want := []string{
 		"bind-config=/etc/powerdns/named.conf",
 		"bind-dnssec-db=/var/lib/panel/dns/bind-dnssec.sqlite3",
-		"local-address=127.0.0.1,203.0.113.10",
+		"local-address=" + strings.Join(netaddr.DNSListenIPv4(), ","),
 		"local-port=53",
 		"webserver=yes",
 		"webserver-address=127.0.0.1",

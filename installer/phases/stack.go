@@ -1048,6 +1048,12 @@ PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
 	if err := os.MkdirAll(root(c, "usr/local/panel/share/updates"), 0o755); err != nil {
 		return err
 	}
+	releasePath := root(c, "usr/local/panel/current-release")
+	if _, err := os.Stat(releasePath); os.IsNotExist(err) {
+		if err := os.WriteFile(releasePath, []byte("0.1.0\n"), 0o644); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
