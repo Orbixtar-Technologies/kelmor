@@ -102,7 +102,26 @@ func (w *Worker) scanCertRenewals() {
 			IdempotencyKey: fmt.Sprintf("cert-renew:%s:%s", c.ID, c.NotAfter.UTC().Format("20060102")),
 		})
 	}
+	w.scanPendingCertificates()
 	w.scanPortalHostnameCert()
+}
+
+func (w *Worker) scanPendingCertificates() {
+	if !w.liveACME() {
+		return
+	}
+	for _, c := range w.Store.ListCerts("") {
+		switch c.Status {
+		case "requested", "failed", "renewing":
+		default:
+			continue
+		}
+		if w.inflightCertJob(c.ID) {
+			continue
+		}
+		acc := w.Store.GetAccount(c.AccountID)
+		_ = w.queueCertificateProvision(acc, c.Hostname)
+	}
 }
 
 func panelStatePath(name string) string {
@@ -163,8 +182,19 @@ func (w *Worker) provisionPortalHostnameCert(j *store.Job) error {
 		return fmt.Errorf("ACME directory missing")
 	}
 	contact := "admin@" + host
-	_, err := acme.Issue(context.Background(), w.Agent, host, contact, directory)
+	if owner := w.portalContactEmail(); owner != "" {
+		contact = owner
+	}
+	names := acme.HostnamesForPortal(host)
+	_, err := acme.IssueNames(context.Background(), w.Agent, names, contact, directory)
 	return err
+}
+
+func (w *Worker) portalContactEmail() string {
+	if host := readPortalHostname(); host != "" {
+		return "admin@" + host
+	}
+	return ""
 }
 
 func (w *Worker) execute(ctx context.Context, j *store.Job) {
@@ -1051,14 +1081,16 @@ func labACMEOptional() bool {
 }
 
 func (w *Worker) certificateNames(acc *store.Account, hostname string) []string {
-	names := []string{hostname}
 	if acc == nil || hostname == "" {
-		return names
+		return acme.HostnamesForSite(hostname, nil, false)
 	}
-	if primary := w.primaryDomain(acc); primary != nil && primary.ASCII == hostname {
-		names = append(names, w.aliasesFor(acc, primary)...)
+	primary := w.primaryDomain(acc)
+	includeTools := primary != nil && primary.ASCII == hostname
+	var aliases []string
+	if includeTools {
+		aliases = w.aliasesFor(acc, primary)
 	}
-	return names
+	return acme.HostnamesForSite(hostname, aliases, includeTools)
 }
 
 func (w *Worker) renewCertificate(acc *store.Account, hostname string) error {
@@ -1088,6 +1120,9 @@ func (w *Worker) ensureCertificate(acc *store.Account, hostname string) error {
 	if acc == nil || hostname == "" {
 		return nil
 	}
+	if w.liveACME() {
+		return w.queueCertificateProvision(acc, hostname)
+	}
 	var cert *store.Certificate
 	for _, c := range w.Store.ListCerts(acc.ID) {
 		if c.Hostname != hostname {
@@ -1110,6 +1145,60 @@ func (w *Worker) ensureCertificate(acc *store.Account, hostname string) error {
 	return w.issueStoredCertificate(cert)
 }
 
+func (w *Worker) queueCertificateProvision(acc *store.Account, hostname string) error {
+	if acc == nil || hostname == "" {
+		return nil
+	}
+	var cert *store.Certificate
+	for _, c := range w.Store.ListCerts(acc.ID) {
+		if c.Hostname != hostname {
+			continue
+		}
+		cp := c
+		cert = &cp
+		break
+	}
+	if cert != nil && cert.Status == "active" && cert.NotAfter != nil && time.Until(*cert.NotAfter) > 30*24*time.Hour {
+		return nil
+	}
+	if cert == nil {
+		cert = &store.Certificate{
+			ID: store.NewID(), AccountID: acc.ID, Hostname: hostname,
+			Kind: "domain", Status: "requested",
+		}
+		w.Store.PutCert(cert)
+	} else if cert.Status == "active" {
+		cert.Status = "renewing"
+		w.Store.PutCert(cert)
+	} else if cert.Status != "requested" && cert.Status != "renewing" {
+		cert.Status = "requested"
+		w.Store.PutCert(cert)
+	}
+	if w.inflightCertJob(cert.ID) {
+		return nil
+	}
+	_, err := w.Store.EnqueueJob(&store.Job{
+		Type: "certificate.provision", ResourceType: "certificate", ResourceID: cert.ID,
+		Payload: map[string]any{"certificate_id": cert.ID}, State: "queued",
+		IdempotencyKey: fmt.Sprintf("cert-provision:%s", cert.ID),
+	})
+	return err
+}
+
+func (w *Worker) inflightCertJob(certID string) bool {
+	for _, state := range []string{"queued", "running", "retrying"} {
+		for _, j := range w.Store.ListJobs(state, 200) {
+			if j.Type != "certificate.provision" {
+				continue
+			}
+			if j.ResourceID == certID || str(j.Payload["certificate_id"]) == certID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (w *Worker) issueStoredCertificate(c *store.Certificate) error {
 	if c == nil {
 		return fmt.Errorf("certificate missing")
@@ -1127,6 +1216,8 @@ func (w *Worker) issueStoredCertificate(c *store.Certificate) error {
 	}
 	exp, err := acme.IssueNames(context.Background(), w.Agent, names, contact, directory)
 	if err != nil {
+		c.Status = "failed"
+		w.Store.PutCert(c)
 		return err
 	}
 	c.Status = "active"
@@ -1158,6 +1249,12 @@ func (w *Worker) bindCertificateToSites(c *store.Certificate) error {
 		if err := w.applyWebsiteDispatch(acc, &s, d); err != nil {
 			return err
 		}
+	}
+	if primary := w.primaryDomain(acc); primary != nil && primary.ASCII == c.Hostname {
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "ApplyAdminTools",
+			Params: mustJSON(map[string]any{"domain": primary.ASCII}),
+		})
 	}
 	return nil
 }

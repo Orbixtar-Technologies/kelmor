@@ -19,6 +19,17 @@ sudo panel-install --hostname panel.example.net --admin-email ops@example.net --
 # sudo panel-install --acme pebble --non-interactive
 ```
 
+## Automatic TLS (Let's Encrypt)
+
+Production installs use Let's Encrypt HTTP-01 by default (`--acme letsencrypt`). The panel hostname (for example `lab.kelmor.host`) and every account domain provisioned through Kelmor Director receive certificates automatically:
+
+- **Panel hostname** — issued at install and renewed by `certificate.portal` (includes `www.` SAN).
+- **Primary domains** — one certificate covering the apex, `www`, alias domains, and `webmail` / `phpmyadmin` / `mail` tool hosts.
+- **Addon and subdomain domains** — separate certificates per hostname.
+- **Renewals** — queued when expiry is within 30 days; failed issuances are retried on the worker drift scan.
+
+Requirements: public DNS A/AAAA records pointing at the server and inbound TCP `:80` for HTTP-01 validation. Use `--acme staging` to test against Let's Encrypt staging before production.
+
 Resume is automatic via `/var/lib/panel/install-state.json`. Structured logs are appended as JSON lines.
 
 Development:
