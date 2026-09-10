@@ -1,5 +1,5 @@
-platform_release: 0.1.0
-channel: development
+platform_release: 0.2.0
+channel: stable
 supported_os:
   - ubuntu-24.04
 go_baseline: "1.22"
