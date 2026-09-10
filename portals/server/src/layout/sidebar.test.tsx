@@ -41,7 +41,7 @@ describe('Sidebar interactions', () => {
 		const user = userEvent.setup()
 		render(
 			<MemoryRouter>
-				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} server={null} canViewStatus={false} />
+				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
 			</MemoryRouter>,
 		)
 
