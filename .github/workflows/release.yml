@@ -45,8 +45,14 @@ jobs:
             exit 1
           fi
           install -d -m 700 "$RUNNER_TEMP/signing"
-          printf '%s' "$SIGNING_KEY" | xxd -r -p > "$RUNNER_TEMP/signing/update-signing.priv"
+          # Remove any trailing whitespace and convert hex to binary
+          printf '%s' "$SIGNING_KEY" | sed 's/[[:space:]]*$//' | xxd -r -p > "$RUNNER_TEMP/signing/update-signing.priv"
           chmod 600 "$RUNNER_TEMP/signing/update-signing.priv"
+          # Verify the key file has content
+          if [[ ! -s "$RUNNER_TEMP/signing/update-signing.priv" ]]; then
+            echo "Failed to convert hex key to binary - result is empty" >&2
+            exit 1
+          fi
 
       - name: Build, package, and sign update feed
         env:
