@@ -327,6 +327,23 @@ func Install(ctx context.Context, config Config, runner Runner) (*Status, error)
 		return &status, err
 	}
 	defer lock.Close()
+	return installWithOperationLock(ctx, config, runner, lock)
+}
+
+func installWithOperationLock(
+	ctx context.Context,
+	config Config,
+	runner Runner,
+	lock *operationLock,
+) (*Status, error) {
+	status := Status{
+		State: "error", InstalledRelease: config.InstalledRelease,
+		Automatic: config.Automatic, Channel: config.Channel,
+		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if runner == nil {
+		return finishStatus(config.StatusPath, status, fmt.Errorf("update runner is required"))
+	}
 	if err := recoverInterruptedTransaction(lock.root, runner, true); err != nil {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
 	}

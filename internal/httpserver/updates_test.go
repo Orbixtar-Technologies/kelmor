@@ -225,19 +225,55 @@ func TestUpdateMutationOriginBehindProductionProxy(t *testing.T) {
 		server,
 		"panel.example",
 		"https",
+		"panel.example:8443",
 		"https://panel.example:8443",
 	)
 	if code != http.StatusAccepted {
 		t.Fatalf("production proxy origin: %d %v", code, body)
 	}
+	code, body = proxiedUpdateRequest(
+		t,
+		server,
+		"panel.example",
+		"https",
+		"panel.example:9443",
+		"https://panel.example:9443",
+	)
+	if code != http.StatusAccepted {
+		t.Fatalf("matching alternate proxy authority: %d %v", code, body)
+	}
+	code, body = proxiedUpdateRequest(
+		t,
+		server,
+		"panel.example",
+		"https",
+		"panel.example",
+		"https://panel.example:443",
+	)
+	if code != http.StatusAccepted {
+		t.Fatalf("default HTTPS port normalization: %d %v", code, body)
+	}
 
-	for _, origin := range []string{
-		"http://panel.example:8443",
-		"https://evil.panel.example:8443",
-		"https://panel.example.attacker.invalid:8443",
-		"https://panel.example@attacker.invalid:8443",
+	for _, test := range []struct {
+		forwardedHost string
+		origin        string
+	}{
+		{forwardedHost: "panel.example:8443", origin: "http://panel.example:8443"},
+		{forwardedHost: "panel.example:8443", origin: "https://panel.example:9443"},
+		{forwardedHost: "panel.example:9443", origin: "https://panel.example:8443"},
+		{forwardedHost: "panel.example:8443", origin: "https://evil.panel.example:8443"},
+		{forwardedHost: "panel.example:8443", origin: "https://panel.example.attacker.invalid:8443"},
+		{forwardedHost: "panel.example:8443", origin: "https://panel.example@attacker.invalid:8443"},
+		{forwardedHost: "", origin: "https://panel.example:8443"},
 	} {
-		code, body = proxiedUpdateRequest(t, server, "panel.example", "https", origin)
+		code, body = proxiedUpdateRequest(
+			t,
+			server,
+			"panel.example",
+			"https",
+			test.forwardedHost,
+			test.origin,
+		)
 		assertAPIErrorCode(t, code, body, http.StatusForbidden, "ORIGIN_FORBIDDEN")
 	}
 
@@ -260,6 +296,7 @@ func proxiedUpdateRequest(
 	server updateTestServer,
 	host string,
 	forwardedProto string,
+	forwardedHost string,
 	origin string,
 ) (int, map[string]any) {
 	t.Helper()
@@ -271,6 +308,9 @@ func proxiedUpdateRequest(
 	request.Header.Set("Authorization", "Bearer "+server.admin)
 	request.Header.Set("Origin", origin)
 	request.Header.Set("X-Forwarded-Proto", forwardedProto)
+	if forwardedHost != "" {
+		request.Header.Set("X-Forwarded-Host", forwardedHost)
+	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)

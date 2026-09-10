@@ -37,8 +37,6 @@ type Config struct {
 }
 
 func Check(ctx context.Context, config Config) (*Status, error) {
-	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
-	defer cancel()
 	status := Status{
 		State: "error", InstalledRelease: config.InstalledRelease,
 		Automatic: config.Automatic, Channel: config.Channel,
@@ -52,6 +50,17 @@ func Check(ctx context.Context, config Config) (*Status, error) {
 		return &status, err
 	}
 	defer lock.Close()
+	return checkWithOperationLock(ctx, config, lock)
+}
+
+func checkWithOperationLock(ctx context.Context, config Config, lock *operationLock) (*Status, error) {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
+	status := Status{
+		State: "error", InstalledRelease: config.InstalledRelease,
+		Automatic: config.Automatic, Channel: config.Channel,
+		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
+	}
 	if err := recoverInterruptedTransaction(lock.root, config.RecoveryRunner, true); err != nil {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
 	}

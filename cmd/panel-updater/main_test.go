@@ -80,6 +80,15 @@ func TestProductionConfigRequiresStableChannel(t *testing.T) {
 	}
 }
 
+func TestProductionConfigRequiresCanonicalInstallRoot(t *testing.T) {
+	if err := validateProductionConfig(update.Config{
+		Channel:     "stable",
+		InstallRoot: filepath.Join(t.TempDir(), "panel"),
+	}); err == nil {
+		t.Fatal("expected non-canonical production install root to be rejected")
+	}
+}
+
 func TestRunWithAutomaticUpdatesDisabledDoesNotContactFeed(t *testing.T) {
 	var hits atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

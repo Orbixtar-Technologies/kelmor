@@ -3495,16 +3495,32 @@ func requestIsHTTPS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
+	forwarded, ok := trustedForwardedProto(r)
+	return ok && forwarded == "https"
+}
+
+func trustedForwardedProto(r *http.Request) (string, bool) {
+	if !requestFromLoopbackProxy(r) {
+		return "", false
+	}
+	forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if strings.Contains(forwarded, ",") {
+		return "", false
+	}
+	forwarded = strings.ToLower(forwarded)
+	if forwarded != "http" && forwarded != "https" {
+		return "", false
+	}
+	return forwarded, true
+}
+
+func requestFromLoopbackProxy(r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
 	proxyIP := net.ParseIP(strings.TrimSpace(host))
-	if proxyIP == nil || !proxyIP.IsLoopback() {
-		return false
-	}
-	forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
-	return strings.EqualFold(forwarded, "https")
+	return proxyIP != nil && proxyIP.IsLoopback()
 }
 
 func clientIP(r *http.Request) string {

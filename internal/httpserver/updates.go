@@ -102,20 +102,68 @@ func updateMutationOriginAllowed(r *http.Request) bool {
 	if origin == "" {
 		return true
 	}
+	requestScheme, requestHost, requestPort, ok := externalRequestAuthority(r)
+	if !ok {
+		return false
+	}
+	originScheme, originHost, originPort, ok := normalizedOriginAuthority(origin)
+	if !ok {
+		return false
+	}
+	return originScheme == requestScheme &&
+		strings.EqualFold(originHost, requestHost) &&
+		originPort == requestPort
+}
+
+func externalRequestAuthority(r *http.Request) (scheme, hostname, port string, ok bool) {
+	scheme = "http"
+	authority := r.Host
+	if r.TLS != nil {
+		scheme = "https"
+	} else if forwardedProto, trusted := trustedForwardedProto(r); trusted {
+		forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+		if forwardedHost == "" || strings.Contains(forwardedHost, ",") {
+			return "", "", "", false
+		}
+		scheme = forwardedProto
+		authority = forwardedHost
+	}
+	hostname, port, ok = normalizedHostPort(authority, scheme)
+	return scheme, hostname, port, ok
+}
+
+func normalizedOriginAuthority(origin string) (scheme, hostname, port string, ok bool) {
 	parsed, err := url.Parse(origin)
 	if err != nil || parsed.User != nil || parsed.Path != "" ||
 		parsed.RawQuery != "" || parsed.Fragment != "" {
-		return false
+		return "", "", "", false
 	}
-	scheme := "http"
-	if requestIsHTTPS(r) {
-		scheme = "https"
+	scheme = strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", "", "", false
 	}
-	requestHost := (&url.URL{Host: r.Host}).Hostname()
-	originHost := parsed.Hostname()
-	return strings.EqualFold(parsed.Scheme, scheme) &&
-		requestHost != "" &&
-		strings.EqualFold(originHost, requestHost)
+	hostname, port, ok = normalizedHostPort(parsed.Host, scheme)
+	return scheme, hostname, port, ok
+}
+
+func normalizedHostPort(authority, scheme string) (hostname, port string, ok bool) {
+	parsed, err := url.Parse("//" + authority)
+	if err != nil || parsed.User != nil || parsed.Hostname() == "" ||
+		parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", "", false
+	}
+	port = parsed.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		default:
+			return "", "", false
+		}
+	}
+	return parsed.Hostname(), port, true
 }
 
 func (a *API) runUpdateMutation(

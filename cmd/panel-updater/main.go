@@ -40,11 +40,15 @@ Unsigned manifests are refused.
 		if len(os.Args) != 4 || os.Args[2] != "--config" {
 			fatal("usage: panel-updater " + os.Args[1] + " --config <path>")
 		}
-		config, err := loadUpdateConfig(os.Args[3])
-		if err != nil {
-			fatal(err.Error())
-		}
-		status, err := executeRemoteCommand(context.Background(), os.Args[1], config, commandRunner{})
+		status, err := update.ExecuteWithLockedConfig(
+			context.Background(),
+			defaultInstallRoot,
+			os.Args[1],
+			func() (update.Config, error) {
+				return loadUpdateConfig(os.Args[3])
+			},
+			commandRunner{},
+		)
 		if err != nil {
 			fatal(err.Error())
 		}
@@ -153,6 +157,9 @@ func loadUpdateConfig(path string) (update.Config, error) {
 func validateProductionConfig(config update.Config) error {
 	if config.Channel != "stable" {
 		return fmt.Errorf("production update channel must be stable")
+	}
+	if filepath.Clean(config.InstallRoot) != defaultInstallRoot {
+		return fmt.Errorf("production install root must be %s", defaultInstallRoot)
 	}
 	return nil
 }

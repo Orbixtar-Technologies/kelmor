@@ -279,14 +279,29 @@ func TestManagePanelUpdateSettingsWaitsForUpdaterCanonicalLock(t *testing.T) {
 	releaseUpdater := make(chan struct{})
 	updaterResult := make(chan error, 1)
 	go func() {
-		updaterResult <- update.WithInstallOperationLock(installRoot, func() error {
-			close(updaterEntered)
-			<-releaseUpdater
-			return update.WriteStatus(statusPath, update.Status{
-				State: "available", InstalledRelease: "1.0.0", AvailableRelease: "2.0.0",
-				Automatic: true, Channel: "stable",
-			})
-		})
+		_, err := update.ExecuteWithLockedConfig(
+			context.Background(),
+			installRoot,
+			"check",
+			func() (update.Config, error) {
+				raw, readErr := os.ReadFile(configPath)
+				if readErr != nil {
+					return update.Config{}, readErr
+				}
+				close(updaterEntered)
+				<-releaseUpdater
+				return update.Config{
+					FeedURL:          "http://invalid.test",
+					Channel:          "stable",
+					InstalledRelease: "1.0.0",
+					InstallRoot:      installRoot,
+					StatusPath:       statusPath,
+					Automatic:        strings.Contains(string(raw), "PANEL_UPDATE_AUTOMATIC=true"),
+				}, nil
+			},
+			lockedUpdateTestRunner{},
+		)
+		updaterResult <- err
 	}()
 	<-updaterEntered
 
@@ -306,8 +321,8 @@ func TestManagePanelUpdateSettingsWaitsForUpdaterCanonicalLock(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(releaseUpdater)
-	if err := <-updaterResult; err != nil {
-		t.Fatal(err)
+	if err := <-updaterResult; err == nil {
+		t.Fatal("invalid test feed unexpectedly passed")
 	}
 	if err := <-settingsResult; err != nil {
 		t.Fatal(err)
@@ -321,9 +336,106 @@ func TestManagePanelUpdateSettingsWaitsForUpdaterCanonicalLock(t *testing.T) {
 	if err := json.Unmarshal(raw, &status); err != nil {
 		t.Fatal(err)
 	}
-	if status.AvailableRelease != "2.0.0" || status.Automatic {
+	if status.State != "error" || status.Error == "" || status.Automatic {
 		t.Fatalf("settings overwrote concurrent updater status: %+v", status)
 	}
+}
+
+func TestManagePanelUpdateSettingsLockWinsBeforeUpdaterLoadsConfig(t *testing.T) {
+	root := t.TempDir()
+	host := &Host{Root: root}
+	installRoot := filepath.Join(root, "usr/local/panel")
+	if err := os.MkdirAll(installRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "etc/panel/update.env")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	config := "PANEL_UPDATE_CHANNEL=stable\n" +
+		"PANEL_UPDATE_INSTALL_ROOT=/usr/local/panel\n" +
+		"PANEL_UPDATE_AUTOMATIC=true\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statusPath := filepath.Join(root, "var/lib/panel/update-status.json")
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "idle", InstalledRelease: "1.0.0", Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	settingsWritten := make(chan struct{})
+	releaseSettings := make(chan struct{})
+	settingsResult := make(chan error, 1)
+	go func() {
+		settingsResult <- update.WithInstallOperationLock(installRoot, func() error {
+			if err := host.writeAutomaticUpdateSettingLocked(false, "/usr/local/panel"); err != nil {
+				return err
+			}
+			close(settingsWritten)
+			<-releaseSettings
+			return nil
+		})
+	}()
+	<-settingsWritten
+
+	loaderCalled := make(chan struct{})
+	updaterResult := make(chan error, 1)
+	go func() {
+		_, err := update.ExecuteWithLockedConfig(
+			context.Background(),
+			installRoot,
+			"run",
+			func() (update.Config, error) {
+				close(loaderCalled)
+				raw, readErr := os.ReadFile(configPath)
+				if readErr != nil {
+					return update.Config{}, readErr
+				}
+				return update.Config{
+					Channel:          "stable",
+					InstalledRelease: "1.0.0",
+					InstallRoot:      installRoot,
+					StatusPath:       statusPath,
+					Automatic:        strings.Contains(string(raw), "PANEL_UPDATE_AUTOMATIC=true"),
+				}, nil
+			},
+			lockedUpdateTestRunner{},
+		)
+		updaterResult <- err
+	}()
+	select {
+	case <-loaderCalled:
+		close(releaseSettings)
+		t.Fatal("updater loaded config while settings held the canonical lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseSettings)
+	if err := <-settingsResult; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-updaterResult; err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status update.Status
+	if err := json.Unmarshal(raw, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "disabled" || status.Automatic {
+		t.Fatalf("updater used stale automatic setting: %+v", status)
+	}
+}
+
+type lockedUpdateTestRunner struct{}
+
+func (lockedUpdateTestRunner) Run(context.Context, string, ...string) error {
+	return nil
 }
 
 func testUpdateRequestName(params map[string]any) string {
