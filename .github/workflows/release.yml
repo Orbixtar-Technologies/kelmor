@@ -44,9 +44,7 @@ jobs:
             echo "PANEL_UPDATE_SIGNING_KEY secret is required for signed releases." >&2
             exit 1
           fi
-          install -d -m 700 "$RUNNER_TEMP/signing"
-          printf '%s' "$SIGNING_KEY" > "$RUNNER_TEMP/signing/update-signing.priv"
-          chmod 600 "$RUNNER_TEMP/signing/update-signing.priv"
+          bash scripts/ci/prepare-signing-key.sh "$RUNNER_TEMP/signing/update-signing.priv"
 
       - name: Build, package, and sign update feed
         env:
