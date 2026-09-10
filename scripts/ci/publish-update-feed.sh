@@ -30,7 +30,7 @@ if [[ -n "${VM_HOST:-}" ]]; then
 	SSH=(ssh -i "$VM_KEY_PATH" -p "${VM_PORT:-22}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
 	SCP=(scp -i "$VM_KEY_PATH" -P "${VM_PORT:-22}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
 	echo "Publishing feed to ${VM_USER}@${VM_HOST}:/usr/local/panel/share/updates/"
-	"${SSH[@]}" "${VM_USER}@${VM_HOST}" 'sudo mkdir -p /tmp/kelmor-feed && sudo rm -rf /tmp/kelmor-feed/*'
+	"${SSH[@]}" "${VM_USER}@${VM_HOST}" 'sudo rm -rf /tmp/kelmor-feed && sudo mkdir -p /tmp/kelmor-feed && sudo chown "$USER:$USER" /tmp/kelmor-feed'
 	"${SCP[@]}" -r "$FEED_SRC/." "${VM_USER}@${VM_HOST}:/tmp/kelmor-feed/"
 	"${SSH[@]}" "${VM_USER}@${VM_HOST}" 'sudo bash -s' <<'REMOTE'
 set -euo pipefail
