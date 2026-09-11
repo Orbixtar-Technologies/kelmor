@@ -70,7 +70,10 @@ export function resourceManagePath (serviceId: string, accountId: string): strin
 		aliases: `/email?account=${accountId}`,
 		certificates: `/ssl?account=${accountId}`,
 		files: `/files?account=${accountId}`,
-		websites: `/files?account=${accountId}`,
+		websites: `/websites?account=${accountId}`,
+		domains: `/domains?account=${accountId}`,
+		cron: `/cron?account=${accountId}`,
+		ftp: `/ftp?account=${accountId}`,
 	}
 	return paths[serviceId]
 }

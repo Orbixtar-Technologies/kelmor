@@ -6,6 +6,7 @@ import { formatBytes, formatDate, messageFrom, percent } from '../helpers'
 import { lifecycleImpact } from './account-lifecycle-copy'
 import { useCan } from '../rbac'
 import { filterRows, paginateRows, sortRows } from '../table-helpers'
+import { LoginToControl } from '../components/login-to-control'
 import { accountTaskTarget } from '../tool-catalog'
 import type { Account, Package, Usage } from '../types'
 
@@ -146,7 +147,7 @@ export function AccountsPage () {
 							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'} · GID {account.linux_gid}</small></td>
 							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td><code>{account.home_path}</code></td><td>{pkg?.name || account.package_id}</td>
 							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)} / {formatBytes(pkg?.disk_bytes)}</small></> : '—'}</td>
-							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={() => setPending({
+							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link><LoginToControl accountId={account.id} username={account.username} /><Link to={`/domains?account=${account.id}`}>Domains</Link>{canSuspend ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={() => setPending({
 								action: account.status === 'suspended' ? 'unsuspend' : 'suspend',
 								ids: [account.id],
 								label: account.username,
@@ -174,6 +175,7 @@ const accountTaskGuidance: Record<string, { title: string; detail: string }> = {
 	suspension: { title: 'Suspend or Unsuspend', detail: 'Lock or restore the Linux login, cgroup, vhosts, cron, and mail for the selected tenant.' },
 	terminate: { title: 'Terminate an Account', detail: 'Open the account summary and complete a typed confirmation that removes the Linux identity.' },
 	password: { title: 'Force Password Change', detail: 'Rotate owner credentials and optionally require another change at next sign-in.' },
+	login: { title: 'Login to Kelmor Control', detail: 'Open the account and start an audited Control session as the owner.' },
 	databases: { title: 'SQL Services', detail: 'Manage account-scoped databases and their provisioning state.' },
 	email: { title: 'Email Services', detail: 'Manage mail domains, mailboxes, aliases, and routing policy.' },
 	certificates: { title: 'SSL Certificates', detail: 'Inspect issued certificates and request account-owned hostnames.' },

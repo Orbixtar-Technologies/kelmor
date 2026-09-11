@@ -57,8 +57,10 @@ Configuration.
 
 Account Services groups websites, domains, applications, SQL databases, mail
 domains, mailboxes, aliases, certificates, bounded files, backups, cron jobs,
-SSH/SFTP, FTP, and account API tokens. DNS Management supplies multi-zone record
-and DNSSEC operations.
+SSH/SFTP, FTP, and account API tokens. Dedicated WHM-style hubs also exist for
+List Domains, MultiPHP Manager, Cron Jobs, FTP Accounts, Email Deliverability,
+Feature Manager, and Process Manager. DNS Management supplies multi-zone record
+and DNSSEC operations. Login to Kelmor Control uses reasoned impersonation.
 
 Requests are scoped to the selected account. Response sequencing prevents a
 slower request for a previous account or zone from replacing the current view.

@@ -20,7 +20,9 @@ API capability checks and typed privileged-agent boundary remain authoritative.
 | List and search accounts | `/accounts` | `GET /api/v1/accounts` |
 | Suspended accounts | `/accounts?view=suspended` | Account inventory status filter |
 | Over-quota accounts | `/accounts?view=over-quota` | Account inventory joined with package limits and measured usage |
+| List addon, parked, and subdomains | `/domains` | Per-account `GET /api/v1/accounts/:id/domains` |
 | Account summary | `/accounts/:id` | Account, package, reseller, usage, and related-job APIs |
+| Login to Kelmor Control | Account list and summary | Reasoned `POST /api/v1/accounts/:id/impersonate` |
 | Create account | `/accounts/create` | Reviewed three-step wizard → `POST /api/v1/accounts` |
 | Modify account and change package | `/accounts/:id` | `PATCH /api/v1/accounts/:id` |
 | Suspend or unsuspend | Account list and summary | `POST /suspend` or `POST /unsuspend` |
@@ -34,6 +36,7 @@ API capability checks and typed privileged-agent boundary remain authoritative.
 | Journey | Kelmor route | API |
 | --- | --- | --- |
 | Add/edit/delete packages | `/packages` | `GET`, `POST`, `PATCH`, and safe `DELETE /api/v1/packages` |
+| Feature Manager | `/features` | `GET /api/v1/feature-sets` plus package assignment |
 | Rich account limits | `/packages` | Disk, bandwidth, domains, databases, mail, access, backup, CPU, memory, process, I/O, and request limits |
 | List/create/edit resellers | `/resellers` | `GET`, `POST`, and `PATCH /api/v1/resellers` |
 | Reseller privileges | `/resellers` | Editable privilege mask, status, nameservers, and brand metadata |
@@ -45,10 +48,11 @@ tool entries. Account operations remain scoped to `/accounts/:id/services`.
 
 | Tool family | Real Kelmor APIs |
 | --- | --- |
-| Domains and websites | Domain, website, application, and WordPress operations |
+| Domains and websites | Domain, website, application, and WordPress operations. Dedicated `/domains` and `/websites` (MultiPHP) hubs. |
 | DNS | Zones, records, DNSSEC, and DS record reads |
 | SQL | MariaDB/MySQL/PostgreSQL database operations |
-| Email | Mail domains, catch-all routing, mailboxes, and aliases |
+| Email | Mail domains, catch-all routing, mailboxes, aliases, and `/deliverability` SPF/DKIM/DMARC checks |
+| Cron and FTP | Dedicated `/cron` and `/ftp` hubs using existing account APIs |
 | SSL/TLS | Account-owned certificate list and request |
 | Files and access | Bounded files, SSH keys, SFTP password, FTP users, and API tokens |
 | Backups | Encrypted local/SFTP/S3 backup creation, history, and reviewed restore |
@@ -60,6 +64,7 @@ tool entries. Account operations remain scoped to `/accounts/:id/services`.
 | Journey | Kelmor route | Implementation |
 | --- | --- | --- |
 | Server and service status | `/status` | Measured vitals plus service and process observations |
+| Process Manager | `/processes` | Bounded `GET /api/v1/server/processes` snapshot |
 | Firewall | `/security` | Read current Kelmor firewall metadata, review, confirm, and apply through the privileged agent |
 | Host reboot | `/security` | Typed `REBOOT` confirmation through the privileged agent |
 | Native transfer | `/transfers` | Native export/import with override review |

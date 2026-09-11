@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
+import { LoginToControl } from '../components/login-to-control'
 import { AccountTabs, CopyableValue, Dialog, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, formatDate, messageFrom } from '../helpers'
 import { bandwidthEnforcementCopy, isolationLines, lifecycleImpact, quotaEnforcementCopy } from './account-lifecycle-copy'
@@ -33,6 +34,8 @@ export function AccountSummaryPage () {
 	const canModify = useCan('accounts.modify')
 	const canSuspend = useCan('accounts.suspend')
 	const canTerminate = useCan('accounts.terminate')
+	const canImpersonate = useCan('accounts.impersonate')
+	const shouldOpenControl = task === 'login' && canImpersonate
 	function closeTerminate () {
 		setTerminateOpen(false)
 		setConfirmation('')
@@ -114,7 +117,7 @@ export function AccountSummaryPage () {
 	].filter(Boolean)
 	return (
 		<>
-			<PageHeader title={account.username} description={`${account.primary_domain} · POSIX tenant ${account.status}`} actions={<>{canSuspend ? <button type="button" className={account.status === 'suspended' ? 'secondary' : 'danger'} onClick={() => setPendingLifecycle(account.status === 'suspended' ? 'unsuspend' : 'suspend')}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}<Link className="button-link" to={`/accounts/${id}/services`}>Manage services</Link></>} />
+			<PageHeader title={account.username} description={`${account.primary_domain} · POSIX tenant ${account.status}`} actions={<>{canSuspend ? <button type="button" className={account.status === 'suspended' ? 'secondary' : 'danger'} onClick={() => setPendingLifecycle(account.status === 'suspended' ? 'unsuspend' : 'suspend')}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}<LoginToControl accountId={id} username={account.username} variant="button" autoOpen={shouldOpenControl} /><Link className="button-link" to={`/accounts/${id}/services`}>Manage services</Link></>} />
 			<AccountTabs id={id} />
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			<div className="summary-grid">
@@ -154,7 +157,17 @@ export function AccountSummaryPage () {
 						<div className="button-row">{canModify ? <button type="submit">Save assignment</button> : <p className="subtle">Your role can view but not change this assignment.</p>}<button type="button" className="secondary" onClick={() => setEditingAssignment(false)}>Cancel</button></div>
 					</form> : <div className="button-row">{canModify ? <button type="button" className="secondary" onClick={() => setEditingAssignment(true)}>Edit assignment</button> : <p className="subtle">Your role can view but not change this assignment.</p>}</div>}
 				</section>
-				<section className="panel"><h2>Credentials</h2><p>Rotate the owner password used for Kelmor Control. This does not remove the account.</p><div className="button-row">{canModify ? <button type="button" onClick={() => setPasswordOpen(true)}>Rotate password</button> : <p className="subtle">Password rotation is unavailable to your role.</p>}</div></section>
+				<section className="panel"><h2>Credentials</h2><p>Rotate the owner password used for Kelmor Control. This does not remove the account.</p><div className="button-row">{canModify ? <button type="button" onClick={() => setPasswordOpen(true)}>Rotate password</button> : <p className="subtle">Password rotation is unavailable to your role.</p>}<LoginToControl accountId={id} username={account.username} variant="button" /></div></section>
+				<section className="panel"><h2>WHM-style tools</h2><p className="subtle">Open dedicated Director tools already scoped to this account.</p><div className="admin-links">
+					<Link to={`/domains?account=${id}`}>Domains</Link>
+					<Link to={`/websites?account=${id}`}>MultiPHP</Link>
+					<Link to={`/email?account=${id}`}>Email</Link>
+					<Link to={`/deliverability?account=${id}`}>Deliverability</Link>
+					<Link to={`/ftp?account=${id}`}>FTP</Link>
+					<Link to={`/cron?account=${id}`}>Cron</Link>
+					<Link to={`/sql?account=${id}`}>Databases</Link>
+					<Link to={`/ssl?account=${id}`}>SSL</Link>
+				</div></section>
 				<section className="panel danger-panel"><h2>Terminate account</h2><p>Permanently removes hosted services, prefixed databases, DNS zones, and the Linux identity.</p><div className="button-row">{canTerminate ? <button type="button" className="danger" onClick={openTerminate}>Terminate account</button> : <p className="subtle">Termination is unavailable to your role.</p>}</div></section>
 			</div>
 			<section className="panel"><h2>Recent operations</h2><div className="table-wrap"><table><thead><tr><th scope="col">Operation</th><th scope="col">When</th><th scope="col">State</th><th scope="col">Next step</th></tr></thead><tbody>{jobs.slice(0, 8).map((job) => {

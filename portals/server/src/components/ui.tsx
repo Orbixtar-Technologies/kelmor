@@ -141,7 +141,11 @@ export function AccountTabs ({ id }: { id: string }) {
 		<nav className="tabs" aria-label="Account sections">
 			<NavLink to={`/accounts/${id}`} end>Overview</NavLink>
 			<NavLink to={`/accounts/${id}/services`}>Services</NavLink>
+			{capabilities['domains.read'] ? <NavLink to={`/domains?account=${id}`}>Domains</NavLink> : null}
+			{capabilities['websites.read'] ? <NavLink to={`/websites?account=${id}`}>PHP</NavLink> : null}
 			{capabilities['dns.read'] ? <NavLink to={`/dns?account=${id}`}>DNS</NavLink> : null}
+			{capabilities['mail.read'] ? <NavLink to={`/email?account=${id}`}>Email</NavLink> : null}
+			{capabilities['files.read'] ? <NavLink to={`/files?account=${id}`}>Files</NavLink> : null}
 			{capabilities['server.read'] || capabilities['accounts.read'] ? <NavLink to={`/jobs?account=${id}`}>Activity</NavLink> : null}
 		</nav>
 	)

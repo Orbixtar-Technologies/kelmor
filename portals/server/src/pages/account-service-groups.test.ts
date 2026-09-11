@@ -51,6 +51,9 @@ describe('resource and action labels', () => {
 
 	test('points existing resources at a dedicated management route', () => {
 		expect(resourceManagePath('databases', 'acc-1')).toBe('/sql?account=acc-1')
-		expect(resourceManagePath('websites', 'acc-1')).toBe('/files?account=acc-1')
+		expect(resourceManagePath('websites', 'acc-1')).toBe('/websites?account=acc-1')
+		expect(resourceManagePath('domains', 'acc-1')).toBe('/domains?account=acc-1')
+		expect(resourceManagePath('cron', 'acc-1')).toBe('/cron?account=acc-1')
+		expect(resourceManagePath('ftp', 'acc-1')).toBe('/ftp?account=acc-1')
 	})
 })

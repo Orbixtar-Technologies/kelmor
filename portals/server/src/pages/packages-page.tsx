@@ -4,7 +4,7 @@ import { api, asList } from '../client'
 import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/ui'
 import { formatBytes, messageFrom } from '../helpers'
 import { useCan } from '../rbac'
-import type { Account, Package } from '../types'
+import type { Account, FeatureSet, Package } from '../types'
 
 const numericPackageFields: NumericPackageFieldDefinition[] = [
 	{ field: 'disk_bytes', label: 'Disk bytes' },
@@ -45,6 +45,7 @@ function packageFromForm (data: FormData, current: Package): Package {
 
 export function PackagesPage () {
 	const [items, setItems] = useState<Package[]>([])
+	const [featureSets, setFeatureSets] = useState<FeatureSet[]>([])
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [accountsLoaded, setAccountsLoaded] = useState(false)
 	const [editing, setEditing] = useState<Package | null>(null)
@@ -62,10 +63,12 @@ export function PackagesPage () {
 		setAccountsLoaded(false)
 		Promise.allSettled([
 			api<{ items: Package[] }>('/api/v1/packages'),
+			api<{ items: FeatureSet[] }>('/api/v1/feature-sets'),
 			canReadAccounts ? api<{ items: Account[] }>('/api/v1/accounts') : Promise.resolve({ items: [] }),
-		]).then(([packageResult, accountResult]) => {
+		]).then(([packageResult, featureResult, accountResult]) => {
 			if (packageResult.status === 'fulfilled') setItems(asList(packageResult.value))
 			else setError(messageFrom(packageResult.reason))
+			if (featureResult.status === 'fulfilled') setFeatureSets(asList(featureResult.value))
 			if (accountResult.status === 'fulfilled' && canReadAccounts) {
 				setAccounts(asList(accountResult.value))
 				setAccountsLoaded(true)
@@ -96,7 +99,10 @@ export function PackagesPage () {
 
 	return (
 		<>
-			<PageHeader title="Packages" description="Define reusable resource, service, and retention limits for accounts." actions={canWrite ? <button type="button" onClick={() => setEditing({ ...defaults })}>Add package</button> : undefined} />
+			<PageHeader title="Packages" description="Define reusable resource, service, and retention limits for accounts." actions={<>
+				<Link className="button-link secondary-link" to="/features">Feature Manager</Link>
+				{canWrite ? <button type="button" onClick={() => setEditing({ ...defaults })}>Add package</button> : null}
+			</>} />
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
 			{loading ? <LoadingState label="Loading packages…" /> : <div className="table-wrap"><table className="dense-table"><thead><tr><th>Name</th><th>Accounts</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Bandwidth</th><th>Domains</th><th>Mailboxes</th><th>Actions</th></tr></thead><tbody>
@@ -107,7 +113,7 @@ export function PackagesPage () {
 			</tbody></table></div>}
 			{!loading && !items.length ? <EmptyState title="No packages" detail="Create a package to define account capacity." /> : null}
 			<Dialog open={Boolean(editing)} title={editing?.id ? `Edit ${editing.name}` : 'Add package'} onClose={() => setEditing(null)}>
-				{editing ? <PackageForm value={editing} onSubmit={save} onCancel={() => setEditing(null)} /> : null}
+				{editing ? <PackageForm value={editing} featureSets={featureSets} onSubmit={save} onCancel={() => setEditing(null)} /> : null}
 			</Dialog>
 			<Dialog open={Boolean(deleting)} title={`Delete ${deleting?.name || 'package'}`} onClose={() => { setDeleting(null); setConfirmation('') }}>
 				{(() => {
@@ -123,8 +129,8 @@ export function PackagesPage () {
 	)
 }
 
-function PackageForm ({ value, onSubmit, onCancel }: { value: Package; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
-	return <form onSubmit={onSubmit}><div className="form-grid"><label>Package name<input name="name" defaultValue={value.name} required autoFocus /></label><label>Reseller ID<input name="reseller_id" defaultValue={value.reseller_id} placeholder="Optional" /></label><label>Feature set ID<input name="feature_set_id" defaultValue={value.feature_set_id} placeholder="Optional" /></label>{numericPackageFields.map(({ field, label }) => <label key={field}>{label}<input name={field} type="number" min={0} defaultValue={value[field]} required /></label>)}</div><footer className="dialog-form-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit">Save package</button></footer></form>
+function PackageForm ({ value, featureSets, onSubmit, onCancel }: { value: Package; featureSets: FeatureSet[]; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
+	return <form onSubmit={onSubmit}><div className="form-grid"><label>Package name<input name="name" defaultValue={value.name} required autoFocus /></label><label>Reseller ID<input name="reseller_id" defaultValue={value.reseller_id} placeholder="Optional" /></label><label>Feature set<select name="feature_set_id" defaultValue={value.feature_set_id}><option value="">Default</option>{featureSets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}</select></label>{numericPackageFields.map(({ field, label }) => <label key={field}>{label}<input name={field} type="number" min={0} defaultValue={value[field]} required /></label>)}</div><footer className="dialog-form-actions"><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit">Save package</button></footer></form>
 }
 
 type NumericPackageField = Exclude<keyof Package, 'id' | 'reseller_id' | 'name' | 'feature_set_id'>
