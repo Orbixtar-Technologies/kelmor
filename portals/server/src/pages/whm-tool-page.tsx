@@ -6,6 +6,8 @@ import { ErrorState, PageHeader, SectionHeading } from '../components/ui'
 import { messageFrom } from '../helpers'
 import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, Package } from '../types'
+import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
+import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
 import { featureById, type WhmFeature, type WhmField } from '../whm-catalog'
 
 interface ServerSettings {
@@ -280,29 +282,36 @@ function ToolField ({ field, value, packages, websites, onChange }: {
 }
 
 function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Account }) {
-	if (feature.id === 'terminal') {
+	if (feature.id === 'terminal') return <HostConsolePanel />
+	if (feature.id === 'phpmyadmin') return <HostAppsPanel kind="sql" />
+	if (feature.id === 'market') return <HostAppsPanel kind="market" />
+	if (feature.id === 'plugins') return <HostAppsPanel kind="plugin" />
+	if (feature.id === 'mailman' || feature.id === 'reset-mailman') {
 		return (
 			<section className="panel">
-				<p>WHM exposes a root terminal. Kelmor does not. Privileged work goes through typed agent jobs: service restarts, account lifecycle, DNS, TLS, backups, and package changes.</p>
-				<p>Use Restart Services, Service Status, and Process Manager for live host operations. There is no in-browser root shell.</p>
+				<p>Mailing lists are first-class Kelmor aliases with multiple members. Create and edit them in Email Management.</p>
+				<Link to="/email?tab=lists">Open mailing lists</Link>
 			</section>
 		)
 	}
-	if (feature.id === 'phpmyadmin') {
+	if (feature.id === 'mail-queue' || feature.id === 'mail-troubleshooter') {
 		return (
-			<section className="panel">
-				<p>phpMyAdmin is not bundled. Open Database Manager and use the account&apos;s prefixed credentials.</p>
-				<Link to="/sql">Open Database Manager</Link>
-			</section>
+			<>
+				<section className="panel">
+					<p>Use the audited Postfix recipes below to inspect and flush the live queue. Delivery reports stay on Jobs.</p>
+					<p><Link to="/jobs?q=mail">Mail jobs</Link> · <Link to="/deliverability">Deliverability</Link></p>
+				</section>
+				<HostConsolePanel />
+			</>
 		)
 	}
 	if (feature.id === 'change-root-password') {
-		return (
-			<section className="panel">
-				<p>The Director login password is not the Ubuntu root password. Rotate the host root account from a signed-in SSH session on the box. Director never stores a root password.</p>
-			</section>
-		)
+		return <HostPasswordForm title="Change root password" endpoint="/api/v1/server/root-password" />
 	}
+	if (feature.id === 'mysql-root-password') {
+		return <HostPasswordForm title="Change database root password" endpoint="/api/v1/server/database-root-password" includeCurrent />
+	}
+	if (feature.id === 'easyapache') return <PHPRuntimePanel />
 	if (feature.id === 'skeleton-directory') {
 		return (
 			<section className="panel">
@@ -450,8 +459,20 @@ async function applyFeature ({
 		return 'Account change applied.'
 	}
 
-	if (feature.id === 'change-root-password' || feature.id === 'mysql-root-password') {
-		throw new Error('Director does not store or rotate host root or MariaDB root passwords. Use a signed-in host session.')
+	if (feature.id === 'change-root-password') {
+		await api('/api/v1/server/root-password', { method: 'POST', body: JSON.stringify({ password: values.password || values.new_password }) })
+		return 'Root password applied on the host. It was not stored in Director.'
+	}
+	if (feature.id === 'mysql-root-password') {
+		await api('/api/v1/server/database-root-password', { method: 'POST', body: JSON.stringify({ current: values.current || values.current_password, password: values.password || values.new_password }) })
+		return 'Database root password applied on the host. It was not stored in Director.'
+	}
+	if (feature.id === 'easyapache') {
+		const versions = String(values.php_versions || '').split(/\s+/).filter(Boolean)
+		for (const version of versions) {
+			await api('/api/v1/server/runtimes', { method: 'POST', body: JSON.stringify({ version }) })
+		}
+		return versions.length ? `PHP runtime install queued for ${versions.join(', ')}.` : 'No PHP versions selected.'
 	}
 
 	if (feature.settingKey) {

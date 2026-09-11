@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
@@ -9,12 +9,22 @@ import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
 
-type EmailTab = 'domains' | 'mailboxes' | 'aliases'
+type EmailTab = 'domains' | 'mailboxes' | 'aliases' | 'lists'
 
 const tabLabels: Record<EmailTab, string> = {
 	domains: 'Mail domains',
 	mailboxes: 'Mailboxes',
 	aliases: 'Aliases',
+	lists: 'Mailing lists',
+}
+
+function isEmailTab (value: string | null): value is EmailTab {
+	return value === 'domains' || value === 'mailboxes' || value === 'aliases' || value === 'lists'
+}
+
+function listMembers (item: ResourceItem) {
+	if (Array.isArray(item.members)) return item.members.map(String).filter(Boolean)
+	return String(item.destination || '').split(',').map((part) => part.trim()).filter(Boolean)
 }
 
 export function EmailManagerPage () {
@@ -24,6 +34,7 @@ export function EmailManagerPage () {
 	const [domains, setDomains] = useState<ResourceItem[]>([])
 	const [mailboxes, setMailboxes] = useState<ResourceItem[]>([])
 	const [aliases, setAliases] = useState<ResourceItem[]>([])
+	const [lists, setLists] = useState<ResourceItem[]>([])
 	const [accountDomains, setAccountDomains] = useState<ResourceItem[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
@@ -32,7 +43,7 @@ export function EmailManagerPage () {
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('mail.write')
 	const accountId = params.get('account') || ''
-	const tab = (params.get('tab') as EmailTab) || 'mailboxes'
+	const tab = isEmailTab(params.get('tab')) ? params.get('tab') as EmailTab : 'mailboxes'
 	const currentAccountId = useRef(accountId)
 	currentAccountId.current = accountId
 	const account = accounts.find((entry) => entry.id === accountId)
@@ -58,15 +69,17 @@ export function EmailManagerPage () {
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/domains`),
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/mailboxes`),
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/aliases`),
+			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/lists`),
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/domains`),
-		]).then(([domainResult, mailboxResult, aliasResult, siteDomainResult]) => {
+		]).then(([domainResult, mailboxResult, aliasResult, listResult, siteDomainResult]) => {
 			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			if (domainResult.status === 'fulfilled') setDomains(asList(domainResult.value))
 			if (mailboxResult.status === 'fulfilled') setMailboxes(asList(mailboxResult.value))
 			if (aliasResult.status === 'fulfilled') setAliases(asList(aliasResult.value))
+			if (listResult.status === 'fulfilled') setLists(asList(listResult.value))
 			if (siteDomainResult.status === 'fulfilled') setAccountDomains(asList(siteDomainResult.value))
-			const failures = [domainResult, mailboxResult, aliasResult].filter((result) => result.status === 'rejected')
-			if (failures.length === 3) setError(messageFrom((failures[0] as PromiseRejectedResult).reason))
+			const failures = [domainResult, mailboxResult, aliasResult, listResult].filter((result) => result.status === 'rejected')
+			if (failures.length === 4) setError(messageFrom((failures[0] as PromiseRejectedResult).reason))
 			else setUpdatedAt(new Date().toISOString())
 		}).finally(() => {
 			if (requests.isCurrent(request) && currentAccountId.current === requestedAccountId) setLoading(false)
@@ -78,6 +91,7 @@ export function EmailManagerPage () {
 		setDomains([])
 		setMailboxes([])
 		setAliases([])
+		setLists([])
 		setMessage('')
 		if (accountId) loadEmail(accountId)
 		else setLoading(false)
@@ -87,7 +101,28 @@ export function EmailManagerPage () {
 		setSearchParams({ account: accountId, tab: nextTab }, { replace: true })
 	}
 
-	async function createMailbox (event: React.FormEvent<HTMLFormElement>) {
+	function tabCount (entry: EmailTab) {
+		switch (entry) {
+			case 'domains':
+				return domains.length
+			case 'mailboxes':
+				return mailboxes.length
+			case 'aliases':
+				return aliases.length
+			case 'lists':
+				return lists.length
+			default: {
+				const exhaustive: never = entry
+				return exhaustive
+			}
+		}
+	}
+
+	function isTabEmpty (entry: EmailTab) {
+		return tabCount(entry) === 0
+	}
+
+	async function createMailbox (event: FormEvent<HTMLFormElement>) {
 		event.preventDefault()
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
@@ -108,7 +143,7 @@ export function EmailManagerPage () {
 		}
 	}
 
-	async function createAlias (event: React.FormEvent<HTMLFormElement>) {
+	async function createAlias (event: FormEvent<HTMLFormElement>) {
 		event.preventDefault()
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
@@ -129,7 +164,44 @@ export function EmailManagerPage () {
 		}
 	}
 
-	async function patchCatchall (event: React.FormEvent<HTMLFormElement>) {
+	async function createList (event: FormEvent<HTMLFormElement>) {
+		event.preventDefault()
+		if (!accountId) return
+		const data = new FormData(event.currentTarget)
+		const members = String(data.get('members') || '').split(',').map((part) => part.trim()).filter(Boolean)
+		try {
+			await api(`/api/v1/accounts/${accountId}/mail/lists`, {
+				method: 'POST',
+				body: JSON.stringify({
+					domain_id: data.get('domain_id'),
+					local_part: data.get('local_part'),
+					members,
+				}),
+			})
+			setMessage('Mailing list creation queued.')
+			event.currentTarget.reset()
+			loadEmail(accountId)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
+	async function updateList (listId: string, membersRaw: string) {
+		if (!accountId) return
+		const members = membersRaw.split(',').map((part) => part.trim()).filter(Boolean)
+		try {
+			await api(`/api/v1/accounts/${accountId}/mail/lists/${listId}`, {
+				method: 'PATCH',
+				body: JSON.stringify({ members }),
+			})
+			setMessage('Mailing list members updated.')
+			loadEmail(accountId)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
+	async function patchCatchall (event: FormEvent<HTMLFormElement>) {
 		event.preventDefault()
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
@@ -162,7 +234,7 @@ export function EmailManagerPage () {
 		<>
 			<PageHeader
 				title={account ? `Email Management · ${account.username}` : 'Email Management'}
-				description="Manage mail domains, mailboxes, aliases, and routing policies across accounts."
+				description="Manage mail domains, mailboxes, aliases, mailing lists, and routing policies across accounts."
 				actions={<Link className="button-link secondary-link" to={accountId ? `/webmail?account=${accountId}` : '/webmail'}>Webmail</Link>}
 			/>
 			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Email" onChange={(next) => setSearchParams({ account: next, tab }, { replace: true })} />
@@ -183,7 +255,7 @@ export function EmailManagerPage () {
 				<div className="service-tabs" role="tablist" aria-label="Email sections">
 					{(Object.keys(tabLabels) as EmailTab[]).map((entry) => (
 						<button key={entry} type="button" role="tab" aria-selected={tab === entry} onClick={() => setTab(entry)}>
-							{tabLabels[entry]}<span>{entry === 'domains' ? domains.length : entry === 'mailboxes' ? mailboxes.length : aliases.length}</span>
+							{tabLabels[entry]}<span>{tabCount(entry)}</span>
 						</button>
 					))}
 				</div>
@@ -204,6 +276,17 @@ export function EmailManagerPage () {
 						<label>Destination<input name="destination" placeholder="owner@example.com" required /></label>
 						<button type="submit">Create alias</button>
 					</form>
+				</section> : null}
+				{canWrite && tab === 'lists' ? <section className="panel">
+					<h2>Create mailing list</h2>
+					<p className="subtle">Kelmor applies a multi-member Postfix alias. Mail to the list address is delivered to every member.</p>
+					<form className="inline-form" onSubmit={createList}>
+						<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'domain_id') || valueOf(item, 'ascii_fqdn')}</option>)}</select></label>
+						<label>List local part<input name="local_part" placeholder="staff" required /></label>
+						<label>Members<input name="members" placeholder="owner@example.com, ops@example.com" required /></label>
+						<button type="submit" disabled={!domains.length}>Create list</button>
+					</form>
+					{!domains.length ? <p className="subtle">Provision a mail domain before creating a list.</p> : null}
 				</section> : null}
 				{canWrite && tab === 'domains' ? <section className="panel">
 					<h2>Catch-all routing</h2>
@@ -228,7 +311,29 @@ export function EmailManagerPage () {
 						<thead><tr><th>Address</th><th>Destination</th><th>Actions</th></tr></thead>
 						<tbody>{aliases.map((item) => <tr key={item.id}><td>{valueOf(item, 'address')}</td><td>{valueOf(item, 'destination')}</td><td>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/aliases', item.id)}>Delete</button> : null}</td></tr>)}</tbody>
 					</table></div> : null}
-					{!loading && ((tab === 'domains' && !domains.length) || (tab === 'mailboxes' && !mailboxes.length) || (tab === 'aliases' && !aliases.length))
+					{!loading && tab === 'lists' ? <div className="table-wrap"><table className="dense-table">
+						<thead><tr><th>List</th><th>Members</th><th>Status</th><th>Actions</th></tr></thead>
+						<tbody>{lists.map((item) => (
+							<tr key={item.id}>
+								<td>{valueOf(item, 'local_part')}</td>
+								<td>
+									{canWrite ? (
+										<form className="inline-form" onSubmit={(event) => {
+											event.preventDefault()
+											const data = new FormData(event.currentTarget)
+											void updateList(item.id, String(data.get('members') || ''))
+										}}>
+											<input name="members" defaultValue={listMembers(item).join(', ')} aria-label={`Members for ${valueOf(item, 'local_part')}`} />
+											<button type="submit">Update</button>
+										</form>
+									) : listMembers(item).join(', ')}
+								</td>
+								<td><StatusBadge value={valueOf(item, 'status') || 'active'} /></td>
+								<td>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/lists', item.id)}>Delete</button> : null}</td>
+							</tr>
+						))}</tbody>
+					</table></div> : null}
+					{!loading && isTabEmpty(tab)
 						? <EmptyState title={`No ${tabLabels[tab].toLocaleLowerCase()} yet`} detail="Provision email resources using the forms above or account services." />
 						: null}
 				</section>

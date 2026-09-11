@@ -78,6 +78,15 @@ func (a *API) Handler() http.Handler {
 			r.Get("/server/monitor", a.serverMonitor)
 			r.Get("/server/services", a.serverServices)
 			r.Get("/server/processes", a.serverProcesses)
+			r.Post("/server/processes/{pid}/signal", a.signalProcess)
+			r.Get("/server/apps", a.listHostApps)
+			r.Post("/server/apps/{appID}/enable", a.enableHostApp)
+			r.Get("/server/console/recipes", a.listHostRecipes)
+			r.Post("/server/console", a.runHostRecipe)
+			r.Post("/server/root-password", a.setRootPassword)
+			r.Post("/server/database-root-password", a.setDatabaseRootPassword)
+			r.Get("/server/runtimes", a.listPHPRuntimes)
+			r.Post("/server/runtimes", a.ensurePHPRuntime)
 			r.Get("/server/updates", a.updateStatus)
 			r.Post("/server/updates/check", a.checkUpdate)
 			r.Post("/server/updates/install", a.installUpdate)
@@ -148,6 +157,10 @@ func (a *API) Handler() http.Handler {
 				r.Get("/mail/aliases", a.listMailAliases)
 				r.Post("/mail/aliases", a.createMailAlias)
 				r.Delete("/mail/aliases/{aliasID}", a.deleteMailAlias)
+				r.Get("/mail/lists", a.listMailingLists)
+				r.Post("/mail/lists", a.createMailingList)
+				r.Patch("/mail/lists/{listID}", a.updateMailingList)
+				r.Delete("/mail/lists/{aliasID}", a.deleteMailAlias)
 				r.Get("/certificates", a.listCerts)
 				r.Post("/certificates", a.requestCert)
 				r.Get("/backups", a.listBackups)
@@ -639,14 +652,6 @@ func (a *API) getFirewall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"table": "inet panel", "file": "/etc/panel/nftables-panel.nft"})
 }
 
-func (a *API) serverProcesses(w http.ResponseWriter, r *http.Request) {
-	if !a.require(w, r, rbac.ServerRead) {
-		return
-	}
-	writeJSON(w, 200, map[string]any{"processes": []map[string]any{
-		{"pid": os.Getpid(), "name": "current control-plane process", "scope": "serving API instance"},
-	}})
-}
 
 func (a *API) listJobs(w http.ResponseWriter, r *http.Request) {
 	ac := actor(r)
@@ -2744,7 +2749,7 @@ func (a *API) createMailAlias(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", "address: "+err.Error(), false)
 		return
 	}
-	dest, err := normalizeAliasDestination(in.Destination)
+	dest, err := normalizeAliasDestinations(in.Destination)
 	if err != nil {
 		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
 		return

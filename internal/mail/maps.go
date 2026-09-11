@@ -162,11 +162,21 @@ func AliasMap(st store.Store) string {
 			if d == nil || d.ASCII == "" || al.Address == "" || al.Destination == "" {
 				continue
 			}
-			dest := al.Destination
-			if !strings.Contains(dest, "@") {
-				dest = dest + "@" + d.ASCII
+			var dests []string
+			for _, part := range strings.Split(al.Destination, ",") {
+				dest := strings.TrimSpace(part)
+				if dest == "" {
+					continue
+				}
+				if !strings.Contains(dest, "@") {
+					dest = dest + "@" + d.ASCII
+				}
+				dests = append(dests, dest)
 			}
-			lines = append(lines, fmt.Sprintf("%s@%s %s\n", al.Address, d.ASCII, dest))
+			if len(dests) == 0 {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s@%s %s\n", al.Address, d.ASCII, strings.Join(dests, ",")))
 		}
 	}
 	sort.Strings(lines)

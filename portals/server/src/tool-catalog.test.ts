@@ -99,6 +99,16 @@ describe('WHM catalog', () => {
 		}
 	})
 
+	test('routes newly real host tools to their managers', () => {
+		expect(featureById('mailman')?.path).toBe('/email?tab=lists')
+		expect(featureById('reset-mailman')?.path).toBe('/email?tab=lists')
+		expect(featureById('phpmyadmin')?.path).toBe('/tools/phpmyadmin')
+		expect(featureById('easyapache')?.path).toBe('/tools/easyapache')
+		expect(featureById('easyapache')?.layout).toBe('status')
+		expect(featureById('terminal')?.path).toBe('/tools/terminal')
+		expect(featureById('mail-queue')?.layout).toBe('status')
+	})
+
 	test('routes SSL family tools to SSL manager tasks instead of Account Services', () => {
 		expect(featureById('ssl')?.path).toBe('/ssl')
 		expect(featureById('generate-csr')?.path).toBe('/ssl?task=request')

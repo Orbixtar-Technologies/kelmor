@@ -189,6 +189,8 @@ export interface FeatureSet {
 export interface HostProcess {
 	pid: number
 	name: string
+	user?: string
+	command?: string
 	scope?: string
 }
 
