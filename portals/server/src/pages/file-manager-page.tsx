@@ -230,7 +230,7 @@ export function FileManagerPage () {
 			<PageHeader
 				title={account ? `File Manager · ${account.username}` : 'File Manager'}
 				description="Browse account home directories, edit text files, and manage web content paths."
-				actions={account ? <Link className="button-link secondary-link" to={`/accounts/${accountId}/services?service=files`}>Account services</Link> : undefined}
+				actions={account ? <Link className="button-link secondary-link" to={`/domains?account=${accountId}`}>Domains</Link> : undefined}
 			/>
 			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Files" onChange={(next) => setParams({ account: next }, { replace: true })} />
 			<div className="hub-toolbar panel">

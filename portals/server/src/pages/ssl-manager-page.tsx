@@ -24,8 +24,11 @@ export function SSLManagerPage () {
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('websites.write')
 	const accountId = params.get('account') || ''
+	const task = params.get('task') || 'inventory'
 	const currentAccountId = useRef(accountId)
+	const currentTask = useRef(task)
 	currentAccountId.current = accountId
+	currentTask.current = task
 	const account = accounts.find((entry) => entry.id === accountId)
 
 	useEffect(() => {
@@ -34,7 +37,11 @@ export function SSLManagerPage () {
 			if (!requests.isCurrent(request)) return
 			const next = asList(result)
 			setAccounts(next)
-			if (!currentAccountId.current && next[0]) setParams({ account: next[0].id }, { replace: true })
+			if (!currentAccountId.current && next[0]) {
+				const nextParams: Record<string, string> = { account: next[0].id }
+				if (currentTask.current && currentTask.current !== 'inventory') nextParams.task = currentTask.current
+				setParams(nextParams, { replace: true })
+			}
 		}).catch((requestError) => {
 			if (requests.isCurrent(request)) setError(messageFrom(requestError))
 		})
@@ -120,10 +127,23 @@ export function SSLManagerPage () {
 		<>
 			<PageHeader
 				title={account && !viewAll ? `SSL / TLS · ${account.username}` : 'SSL / TLS Management'}
-				description="Review certificate inventory, request AutoSSL certificates, and monitor expiry across accounts."
+				description="Inventory, AutoSSL requests, expiry status, and host certificate policy live on this page. Account Services is not part of this journey."
 				actions={<button type="button" className="secondary" onClick={() => setViewAll((current) => !current)}>{viewAll ? 'Account view' : 'Server-wide inventory'}</button>}
 			/>
-			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="SSL" onChange={(next) => setParams({ account: next }, { replace: true })} /> : null}
+			<nav className="ssl-task-nav" aria-label="SSL tasks">
+				{[
+					['inventory', 'Storage'],
+					['request', 'Request / Install'],
+					['status', 'Status'],
+					['autossl', 'AutoSSL'],
+					['service', 'Service certificates'],
+				].map(([id, label]) => {
+					const search = viewAll ? `task=${id}` : `account=${accountId}&task=${id}`
+					const href = `/ssl?${search}`
+					return task === id ? <strong key={id}>{label}</strong> : <Link key={id} to={href}>{label}</Link>
+				})}
+			</nav>
+			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="SSL" onChange={(next) => setParams(task === 'inventory' ? { account: next } : { account: next, task }, { replace: true })} /> : null}
 			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			{!viewAll ? <div className="hub-toolbar panel">
 				<AccountPicker
@@ -131,19 +151,23 @@ export function SSLManagerPage () {
 					value={accountId}
 					filter={accountFilter}
 					onFilterChange={setAccountFilter}
-					onChange={(next) => setParams({ account: next }, { replace: true })}
+					onChange={(next) => setParams(task === 'inventory' ? { account: next } : { account: next, task }, { replace: true })}
 				/>
 			</div> : null}
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			{error ? <ErrorState error={error} onRetry={() => viewAll ? loadAllCertificates() : loadCertificates(accountId)} /> : null}
 			{!viewAll && !accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage SSL certificates." /> : null}
-			{!viewAll && accountId && canWrite ? <section className="panel">
-				<h2>Request certificate</h2>
+			{!viewAll && accountId && canWrite && (task === 'request' || task === 'autossl') ? <section className="panel">
+				<h2>{task === 'autossl' ? 'AutoSSL policy and request' : 'Request / install certificate'}</h2>
 				<form className="inline-form" onSubmit={requestCertificate}>
 					<label>Hostname<input name="hostname" defaultValue={account?.primary_domain} required /></label>
 					<button type="submit">Request AutoSSL</button>
 				</form>
-				<p className="subtle">Certificates are issued through the ACME workflow and applied to the account&apos;s nginx vhosts automatically.</p>
+				<p className="subtle">Kelmor issues the certificate through ACME and applies it to the account nginx vhost. There is no separate CSR download or bounce through Account Services.</p>
+			</section> : null}
+			{task === 'service' ? <section className="panel">
+				<h2>Service certificates</h2>
+				<p>Director, Control, and mail submission use the host TLS material installed with Kelmor. Account site certificates are listed below and requested with AutoSSL on this same page.</p>
 			</section> : null}
 			{(viewAll || accountId) ? <section className="panel">
 				<h2>{viewAll ? 'All account certificates' : `Certificates for ${account?.username}`}</h2>
@@ -159,7 +183,7 @@ export function SSLManagerPage () {
 								<td><StatusBadge value={valueOf(certificate, 'status')} /><small>{certRenewalState(valueOf(certificate, 'status'), certificate.not_after ? String(certificate.not_after) : undefined)}</small></td>
 								<td>{certExpiryLabel(certificate.not_after ? String(certificate.not_after) : undefined)}<small>{certificate.not_after ? formatDate(String(certificate.not_after)) : ''}</small></td>
 								<td>{valueOf(certificate, 'issuer')}</td>
-								<td><div className="row-actions"><Link className="link-button" to={`/accounts/${certificate.account_id}/services?service=certificates`}>Manage</Link>{valueOf(certificate, 'status').toLocaleLowerCase() === 'failed' && canWrite ? <button type="button" className="link-button" onClick={() => api(`/api/v1/accounts/${certificate.account_id}/certificates`, { method: 'POST', body: JSON.stringify({ hostname: valueOf(certificate, 'hostname') }) }).then(() => setMessage('Certificate retry queued.')).catch((requestError) => setMessage(messageFrom(requestError)))}>Retry request</button> : null}<Link to={`/jobs?account=${certificate.account_id}`}>Jobs</Link></div></td>
+								<td><div className="row-actions">{valueOf(certificate, 'status').toLocaleLowerCase() === 'failed' && canWrite ? <button type="button" className="link-button" onClick={() => api(`/api/v1/accounts/${certificate.account_id}/certificates`, { method: 'POST', body: JSON.stringify({ hostname: valueOf(certificate, 'hostname') }) }).then(() => setMessage('Certificate retry queued.')).catch((requestError) => setMessage(messageFrom(requestError)))}>Retry request</button> : null}<Link to={`/ssl?account=${certificate.account_id}&task=request`}>Request again</Link><Link to={`/jobs?account=${certificate.account_id}`}>Jobs</Link></div></td>
 							</tr>
 						))}
 					</tbody>

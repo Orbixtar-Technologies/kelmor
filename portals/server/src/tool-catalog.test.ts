@@ -68,7 +68,7 @@ describe('tool discovery', () => {
 
 	test('routes account service tools to dedicated hub pages', () => {
 		expect(accountTaskTarget('databases', 'account-1')).toBe('/sql?account=account-1')
-		expect(accountTaskTarget('email', 'account-1')).toBe('/email?account=account-1')
+		expect(accountTaskTarget('email', 'account-1')).toBe('/email?account=account-1&tab=mailboxes')
 		expect(accountTaskTarget('certificates', 'account-1')).toBe('/ssl?account=account-1')
 		expect(accountTaskTarget('files', 'account-1')).toBe('/files?account=account-1')
 		expect(accountTaskTarget('cron', 'account-1')).toBe('/cron?account=account-1')
@@ -96,6 +96,20 @@ describe('WHM catalog', () => {
 				expect(feature.path).toBe(`/tools/${feature.id}`)
 				expect(featureById(feature.id)?.label).toBe(feature.label)
 			}
+		}
+	})
+
+	test('routes SSL family tools to SSL manager tasks instead of Account Services', () => {
+		expect(featureById('ssl')?.path).toBe('/ssl')
+		expect(featureById('generate-csr')?.path).toBe('/ssl?task=request')
+		expect(featureById('install-ssl')?.path).toBe('/ssl?task=request')
+		expect(featureById('manage-autossl')?.path).toBe('/ssl?task=autossl')
+		expect(featureById('ssl-storage')?.path).toBe('/ssl?task=inventory')
+		expect(featureById('ssl-tls-status')?.path).toBe('/ssl?task=status')
+		expect(featureById('service-ssl')?.path).toBe('/ssl?task=service')
+		for (const feature of whmFeatures.filter((entry) => entry.category === 'SSL/TLS' || entry.id === 'service-ssl')) {
+			expect(feature.path).not.toContain('/services')
+			expect(feature.path).not.toBe('/tools/manage-autossl')
 		}
 	})
 })
