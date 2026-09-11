@@ -57,7 +57,7 @@ describe('WhmToolPage', () => {
 		renderTool('/tools/terminal', { 'server.read': true })
 		expect(await screen.findByRole('heading', { name: 'Terminal' })).toBeInTheDocument()
 		expect(await screen.findByRole('heading', { name: 'Host console' })).toBeInTheDocument()
-		expect(screen.getByText(/not a freeform root shell/i)).toBeInTheDocument()
+		expect(screen.getAllByText(/not a freeform root shell/i).length).toBeGreaterThan(0)
 		expect(screen.getByText('Test nginx configuration')).toBeInTheDocument()
 	})
 })

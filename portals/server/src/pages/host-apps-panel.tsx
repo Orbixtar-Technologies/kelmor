@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, asList } from '../client'
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../components/ui'
-import { messageFrom, valueOf } from '../helpers'
+import { messageFrom } from '../helpers'
 import { useCan } from '../rbac'
 import type { Account } from '../types'
 
@@ -141,7 +141,7 @@ export function PHPRuntimePanel () {
 					{items.map((runtime) => (
 						<tr key={runtime.version}>
 							<td>PHP {runtime.version}</td>
-							<td><StatusBadge value={valueOf(runtime, 'status')} /></td>
+							<td><StatusBadge value={runtime.status} /></td>
 							<td>{canWrite && runtime.status !== 'installed' ? <button type="button" className="link-button" onClick={() => ensure(runtime.version)}>Install</button> : 'Ready'}</td>
 						</tr>
 					))}
