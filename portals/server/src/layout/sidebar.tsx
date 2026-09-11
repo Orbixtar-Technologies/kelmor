@@ -81,7 +81,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 			</div>
 			<nav className="feature-nav" aria-label="Director tools">
 				{[...groups.entries()].map(([category, entries]) => {
-					const closed = filter ? false : closedCategories.has(category)
+					const closed = filter && !closedOverride ? false : closedCategories.has(category)
 					const scope = navScopeForCategory(category)
 					const containsCurrent = entries.some((tool) => isDirectorToolActive(tool, location.pathname, location.search))
 					return (
