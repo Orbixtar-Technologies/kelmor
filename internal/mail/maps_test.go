@@ -77,8 +77,12 @@ func TestAliasMap(t *testing.T) {
 	st.PutMailDomain(&store.MailDomain{ID: "md", AccountID: "a", DomainID: "d"})
 	st.PutMailbox(&store.Mailbox{ID: "m", AccountID: "a", DomainID: "md", LocalPart: "info", PasswordHash: "h"})
 	st.PutMailAlias(&store.MailAlias{ID: "al", AccountID: "a", DomainID: "md", Address: "sales", Destination: "info"})
+	st.PutMailAlias(&store.MailAlias{ID: "list", AccountID: "a", DomainID: "md", Address: "staff", Destination: "info@acme.test,ops@acme.test,"})
 	body := AliasMap(st)
 	if !strings.Contains(body, "sales@acme.test info@acme.test") {
+		t.Fatal(body)
+	}
+	if !strings.Contains(body, "staff@acme.test info@acme.test,ops@acme.test") {
 		t.Fatal(body)
 	}
 	recs := RecipientsForHost(st)

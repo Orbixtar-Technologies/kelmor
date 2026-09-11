@@ -14,7 +14,7 @@ export interface ServiceGroup<T extends GroupableService = GroupableService> {
 
 const GROUP_ORDER: Array<{ id: string; label: string; serviceIds: string[] }> = [
 	{ id: 'web', label: 'Web', serviceIds: ['websites', 'domains', 'certificates', 'applications'] },
-	{ id: 'email', label: 'Email', serviceIds: ['mail-domains', 'mailboxes', 'aliases'] },
+	{ id: 'email', label: 'Email', serviceIds: ['mail-domains', 'mailboxes', 'aliases', 'lists'] },
 	{ id: 'data', label: 'Data', serviceIds: ['databases', 'files', 'backups'] },
 	{ id: 'access', label: 'Access', serviceIds: ['ssh', 'ftp', 'tokens'] },
 	{ id: 'automation', label: 'Automation', serviceIds: ['cron'] },
@@ -27,6 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
 	'mail-domains': 'Update routing',
 	mailboxes: 'Create mailbox',
 	aliases: 'Create alias',
+	lists: 'Create mailing list',
 	certificates: 'Request certificate',
 	files: 'Write file',
 	backups: 'Queue encrypted backup',

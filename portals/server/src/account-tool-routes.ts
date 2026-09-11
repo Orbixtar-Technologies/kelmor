@@ -6,6 +6,7 @@ const HUB_SERVICES = [
 	'mailboxes',
 	'mail-domains',
 	'aliases',
+	'lists',
 	'files',
 	'cron',
 	'ftp',
@@ -33,6 +34,8 @@ export function canonicalAccountToolPath (serviceId: string, accountId: string):
 			return `/email?account=${accountId}&tab=domains`
 		case 'aliases':
 			return `/email?account=${accountId}&tab=aliases`
+		case 'lists':
+			return `/email?account=${accountId}&tab=lists`
 		case 'files':
 			return `/files?account=${accountId}`
 		case 'cron':

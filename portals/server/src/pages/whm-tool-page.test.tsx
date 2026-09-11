@@ -50,9 +50,14 @@ describe('WhmToolPage', () => {
 		expect(api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
 	})
 
-	test('keeps the terminal as a privilege-boundary status page', async () => {
+	test('opens the terminal on audited host recipes, not a freeform root shell', async () => {
+		api.mockResolvedValue({ items: [
+			{ id: 'nginx-test', label: 'Test nginx configuration', description: 'Run nginx -t without reloading.' },
+		] })
 		renderTool('/tools/terminal', { 'server.read': true })
 		expect(await screen.findByRole('heading', { name: 'Terminal' })).toBeInTheDocument()
-		expect(screen.getByText(/no in-browser root shell/i)).toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: 'Host console' })).toBeInTheDocument()
+		expect(screen.getByText(/not a freeform root shell/i)).toBeInTheDocument()
+		expect(screen.getByText('Test nginx configuration')).toBeInTheDocument()
 	})
 })

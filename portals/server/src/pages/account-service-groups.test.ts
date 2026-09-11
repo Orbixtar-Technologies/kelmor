@@ -7,6 +7,7 @@ const services = [
 	{ id: 'databases', label: 'Databases' },
 	{ id: 'mailboxes', label: 'Mailboxes' },
 	{ id: 'aliases', label: 'Aliases' },
+	{ id: 'lists', label: 'Mailing lists' },
 	{ id: 'certificates', label: 'Certificates' },
 	{ id: 'files', label: 'Files' },
 	{ id: 'backups', label: 'Backups & restore' },
@@ -26,7 +27,7 @@ describe('groupAccountServices', () => {
 			'websites', 'domains', 'certificates', 'applications',
 		])
 		expect(groups.find((group) => group.id === 'email')?.items.map((item) => item.id)).toEqual([
-			'mail-domains', 'mailboxes', 'aliases',
+			'mail-domains', 'mailboxes', 'aliases', 'lists',
 		])
 	})
 
@@ -53,6 +54,7 @@ describe('resource and action labels', () => {
 		expect(resourceManagePath('databases', 'acc-1')).toBe('/sql?account=acc-1')
 		expect(resourceManagePath('certificates', 'acc-1')).toBe('/ssl?account=acc-1')
 		expect(resourceManagePath('mailboxes', 'acc-1')).toBe('/email?account=acc-1&tab=mailboxes')
+		expect(resourceManagePath('lists', 'acc-1')).toBe('/email?account=acc-1&tab=lists')
 		expect(resourceManagePath('websites', 'acc-1')).toBe('/websites?account=acc-1')
 		expect(resourceManagePath('domains', 'acc-1')).toBe('/domains?account=acc-1')
 		expect(resourceManagePath('cron', 'acc-1')).toBe('/cron?account=acc-1')

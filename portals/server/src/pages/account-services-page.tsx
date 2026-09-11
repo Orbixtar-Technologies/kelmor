@@ -27,6 +27,7 @@ const services: ServiceDefinition[] = [
 	{ id: 'mail-domains', label: 'Mail domains', endpoint: 'mail/domains', columns: ['domain_id', 'catchall_policy', 'status'], readCapability: 'mail.read', writeCapability: 'mail.write' },
 	{ id: 'mailboxes', label: 'Mailboxes', endpoint: 'mail/mailboxes', columns: ['local_part', 'quota_bytes', 'status'], isDeletable: true, readCapability: 'mail.read', writeCapability: 'mail.write' },
 	{ id: 'aliases', label: 'Aliases', endpoint: 'mail/aliases', columns: ['address', 'destination'], isDeletable: true, readCapability: 'mail.read', writeCapability: 'mail.write' },
+	{ id: 'lists', label: 'Mailing lists', endpoint: 'mail/lists', columns: ['local_part', 'members', 'status'], isDeletable: true, readCapability: 'mail.read', writeCapability: 'mail.write' },
 	{ id: 'certificates', label: 'Certificates', endpoint: 'certificates', columns: ['hostname', 'kind', 'status', 'not_after'], readCapability: 'websites.read', writeCapability: 'websites.write' },
 	{ id: 'files', label: 'Files', endpoint: 'files?path=/public_html', columns: ['name', 'size', 'dir'], readCapability: 'files.read', writeCapability: 'files.write' },
 	{ id: 'backups', label: 'Backups & restore', endpoint: 'backups', columns: ['kind', 'state', 'destination', 'size_bytes'], readCapability: 'backups.read', writeCapability: 'backups.create' },

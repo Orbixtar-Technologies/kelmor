@@ -1114,7 +1114,98 @@ paths:
       operationId: serverProcesses
       x-capability: server.read
       responses:
-        "200": { description: host process snapshot }
+        "200": { description: live host process snapshot from /proc }
+  /server/processes/{pid}/signal:
+    post:
+      operationId: signalProcess
+      x-capability: server.settings.write
+      parameters:
+        - { name: pid, in: path, required: true, schema: { type: integer, minimum: 2 } }
+      responses:
+        "200": { description: typed TERM or KILL sent }
+        "400": { description: protected or invalid pid }
+  /server/apps:
+    get:
+      operationId: listHostApps
+      x-capability: server.read
+      responses:
+        "200": { description: installed and available host applications }
+  /server/apps/{appID}/enable:
+    post:
+      operationId: enableHostApp
+      x-capability: server.settings.write
+      parameters:
+        - { name: appID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: phpMyAdmin or Roundcube published }
+        "202": { description: WordPress install queued }
+  /server/console/recipes:
+    get:
+      operationId: listHostRecipes
+      x-capability: server.read
+      responses:
+        "200": { description: audited host recipes }
+  /server/console:
+    post:
+      operationId: runHostRecipe
+      x-capability: server.settings.write
+      responses:
+        "200": { description: recipe output }
+  /server/root-password:
+    post:
+      operationId: setRootPassword
+      x-capability: server.settings.write
+      responses:
+        "200": { description: root password applied and not stored }
+  /server/database-root-password:
+    post:
+      operationId: setDatabaseRootPassword
+      x-capability: databases.write
+      responses:
+        "200": { description: MariaDB root password applied and not stored }
+  /server/runtimes:
+    get:
+      operationId: listPHPRuntimes
+      x-capability: server.read
+      responses:
+        "200": { description: PHP-FPM versions on this host }
+    post:
+      operationId: ensurePHPRuntime
+      x-capability: server.settings.write
+      responses:
+        "200": { description: php-fpm package installed or staged }
+  /accounts/{accountID}/mail/lists:
+    get:
+      operationId: listMailingLists
+      x-capability: mail.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: multi-member aliases used as mailing lists }
+    post:
+      operationId: createMailingList
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: list alias queued }
+  /accounts/{accountID}/mail/lists/{listID}:
+    patch:
+      operationId: updateMailingList
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: listID, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: list members updated }
+    delete:
+      operationId: deleteMailingList
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: listID, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: list alias deleted }
   /accounts/bulk/suspend:
     post:
       operationId: bulkSuspend

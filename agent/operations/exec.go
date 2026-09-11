@@ -33,6 +33,8 @@ var allowedBins = map[string]bool{
 	"/usr/bin/systemctl":    true,
 	"/usr/sbin/setquota":    true,
 	"/usr/bin/mysql":        true,
+	"/usr/bin/mysqladmin":   true,
+	"/usr/bin/apt-get":      true,
 	"/usr/bin/mariadb":      true,
 	"/usr/bin/mariadb-dump": true,
 	"/usr/bin/mysqldump":    true,
