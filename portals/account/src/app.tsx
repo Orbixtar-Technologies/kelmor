@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
-import { api, APIClientError, asList, clearToken, getToken, setToken } from './client'
+import { api, APIClientError, asList, clearToken, consumeImpersonationSession, getToken, setToken } from './client'
 import { Can, CapProvider } from './rbac'
 
 interface Me {
@@ -16,11 +16,22 @@ export function App () {
 	const [newPassword, setNewPassword] = useState('')
 	const [confirmPassword, setConfirmPassword] = useState('')
 	const [passwordChangeRequired, setPasswordChangeRequired] = useState(false)
+	const [checking, setChecking] = useState(() => {
+		consumeImpersonationSession()
+		return Boolean(getToken())
+	})
 
 	useEffect(() => {
-		if (!getToken()) return
-		api<Me>('/api/v1/me').then(setMe).catch(() => clearToken())
+		if (!getToken()) {
+			setChecking(false)
+			return
+		}
+		api<Me>('/api/v1/me').then(setMe).catch(() => clearToken()).finally(() => setChecking(false))
 	}, [])
+
+	if (checking) {
+		return <main className="auth"><section><p className="eyebrow">Kelmor</p><h1>Kelmor Control</h1><p>Restoring your hosting session…</p></section></main>
+	}
 
 	if (!me) {
 		return (

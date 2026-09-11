@@ -47,6 +47,32 @@ describe('tool discovery', () => {
 		]))
 	})
 
+	test('includes WHM-mapped first-class tools when capabilities allow them', () => {
+		const tools = discoverTools(toolCatalog, {
+			'accounts.read': true,
+			'accounts.impersonate': true,
+			'cron.read': true,
+			'domains.read': true,
+			'dns.read': true,
+			'files.read': true,
+			'mail.read': true,
+			'packages.read': true,
+			'websites.read': true,
+		})
+
+		expect(tools.map((tool) => tool.label)).toEqual(expect.arrayContaining([
+			'List Domains',
+			'List Subdomains',
+			'List Parked Domains',
+			'Feature Manager',
+			'MultiPHP Manager',
+			'FTP Accounts',
+			'Cron Jobs',
+			'Email Deliverability',
+			'Login to Kelmor Control',
+		]))
+	})
+
 	test('requires account inventory access for account-scoped service selectors', () => {
 		const tools = discoverTools(toolCatalog, {
 			'databases.read': true,
@@ -68,6 +94,11 @@ describe('tool discovery', () => {
 		['force-password', ['accounts.read', 'accounts.modify']],
 		['usage', ['billing.usage.read', 'accounts.read', 'packages.read']],
 		['transfers', ['accounts.read']],
+		['login-control', ['accounts.read', 'accounts.impersonate']],
+		['list-domains', ['accounts.read', 'domains.read']],
+		['websites', ['accounts.read', 'websites.read']],
+		['cron', ['accounts.read', 'cron.read']],
+		['deliverability', ['accounts.read', 'mail.read', 'dns.read']],
 	] as const)('requires every capability for the %s tool', (toolId, requiredCapabilities) => {
 		for (const omittedCapability of requiredCapabilities) {
 			const capabilities = Object.fromEntries(requiredCapabilities.map((capability) => [capability, capability !== omittedCapability]))
@@ -83,6 +114,9 @@ describe('tool discovery', () => {
 		expect(accountTaskTarget('email', 'account-1')).toBe('/email?account=account-1')
 		expect(accountTaskTarget('certificates', 'account-1')).toBe('/ssl?account=account-1')
 		expect(accountTaskTarget('files', 'account-1')).toBe('/files?account=account-1')
+		expect(accountTaskTarget('cron', 'account-1')).toBe('/cron?account=account-1')
+		expect(accountTaskTarget('domains', 'account-1')).toBe('/domains?account=account-1')
+		expect(accountTaskTarget('login', 'account-1')).toBe('/accounts/account-1?task=login')
 	})
 
 	test.each(['password', 'terminate', 'package', 'modify', 'suspension', 'summary'])('preserves the %s lifecycle task after account selection', (task) => {

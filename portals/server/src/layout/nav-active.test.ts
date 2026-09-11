@@ -22,6 +22,9 @@ const catalog = [
 	tool('modify-account', '/accounts?task=modify', 'Account Functions'),
 	tool('terminate-account', '/accounts?task=terminate', 'Account Functions'),
 	tool('create-account', '/accounts/create', 'Account Functions'),
+	tool('list-domains', '/domains'),
+	tool('list-subdomains', '/domains?view=subdomain'),
+	tool('list-parked', '/domains?view=alias'),
 	tool('jobs', '/jobs', 'System Tools'),
 ]
 
@@ -56,6 +59,12 @@ describe('isDirectorToolActive', () => {
 	test('highlights Jobs even when an account filter is present', () => {
 		expect(activeIds('/jobs', '?account=acc-1')).toEqual(['jobs'])
 	})
+
+	test('highlights only the matching domain inventory view', () => {
+		expect(activeIds('/domains')).toEqual(['list-domains'])
+		expect(activeIds('/domains', '?view=subdomain')).toEqual(['list-subdomains'])
+		expect(activeIds('/domains', '?view=alias')).toEqual(['list-parked'])
+	})
 })
 
 describe('navScopeForCategory', () => {
@@ -64,5 +73,6 @@ describe('navScopeForCategory', () => {
 		expect(navScopeForCategory('Account Functions')).toBe('account')
 		expect(navScopeForCategory('Server Status')).toBe('host')
 		expect(navScopeForCategory('Security Center')).toBe('host')
+		expect(navScopeForCategory('Software')).toBe('account')
 	})
 })

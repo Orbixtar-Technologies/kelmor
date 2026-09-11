@@ -22,6 +22,9 @@ const crumbLabels: Record<string, string> = {
 	jobs: 'Jobs', audit: 'Audit Trail', usage: 'Account Usage',
 	files: 'File Manager', sql: 'Database Manager', email: 'Email Management',
 	ssl: 'SSL / TLS', webmail: 'Webmail', updates: 'Software Updates',
+	domains: 'List Domains', websites: 'MultiPHP Manager', features: 'Feature Manager',
+	ftp: 'FTP Accounts', cron: 'Cron Jobs', deliverability: 'Email Deliverability',
+	processes: 'Process Manager',
 }
 
 export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {

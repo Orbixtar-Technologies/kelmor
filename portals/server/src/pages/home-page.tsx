@@ -9,8 +9,9 @@ import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, ServerOverview } from '../types'
 
 const featuredToolIds = [
-	'accounts', 'create-account', 'files', 'sql', 'email', 'webmail',
-	'ssl', 'dns', 'services', 'security', 'jobs', 'updates',
+	'accounts', 'create-account', 'list-domains', 'websites', 'files', 'sql',
+	'email', 'deliverability', 'webmail', 'ssl', 'dns', 'services',
+	'processes', 'security', 'jobs', 'updates',
 ]
 
 export function HomePage () {
