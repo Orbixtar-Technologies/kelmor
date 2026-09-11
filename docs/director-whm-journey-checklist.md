@@ -9,9 +9,9 @@ API capability checks and typed privileged-agent boundary remain authoritative.
 | Operator pattern | Kelmor route | Implementation |
 | --- | --- | --- |
 | Global feature and account search | All routes | Top-bar Find searches tools, usernames, and domains; `/` focuses it. |
-| Categorized feature navigation | All routes | Collapsible, filterable sidebar generated from capability-aware tool metadata. |
+| Categorized feature navigation | All routes | Collapsible, filterable sidebar generated from the full WHM-mapped catalog (`whm-catalog.ts`). Categories other than the current tool start collapsed. Writes remain API-enforced. |
 | Host identity and administrator controls | All routes | Live hostname, notifications, Kelmor Director identity, administrator menu, and sign out. |
-| Home favorites and server status | `/` | Favorites, load/memory/disk/account/job stats, services, recent jobs, activity, and grouped tools. |
+| Home favorites and server status | `/` | Favorites, host stats, and every WHM category — not a capability-filtered subset. |
 
 ## Account Information and Account Functions
 
@@ -58,6 +58,26 @@ tool entries. Account operations remain scoped to `/accounts/:id/services`.
 | Backups | Encrypted local/SFTP/S3 backup creation, history, and reviewed restore |
 | Automation | Cron jobs and related durable jobs |
 | Usage | Disk, bandwidth, inodes, memory, process, and CPU observations |
+
+## Full WHM panel surfaces
+
+Every WHM category is present in Director: Account Functions, Account
+Information, Backup, Clusters, cPanel, DNS Functions, Email, IP Functions,
+Networking Setup, Packages, Plugins, Resellers, Restart Services, Security
+Center, Server Configuration, Server Contacts, Server Status, Service
+Configuration, Software, SQL Services, SSL/TLS, System Health, System Reboot,
+Themes, Locales, Transfers, Development, Support, Multi Account Functions,
+Files, Market, and System Tools.
+
+Dedicated hubs (`/accounts`, `/domains`, `/dns`, `/email`, …) keep their
+existing pages. Every other interface is a first-class `/tools/:id` journey
+with the WHM workflow (form, wizard, confirm, restart, settings, or status).
+Host preferences persist at `GET`/`PATCH /api/v1/server/settings`. Manage
+Shell Access writes `shell_class` on `PATCH /api/v1/accounts/:id`.
+
+Kelmor still does not expose an in-browser root terminal or copy WHM
+trademarks. phpMyAdmin, Mailman, EasyApache, and Market are honest status
+pages that point at the Kelmor equivalent.
 
 ## Server, Security, Transfers, and History
 

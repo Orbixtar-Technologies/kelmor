@@ -23,11 +23,21 @@ interface SidebarProps {
 
 export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate, onMobileDismiss }: SidebarProps) {
 	const [filter, setFilter] = useState('')
-	const [closedCategories, setClosedCategories] = useState<Set<string>>(new Set())
+	const [closedOverride, setClosedOverride] = useState<Set<string> | null>(null)
 	const [isMobile, setIsMobile] = useState(() => window.matchMedia?.('(max-width: 780px)').matches ?? false)
 	const sidebarRef = useRef<HTMLElement>(null)
 	const location = useLocation()
 	const groups = useMemo(() => groupTools(tools.filter((tool) => `${tool.label} ${tool.category}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()))), [tools, filter])
+	const currentCategory = useMemo(() => {
+		for (const [category, entries] of groups) {
+			if (entries.some((tool) => isDirectorToolActive(tool, location.pathname, location.search))) return category
+		}
+		return ''
+	}, [groups, location.pathname, location.search])
+	const closedCategories = useMemo(() => {
+		if (closedOverride) return closedOverride
+		return new Set([...groups.keys()].filter((category) => category !== currentCategory))
+	}, [closedOverride, groups, currentCategory])
 
 	useEffect(() => {
 		const media = window.matchMedia?.('(max-width: 780px)')
@@ -46,7 +56,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	}, [isMobile, mobileOpen])
 
 	function setAll (closed: boolean) {
-		setClosedCategories(closed ? new Set(groups.keys()) : new Set())
+		setClosedOverride(closed ? new Set(groups.keys()) : new Set())
 	}
 
 	return (
@@ -71,7 +81,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 			</div>
 			<nav className="feature-nav" aria-label="Director tools">
 				{[...groups.entries()].map(([category, entries]) => {
-					const closed = closedCategories.has(category)
+					const closed = filter && !closedOverride ? false : closedCategories.has(category)
 					const scope = navScopeForCategory(category)
 					const containsCurrent = entries.some((tool) => isDirectorToolActive(tool, location.pathname, location.search))
 					return (
@@ -80,7 +90,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 								const next = new Set(closedCategories)
 								if (closed) next.delete(category)
 								else next.add(category)
-								setClosedCategories(next)
+								setClosedOverride(next)
 							}}><span>{category}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
 							{closed ? null : entries.map((tool) => {
 								const isCurrent = isDirectorToolActive(tool, location.pathname, location.search)

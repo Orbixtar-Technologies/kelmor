@@ -73,6 +73,8 @@ func (a *API) Handler() http.Handler {
 			r.Use(a.authenticate)
 			r.Get("/me", a.me)
 			r.Get("/server", a.serverOverview)
+			r.Get("/server/settings", a.getDirectorSettings)
+			r.Patch("/server/settings", a.patchDirectorSettings)
 			r.Get("/server/monitor", a.serverMonitor)
 			r.Get("/server/services", a.serverServices)
 			r.Get("/server/processes", a.serverProcesses)
@@ -1854,6 +1856,20 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, ok := in["ip_address"].(string); ok {
 		acc.IPAddress = v
+	}
+	if raw, present := in["shell_class"]; present {
+		value, ok := raw.(string)
+		if !ok {
+			a.fail(w, r, 400, "VALIDATION", "shell_class must be a string", false)
+			return
+		}
+		switch value {
+		case "sftp-only", "nologin", "jailed":
+			acc.ShellClass = value
+		default:
+			a.fail(w, r, 400, "VALIDATION", "shell_class must be sftp-only, nologin, or jailed", false)
+			return
+		}
 	}
 	if v, ok := in["login_disabled"].(bool); ok {
 		acc.LoginDisabled = v
