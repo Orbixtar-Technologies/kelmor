@@ -112,6 +112,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/accounts/{accountID}/impersonate", a.impersonate)
 			r.Get("/accounts/{accountID}/usage", a.accountUsage)
 			r.Post("/accounts/bulk/suspend", a.bulkSuspend)
+			r.Post("/accounts/bulk/unsuspend", a.bulkUnsuspend)
 			r.Get("/accounts/export", a.exportAccounts)
 			r.Post("/accounts/import", a.importAccount)
 			r.Post("/accounts/import/cpanel", a.importCPanel)
@@ -2010,6 +2011,14 @@ func (a *API) accountUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) bulkSuspend(w http.ResponseWriter, r *http.Request) {
+	a.bulkAccountStatus(w, r, "suspended")
+}
+
+func (a *API) bulkUnsuspend(w http.ResponseWriter, r *http.Request) {
+	a.bulkAccountStatus(w, r, "active")
+}
+
+func (a *API) bulkAccountStatus(w http.ResponseWriter, r *http.Request, status string) {
 	if !a.require(w, r, rbac.AccountsSuspend) {
 		return
 	}
@@ -2024,7 +2033,7 @@ func (a *API) bulkSuspend(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if acc := a.Store.GetAccount(id); acc != nil {
-			acc.Status = "suspended"
+			acc.Status = status
 			acc.DesiredRevision++
 			a.Store.PutAccount(acc)
 			j, _ := a.Store.EnqueueJob(&store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID}, State: "queued"})

@@ -27,6 +27,7 @@ API capability checks and typed privileged-agent boundary remain authoritative.
 | Force password change | `/accounts/:id` | `POST /password`, owner login hash update, and queued Linux reconciliation |
 | Terminate account | `/accounts/:id` | Username-confirmed `POST /terminate` |
 | Bulk suspend | `/accounts` | `POST /api/v1/accounts/bulk/suspend` |
+| Bulk unsuspend | `/accounts` | `POST /api/v1/accounts/bulk/unsuspend` |
 
 ## Packages and Resellers
 

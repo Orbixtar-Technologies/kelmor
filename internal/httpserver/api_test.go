@@ -257,6 +257,14 @@ func TestResellerCannotSeeForeignAccounts(t *testing.T) {
 	if got := st.GetAccount(directID); got == nil || got.Status == "suspended" {
 		t.Fatalf("bulk suspend crossed reseller boundary: %+v", got)
 	}
+	beforeUnsuspend := st.GetAccount(directID)
+	bulkUnsuspend := statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/bulk/unsuspend", rsTok, map[string]any{"ids": []string{directID}})
+	if bulkUnsuspend != 202 && bulkUnsuspend != 200 {
+		t.Fatalf("bulk unsuspend status %d", bulkUnsuspend)
+	}
+	if got := st.GetAccount(directID); got == nil || beforeUnsuspend == nil || got.DesiredRevision != beforeUnsuspend.DesiredRevision {
+		t.Fatalf("bulk unsuspend crossed reseller boundary: %+v", got)
+	}
 	dump := get(t, srv.URL+"/api/v1/accounts/export", rsTok)
 	for _, raw := range dump["items"].([]any) {
 		if raw.(map[string]any)["username"] == "direct1" {

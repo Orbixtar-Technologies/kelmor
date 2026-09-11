@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
-import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, StatusBadge } from '../components/ui'
-import { formatBytes, messageFrom, percent } from '../helpers'
+import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader, Pagination, StatusBadge } from '../components/ui'
+import { formatBytes, formatDate, messageFrom, percent } from '../helpers'
+import { lifecycleImpact } from './account-lifecycle-copy'
 import { useCan } from '../rbac'
 import { filterRows, paginateRows, sortRows } from '../table-helpers'
 import { accountTaskTarget } from '../tool-catalog'
@@ -25,6 +26,8 @@ export function AccountsPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [updatedAt, setUpdatedAt] = useState('')
+	const [pending, setPending] = useState<{ action: 'suspend' | 'unsuspend'; ids: string[]; label: string } | null>(null)
 	const canCreate = useCan('accounts.create')
 	const canSuspend = useCan('accounts.suspend')
 	const canReadUsage = useCan('billing.usage.read')
@@ -60,6 +63,7 @@ export function AccountsPage () {
 			setUsage(usageResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []))
 		}
 		setLoading(false)
+		setUpdatedAt(new Date().toISOString())
 	}
 	useEffect(() => { void load() }, [])
 
@@ -85,21 +89,23 @@ export function AccountsPage () {
 	async function stateAction (id: string, action: 'suspend' | 'unsuspend') {
 		await api(`/api/v1/accounts/${id}/${action}`, { method: 'POST', body: '{}' })
 	}
-	async function bulkAction (action: 'suspend' | 'unsuspend') {
-		if (action === 'suspend' && !window.confirm(`Suspend ${selected.size} selected account${selected.size === 1 ? '' : 's'}? Their hosted services will become unavailable.`)) return
+	async function confirmPending () {
+		if (!pending) return
 		setMessage('')
 		try {
-			if (action === 'suspend') await api('/api/v1/accounts/bulk/suspend', { method: 'POST', body: JSON.stringify({ ids: [...selected] }) })
-			else await Promise.all([...selected].map((id) => stateAction(id, action)))
-			setMessage(`${selected.size} account${selected.size === 1 ? '' : 's'} queued for ${action}.`)
+			if (pending.ids.length === 1) await stateAction(pending.ids[0], pending.action)
+			else await api(`/api/v1/accounts/bulk/${pending.action}`, { method: 'POST', body: JSON.stringify({ ids: pending.ids }) })
+			setMessage(`${pending.ids.length} account${pending.ids.length === 1 ? '' : 's'} queued for ${pending.action}.`)
 			setSelected(new Set())
+			setPending(null)
 			await loadAccounts()
 		} catch (requestError) { setMessage(messageFrom(requestError)) }
 	}
 
 	return (
 		<>
-			<PageHeader title="List Accounts" description="Search, compare, and operate hosting identities from one dense account list." actions={canCreate ? <Link className="button-link" to="/accounts/create">Create account</Link> : undefined} />
+			<PageHeader title="List Accounts" description="Search, compare, and operate POSIX hosting tenants — create, suspend, unsuspend, and open lifecycle management." actions={canCreate ? <Link className="button-link" to="/accounts/create">Create account</Link> : undefined} />
+			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			{task && accountTaskGuidance[task] ? (
 				<section className="task-guidance" aria-label="Selected account task">
 					<div><strong>{accountTaskGuidance[task].title}</strong><p>{accountTaskGuidance[task].detail}</p></div>
@@ -118,7 +124,7 @@ export function AccountsPage () {
 			{packageFilter ? <p className="filter-context">Showing accounts assigned to package <code>{packageFilter}</code>. <button type="button" className="link-button" onClick={() => { const next = new URLSearchParams(params); next.delete('package'); setParams(next) }}>Clear package filter</button></p> : null}
 			<div className="filter-bar">
 				<label>Search accounts<input type="search" value={query} placeholder="Username, domain, status, or IP" onChange={(event) => { setQuery(event.target.value); setPage(1) }} /></label>
-				<div className="bulk-actions"><span>{selected.size} selected</span>{canSuspend ? <><button type="button" disabled={!selected.size} onClick={() => bulkAction('suspend')}>Suspend</button><button type="button" className="secondary" disabled={!selected.size} onClick={() => bulkAction('unsuspend')}>Unsuspend</button></> : null}</div>
+				<div className="bulk-actions"><span>{selected.size} selected</span>{canSuspend ? <><button type="button" disabled={!selected.size} onClick={() => setPending({ action: 'suspend', ids: [...selected], label: `${selected.size} selected account${selected.size === 1 ? '' : 's'}` })}>Suspend</button><button type="button" className="secondary" disabled={!selected.size} onClick={() => setPending({ action: 'unsuspend', ids: [...selected], label: `${selected.size} selected account${selected.size === 1 ? '' : 's'}` })}>Unsuspend</button></> : null}</div>
 			</div>
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
@@ -130,36 +136,43 @@ export function AccountsPage () {
 						setSelected(next)
 					}} /> : null}</th>
 					{[['username', 'User'], ['primary_domain', 'Primary domain'], ['status', 'Status'], ['linux_uid', 'UID']].map(([key, label]) => <th key={key}><button type="button" className="sort-button" onClick={() => changeSort(key as keyof Account)}>{label}{sort === key ? (direction === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>)}
+					<th>Home</th>
 					<th>Package</th><th>Disk quota</th><th>Actions</th></tr></thead>
 					<tbody>{paged.items.map((account) => {
 						const pkg = packagesById.get(account.package_id)
 						const diskPercent = percent(account.usage?.disk_bytes, pkg?.disk_bytes)
 						return <tr key={account.id} className={account.status === 'suspended' ? 'muted-row' : ''}>
 							<td><input type="checkbox" aria-label={`Select ${account.username}`} checked={selected.has(account.id)} onChange={(event) => { const next = new Set(selected); event.target.checked ? next.add(account.id) : next.delete(account.id); setSelected(next) }} /></td>
-							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'}</small></td>
-							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td>{pkg?.name || account.package_id}</td>
+							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'} · GID {account.linux_gid}</small></td>
+							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td><code>{account.home_path}</code></td><td>{pkg?.name || account.package_id}</td>
 							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)} / {formatBytes(pkg?.disk_bytes)}</small></> : '—'}</td>
-							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={async () => {
-								const action = account.status === 'suspended' ? 'unsuspend' : 'suspend'
-								if (action === 'suspend' && !window.confirm(`Suspend ${account.username}? Its hosted services will become unavailable.`)) return
-								try { await stateAction(account.id, action); await loadAccounts() } catch (requestError) { setMessage(messageFrom(requestError)) }
-							}}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}</div></td>
+							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{canSuspend ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={() => setPending({
+								action: account.status === 'suspended' ? 'unsuspend' : 'suspend',
+								ids: [account.id],
+								label: account.username,
+							})}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}</div></td>
 						</tr>
 					})}</tbody>
 				</table></div>
 			)}
 			{!loading && !error && paged.items.length === 0 ? <EmptyState title={view === 'suspended' && !query ? 'No suspended accounts' : `No ${view === 'all' ? '' : `${view} `}accounts match`} detail="Filters remain available above. Clear the search or choose another account view." action={view !== 'all' ? <button type="button" className="secondary" onClick={() => { const next = new URLSearchParams(params); next.delete('view'); setParams(next); setPage(1) }}>Show all accounts</button> : undefined} /> : null}
 			<Pagination page={paged.page} pageCount={paged.pageCount} total={paged.total} onPage={setPage} />
+			<Dialog open={Boolean(pending)} title={pending ? `${pending.action === 'unsuspend' ? 'Unsuspend' : 'Suspend'} ${pending.label}` : 'Account action'} onClose={() => setPending(null)} actions={<>
+				<button type="button" className="secondary" onClick={() => setPending(null)}>Cancel</button>
+				<button type="button" className={pending?.action === 'suspend' ? 'danger' : undefined} onClick={() => void confirmPending()}>{pending?.action === 'unsuspend' ? 'Confirm unsuspend' : 'Confirm suspend'}</button>
+			</>}>
+				{pending ? <ul>{lifecycleImpact(pending.action).map((line) => <li key={line}>{line}</li>)}</ul> : null}
+			</Dialog>
 		</>
 	)
 }
 
 const accountTaskGuidance: Record<string, { title: string; detail: string }> = {
-	summary: { title: 'Account Summary', detail: 'Open a consolidated status, ownership, usage, and service hub.' },
-	modify: { title: 'Modify an Account', detail: 'Change the primary domain, IP address, reseller ownership, and login access.' },
+	summary: { title: 'Account Summary', detail: 'Open POSIX identity, isolation, usage, and lifecycle controls for one tenant.' },
+	modify: { title: 'Modify an Account', detail: 'Change the package, primary domain, IP address, reseller ownership, and login access, then queue reconcile.' },
 	package: { title: 'Change Account Package', detail: 'Review the current assignment and select a different package with enforced limits.' },
-	suspension: { title: 'Suspend or Unsuspend', detail: 'Review account status and queue the appropriate availability change.' },
-	terminate: { title: 'Terminate an Account', detail: 'Open the account summary and complete a typed destructive confirmation.' },
+	suspension: { title: 'Suspend or Unsuspend', detail: 'Lock or restore the Linux login, cgroup, vhosts, cron, and mail for the selected tenant.' },
+	terminate: { title: 'Terminate an Account', detail: 'Open the account summary and complete a typed confirmation that removes the Linux identity.' },
 	password: { title: 'Force Password Change', detail: 'Rotate owner credentials and optionally require another change at next sign-in.' },
 	databases: { title: 'SQL Services', detail: 'Manage account-scoped databases and their provisioning state.' },
 	email: { title: 'Email Services', detail: 'Manage mail domains, mailboxes, aliases, and routing policy.' },

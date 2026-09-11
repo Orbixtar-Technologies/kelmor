@@ -613,7 +613,7 @@ func (h *Host) CreateLinuxUser(username string, uid, gid int, home, shell string
 	if err != nil {
 		return Result{}, err
 	}
-	for _, d := range []string{"", "public_html", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
+	for _, d := range []string{"", "public_html", "public_ftp", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
 		p := path
 		if d != "" {
 			p = filepath.Join(path, d)
