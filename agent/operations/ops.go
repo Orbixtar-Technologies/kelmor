@@ -544,6 +544,54 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.ManagePanelUpdate(ctx, request)
 	case "RebootHost":
 		return h.rebootHost()
+	case "ListProcesses":
+		return h.listProcesses()
+	case "SignalProcess":
+		var p struct {
+			PID    int    `json:"pid"`
+			Signal string `json:"signal"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.signalProcess(p.PID, p.Signal)
+	case "SetRootPassword":
+		var p struct {
+			Password string `json:"password"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.setRootPassword(p.Password)
+	case "SetMariaDBRootPassword":
+		var p struct {
+			Current  string `json:"current"`
+			Password string `json:"password"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.setMariaDBRootPassword(p.Current, p.Password)
+	case "ListHostApps":
+		return h.listHostApps(), nil
+	case "RunHostRecipe":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.runHostRecipe(p.ID)
+	case "ListPHPRuntimes":
+		return h.listPHPRuntimes(), nil
+	case "EnsurePHPRuntime":
+		var p struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.ensurePHPRuntime(p.Version)
 	default:
 		return nil, fmt.Errorf("unknown operation %q", req.Method)
 	}

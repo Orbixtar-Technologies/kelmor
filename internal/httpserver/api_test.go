@@ -1481,15 +1481,26 @@ func TestServerProcessesReportsOnlyTruthfulProcessIdentity(t *testing.T) {
 	})["token"].(string)
 
 	items := get(t, srv.URL+"/api/v1/server/processes", admin)["processes"].([]any)
-	if len(items) != 1 {
-		t.Fatalf("process count %d", len(items))
+	if len(items) == 0 {
+		t.Fatal("expected a live process list")
 	}
-	process := items[0].(map[string]any)
-	if !reflect.DeepEqual(sortedMapKeys(process), []string{"name", "pid", "scope"}) {
-		t.Fatalf("fabricated or missing process fields: %v", process)
+	self := os.Getpid()
+	found := false
+	for _, item := range items {
+		process := item.(map[string]any)
+		if process["pid"] == nil || process["name"] == nil {
+			t.Fatalf("process missing identity: %v", process)
+		}
+		if int(process["pid"].(float64)) == self {
+			found = true
+		}
 	}
-	if process["pid"] != float64(os.Getpid()) || process["name"] != "current control-plane process" || process["scope"] != "serving API instance" {
-		t.Fatalf("process identity: %v", process)
+	if !found {
+		t.Fatalf("current pid %d missing from process list", self)
+	}
+	code, body := postStatus(t, srv.URL+"/api/v1/server/processes/1/signal", admin, map[string]string{"signal": "TERM"})
+	if code != 400 {
+		t.Fatalf("pid 1 signal %d %v", code, body)
 	}
 }
 

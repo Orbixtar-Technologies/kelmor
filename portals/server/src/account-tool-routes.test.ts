@@ -7,6 +7,7 @@ describe('canonical account tools', () => {
 		expect(canonicalAccountToolPath('databases', 'acc-1')).toBe('/sql?account=acc-1')
 		expect(canonicalAccountToolPath('mailboxes', 'acc-1')).toBe('/email?account=acc-1&tab=mailboxes')
 		expect(canonicalAccountToolPath('mail-domains', 'acc-1')).toBe('/email?account=acc-1&tab=domains')
+		expect(canonicalAccountToolPath('lists', 'acc-1')).toBe('/email?account=acc-1&tab=lists')
 		expect(canonicalAccountToolPath('websites', 'acc-1')).toBe('/websites?account=acc-1')
 		expect(canonicalAccountToolPath('domains', 'acc-1')).toBe('/domains?account=acc-1')
 		expect(canonicalAccountToolPath('files', 'acc-1')).toBe('/files?account=acc-1')
@@ -23,6 +24,7 @@ describe('canonical account tools', () => {
 
 	test('marks only dedicated hubs as redirect sources', () => {
 		expect(isHubAccountService('certificates')).toBe(true)
+		expect(isHubAccountService('lists')).toBe(true)
 		expect(isHubAccountService('ssh')).toBe(false)
 		expect(isHubAccountService('backups')).toBe(false)
 	})
