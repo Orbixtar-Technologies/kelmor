@@ -49,9 +49,13 @@ const processListCap = 500
 
 func redactProcessCommand(name, cmd string) string {
 	switch name {
-	case "mysqladmin", "mariadb", "mysql", "chpasswd":
+	case "mysqladmin", "mariadb", "mysql", "chpasswd", "psql", "runuser":
 		return name + " [redacted]"
 	default:
+		if strings.Contains(strings.ToUpper(cmd), "PASSWORD") ||
+			strings.Contains(strings.ToUpper(cmd), "IDENTIFIED BY") {
+			return name + " [redacted]"
+		}
 		return cmd
 	}
 }

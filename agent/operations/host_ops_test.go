@@ -27,6 +27,14 @@ func TestRedactProcessCommandHidesPasswordArgv(t *testing.T) {
 	if redactProcessCommand("nginx", "nginx -t") != "nginx -t" {
 		t.Fatal("unrelated commands must stay visible")
 	}
+	psql := redactProcessCommand("psql", "psql -c CREATE USER shop PASSWORD 'TenantSecret'")
+	if strings.Contains(psql, "TenantSecret") {
+		t.Fatalf("psql password leaked: %s", psql)
+	}
+	runuser := redactProcessCommand("runuser", "runuser -u postgres -- psql -c ALTER USER shop PASSWORD 'x'")
+	if strings.Contains(runuser, "PASSWORD") {
+		t.Fatalf("runuser password leaked: %s", runuser)
+	}
 }
 
 func TestEnsurePHPRuntimeRejectsUnknownVersion(t *testing.T) {
