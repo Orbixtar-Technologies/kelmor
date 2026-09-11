@@ -27,4 +27,12 @@ describe('directorBreadcrumbs', () => {
 			{ label: 'kelmor-demo' },
 		])
 	})
+
+	test('labels generic WHM tool paths from the catalog', () => {
+		expect(directorBreadcrumbs('/tools/tweak-settings', { tools: 'Tools', 'tweak-settings': 'Tweak Settings' })).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'Tools', to: '/tools' },
+			{ label: 'Tweak Settings' },
+		])
+	})
 })

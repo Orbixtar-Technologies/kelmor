@@ -1,43 +1,27 @@
 import { describe, expect, test } from 'vitest'
 import { accountTaskTarget, discoverTools, toolCatalog } from './tool-catalog'
+import { featureById, whmFeatures } from './whm-catalog'
 
 describe('tool discovery', () => {
-	test('keeps only tools allowed by the current capabilities', () => {
-		const tools = discoverTools(toolCatalog, {
-			'accounts.read': true,
-			'packages.read': false,
-			'server.read': true,
-		})
-
-		expect(tools.some((tool) => tool.label === 'List Accounts')).toBe(true)
-		expect(tools.some((tool) => tool.label === 'Packages')).toBe(false)
-		expect(tools.some((tool) => tool.label === 'Service Status')).toBe(true)
-	})
-
-	test('includes tools that accept any one of several capabilities', () => {
+	test('exposes the entire WHM-mapped catalog regardless of capabilities', () => {
 		const tools = discoverTools(toolCatalog, { 'accounts.read': true })
 
-		expect(tools.some((tool) => tool.label === 'Jobs')).toBe(true)
+		expect(tools.length).toBe(toolCatalog.length)
+		expect(tools.length).toBe(whmFeatures.length)
+		expect(tools.some((tool) => tool.label === 'List Accounts')).toBe(true)
+		expect(tools.some((tool) => tool.id === 'packages')).toBe(true)
+		expect(tools.some((tool) => tool.label === 'Service Status')).toBe(true)
+		expect(tools.some((tool) => tool.id === 'tweak-settings')).toBe(true)
+		expect(tools.some((tool) => tool.id === 'terminal')).toBe(true)
 	})
 
 	test('covers the primary operator tool families', () => {
-		const tools = discoverTools(toolCatalog, {
-			'accounts.read': true,
-			'accounts.modify': true,
-			'accounts.suspend': true,
-			'accounts.terminate': true,
-			'databases.read': true,
-			'files.read': true,
-			'mail.read': true,
-			'websites.read': true,
-		})
-
-		expect(tools.map((tool) => tool.label)).toEqual(expect.arrayContaining([
+		expect(toolCatalog.map((tool) => tool.label)).toEqual(expect.arrayContaining([
 			'Account Summary',
 			'Modify an Account',
-			'Change Account Package',
-			'Suspend or Unsuspend',
-			'Terminate an Account',
+			'Upgrade/Downgrade an Account',
+			'Manage Account Suspension',
+			'Terminate Accounts',
 			'Force Password Change',
 			'Database Manager',
 			'Email Management',
@@ -47,20 +31,8 @@ describe('tool discovery', () => {
 		]))
 	})
 
-	test('includes WHM-mapped first-class tools when capabilities allow them', () => {
-		const tools = discoverTools(toolCatalog, {
-			'accounts.read': true,
-			'accounts.impersonate': true,
-			'cron.read': true,
-			'domains.read': true,
-			'dns.read': true,
-			'files.read': true,
-			'mail.read': true,
-			'packages.read': true,
-			'websites.read': true,
-		})
-
-		expect(tools.map((tool) => tool.label)).toEqual(expect.arrayContaining([
+	test('includes WHM-mapped first-class tools', () => {
+		expect(toolCatalog.map((tool) => tool.label)).toEqual(expect.arrayContaining([
 			'List Domains',
 			'List Subdomains',
 			'List Parked Domains',
@@ -71,17 +43,6 @@ describe('tool discovery', () => {
 			'Email Deliverability',
 			'Login to Kelmor Control',
 		]))
-	})
-
-	test('requires account inventory access for account-scoped service selectors', () => {
-		const tools = discoverTools(toolCatalog, {
-			'databases.read': true,
-			'dns.read': true,
-			'mail.read': true,
-			'websites.read': true,
-		})
-
-		expect(tools.map((tool) => tool.id)).not.toEqual(expect.arrayContaining(['dns', 'sql', 'email', 'ssl']))
 	})
 
 	test.each([
@@ -97,16 +58,12 @@ describe('tool discovery', () => {
 		['login-control', ['accounts.read', 'accounts.impersonate']],
 		['list-domains', ['accounts.read', 'domains.read']],
 		['websites', ['accounts.read', 'websites.read']],
-		['cron', ['accounts.read', 'cron.read']],
+		['cron-jobs', ['accounts.read', 'cron.read']],
 		['deliverability', ['accounts.read', 'mail.read', 'dns.read']],
-	] as const)('requires every capability for the %s tool', (toolId, requiredCapabilities) => {
-		for (const omittedCapability of requiredCapabilities) {
-			const capabilities = Object.fromEntries(requiredCapabilities.map((capability) => [capability, capability !== omittedCapability]))
-			expect(discoverTools(toolCatalog, capabilities).some((tool) => tool.id === toolId)).toBe(false)
-		}
-
-		const capabilities = Object.fromEntries(requiredCapabilities.map((capability) => [capability, true]))
-		expect(discoverTools(toolCatalog, capabilities).some((tool) => tool.id === toolId)).toBe(true)
+	] as const)('still declares every capability for the %s tool', (toolId, requiredCapabilities) => {
+		const tool = toolCatalog.find((entry) => entry.id === toolId)
+		expect(tool?.capabilities).toEqual(requiredCapabilities)
+		expect(discoverTools(toolCatalog, {}).some((entry) => entry.id === toolId)).toBe(true)
 	})
 
 	test('routes account service tools to dedicated hub pages', () => {
@@ -121,5 +78,24 @@ describe('tool discovery', () => {
 
 	test.each(['password', 'terminate', 'package', 'modify', 'suspension', 'summary'])('preserves the %s lifecycle task after account selection', (task) => {
 		expect(accountTaskTarget(task, 'account-1')).toBe(`/accounts/account-1?task=${task}`)
+	})
+})
+
+describe('WHM catalog', () => {
+	test('has unique ids and enough interfaces to cover the WHM panel', () => {
+		const ids = whmFeatures.map((feature) => feature.id)
+		expect(new Set(ids).size).toBe(ids.length)
+		expect(ids.length).toBeGreaterThanOrEqual(140)
+	})
+
+	test('gives every generic tool a /tools/:id path and a workflow', () => {
+		for (const feature of whmFeatures) {
+			expect(feature.steps.length).toBeGreaterThan(0)
+			expect(feature.path).toMatch(/^\//)
+			if (!feature.dedicated && feature.path.startsWith('/tools/')) {
+				expect(feature.path).toBe(`/tools/${feature.id}`)
+				expect(featureById(feature.id)?.label).toBe(feature.label)
+			}
+		}
 	})
 })

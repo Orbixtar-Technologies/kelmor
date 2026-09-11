@@ -74,5 +74,18 @@ describe('navScopeForCategory', () => {
 		expect(navScopeForCategory('Server Status')).toBe('host')
 		expect(navScopeForCategory('Security Center')).toBe('host')
 		expect(navScopeForCategory('Software')).toBe('account')
+		expect(navScopeForCategory('Email')).toBe('account')
+		expect(navScopeForCategory('Backup')).toBe('account')
+		expect(navScopeForCategory('Restart Services')).toBe('host')
+		expect(navScopeForCategory('Server Configuration')).toBe('host')
+	})
+})
+
+describe('generic tool paths', () => {
+	test('highlights only the matching /tools/:id page', () => {
+		const tweak = tool('tweak-settings', '/tools/tweak-settings', 'Server Configuration')
+		const hostname = tool('change-hostname', '/tools/change-hostname', 'Networking Setup')
+		expect(isDirectorToolActive(tweak, '/tools/tweak-settings')).toBe(true)
+		expect(isDirectorToolActive(hostname, '/tools/tweak-settings')).toBe(false)
 	})
 })

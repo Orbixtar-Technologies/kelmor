@@ -29,6 +29,7 @@ import { TransfersPage } from './pages/transfers-page'
 import { UpdatesPage } from './pages/updates-page'
 import { UsagePage } from './pages/usage-page'
 import { WebsitesPage } from './pages/websites-page'
+import { WhmToolPage } from './pages/whm-tool-page'
 import { CapProvider, Forbidden, hasCapabilities } from './rbac'
 import type { ReactNode } from 'react'
 import type { Me, User } from './types'
@@ -80,6 +81,7 @@ export function App () {
 					<Route path="audit" element={allowed('security.audit.read', <AuditPage />)} />
 					<Route path="usage" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />
 					<Route path="monitor" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />
+					<Route path="tools/:toolId" element={<WhmToolPage />} />
 					<Route path="*" element={<Navigate to="/" replace />} />
 				</Route>
 			</Routes>

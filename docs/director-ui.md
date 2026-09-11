@@ -21,9 +21,9 @@ For the route-by-route WHM pattern mapping, see
   opened, closes with Escape, and restores focus to its trigger.
 - Breadcrumbs preserve location context throughout the application.
 
-Tool discovery is capability-aware, but the API remains the security boundary.
-Compound journeys require every capability needed by their route and data
-sources.
+The sidebar and Home list the entire WHM-mapped catalog so operators can learn
+every journey. Write buttons stay disabled without the matching capability, and
+the API remains the security boundary. Generic tools live at `/tools/:id`.
 
 ## Home
 

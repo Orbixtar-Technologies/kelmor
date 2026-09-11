@@ -5,6 +5,7 @@ import { NotificationBell } from '../components/notification-bell'
 import { ResourcesSidebar } from '../components/resources-sidebar'
 import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
+import { whmFeatures } from '../whm-catalog'
 import { GlobalFind } from './global-find'
 import { directorBreadcrumbs } from './breadcrumbs'
 import { Sidebar } from './sidebar'
@@ -25,6 +26,8 @@ const crumbLabels: Record<string, string> = {
 	domains: 'List Domains', websites: 'MultiPHP Manager', features: 'Feature Manager',
 	ftp: 'FTP Accounts', cron: 'Cron Jobs', deliverability: 'Email Deliverability',
 	processes: 'Process Manager',
+	tools: 'Tools',
+	...Object.fromEntries(whmFeatures.filter((feature) => feature.path.startsWith('/tools/')).map((feature) => [feature.id, feature.label])),
 }
 
 export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
