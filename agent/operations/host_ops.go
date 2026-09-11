@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -39,6 +40,45 @@ type HostRecipe struct {
 	Args        []string `json:"-"`
 }
 
+type ProcessList struct {
+	Processes []HostProcess `json:"processes"`
+	Truncated bool          `json:"truncated"`
+}
+
+const processListCap = 500
+
+func redactProcessCommand(name, cmd string) string {
+	switch name {
+	case "mysqladmin", "mariadb", "mysql", "chpasswd", "psql", "runuser":
+		return name + " [redacted]"
+	default:
+		if strings.Contains(strings.ToUpper(cmd), "PASSWORD") ||
+			strings.Contains(strings.ToUpper(cmd), "IDENTIFIED BY") {
+			return name + " [redacted]"
+		}
+		return cmd
+	}
+}
+
+func validateMariaDBPassword(value string, required bool) error {
+	if value == "" {
+		if required {
+			return fmt.Errorf("invalid database root password")
+		}
+		return nil
+	}
+	if required && len(value) < 8 {
+		return fmt.Errorf("invalid database root password")
+	}
+	if strings.TrimSpace(value) != value || strings.HasPrefix(value, "-") {
+		return fmt.Errorf("invalid database root password")
+	}
+	if strings.ContainsAny(value, "\n\r;|&$`") {
+		return fmt.Errorf("invalid database root password")
+	}
+	return nil
+}
+
 func hostRecipes() []HostRecipe {
 	return []HostRecipe{
 		{ID: "nginx-test", Label: "Test nginx configuration", Description: "Run nginx -t without reloading.", Bin: "/usr/sbin/nginx", Args: []string{"-t"}},
@@ -49,12 +89,13 @@ func hostRecipes() []HostRecipe {
 	}
 }
 
-func (h *Host) listProcesses() ([]HostProcess, error) {
+func (h *Host) listProcesses() (ProcessList, error) {
 	ents, err := os.ReadDir("/proc")
 	if err != nil {
-		return []HostProcess{{PID: os.Getpid(), Name: filepath.Base(os.Args[0]), Scope: "serving API instance"}}, nil
+		return ProcessList{}, err
 	}
 	out := make([]HostProcess, 0, 64)
+	truncated := false
 	for _, ent := range ents {
 		if !ent.IsDir() {
 			continue
@@ -63,27 +104,30 @@ func (h *Host) listProcesses() ([]HostProcess, error) {
 		if err != nil || pid <= 0 {
 			continue
 		}
-		name := readProcFile(filepath.Join("/proc", ent.Name(), "comm"))
+		name := strings.TrimSpace(readProcFile(filepath.Join("/proc", ent.Name(), "comm")))
 		if name == "" {
 			continue
 		}
-		user := ownerName(procUID(ent.Name()))
-		cmd := strings.ReplaceAll(readProcFile(filepath.Join("/proc", ent.Name(), "cmdline")), "\x00", " ")
-		out = append(out, HostProcess{
-			PID:   pid,
-			Name:  strings.TrimSpace(name),
-			User:  user,
-			Cmd:   strings.TrimSpace(cmd),
-			Scope: processScope(user, strings.TrimSpace(name)),
-		})
-		if len(out) >= 300 {
+		cmd := strings.TrimSpace(strings.ReplaceAll(
+			readProcFile(filepath.Join("/proc", ent.Name(), "cmdline")), "\x00", " ",
+		))
+		if cmd == "" {
+			continue
+		}
+		if len(out) >= processListCap {
+			truncated = true
 			break
 		}
+		user := ownerName(procUID(ent.Name()))
+		out = append(out, HostProcess{
+			PID:   pid,
+			Name:  name,
+			User:  user,
+			Cmd:   redactProcessCommand(name, cmd),
+			Scope: processScope(user, name),
+		})
 	}
-	if len(out) == 0 {
-		out = append(out, HostProcess{PID: os.Getpid(), Name: filepath.Base(os.Args[0]), Scope: "serving API instance"})
-	}
-	return out, nil
+	return ProcessList{Processes: out, Truncated: truncated}, nil
 }
 
 func readProcFile(path string) string {
@@ -167,27 +211,57 @@ func (h *Host) setRootPassword(password string) (Result, error) {
 }
 
 func (h *Host) setMariaDBRootPassword(current, next string) (Result, error) {
-	if len(next) < 8 || strings.ContainsAny(next, "\n\r;|&$`") {
-		return Result{}, fmt.Errorf("invalid database root password")
+	if err := validateMariaDBPassword(next, true); err != nil {
+		return Result{}, err
+	}
+	if err := validateMariaDBPassword(current, false); err != nil {
+		return Result{}, err
 	}
 	if !h.live() {
 		return Result{OK: true, Message: "database root password staged", ObservedState: "staged"}, nil
 	}
-	args := []string{"-u", "root"}
+	sql := []byte("ALTER USER 'root'@'localhost' IDENTIFIED BY '" +
+		strings.ReplaceAll(next, "'", "''") + "';\n")
+	args := []string{}
 	if current != "" {
-		args = append(args, "-p"+current)
-	}
-	args = append(args, "password", next)
-	out, err := runFixed("/usr/bin/mysqladmin", args...)
-	if err != nil {
-		out2, err2 := runFixed("/usr/bin/mariadb", args...)
-		if err2 != nil {
-			return Result{}, fmt.Errorf("mysqladmin: %s", strings.TrimSpace(string(out)+" "+string(out2)))
+		cfg, err := writeMariaDBDefaultsFile(current)
+		if err != nil {
+			return Result{}, err
 		}
-	} else {
-		_ = out
+		defer os.Remove(cfg)
+		args = append(args, "--defaults-extra-file="+cfg)
+	}
+	out, err := runFixedIO("/usr/bin/mariadb", sql, args...)
+	if err != nil {
+		return Result{}, fmt.Errorf("mariadb: %s", strings.TrimSpace(string(out)))
 	}
 	return Result{OK: true, Message: "database root password set", ObservedState: "set"}, nil
+}
+
+func writeMariaDBDefaultsFile(password string) (string, error) {
+	f, err := os.CreateTemp("", "kelmor-mariadb-*.cnf")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	escaped := strings.ReplaceAll(password, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	body := "[client]\nuser=root\npassword=\"" + escaped + "\"\n"
+	if _, err := f.WriteString(body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
 }
 
 func (h *Host) listHostApps() []HostApp {
@@ -255,7 +329,15 @@ func (h *Host) ensurePHPRuntime(version string) (Result, error) {
 		return Result{OK: true, Message: "php-fpm " + version + " staged", ObservedState: "staged"}, nil
 	}
 	pkg := "php" + version + "-fpm"
-	out, err := runFixed("/usr/bin/apt-get", "install", "-y", pkg, "php"+version+"-cli", "php"+version+"-mysql")
+	out, err := runFixedEnv(
+		"/usr/bin/apt-get",
+		[]string{"DEBIAN_FRONTEND=noninteractive"},
+		10*time.Minute,
+		nil,
+		"-o", "Dpkg::Options::=--force-confold",
+		"-o", "Dpkg::Lock::Timeout=120",
+		"install", "-y", pkg, "php"+version+"-cli", "php"+version+"-mysql",
+	)
 	if err != nil {
 		return Result{}, fmt.Errorf("apt-get: %s", strings.TrimSpace(string(out)))
 	}

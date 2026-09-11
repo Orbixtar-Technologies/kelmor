@@ -10,7 +10,7 @@ interface HostRecipe {
 	description: string
 }
 
-export function HostConsolePanel () {
+export function HostConsolePanel ({ recipeIds }: { recipeIds?: string[] }) {
 	const canWrite = useCan('server.settings.write')
 	const [recipes, setRecipes] = useState<HostRecipe[]>([])
 	const [loading, setLoading] = useState(true)
@@ -54,7 +54,7 @@ export function HostConsolePanel () {
 			{loading ? <LoadingState label="Loading recipes…" /> : null}
 			{!loading && !recipes.length ? <EmptyState title="No recipes" detail="The API did not return host recipes." /> : null}
 			<div className="tool-launch-grid">
-				{recipes.map((recipe) => (
+				{recipes.filter((recipe) => !recipeIds || recipeIds.includes(recipe.id)).map((recipe) => (
 					<button
 						key={recipe.id}
 						type="button"
@@ -82,7 +82,7 @@ export function HostPasswordForm ({
 	endpoint: string
 	includeCurrent?: boolean
 }) {
-	const canWrite = useCan(endpoint.includes('database') ? 'databases.write' : 'server.settings.write')
+	const canWrite = useCan('server.settings.write')
 	const [message, setMessage] = useState('')
 
 	async function submit (event: FormEvent<HTMLFormElement>) {

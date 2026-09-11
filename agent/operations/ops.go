@@ -505,12 +505,15 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		return h.chmodManagedPath(p.Path, p.Mode)
 	case "ApplyAdminTools":
 		var p struct {
-			Domain string `json:"domain"`
+			Domain string   `json:"domain"`
+			Tools  []string `json:"tools"`
 		}
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return nil, err
 		}
-		return h.applyAdminTools(p.Domain)
+		return h.applyAdminTools(p.Domain, p.Tools)
+	case "ListHostRecipes":
+		return hostRecipes(), nil
 	case "GetServiceStatus":
 		var p struct {
 			Name string `json:"name"`

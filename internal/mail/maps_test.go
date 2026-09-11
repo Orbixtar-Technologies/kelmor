@@ -93,6 +93,12 @@ func TestAliasMap(t *testing.T) {
 	if !strings.Contains(login, "sales@acme.test info@acme.test") {
 		t.Fatal(login)
 	}
+	if !strings.Contains(login, "staff@acme.test info@acme.test") {
+		t.Fatal(login)
+	}
+	if !strings.Contains(login, "staff@acme.test ops@acme.test") {
+		t.Fatal(login)
+	}
 }
 
 func TestCatchallSkipsTerminating(t *testing.T) {

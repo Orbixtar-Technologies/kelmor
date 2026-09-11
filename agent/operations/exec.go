@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -69,10 +70,14 @@ var allowedServices = map[string]bool{
 }
 
 func runFixed(bin string, args ...string) ([]byte, error) {
-	return runFixedIO(bin, nil, args...)
+	return runFixedEnv(bin, nil, 0, nil, args...)
 }
 
 func runFixedIO(bin string, stdin []byte, args ...string) ([]byte, error) {
+	return runFixedEnv(bin, nil, 0, stdin, args...)
+}
+
+func runFixedEnv(bin string, env []string, timeout time.Duration, stdin []byte, args ...string) ([]byte, error) {
 	bin = filepath.Clean(bin)
 	if !allowedBins[bin] {
 		return nil, fmt.Errorf("executable not allow-listed")
@@ -82,8 +87,14 @@ func runFixedIO(bin string, stdin []byte, args ...string) ([]byte, error) {
 			return nil, fmt.Errorf("illegal argument")
 		}
 	}
-	cmd := exec.Command(bin, args...)
-	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}
+	ctx := context.Background()
+	cancel := func() {}
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	}
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = append([]string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}, env...)
 	if stdin != nil {
 		cmd.Stdin = strings.NewReader(string(stdin))
 	}
@@ -148,8 +159,16 @@ func probeService(name string) map[string]any {
 	switch name {
 	case "nginx":
 		running = listening("tcp", "127.0.0.1:80") || pidAlive("/run/nginx.pid")
-	case "php8.3-fpm", "php8.4-fpm", "php8.5-fpm", "php-fpm":
+	case "php8.3-fpm":
 		running = pidAlive("/run/php/php8.3-fpm.pid")
+	case "php8.4-fpm":
+		running = pidAlive("/run/php/php8.4-fpm.pid")
+	case "php8.5-fpm":
+		running = pidAlive("/run/php/php8.5-fpm.pid")
+	case "php-fpm":
+		running = pidAlive("/run/php/php8.3-fpm.pid") ||
+			pidAlive("/run/php/php8.4-fpm.pid") ||
+			pidAlive("/run/php/php8.5-fpm.pid")
 	case "postfix":
 		running = listening("tcp", "127.0.0.1:25")
 	case "dovecot":

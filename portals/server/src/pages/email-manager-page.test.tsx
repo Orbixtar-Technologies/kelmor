@@ -38,7 +38,7 @@ describe('EmailManagerPage lists', () => {
 				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
 			}
 			if (String(path).endsWith('/mail/domains')) {
-				return Promise.resolve({ items: [{ id: 'md-1', domain_id: 'shop.test' }] })
+				return Promise.resolve({ items: [{ id: 'md-1', domain_id: 'dom-uuid', ascii_fqdn: 'shop.test' }] })
 			}
 			if (String(path).endsWith('/mail/lists') && options?.method === 'POST') {
 				return Promise.resolve({ operation_id: 'job-1' })
@@ -53,6 +53,7 @@ describe('EmailManagerPage lists', () => {
 		})
 		renderEmail()
 		expect(await screen.findByRole('heading', { name: 'Create mailing list' })).toBeInTheDocument()
+		expect(screen.getByRole('option', { name: 'shop.test' })).toBeInTheDocument()
 		await user.type(screen.getByPlaceholderText('staff'), 'staff')
 		await user.type(screen.getByPlaceholderText('owner@example.com, ops@example.com'), 'owner@shop.test, ops@shop.test')
 		await user.click(screen.getByRole('button', { name: 'Create list' }))
