@@ -123,7 +123,6 @@ export function SQLManagerPage () {
 					accountId={accountId}
 					credentials={credentials}
 					phpmyadminUrl={toolUrls?.phpmyadmin_url}
-					source="sql"
 				/>
 				{canWrite ? <section className="panel">
 					<h2>Create database</h2>
@@ -145,7 +144,7 @@ export function SQLManagerPage () {
 									<td>{valueOf(database, 'engine')}</td>
 									<td><StatusBadge value={valueOf(database, 'status')} /></td>
 									<td>{Array.isArray(database.users) ? database.users.length : '—'}</td>
-									<td><div className="row-actions"><Link to={`/accounts/${accountId}/services?service=databases`}>Details</Link>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeDatabase(database.id)}>Delete</button> : null}</div></td>
+									<td><div className="row-actions">{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeDatabase(database.id)}>Delete</button> : null}<Link to={`/jobs?account=${accountId}`}>Jobs</Link></div></td>
 								</tr>
 							))}
 						</tbody>

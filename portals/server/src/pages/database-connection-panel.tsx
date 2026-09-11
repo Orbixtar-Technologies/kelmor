@@ -5,14 +5,12 @@ interface DatabaseConnectionPanelProps {
 	accountId: string
 	credentials: Record<string, string> | null
 	phpmyadminUrl?: string
-	source?: 'sql' | 'account'
 }
 
 export function DatabaseConnectionPanel ({
 	accountId,
 	credentials,
 	phpmyadminUrl,
-	source = 'account',
 }: DatabaseConnectionPanelProps) {
 	return (
 		<section className="panel">
@@ -25,7 +23,7 @@ export function DatabaseConnectionPanel ({
 			</dl> : <p className="subtle">Credentials appear after the first database is provisioned.</p>}
 			<div className="admin-links">
 				{phpmyadminUrl ? <a href={phpmyadminUrl} target="_blank" rel="noreferrer">Open phpMyAdmin</a> : null}
-				{source === 'account' ? <Link to={`/sql?account=${accountId}`}>Database Manager</Link> : <Link to={`/accounts/${accountId}/services?service=databases`}>Account databases</Link>}
+				<Link to={`/sql?account=${accountId}`}>Database Manager</Link>
 				<Link to={`/files?account=${accountId}`}>File manager</Link>
 			</div>
 		</section>

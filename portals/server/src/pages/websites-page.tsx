@@ -196,7 +196,6 @@ export function WebsitesPage () {
 										<div className="row-actions">
 											<Link to={`/files?account=${ownerId}`}>Files</Link>
 											<Link to={`/ssl?account=${ownerId}`}>SSL</Link>
-											<Link to={`/accounts/${ownerId}/services?service=websites`}>Manage</Link>
 										</div>
 									</td>
 								</tr>

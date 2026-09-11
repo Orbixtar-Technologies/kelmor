@@ -153,7 +153,7 @@ export function WebmailPage () {
 								<td><StatusBadge value={valueOf(mailbox, 'status')} /></td>
 								<td className="row-actions">
 									<button type="button" className="link-button" onClick={() => openWebmail(mailbox)}>Open webmail</button>
-									<Link className="link-button" to={`/accounts/${mailbox.account_id}/services?service=mailboxes`}>Manage</Link>
+									<Link className="link-button" to={`/email?account=${mailbox.account_id}&tab=mailboxes`}>Email Management</Link>
 								</td>
 							</tr>
 						))}

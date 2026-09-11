@@ -25,6 +25,12 @@ const catalog = [
 	tool('list-domains', '/domains'),
 	tool('list-subdomains', '/domains?view=subdomain'),
 	tool('list-parked', '/domains?view=alias'),
+	tool('ssl', '/ssl', 'SSL/TLS'),
+	tool('ssl-storage', '/ssl?task=inventory', 'SSL/TLS'),
+	tool('generate-csr', '/ssl?task=request', 'SSL/TLS'),
+	tool('manage-autossl', '/ssl?task=autossl', 'SSL/TLS'),
+	tool('ssl-tls-status', '/ssl?task=status', 'SSL/TLS'),
+	tool('service-ssl', '/ssl?task=service', 'SSL/TLS'),
 	tool('jobs', '/jobs', 'System Tools'),
 ]
 
@@ -64,6 +70,16 @@ describe('isDirectorToolActive', () => {
 		expect(activeIds('/domains')).toEqual(['list-domains'])
 		expect(activeIds('/domains', '?view=subdomain')).toEqual(['list-subdomains'])
 		expect(activeIds('/domains', '?view=alias')).toEqual(['list-parked'])
+	})
+
+	test('highlights only the matching SSL task on the shared /ssl manager', () => {
+		expect(activeIds('/ssl')).toEqual(['ssl', 'ssl-storage'])
+		expect(activeIds('/ssl', '?account=acc-1')).toEqual(['ssl', 'ssl-storage'])
+		expect(activeIds('/ssl', '?account=acc-1&task=inventory')).toEqual(['ssl', 'ssl-storage'])
+		expect(activeIds('/ssl', '?account=acc-1&task=request')).toEqual(['generate-csr'])
+		expect(activeIds('/ssl', '?task=autossl')).toEqual(['manage-autossl'])
+		expect(activeIds('/ssl', '?task=status')).toEqual(['ssl-tls-status'])
+		expect(activeIds('/ssl', '?task=service')).toEqual(['service-ssl'])
 	})
 })
 

@@ -117,7 +117,7 @@ export function AccountSummaryPage () {
 	].filter(Boolean)
 	return (
 		<>
-			<PageHeader title={account.username} description={`${account.primary_domain} · POSIX tenant ${account.status}`} actions={<>{canSuspend ? <button type="button" className={account.status === 'suspended' ? 'secondary' : 'danger'} onClick={() => setPendingLifecycle(account.status === 'suspended' ? 'unsuspend' : 'suspend')}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}<LoginToControl accountId={id} username={account.username} variant="button" autoOpen={shouldOpenControl} /><Link className="button-link" to={`/accounts/${id}/services`}>Manage services</Link></>} />
+			<PageHeader title={account.username} description={`${account.primary_domain} · POSIX tenant ${account.status}`} actions={<>{canSuspend ? <button type="button" className={account.status === 'suspended' ? 'secondary' : 'danger'} onClick={() => setPendingLifecycle(account.status === 'suspended' ? 'unsuspend' : 'suspend')}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}<LoginToControl accountId={id} username={account.username} variant="button" autoOpen={shouldOpenControl} /><Link className="button-link" to={`/ssl?account=${id}`}>SSL / TLS</Link></>} />
 			<AccountTabs id={id} />
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			<div className="summary-grid">
