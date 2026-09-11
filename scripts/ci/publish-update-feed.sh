@@ -21,15 +21,33 @@ if [[ -z "${VM_HOST:-}" && -f "$ROOT/.env" ]] && grep -q '^VM_HOST=' "$ROOT/.env
 	source "$ROOT/.env"
 fi
 
+function skip_unreachable_publish () {
+	local reason="$1"
+	echo "$reason" >&2
+	echo "Feed remains at $FEED_SRC (uploaded as the release artifact)." >&2
+	if [[ "${REQUIRE_FEED_PUBLISH:-}" == "true" ]]; then
+		echo "REQUIRE_FEED_PUBLISH=true, so unreachable publish is a failure." >&2
+		return 1
+	fi
+	if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+		echo "::warning::Skipped update-feed publish: $reason"
+	fi
+	return 0
+}
+
 if [[ -n "${VM_HOST:-}" ]]; then
 	if [[ -z "${VM_KEY_PATH:-}" ]]; then
 		echo "VM_HOST is set but VM_KEY_PATH is missing" >&2
 		exit 1
 	fi
 	VM_USER="${VM_USER:-ubuntu}"
-	SSH=(ssh -i "$VM_KEY_PATH" -p "${VM_PORT:-22}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
-	SCP=(scp -i "$VM_KEY_PATH" -P "${VM_PORT:-22}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
+	SSH=(ssh -i "$VM_KEY_PATH" -p "${VM_PORT:-22}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout="${VM_CONNECT_TIMEOUT:-15}" -o ConnectionAttempts=1)
+	SCP=(scp -i "$VM_KEY_PATH" -P "${VM_PORT:-22}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout="${VM_CONNECT_TIMEOUT:-15}" -o ConnectionAttempts=1)
 	echo "Publishing feed to ${VM_USER}@${VM_HOST}:/usr/local/panel/share/updates/"
+	if ! "${SSH[@]}" "${VM_USER}@${VM_HOST}" 'true'; then
+		skip_unreachable_publish "ssh to ${VM_USER}@${VM_HOST} port ${VM_PORT:-22} timed out or was refused"
+		exit $?
+	fi
 	"${SSH[@]}" "${VM_USER}@${VM_HOST}" 'sudo rm -rf /tmp/kelmor-feed && sudo mkdir -p /tmp/kelmor-feed && sudo chown "$USER:$USER" /tmp/kelmor-feed'
 	"${SCP[@]}" -r "$FEED_SRC/." "${VM_USER}@${VM_HOST}:/tmp/kelmor-feed/"
 	"${SSH[@]}" "${VM_USER}@${VM_HOST}" 'sudo bash -s' <<'REMOTE'
