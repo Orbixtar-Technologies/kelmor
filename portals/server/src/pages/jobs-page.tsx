@@ -42,7 +42,15 @@ export function JobsPage () {
 	const selectedFailure = selected ? describeJobFailure(selected) : null
 	return <>
 		<PageHeader title="Jobs" description={accountId ? 'Operations for the selected account.' : 'Search background work, inspect failures, and retry eligible jobs.'} actions={<button type="button" className="secondary" onClick={load}>Refresh</button>} />
-		{accountId ? <p className="context-chip">Showing jobs for this account. <Link to={`/accounts/${accountId}`}>Return to account</Link> · <Link to="/jobs">Show all jobs</Link></p> : null}
+		{accountId ? (
+			<div className="context-chip" role="status">
+				<p className="context-chip-copy">Showing jobs for this account.</p>
+				<div className="context-chip-actions">
+					<Link className="context-chip-link" to={`/accounts/${accountId}`}>Return to account</Link>
+					<Link className="context-chip-link" to="/jobs">Show all jobs</Link>
+				</div>
+			</div>
+		) : null}
 		<section className="metric-grid compact-metrics" aria-label={accountId ? 'Account job totals' : 'Job totals'}><Metric label="Queued" value={counts.queued} /><Metric label="Running" value={counts.running} /><Metric label="Succeeded" value={counts.succeeded} /><Metric label="Failed" value={counts.failed} /></section>
 		<div className="filter-bar"><label>Search jobs<input type="search" value={query} placeholder="Type, resource, error, or ID" onChange={(event) => { setQuery(event.target.value); setPage(1) }} /></label><label>State<select value={state} onChange={(event) => { setState(event.target.value); setPage(1) }}><option value="">All states</option><option>queued</option><option>running</option><option>succeeded</option><option>failed</option></select></label></div>
 		{message ? <p className="feedback">{message}</p> : null}{error ? <ErrorState error={error} onRetry={load} /> : null}{loading ? <LoadingState label="Loading jobs…" /> : null}

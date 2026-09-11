@@ -9,7 +9,26 @@ import { Sidebar } from './sidebar'
 import type { Me, ToolDefinition } from '../types'
 
 vi.mock('../client', () => ({
-	api: vi.fn().mockResolvedValue({ items: [] }),
+	api: vi.fn().mockImplementation((path: string) => {
+		if (String(path).startsWith('/api/v1/server')) {
+			return Promise.resolve({
+				system: {
+					hostname: 'host.example',
+					load1: 0.4,
+					memory_used: 4,
+					memory_total: 8,
+					disk_used: 20,
+					disk_total: 100,
+					inodes_used: 1,
+					inodes_total: 10,
+					uptime_seconds: 7200,
+				},
+				stats: { accounts: 3, failedJobs: 0 },
+				services: [{ name: 'nginx', health: 'ok', desired_enabled: true, observed_running: true }],
+			})
+		}
+		return Promise.resolve({ items: [] })
+	}),
 	asList: (value: { items?: unknown[] }) => value.items || [],
 }))
 
@@ -104,5 +123,41 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: /List Accounts/ })).not.toHaveAttribute('aria-current')
 		expect(screen.getByRole('link', { name: /Modify an Account/ })).not.toHaveAttribute('aria-current')
 		expect(screen.getByRole('link', { name: /Terminate an Account/ })).not.toHaveAttribute('aria-current')
+	})
+
+	test('does not render Account or Host badges on sidebar categories', () => {
+		render(
+			<MemoryRouter>
+				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
+			</MemoryRouter>,
+		)
+
+		expect(screen.queryByText('Account')).not.toBeInTheDocument()
+		expect(screen.queryByText('Host')).not.toBeInTheDocument()
+	})
+
+	test('shows the host resources bar on Home only', async () => {
+		function renderShell (path: string) {
+			return render(
+				<MemoryRouter initialEntries={[path]}>
+					<CapProvider caps={{ 'server.read': true }}>
+						<Routes>
+							<Route element={<DirectorShell me={me} onSignOut={vi.fn()} />}>
+								<Route index element={<p>Home content</p>} />
+								<Route path="files" element={<p>Files content</p>} />
+							</Route>
+						</Routes>
+					</CapProvider>
+				</MemoryRouter>,
+			)
+		}
+
+		renderShell('/')
+		expect(await screen.findByRole('complementary', { name: 'Host resources' })).toBeInTheDocument()
+		cleanup()
+
+		renderShell('/files')
+		expect(screen.getByText('Files content')).toBeInTheDocument()
+		expect(screen.queryByRole('complementary', { name: 'Host resources' })).not.toBeInTheDocument()
 	})
 })
