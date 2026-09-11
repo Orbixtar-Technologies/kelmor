@@ -76,20 +76,12 @@ func (a *API) accountAdminTools(w http.ResponseWriter, r *http.Request) {
 	if d := a.primaryDomainRecord(aid); d != "" {
 		domain = d
 	}
-	params, _ := json.Marshal(map[string]any{"domain": domain})
-	if _, err := a.Agent.Dispatch(r.Context(), operations.Request{
-		Method: "ApplyAdminTools",
-		Params: params,
-	}); err != nil {
-		a.fail(w, r, 500, "AGENT_ERROR", err.Error(), false)
-		return
-	}
 	scheme := "https"
 	if r.TLS == nil {
 		scheme = "http"
 	}
 	writeJSON(w, 200, map[string]any{
-		"domain": domain,
+		"domain":         domain,
 		"phpmyadmin_url": fmt.Sprintf("%s://phpmyadmin.%s/", scheme, domain),
 		"webmail_url":    fmt.Sprintf("%s://webmail.%s/", scheme, domain),
 	})

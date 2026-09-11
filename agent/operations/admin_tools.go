@@ -15,7 +15,7 @@ const (
 	webmailRoot    = "/usr/share/roundcube"
 )
 
-func (h *Host) applyAdminTools(domain string) (Result, error) {
+func (h *Host) applyAdminTools(domain string, tools []string) (Result, error) {
 	ascii, err := validate.NormalizeDomain(domain)
 	if err != nil {
 		return Result{}, err
@@ -28,13 +28,28 @@ func (h *Host) applyAdminTools(domain string) (Result, error) {
 			key = ""
 		}
 	}
-	tools := []struct {
-		id, host, root string
-	}{
-		{"phpmyadmin-" + ascii, "phpmyadmin." + ascii, phpMyAdminRoot},
-		{"webmail-" + ascii, "webmail." + ascii, webmailRoot},
+	wanted := map[string]bool{}
+	if len(tools) == 0 {
+		wanted["phpmyadmin"] = true
+		wanted["roundcube"] = true
+	} else {
+		for _, tool := range tools {
+			switch tool {
+			case "phpmyadmin", "roundcube":
+				wanted[tool] = true
+			}
+		}
 	}
-	for _, tool := range tools {
+	catalog := []struct {
+		id, host, root, key string
+	}{
+		{"phpmyadmin-" + ascii, "phpmyadmin." + ascii, phpMyAdminRoot, "phpmyadmin"},
+		{"webmail-" + ascii, "webmail." + ascii, webmailRoot, "roundcube"},
+	}
+	for _, tool := range catalog {
+		if !wanted[tool.key] {
+			continue
+		}
 		if err := h.applyToolSite(tool.id, tool.host, tool.root, cert, key); err != nil {
 			return Result{}, err
 		}
@@ -58,7 +73,7 @@ func (h *Host) applyToolSite(id, host, root, cert, key string) error {
 			return fmt.Errorf("%s is not installed on this host", filepath.Base(root))
 		}
 		if err := os.MkdirAll(rootAbs, 0o755); err != nil {
-		 return err
+			return err
 		}
 		_ = os.WriteFile(filepath.Join(rootAbs, "index.php"), []byte("<?php echo 'panel tool placeholder';\n"), 0o644)
 	}

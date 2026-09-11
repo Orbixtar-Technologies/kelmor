@@ -301,7 +301,7 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 					<p>Use the audited Postfix recipes below to inspect and flush the live queue. Delivery reports stay on Jobs.</p>
 					<p><Link to="/jobs?q=mail">Mail jobs</Link> · <Link to="/deliverability">Deliverability</Link></p>
 				</section>
-				<HostConsolePanel />
+				<HostConsolePanel recipeIds={['postfix-queue', 'postfix-flush', 'postfix-status']} />
 			</>
 		)
 	}

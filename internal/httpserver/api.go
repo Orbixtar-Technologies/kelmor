@@ -160,7 +160,7 @@ func (a *API) Handler() http.Handler {
 				r.Get("/mail/lists", a.listMailingLists)
 				r.Post("/mail/lists", a.createMailingList)
 				r.Patch("/mail/lists/{listID}", a.updateMailingList)
-				r.Delete("/mail/lists/{aliasID}", a.deleteMailAlias)
+				r.Delete("/mail/lists/{listID}", a.deleteMailingList)
 				r.Get("/certificates", a.listCerts)
 				r.Post("/certificates", a.requestCert)
 				r.Get("/backups", a.listBackups)
@@ -543,6 +543,17 @@ func (a *API) require(w http.ResponseWriter, r *http.Request, cap string) bool {
 	return true
 }
 
+func (a *API) requireServer(w http.ResponseWriter, r *http.Request, cap string) bool {
+	if !a.require(w, r, cap) {
+		return false
+	}
+	if !actor(r).IsServerScope {
+		a.fail(w, r, 403, "FORBIDDEN", "Server scope required", false)
+		return false
+	}
+	return true
+}
+
 func (a *API) requireAccount(w http.ResponseWriter, r *http.Request, accountID, cap string) bool {
 	ac := actor(r)
 	if !ac.Has(cap) || !ac.CanAccount(accountID) {
@@ -651,7 +662,6 @@ func (a *API) getFirewall(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"table": "inet panel", "file": "/etc/panel/nftables-panel.nft"})
 }
-
 
 func (a *API) listJobs(w http.ResponseWriter, r *http.Request) {
 	ac := actor(r)
@@ -832,6 +842,8 @@ func retryCapability(jobType string) string {
 		return rbac.WebsitesWrite
 	case "application.deploy", "wordpress.install":
 		return rbac.ApplicationsWrite
+	case "php.runtime.ensure":
+		return rbac.ServerSettingsWrite
 	case "database.provision", "database.delete":
 		return rbac.DatabasesWrite
 	case "dns.sync", "dns.dnssec":
@@ -2306,13 +2318,17 @@ func (a *API) deleteApp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": app.ID})
 }
 
+type wordpressInstallInput struct {
+	WebsiteID     string
+	Title         string
+	AdminUser     string
+	AdminPassword string
+	AdminEmail    string
+}
+
 func (a *API) installWordPress(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.ApplicationsWrite) {
-		return
-	}
-	if err := a.enforceCountLimit(aid, "applications", len(a.Store.ListApps(aid)), func(p *store.Package) int { return p.ApplicationInstances }); err != nil {
-		a.rejectLimit(w, r, err)
 		return
 	}
 	var in struct {
@@ -2323,6 +2339,17 @@ func (a *API) installWordPress(w http.ResponseWriter, r *http.Request) {
 		AdminEmail    string `json:"admin_email"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
+	a.queueWordPressInstall(w, r, aid, wordpressInstallInput{
+		WebsiteID: in.WebsiteID, Title: in.Title, AdminUser: in.AdminUser,
+		AdminPassword: in.AdminPassword, AdminEmail: in.AdminEmail,
+	})
+}
+
+func (a *API) queueWordPressInstall(w http.ResponseWriter, r *http.Request, aid string, in wordpressInstallInput) {
+	if err := a.enforceCountLimit(aid, "applications", len(a.Store.ListApps(aid)), func(p *store.Package) int { return p.ApplicationInstances }); err != nil {
+		a.rejectLimit(w, r, err)
+		return
+	}
 	if err := validate.Username(in.AdminUser); err != nil {
 		a.fail(w, r, 400, "VALIDATION", "admin_user: "+err.Error(), false)
 		return
@@ -2690,6 +2717,10 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !updating {
+		if msg := mailLocalPartConflict(a.Store, aid, md.ID, in.LocalPart); msg != "" && msg != "mailbox already exists" {
+			a.fail(w, r, 409, "CONFLICT", msg, false)
+			return
+		}
 		if err := a.enforceCountLimit(aid, "mailboxes", len(a.Store.ListMailboxes(aid)), func(p *store.Package) int { return p.Mailboxes }); err != nil {
 			a.rejectLimit(w, r, err)
 			return
@@ -2763,11 +2794,9 @@ func (a *API) createMailAlias(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", "alias cannot point at itself", false)
 		return
 	}
-	for _, existing := range a.Store.ListMailAliases(aid) {
-		if existing.DomainID == md.ID && existing.Address == in.Address {
-			a.fail(w, r, 409, "CONFLICT", "alias already exists", false)
-			return
-		}
+	if msg := mailLocalPartConflict(a.Store, aid, md.ID, in.Address); msg != "" {
+		a.fail(w, r, 409, "CONFLICT", msg, false)
+		return
 	}
 	al := &store.MailAlias{ID: id.New(), AccountID: aid, DomainID: md.ID, Address: in.Address, Destination: dest}
 	a.Store.PutMailAlias(al)

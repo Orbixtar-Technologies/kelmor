@@ -1160,7 +1160,7 @@ paths:
   /server/database-root-password:
     post:
       operationId: setDatabaseRootPassword
-      x-capability: databases.write
+      x-capability: server.settings.write
       responses:
         "200": { description: MariaDB root password applied and not stored }
   /server/runtimes:
@@ -1173,7 +1173,7 @@ paths:
       operationId: ensurePHPRuntime
       x-capability: server.settings.write
       responses:
-        "200": { description: php-fpm package installed or staged }
+        "202": { description: php-fpm install queued }
   /accounts/{accountID}/mail/lists:
     get:
       operationId: listMailingLists

@@ -241,6 +241,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.deployApp(j)
 	case "wordpress.install":
 		return w.installWordPress(j)
+	case "php.runtime.ensure":
+		return w.ensurePHPRuntime(j)
 	case "database.provision":
 		return w.provisionDB(j)
 	case "database.delete":
@@ -684,6 +686,15 @@ func (w *Worker) deployApp(j *store.Job) error {
 	app.Status = "running"
 	w.Store.PutApp(app)
 	return nil
+}
+
+func (w *Worker) ensurePHPRuntime(j *store.Job) error {
+	version := str(j.Payload["version"])
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "EnsurePHPRuntime",
+		Params: mustJSON(map[string]any{"version": version}),
+	})
+	return err
 }
 
 func (w *Worker) installWordPress(j *store.Job) error {
