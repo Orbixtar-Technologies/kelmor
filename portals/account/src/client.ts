@@ -26,6 +26,18 @@ export function getToken () {
 	return localStorage.getItem(tokenKey) || ''
 }
 
+export function consumeImpersonationSession (location: Pick<Location, 'hash' | 'pathname' | 'search'> = window.location): boolean {
+	const hash = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash
+	const params = new URLSearchParams(hash)
+	const token = params.get('session')
+	if (!token) return false
+	setToken(token)
+	if (typeof window !== 'undefined' && window.history?.replaceState) {
+		window.history.replaceState({}, '', `${location.pathname}${location.search}`)
+	}
+	return true
+}
+
 export function asList<T> (r: { items?: T[] | null } | null | undefined): T[] {
 	if (!r || !Array.isArray(r.items)) return []
 	return r.items

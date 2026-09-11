@@ -9,7 +9,7 @@ const icons: Record<string, string> = {
 	briefcase: '▤', globe: '◎', pulse: '⌁', shield: '◇', transfer: '⇄',
 	jobs: '≡', audit: '✓', chart: '▥', account: '◉', edit: '✎',
 	trash: '×', key: '⌘', database: '▰', mail: '✉', lock: '▧',
-	files: '▤', webmail: '✉',
+	files: '▤', webmail: '✉', code: '{ }',
 }
 
 interface SidebarProps {

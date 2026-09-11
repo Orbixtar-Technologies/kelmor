@@ -10,6 +10,7 @@ const ACCOUNT_CATEGORIES = new Set([
 	'SQL Services',
 	'Email Functions',
 	'SSL/TLS',
+	'Software',
 ])
 
 export function isDirectorToolActive (tool: ToolDefinition, pathname: string, search = ''): boolean {
@@ -31,6 +32,12 @@ export function isDirectorToolActive (tool: ToolDefinition, pathname: string, se
 		if (target.searchParams.has('view')) return view === target.searchParams.get('view')
 		if (target.searchParams.has('task')) return task === target.searchParams.get('task')
 		return !view && !task
+	}
+
+	if (target.pathname === '/domains') {
+		if (pathname !== '/domains') return false
+		if (target.searchParams.has('view')) return view === target.searchParams.get('view')
+		return !view
 	}
 
 	return pathname === target.pathname || pathname.startsWith(`${target.pathname}/`)

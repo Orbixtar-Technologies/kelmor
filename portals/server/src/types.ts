@@ -180,6 +180,18 @@ export interface ServerOverview {
 	services: Service[]
 }
 
+export interface FeatureSet {
+	id: string
+	name: string
+	features: Record<string, boolean>
+}
+
+export interface HostProcess {
+	pid: number
+	name: string
+	scope?: string
+}
+
 export interface ResourceItem {
 	id: string
 	[key: string]: unknown
