@@ -271,11 +271,16 @@ func SenderLogin(st store.Store, recs []Recipient) string {
 			if d == nil || d.ASCII == "" || al.Address == "" || al.Destination == "" {
 				continue
 			}
-			dest := al.Destination
-			if !strings.Contains(dest, "@") {
-				dest = dest + "@" + d.ASCII
+			for _, part := range strings.Split(al.Destination, ",") {
+				dest := strings.TrimSpace(part)
+				if dest == "" {
+					continue
+				}
+				if !strings.Contains(dest, "@") {
+					dest = dest + "@" + d.ASCII
+				}
+				add(al.Address+"@"+d.ASCII, dest)
 			}
-			add(al.Address+"@"+d.ASCII, dest)
 		}
 	}
 	sort.Strings(lines)

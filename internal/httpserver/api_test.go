@@ -1480,9 +1480,13 @@ func TestServerProcessesReportsOnlyTruthfulProcessIdentity(t *testing.T) {
 		"username": "admin", "password": "ChangeMeOnce!2026",
 	})["token"].(string)
 
-	items := get(t, srv.URL+"/api/v1/server/processes", admin)["processes"].([]any)
+	snapshot := get(t, srv.URL+"/api/v1/server/processes", admin)
+	items := snapshot["processes"].([]any)
 	if len(items) == 0 {
 		t.Fatal("expected a live process list")
+	}
+	if _, ok := snapshot["truncated"].(bool); !ok {
+		t.Fatalf("expected truncated flag: %v", snapshot)
 	}
 	self := os.Getpid()
 	found := false

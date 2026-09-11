@@ -60,4 +60,17 @@ describe('WhmToolPage', () => {
 		expect(screen.getAllByText(/not a freeform root shell/i).length).toBeGreaterThan(0)
 		expect(screen.getByText('Test nginx configuration')).toBeInTheDocument()
 	})
+
+	test('mail queue only mounts Postfix recipes', async () => {
+		api.mockResolvedValue({ items: [
+			{ id: 'nginx-test', label: 'Test nginx configuration', description: 'Run nginx -t without reloading.' },
+			{ id: 'postfix-queue', label: 'Show mail queue', description: 'List deferred and active Postfix queue entries.' },
+			{ id: 'postfix-flush', label: 'Flush mail queue', description: 'Ask Postfix to retry deferred mail.' },
+			{ id: 'postfix-status', label: 'Postfix status', description: 'Show Postfix service status.' },
+		] })
+		renderTool('/tools/mail-queue')
+		expect(await screen.findByText('Show mail queue')).toBeInTheDocument()
+		expect(screen.getByText('Flush mail queue')).toBeInTheDocument()
+		expect(screen.queryByText('Test nginx configuration')).not.toBeInTheDocument()
+	})
 })

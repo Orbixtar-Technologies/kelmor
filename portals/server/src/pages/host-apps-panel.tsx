@@ -111,6 +111,7 @@ export function PHPRuntimePanel () {
 	const canWrite = useCan('server.settings.write')
 	const [items, setItems] = useState<Array<{ version: string; status: string }>>([])
 	const [message, setMessage] = useState('')
+	const [busy, setBusy] = useState('')
 
 	function load () {
 		api<{ items?: Array<{ version: string; status: string }> }>('/api/v1/server/runtimes').then((result) => {
@@ -121,6 +122,7 @@ export function PHPRuntimePanel () {
 	useEffect(load, [])
 
 	async function ensure (version: string) {
+		setBusy(version)
 		setMessage('')
 		try {
 			await api('/api/v1/server/runtimes', { method: 'POST', body: JSON.stringify({ version }) })
@@ -128,6 +130,8 @@ export function PHPRuntimePanel () {
 			load()
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
+		} finally {
+			setBusy('')
 		}
 	}
 
@@ -142,7 +146,7 @@ export function PHPRuntimePanel () {
 						<tr key={runtime.version}>
 							<td>PHP {runtime.version}</td>
 							<td><StatusBadge value={runtime.status} /></td>
-							<td>{canWrite && runtime.status !== 'installed' ? <button type="button" className="link-button" onClick={() => ensure(runtime.version)}>Install</button> : 'Ready'}</td>
+							<td>{canWrite && runtime.status !== 'installed' ? <button type="button" className="link-button" disabled={Boolean(busy)} onClick={() => ensure(runtime.version)}>{busy === runtime.version ? 'Installing…' : 'Install'}</button> : 'Ready'}</td>
 						</tr>
 					))}
 				</tbody>

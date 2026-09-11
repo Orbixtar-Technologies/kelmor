@@ -281,7 +281,7 @@ export function EmailManagerPage () {
 					<h2>Create mailing list</h2>
 					<p className="subtle">Kelmor applies a multi-member Postfix alias. Mail to the list address is delivered to every member.</p>
 					<form className="inline-form" onSubmit={createList}>
-						<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'domain_id') || valueOf(item, 'ascii_fqdn')}</option>)}</select></label>
+						<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn') || valueOf(item, 'domain_id')}</option>)}</select></label>
 						<label>List local part<input name="local_part" placeholder="staff" required /></label>
 						<label>Members<input name="members" placeholder="owner@example.com, ops@example.com" required /></label>
 						<button type="submit" disabled={!domains.length}>Create list</button>
