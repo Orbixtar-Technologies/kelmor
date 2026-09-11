@@ -4,6 +4,7 @@ import { buildAccountPayload, validateAccountStep } from '../account-wizard'
 import { api, asList } from '../client'
 import { ErrorState, PageHeader } from '../components/ui'
 import { formatBytes, messageFrom } from '../helpers'
+import { accountHomePath, provisionPipelineSteps } from './account-lifecycle-copy'
 import { useCan } from '../rbac'
 import type { AccountDraft, FieldErrors, Package, Reseller } from '../types'
 
@@ -66,14 +67,14 @@ export function CreateAccountPage () {
 
 	return (
 		<>
-			<PageHeader title="Create Account" description="Provision a hosting identity only after validating and reviewing every value." />
+			<PageHeader title="Create Account" description="Review a POSIX hosting tenant before Kelmor allocates a Linux user, vhost, DNS zone, mail, and prefixed database." />
 			<ol className="steps" aria-label="Account creation progress">
 				{['Identity', 'Package & ownership', 'Review'].map((label, index) => <li key={label} className={step === index + 1 ? 'active' : step > index + 1 ? 'complete' : ''}><span>{index + 1}</span>{label}</li>)}
 			</ol>
 			{loadError ? <ErrorState title="Account could not be created" error={loadError} /> : null}
 			<section className="form-panel">
 				{step === 1 ? <>
-					<div className="form-section-heading"><h2>Account identity</h2><p>The username becomes the Linux identity and home directory. Username, domain, and password are required. Owner email is optional and defaults to username@domain.</p></div>
+					<div className="form-section-heading"><h2>Account identity</h2><p>The username becomes the Linux UID/GID and home {draft.username ? <code>{accountHomePath(draft.username)}</code> : <code>/home/&lt;username&gt;</code>}. Neighboring tenants cannot traverse that tree. Username, domain, and password are required. Owner email is optional and defaults to username@domain.</p></div>
 					{Object.keys(errors).length ? <p className="error-state" role="alert">Fix the highlighted fields before continuing.</p> : null}
 					<div className="form-grid">
 						<label>Username <small>Required · 3–32 lowercase characters</small><input name="username" autoComplete="username" autoFocus value={draft.username} onChange={(event) => update('username', event.target.value)} aria-invalid={Boolean(errors.username)} />{errors.username ? <small className="field-error">{errors.username}</small> : null}</label>
@@ -91,13 +92,19 @@ export function CreateAccountPage () {
 					{selectedPackage ? <div className="limit-summary"><strong>{selectedPackage.name} limits</strong><span>Disk {formatBytes(selectedPackage.disk_bytes)}</span><span>Bandwidth {formatBytes(selectedPackage.bandwidth_bytes_monthly)}/month</span><span>{selectedPackage.domains} domains</span><span>{selectedPackage.mailboxes} mailboxes</span><span>CPU {selectedPackage.cpu_percent}%</span><span>Memory {formatBytes(selectedPackage.memory_bytes)}</span></div> : null}
 				</> : null}
 				{step === 3 ? <>
-					<div className="form-section-heading"><h2>Review account</h2><p>These exact values will be submitted to Kelmor Director.</p></div>
+					<div className="form-section-heading"><h2>Review account</h2><p>These exact values will be submitted. Create queues a durable provision job — the account stays provisioning until Linux, DNS, mail, and database work finish.</p></div>
 					<dl className="review-list">
-						<div><dt>Username</dt><dd>{reviewedPayload.username}</dd></div><div><dt>Submitted domain</dt><dd>{reviewedPayload.primary_domain}</dd></div>
+						<div><dt>Username</dt><dd>{reviewedPayload.username}</dd></div>
+						<div><dt>Linux home</dt><dd><code>{accountHomePath(reviewedPayload.username)}</code></dd></div>
+						<div><dt>Submitted domain</dt><dd>{reviewedPayload.primary_domain}</dd></div>
 						<div><dt>Submitted owner email</dt><dd>{reviewedPayload.owner_email}</dd></div>
 						<div><dt>Package</dt><dd>{selectedPackage?.name}</dd></div><div><dt>Owner</dt><dd>{canChooseReseller ? (resellers.find((entry) => entry.id === draft.resellerId)?.name || 'Direct Kelmor account') : 'Your reseller account (assigned automatically)'}</dd></div>
 						<div><dt>Initial password</dt><dd>••••••••••••</dd></div>
 					</dl>
+					<h3>Provisioning pipeline</h3>
+					<ol className="pipeline-list">
+						{provisionPipelineSteps(reviewedPayload.username, reviewedPayload.primary_domain).map((step) => <li key={step}>{step}</li>)}
+					</ol>
 				</> : null}
 				<footer className="wizard-actions">
 					<button type="button" className="secondary" disabled={step === 1 || submitting} onClick={() => setStep(step - 1)}>Back</button>
