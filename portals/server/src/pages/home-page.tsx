@@ -9,7 +9,7 @@ import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, ServerOverview } from '../types'
 
 const featuredToolIds = [
-	'accounts', 'create-account', 'list-domains', 'websites', 'files', 'sql',
+	'list-accounts', 'create-account', 'list-domains', 'websites', 'file-manager', 'sql',
 	'email', 'deliverability', 'webmail', 'ssl', 'dns', 'services',
 	'processes', 'security', 'jobs', 'updates',
 ]
@@ -24,6 +24,7 @@ export function HomePage () {
 	const tools = discoverTools(toolCatalog, capabilities)
 	const toolById = new Map(tools.map((tool) => [tool.id, tool]))
 	const featured = featuredToolIds.map((id) => toolById.get(id)).filter(Boolean)
+	const grouped = groupTools(tools.filter((tool) => tool.path !== '/'))
 
 	function load () {
 		setLoading(true)
@@ -41,8 +42,8 @@ export function HomePage () {
 	useEffect(load, [])
 	if (loading) return <><PageHeader title="Home" description="Live host health and operator activity." /><LoadingState label="Loading Kelmor Director overview…" /></>
 	const system = server?.system
-	const grouped = groupTools(tools.filter((tool) => tool.path !== '/' && !featuredToolIds.includes(tool.id)))
 	const widgetMetrics: Record<string, { value?: string | number; detail?: string }> = {
+		'list-accounts': { value: server?.stats.accounts ?? accounts.length, detail: `${accounts.filter((account) => account.status === 'suspended').length} suspended` },
 		accounts: { value: server?.stats.accounts ?? accounts.length, detail: `${accounts.filter((account) => account.status === 'suspended').length} suspended` },
 		services: { value: server ? `${server.services.filter((service) => service.observed_running).length}/${server.services.length}` : '—', detail: 'services running' },
 		jobs: { value: '—', detail: 'View in Jobs' },
@@ -63,7 +64,7 @@ export function HomePage () {
 				{toolById.has('jobs') ? <Link to="/jobs"><strong>Jobs</strong><span>Background work and retries</span></Link> : null}
 				{capabilities['security.audit.read'] ? <Link to="/audit"><strong>Audit trail</strong><span>Privileged activity history</span></Link> : null}
 			</nav>
-			<SectionHeading title="Administration" detail="Shortcuts to common server and account tools." />
+			<SectionHeading title="Administration" detail="Shortcuts to common server and account tools. Every WHM-mapped surface is listed below — nothing is hidden for missing privileges." />
 			<div className="widget-grid">
 				{featured.map((tool, index) => (
 					<WidgetCard
@@ -80,7 +81,7 @@ export function HomePage () {
 				))}
 			</div>
 			{grouped.size ? <>
-				<SectionHeading title="More tools" detail="Additional capability-aware administration tools grouped by task." />
+				<SectionHeading title="All tools" detail="Every Director tool grouped the way WHM groups its panel, including journeys that write through settings, jobs, or the typed agent." />
 				<div className="tool-groups">
 					{[...grouped.entries()].map(([category, entries]) => <section className="panel tool-group" key={category}><h3>{category}</h3>{entries.map((tool) => <Link key={tool.id} to={tool.path}><strong>{tool.label}</strong><span>{tool.description}</span></Link>)}</section>)}
 				</div>

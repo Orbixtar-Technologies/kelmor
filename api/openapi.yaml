@@ -86,6 +86,38 @@ paths:
       x-capability: server.read
       responses:
         "200": { description: host metrics and service health }
+  /server/settings:
+    get:
+      operationId: getDirectorSettings
+      x-capability: server.read
+      responses:
+        "200": { description: persisted Director host preferences grouped by tool key }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: patchDirectorSettings
+      x-capability: server.settings.write
+      x-server-scope: true
+      x-audit-action: server.settings.update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [values]
+              properties:
+                values:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    additionalProperties: { type: string }
+      responses:
+        "200": { description: merged Director host preferences }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /server/updates:
     get:
       operationId: getServerUpdates

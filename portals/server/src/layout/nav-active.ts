@@ -9,8 +9,13 @@ const ACCOUNT_CATEGORIES = new Set([
 	'Files',
 	'SQL Services',
 	'Email Functions',
+	'Email',
 	'SSL/TLS',
 	'Software',
+	'Backup',
+	'Transfers',
+	'Multi Account Functions',
+	'cPanel',
 ])
 
 export function isDirectorToolActive (tool: ToolDefinition, pathname: string, search = ''): boolean {
@@ -38,6 +43,10 @@ export function isDirectorToolActive (tool: ToolDefinition, pathname: string, se
 		if (pathname !== '/domains') return false
 		if (target.searchParams.has('view')) return view === target.searchParams.get('view')
 		return !view
+	}
+
+	if (target.pathname.startsWith('/tools/')) {
+		return pathname === target.pathname
 	}
 
 	return pathname === target.pathname || pathname.startsWith(`${target.pathname}/`)

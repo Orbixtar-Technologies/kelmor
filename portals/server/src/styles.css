@@ -317,6 +317,8 @@ td small { display: block; color: var(--muted); }
 .checkbox-grid { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 7px; }
 .pagination { display: flex; justify-content: space-between; align-items: center; margin: 9px 0 16px; color: var(--muted); font-size: 12px; }
 .pagination div { display: flex; gap: 6px; }
+.list-plain { margin: 0; padding-left: 18px; }
+.list-plain li { margin: 6px 0; }
 .feedback, .error-state, .empty-state, .loading-state { padding: 10px 12px; margin: 10px 0; border: 1px solid #9cc2df; border-radius: 3px; background: #eef7fd; color: #244c69; }
 .error-state { border-color: #d9aaa5; background: #fdf1f0; color: #862d27; }
 .empty-state { border-style: dashed; border-color: #aab7c3; background: #fafbfc; color: #536779; }
