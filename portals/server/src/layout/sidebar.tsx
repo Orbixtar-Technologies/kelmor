@@ -81,7 +81,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 								if (closed) next.delete(category)
 								else next.add(category)
 								setClosedCategories(next)
-							}}><span>{category}</span><span className="nav-scope">{scope === 'account' ? 'Account' : 'Host'}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
+							}}><span>{category}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
 							{closed ? null : entries.map((tool) => {
 								const isCurrent = isDirectorToolActive(tool, location.pathname, location.search)
 								return (

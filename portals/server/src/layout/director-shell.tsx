@@ -41,6 +41,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const location = useLocation()
 	const tools = discoverTools(toolCatalog, capabilities)
 	const canViewResources = Boolean(capabilities['server.read'])
+	const showResources = canViewResources && location.pathname === '/'
 
 	useEffect(() => {
 		if (capabilities['accounts.read']) api<{ items: Account[] }>('/api/v1/accounts').then((result) => setAccounts(asList(result))).catch(() => setAccounts([]))
@@ -104,7 +105,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	}
 
 	return (
-		<div className={`director ${collapsed ? 'nav-collapsed' : ''} ${resourcesCollapsed ? 'resources-collapsed' : ''}`}>
+		<div className={`director ${collapsed ? 'nav-collapsed' : ''} ${showResources && resourcesCollapsed ? 'resources-collapsed' : ''}`}>
 			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} />
 			<div className="workspace">
 				<header className="topbar">
@@ -150,17 +151,19 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 						</span>
 					))}
 				</nav>
-				<div className={`page-body ${canViewResources ? 'with-resources' : ''} ${resourcesCollapsed ? 'resources-collapsed' : ''}`}>
+				<div className={`page-body ${showResources ? 'with-resources' : ''} ${showResources && resourcesCollapsed ? 'resources-collapsed' : ''}`}>
 					<main className="page-content">
 						<Outlet />
 					</main>
-					<ResourcesSidebar
-						server={server}
-						canViewStatus={canViewResources}
-						updatedAt={serverFetchedAt}
-						collapsed={resourcesCollapsed}
-						onToggle={() => setResourcesCollapsed((current) => !current)}
-					/>
+					{showResources ? (
+						<ResourcesSidebar
+							server={server}
+							canViewStatus={canViewResources}
+							updatedAt={serverFetchedAt}
+							collapsed={resourcesCollapsed}
+							onToggle={() => setResourcesCollapsed((current) => !current)}
+						/>
+					) : null}
 				</div>
 				<footer className="workspace-footer">Kelmor Director · Connected to {hostname} {location.state && typeof location.state === 'object' && 'message' in location.state ? `· ${String(location.state.message)}` : ''}</footer>
 			</div>
