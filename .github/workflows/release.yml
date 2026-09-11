@@ -71,6 +71,7 @@ jobs:
           VM_KEY_PATH: ${{ runner.temp }}/vm/ssh-key
           VM_PORT: ${{ secrets.KELMOR_VM_PORT }}
           PANEL_UPDATE_PUBLISH_URL: ${{ secrets.PANEL_UPDATE_PUBLISH_URL }}
+          REQUIRE_FEED_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_feed }}
         run: |
           if [[ -n "${VM_HOST:-}" && -n "${{ secrets.KELMOR_VM_SSH_KEY }}" ]]; then
             install -d -m 700 "$RUNNER_TEMP/vm"

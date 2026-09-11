@@ -7,7 +7,9 @@
 Every push to `main` runs `.github/workflows/release.yml`, which builds binaries,
 portals, the Debian package, and a signed `stable` update feed, then uploads
 artifacts. When publish secrets are configured, the feed is copied to the host
-update directory (`/usr/local/panel/share/updates/`).
+update directory (`/usr/local/panel/share/updates/`). If SSH to that VM times
+out, the release still succeeds and keeps the feed in the workflow artifacts.
+A manual `workflow_dispatch` with **Publish feed** fails instead of skipping.
 
 Local or CI one-shot:
 
