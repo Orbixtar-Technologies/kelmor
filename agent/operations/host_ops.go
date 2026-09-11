@@ -3,7 +3,6 @@ package operations
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -160,10 +159,7 @@ func (h *Host) setRootPassword(password string) (Result, error) {
 	if !h.live() {
 		return Result{OK: true, Message: "root password staged", ObservedState: "staged"}, nil
 	}
-	cmd := exec.Command("/usr/sbin/chpasswd")
-	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}
-	cmd.Stdin = strings.NewReader("root:" + password + "\n")
-	out, err := cmd.CombinedOutput()
+	out, err := runFixedIO("/usr/sbin/chpasswd", []byte("root:"+password+"\n"))
 	if err != nil {
 		return Result{}, fmt.Errorf("chpasswd: %s", strings.TrimSpace(string(out)))
 	}
