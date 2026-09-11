@@ -57,7 +57,7 @@ func hardenSFTPHome(home string, uid, gid int) error {
 		_, _ = runFixed("/usr/bin/setfacl", "-m", "u:"+uname+":r-x", home)
 	}
 	webgid := webServerGID()
-	for _, d := range []string{"public_html", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
+	for _, d := range []string{"public_html", "public_ftp", "apps", "backups", "tmp", "logs", "mail", ".ssh"} {
 		p := filepath.Join(home, d)
 		mode := os.FileMode(0o750)
 		_ = os.MkdirAll(p, mode)

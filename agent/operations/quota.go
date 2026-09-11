@@ -148,7 +148,7 @@ func (h *Host) setHomeWriteLock(username string, lock bool) error {
 	if lock {
 		mode = 0o550
 	}
-	for _, d := range []string{"public_html", "apps", "backups", "tmp"} {
+	for _, d := range []string{"public_html", "public_ftp", "apps", "backups", "tmp"} {
 		p, err := h.resolve(filepath.Join("/home", username, d))
 		if err != nil {
 			continue

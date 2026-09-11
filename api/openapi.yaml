@@ -1089,6 +1089,12 @@ paths:
       x-capability: accounts.suspend
       responses:
         "202": { description: suspend jobs queued }
+  /accounts/bulk/unsuspend:
+    post:
+      operationId: bulkUnsuspend
+      x-capability: accounts.suspend
+      responses:
+        "202": { description: unsuspend jobs queued }
   /accounts/export:
     get:
       operationId: exportAccounts

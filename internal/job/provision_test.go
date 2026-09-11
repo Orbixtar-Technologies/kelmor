@@ -52,6 +52,22 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "public_html")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(home, "public_ftp")); err != nil {
+		t.Fatal("public_ftp skeleton", err)
+	}
+	zone := st.ZoneByDomain("dom-1")
+	if zone == nil {
+		t.Fatal("missing provisioned zone")
+	}
+	hasWWW := false
+	for _, rec := range st.ListRecords(zone.ID) {
+		if rec.Name == "www" && rec.Type == "A" {
+			hasWWW = true
+		}
+	}
+	if !hasWWW {
+		t.Fatal("provision must publish a www A record")
+	}
 	sites, err := os.ReadDir(filepath.Join(root, "etc/nginx/panel-sites"))
 	if err != nil || len(sites) == 0 {
 		t.Fatalf("nginx sites: %v %v", sites, err)
