@@ -317,6 +317,13 @@ td small { display: block; color: var(--muted); }
 .checkbox-grid { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 7px; }
 .pagination { display: flex; justify-content: space-between; align-items: center; margin: 9px 0 16px; color: var(--muted); font-size: 12px; }
 .pagination div { display: flex; gap: 6px; }
+.tool-launch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+.tool-launch-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 4px; background: #fff; text-decoration: none; color: inherit; }
+.tool-launch-card:hover { border-color: #8fb4d2; background: #f4f9fd; }
+.tool-launch-card span { color: var(--muted); font-size: 12px; }
+.ssl-task-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.ssl-task-nav a, .ssl-task-nav strong { padding: 6px 10px; border: 1px solid var(--border); border-radius: 3px; text-decoration: none; }
+.ssl-task-nav strong { background: #e9f4fc; color: #07558f; }
 .list-plain { margin: 0; padding-left: 18px; }
 .list-plain li { margin: 6px 0; }
 .feedback, .error-state, .empty-state, .loading-state { padding: 10px 12px; margin: 10px 0; border: 1px solid #9cc2df; border-radius: 3px; background: #eef7fd; color: #244c69; }

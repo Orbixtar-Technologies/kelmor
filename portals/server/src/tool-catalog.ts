@@ -1,3 +1,4 @@
+import { canonicalAccountToolPath } from './account-tool-routes'
 import type { ToolDefinition } from './types'
 import { toToolDefinition, whmFeatures } from './whm-catalog'
 
@@ -23,21 +24,11 @@ export function accountTaskTarget (task: string, accountId: string): string {
 		ftp: 'ftp',
 		domains: 'domains',
 		websites: 'websites',
+		deliverability: 'deliverability',
+		dns: 'dns',
 	}
-	const hubByTask: Record<string, string> = {
-		databases: '/sql',
-		email: '/email',
-		certificates: '/ssl',
-		files: '/files',
-		cron: '/cron',
-		ftp: '/ftp',
-		domains: '/domains',
-		websites: '/websites',
-		deliverability: '/deliverability',
-	}
-	if (hubByTask[task]) return `${hubByTask[task]}?account=${accountId}`
 	const service = serviceByTask[task]
-	if (service) return `/accounts/${accountId}/services?service=${service}`
+	if (service) return canonicalAccountToolPath(service, accountId) || `/accounts/${accountId}`
 	if (['password', 'terminate', 'package', 'modify', 'suspension', 'summary', 'login'].includes(task)) {
 		return `/accounts/${accountId}?task=${task}`
 	}

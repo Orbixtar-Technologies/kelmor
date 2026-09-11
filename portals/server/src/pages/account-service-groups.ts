@@ -1,3 +1,4 @@
+import { canonicalAccountToolPath } from '../account-tool-routes'
 import type { ResourceItem } from '../types'
 
 export interface GroupableService {
@@ -63,17 +64,5 @@ export function serviceActionLabel (serviceId: string): string {
 }
 
 export function resourceManagePath (serviceId: string, accountId: string): string | undefined {
-	const paths: Record<string, string> = {
-		databases: `/sql?account=${accountId}`,
-		mailboxes: `/email?account=${accountId}`,
-		'mail-domains': `/email?account=${accountId}`,
-		aliases: `/email?account=${accountId}`,
-		certificates: `/ssl?account=${accountId}`,
-		files: `/files?account=${accountId}`,
-		websites: `/websites?account=${accountId}`,
-		domains: `/domains?account=${accountId}`,
-		cron: `/cron?account=${accountId}`,
-		ftp: `/ftp?account=${accountId}`,
-	}
-	return paths[serviceId]
+	return canonicalAccountToolPath(serviceId, accountId)
 }

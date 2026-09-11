@@ -45,6 +45,13 @@ export function isDirectorToolActive (tool: ToolDefinition, pathname: string, se
 		return !view
 	}
 
+	if (target.pathname === '/ssl') {
+		if (pathname !== '/ssl') return false
+		const currentTask = task || 'inventory'
+		if (target.searchParams.has('task')) return currentTask === target.searchParams.get('task')
+		return currentTask === 'inventory'
+	}
+
 	if (target.pathname.startsWith('/tools/')) {
 		return pathname === target.pathname
 	}

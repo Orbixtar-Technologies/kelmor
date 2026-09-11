@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { canonicalAccountToolPath, isHubAccountService } from '../account-tool-routes'
 import { api, asList } from '../client'
 import { AccountTabs, Dialog, EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, messageFrom, valueOf } from '../helpers'
-import { groupAccountServices, resourceManagePath, resourcePrimaryLabel, serviceActionLabel } from './account-service-groups'
+import { groupAccountServices, resourcePrimaryLabel, serviceActionLabel } from './account-service-groups'
 import { backupDestinationReadiness, backupScopeSummary } from './backup-copy'
-import { DatabaseConnectionPanel } from './database-connection-panel'
 import { RequestSequence } from '../request-sequence'
 import { useCapabilities } from '../rbac'
 import type { Account, Package, ResourceItem } from '../types'
@@ -57,15 +57,14 @@ export function AccountServicesPage () {
 	const [pkg, setPkg] = useState<Package | null>(null)
 	const [restoreBackup, setRestoreBackup] = useState<ResourceItem | null>(null)
 	const [detail, setDetail] = useState<ResourceItem | null>(null)
-	const [credentials, setCredentials] = useState<Record<string, string> | null>(null)
-	const [toolUrls, setToolUrls] = useState<{ phpmyadmin_url?: string } | null>(null)
 	const requests = useRef(new RequestSequence()).current
 	const currentAccountId = useRef(id)
 	currentAccountId.current = id
 	const capabilities = useCapabilities()
 	const visibleServices = useMemo(() => services.filter((service) => capabilities[service.readCapability]), [capabilities])
-	const requestedService = searchParams.get('service') || 'websites'
-	const definition = visibleServices.find((service) => service.id === requestedService) || visibleServices[0]
+	const requestedService = searchParams.get('service') || ''
+	const leftoverServices = useMemo(() => visibleServices.filter((service) => !isHubAccountService(service.id)), [visibleServices])
+	const definition = leftoverServices.find((service) => service.id === requestedService) || leftoverServices[0]
 	const active = definition?.id || requestedService
 
 	const load = useCallback(() => {
@@ -84,8 +83,6 @@ export function AccountServicesPage () {
 		setMessage('')
 		setRestoreBackup(null)
 		setPkg(null)
-		setCredentials(null)
-		setToolUrls(null)
 
 		const accountLoad = api<Account>(`/api/v1/accounts/${requestedAccountId}`).then((result) => {
 			if (!requests.isCurrent(accountRequest) || currentAccountId.current !== requestedAccountId) return
@@ -115,20 +112,6 @@ export function AccountServicesPage () {
 		})
 	}, [id, requests, visibleServices])
 	useEffect(load, [load])
-	useEffect(() => {
-		if (!id || requestedService !== 'databases') return
-		const request = requests.begin('database-connection')
-		api<{ credentials: Record<string, string> }>(`/api/v1/accounts/${id}/databases/credentials?engine=mariadb`).then((result) => {
-			if (requests.isCurrent(request) && currentAccountId.current === id) setCredentials(result.credentials)
-		}).catch(() => {
-			if (requests.isCurrent(request) && currentAccountId.current === id) setCredentials(null)
-		})
-		api<{ phpmyadmin_url?: string }>(`/api/v1/accounts/${id}/admin-tools`).then((result) => {
-			if (requests.isCurrent(request) && currentAccountId.current === id) setToolUrls(result)
-		}).catch(() => {
-			if (requests.isCurrent(request) && currentAccountId.current === id) setToolUrls(null)
-		})
-	}, [id, requestedService, requests])
 
 	async function refreshService (requestedAccountId: string, serviceId: string) {
 		const service = visibleServices.find((entry) => entry.id === serviceId)
@@ -171,21 +154,15 @@ export function AccountServicesPage () {
 			if (currentAccountId.current === requestedAccountId) setMessage(messageFrom(error))
 		}
 	}
-	async function patchMailDomain (mailDomainId: string, catchallPolicy: string) {
-		const requestedAccountId = id
-		try {
-			await api(`/api/v1/accounts/${requestedAccountId}/mail/domains/${mailDomainId}`, { method: 'PATCH', body: JSON.stringify({ catchall_policy: catchallPolicy }) })
-			if (currentAccountId.current !== requestedAccountId) return
-			setMessage('Mail routing update queued.')
-			await refreshService(requestedAccountId, 'mail-domains')
-		} catch (error) {
-			if (currentAccountId.current === requestedAccountId) setMessage(messageFrom(error))
-		}
-	}
 	async function restore () {
 		if (!restoreBackup) return
 		await create('restores', { backup_id: restoreBackup.id, mode: 'in_place' })
 		setRestoreBackup(null)
+	}
+
+	if (requestedService && isHubAccountService(requestedService)) {
+		const dest = canonicalAccountToolPath(requestedService, id)
+		if (dest) return <Navigate to={dest} replace />
 	}
 
 	const isCurrentRequest = requestAccountId === id
@@ -194,19 +171,34 @@ export function AccountServicesPage () {
 	if (!currentAccount) return <><PageHeader title="Account Services" description="Account-linked operations." /><ErrorState error={errors.account || 'Account unavailable.'} onRetry={load} /></>
 	const items = definition ? resources[definition.id] || [] : []
 	const groups = groupAccountServices(visibleServices)
-	const managePath = definition ? resourceManagePath(definition.id, id) : undefined
+	const leftoverGroups = groupAccountServices(leftoverServices)
 	return (
 		<>
-			<PageHeader title={`${currentAccount.username}: Services`} description="Create a resource, then open an existing one for details and routine actions." />
+			<PageHeader title={`${currentAccount.username}: Services`} description="Open the dedicated manager for each hosting resource. Access tools that have no separate hub stay on this page." />
 			<AccountTabs id={id} />
-			<div className="service-switcher">
-				<label className="service-select-label" htmlFor="account-service">Service
+			<section className="panel">
+				<div className="section-heading"><div><h2>Hosting tools</h2><p>Each card opens the real manager for that resource. There is no second hop through this page.</p></div></div>
+				<div className="tool-launch-grid">
+					{groups.map((group) => group.items.filter((service) => isHubAccountService(service.id)).map((service) => {
+						const path = canonicalAccountToolPath(service.id, id)
+						if (!path) return null
+						return (
+							<Link key={service.id} className="tool-launch-card" to={path}>
+								<strong>{service.label}</strong>
+								<span>{resources[service.id]?.length ?? 0} on this account</span>
+							</Link>
+						)
+					}))}
+				</div>
+			</section>
+			{leftoverGroups.length ? <div className="service-switcher">
+				<label className="service-select-label" htmlFor="account-service">Access and backups
 					<select id="account-service" value={active} onChange={(event) => setSearchParams({ service: event.target.value }, { replace: true })}>
-						{groups.map((group) => <optgroup key={group.id} label={group.label}>{group.items.map((service) => <option key={service.id} value={service.id}>{service.label} ({resources[service.id]?.length ?? 0})</option>)}</optgroup>)}
+						{leftoverGroups.map((group) => <optgroup key={group.id} label={group.label}>{group.items.map((service) => <option key={service.id} value={service.id}>{service.label} ({resources[service.id]?.length ?? 0})</option>)}</optgroup>)}
 					</select>
 				</label>
-				<div className="service-groups" role="tablist" aria-label="Account service">
-					{groups.map((group) => (
+				<div className="service-groups" role="tablist" aria-label="Access and backup tools">
+					{leftoverGroups.map((group) => (
 						<section key={group.id} className="service-group">
 							<h3>{group.label}</h3>
 							<div>
@@ -219,20 +211,18 @@ export function AccountServicesPage () {
 						</section>
 					))}
 				</div>
-			</div>
+			</div> : null}
 			{message ? <p className="feedback" role="status">{message}</p> : null}
-			{definition?.id === 'databases' ? <DatabaseConnectionPanel accountId={id} credentials={credentials} phpmyadminUrl={toolUrls?.phpmyadmin_url} /> : null}
 			<section className="panel service-panel">
-				<div className="section-heading"><div><h2>{definition?.label} · {items.length}</h2><p>Queued changes appear in Activity. Use Details to inspect an existing resource.</p></div></div>
-				{definition?.id === 'mail-domains' && capabilities['mail.write'] ? <MailDomainForm domains={items} onPatch={patchMailDomain} /> : definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} account={currentAccount} resources={resources} canListWebsites={Boolean(capabilities['websites.read'])} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
+				<div className="section-heading"><div><h2>{definition?.label} · {items.length}</h2><p>These access tools are managed here. Certificates, mail, SQL, files, and websites open their own managers.</p></div></div>
+				{definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} resources={resources} canListWebsites={Boolean(capabilities['websites.read'])} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
 				{definition?.id === 'backups' ? <p className="subtle">{backupScopeSummary(pkg?.backup_retention_days)}</p> : null}
 				{errors[active] ? <ErrorState title={`${definition?.label} unavailable`} error={errors[active]} onRetry={load} /> : null}
 				{loading ? <LoadingState /> : null}
 				{!loading && !errors[active] && definition ? <div className="table-wrap"><table className="dense-table"><thead><tr><th>Resource</th>{definition.columns.map((column) => <th key={column} scope="col">{column.replaceAll('_', ' ')}</th>)}<th scope="col">Actions</th></tr></thead>
 					<tbody>{items.map((item) => <tr key={item.id}><td><button type="button" className="link-button resource-name" onClick={() => setDetail(item)}>{resourcePrimaryLabel(definition.id, item)}</button></td>{definition.columns.map((column) => <td key={column}>{column === 'status' || column === 'state' ? <StatusBadge value={valueOf(item, column)} /> : column.includes('bytes') || column === 'size' ? formatBytes(Number(item[column])) : valueOf(item, column)}</td>)}<td><div className="row-actions">
 						<button type="button" className="link-button" onClick={() => setDetail(item)}>Details</button>
-						{managePath ? <Link to={managePath}>Manage</Link> : null}
-						{active === 'websites' && capabilities['applications.write'] && ['node', 'python'].includes(String(item.runtime)) ? <button type="button" className="link-button" onClick={() => create('applications', { website_id: item.id, runtime: item.runtime })}>Deploy application</button> : null}
+						{active === 'applications' && capabilities['applications.write'] && ['node', 'python'].includes(String(item.runtime)) ? <button type="button" className="link-button" onClick={() => create('applications', { website_id: item.id, runtime: item.runtime })}>Deploy application</button> : null}
 						{active === 'backups' && item.state === 'succeeded' && capabilities['backups.restore'] ? <button type="button" className="link-button" onClick={() => setRestoreBackup(item)}>Review restore</button> : null}
 						{definition.isDeletable && definition.writeCapability && capabilities[definition.writeCapability] ? <button type="button" className="link-button danger-text" onClick={() => remove(definition.endpoint, item.id)}>Delete</button> : null}
 					</div></td></tr>)}</tbody>
@@ -249,7 +239,6 @@ export function AccountServicesPage () {
 				{detail ? <dl className="detail-list">{Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl> : null}
 				<footer className="dialog-form-actions">
 					<button type="button" className="secondary" onClick={() => setDetail(null)}>Close</button>
-					{managePath ? <Link className="button-link" to={managePath}>Manage</Link> : null}
 				</footer>
 			</Dialog>
 			<Dialog open={Boolean(restoreBackup)} title="Review in-place restore" onClose={() => setRestoreBackup(null)}>
@@ -282,40 +271,25 @@ function BackupCreateForm ({ onCreate }: { onCreate: (endpoint: string, body: Re
 	)
 }
 
-function MailDomainForm ({ domains, onPatch }: { domains: ResourceItem[]; onPatch: (id: string, policy: string) => Promise<void> }) {
-	return <form className="inline-form" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); onPatch(String(data.get('mail_domain_id')), String(data.get('catchall_policy'))) }}><label>Mail domain<select name="mail_domain_id">{domains.map((domain) => <option key={domain.id} value={domain.id}>{valueOf(domain, 'domain_id')}</option>)}</select></label><label>Catch-all policy<input name="catchall_policy" placeholder="reject, discard, or local part" required /></label><button type="submit" disabled={!domains.length}>Update routing</button></form>
-}
-
 interface ServiceCreateFormProps {
 	service: string
-	account: Account
 	resources: Record<string, ResourceItem[]>
 	canListWebsites: boolean
 	onCreate: (endpoint: string, body: Record<string, unknown>) => Promise<void>
 }
 
-export function ServiceCreateForm ({ service, account, resources, canListWebsites, onCreate }: ServiceCreateFormProps) {
+export function ServiceCreateForm ({ service, resources, canListWebsites, onCreate }: ServiceCreateFormProps) {
 	const capabilities = useCapabilities()
 	function submit (event: React.FormEvent<HTMLFormElement>, endpoint: string, payload: (data: FormData) => Record<string, unknown>) {
 		event.preventDefault()
 		onCreate(endpoint, payload(new FormData(event.currentTarget)))
 	}
-	const domains = resources.domains || []
-	if (service === 'domains') return <form className="inline-form" onSubmit={(event) => submit(event, 'domains', (data) => ({ fqdn: data.get('fqdn'), type: data.get('type'), dns_managed: true }))}><label>Domain<input name="fqdn" placeholder="shop.example.com" required /></label><label>Type<select name="type"><option value="addon">Addon</option><option value="subdomain">Subdomain</option><option value="alias">Alias</option></select></label><button type="submit">{serviceActionLabel('domains')}</button></form>
-	if (service === 'websites') return <form className="inline-form" onSubmit={(event) => submit(event, 'websites', (data) => ({ domain_id: data.get('domain_id'), runtime: data.get('runtime'), document_root: `${account.home_path}/public_html` }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Runtime<select name="runtime"><option>php</option><option>static</option><option>node</option><option>python</option></select></label><button type="submit">{serviceActionLabel('websites')}</button></form>
-	if (service === 'databases') return <form className="inline-form" onSubmit={(event) => submit(event, 'databases', (data) => ({ name: data.get('name'), engine: data.get('engine') }))}><label>Name<input name="name" required /></label><label>Engine<select name="engine"><option>mariadb</option><option>postgres</option><option>mysql</option></select></label><button type="submit">{serviceActionLabel('databases')}</button></form>
-	if (service === 'mailboxes') return <><form className="inline-form" onSubmit={(event) => submit(event, 'mail/mailboxes', (data) => ({ domain_id: data.get('domain_id'), local_part: data.get('local_part'), password: data.get('password') }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Local part<input name="local_part" required /></label><label>Password<input name="password" type="password" required /></label><button type="submit">Create mailbox</button></form><p className="subtle">Mailbox storage quota is enforced by the account package and cannot be overridden here.</p></>
-	if (service === 'aliases') return <form className="inline-form" onSubmit={(event) => submit(event, 'mail/aliases', (data) => ({ domain_id: data.get('domain_id'), address: data.get('address'), destination: data.get('destination') }))}><label>Domain<select name="domain_id">{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label><label>Address<input name="address" required /></label><label>Destination<input name="destination" required /></label><button type="submit">Create alias</button></form>
-	if (service === 'certificates') return <form className="inline-form" onSubmit={(event) => submit(event, 'certificates', (data) => ({ hostname: data.get('hostname') }))}><label>Hostname<input name="hostname" defaultValue={account.primary_domain} required /></label><button type="submit">Request certificate</button></form>
-	if (service === 'files') return <form className="stack-form" onSubmit={(event) => submit(event, 'files', (data) => ({ path: data.get('path'), content: data.get('content') }))}><label>Path<input name="path" defaultValue="/public_html/index.html" required /></label><label>Contents<textarea name="content" rows={4} required /></label><button type="submit">Write file</button></form>
 	if (service === 'backups') return <BackupCreateForm onCreate={onCreate} />
-	if (service === 'cron') return <form className="inline-form" onSubmit={(event) => submit(event, 'cron', (data) => ({ schedule: data.get('schedule'), command: data.get('command'), working_directory: account.home_path, enabled: true }))}><label>Schedule<input name="schedule" defaultValue="0 * * * *" required /></label><label>Command<input name="command" required /></label><button type="submit">Add cron job</button></form>
 	if (service === 'ssh') return <><form className="stack-form" onSubmit={(event) => submit(event, 'ssh-keys', (data) => ({ label: data.get('label'), public_key: data.get('public_key') }))}><label>Key label<input name="label" required /></label><label>Public key<textarea name="public_key" rows={3} required /></label><button type="submit">Add SSH key</button></form><form className="inline-form" onSubmit={(event) => submit(event, 'sftp-password', (data) => ({ password: data.get('password') }))}><label>SFTP password<input name="password" type="password" required /></label><button type="submit">Set SFTP password</button></form></>
-	if (service === 'ftp') return <form className="inline-form" onSubmit={(event) => submit(event, 'ftp', (data) => ({ username: data.get('username'), password: data.get('password'), home_path: data.get('home_path') }))}><label>Username<input name="username" required /></label><label>Password<input name="password" type="password" required /></label><label>Home path<input name="home_path" defaultValue={`${account.home_path}/public_html`} required /></label><button type="submit">Create FTP user</button></form>
 	if (service === 'tokens') return <form className="stack-form" onSubmit={(event) => submit(event, 'api-tokens', (data) => ({ name: data.get('name'), scope: 'account', capabilities: data.getAll('capability') }))}><label>Name<input name="name" required /></label><p className="subtle"><strong>Scope:</strong> Account. Tokens cannot be granted host-wide or arbitrary capabilities.</p><fieldset><legend>Account-safe capabilities</legend><div className="checkbox-grid">{accountTokenCapabilities.filter((capability) => capabilities[capability]).map((capability) => <label className="checkbox-label" key={capability}><input type="checkbox" name="capability" value={capability} />{capability}</label>)}</div></fieldset><button type="submit">Create token</button></form>
 	if (service === 'applications') {
 		if (!canListWebsites) return <p className="subtle">Application creation is disabled because your role cannot list account websites.</p>
-		if (!(resources.websites || []).some((item) => ['node', 'python'].includes(String(item.runtime)))) return <p className="subtle">Create a Node or Python website before creating its application deployment.</p>
+		if (!(resources.websites || []).some((item) => ['node', 'python'].includes(String(item.runtime)))) return <p className="subtle">Create a Node or Python website in MultiPHP Manager before creating its application deployment.</p>
 		return <p className="subtle">Choose <strong>Deploy application</strong> beside an account-owned Node or Python website. Runtime settings and working directory are derived from that website.</p>
 	}
 	return null

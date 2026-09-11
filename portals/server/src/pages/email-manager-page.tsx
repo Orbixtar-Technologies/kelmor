@@ -222,7 +222,7 @@ export function EmailManagerPage () {
 					</table></div> : null}
 					{!loading && tab === 'mailboxes' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Quota</th><th>Status</th><th>Actions</th></tr></thead>
-						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{valueOf(item, 'local_part')}@{account?.primary_domain}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions"><Link to={`/webmail?account=${accountId}`}>Open webmail</Link><Link to={`/accounts/${accountId}/services?service=mailboxes`}>Manage</Link>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
+						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{valueOf(item, 'local_part')}@{account?.primary_domain}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions"><Link to={`/webmail?account=${accountId}`}>Open webmail</Link>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
 					</table></div> : null}
 					{!loading && tab === 'aliases' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Destination</th><th>Actions</th></tr></thead>
