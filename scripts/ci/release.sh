@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+bash "$ROOT/scripts/ci/check-go-version.sh"
+
 export PANEL_UPDATE_RELEASE="${PANEL_UPDATE_RELEASE:-$(bash "$ROOT/scripts/ci/resolve-release-version.sh")}"
 export PANEL_DEB_VERSION="${PANEL_DEB_VERSION:-$PANEL_UPDATE_RELEASE}"
 export PANEL_UPDATE_CHANNEL="${PANEL_UPDATE_CHANNEL:-stable}"

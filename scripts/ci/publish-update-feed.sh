@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 FEED_SRC="${PANEL_UPDATE_FEED_ROOT:-$ROOT/dist/update-feed}"
 
+if [[ "${PUBLISH_UPDATE_FEED:-false}" != "true" ]]; then
+	echo "Publishing disabled; feed remains available as a release artifact."
+	exit 0
+fi
+
 if [[ ! -f "$FEED_SRC/stable/manifest.json" ]]; then
 	echo "missing signed feed at $FEED_SRC/stable/manifest.json — run scripts/ci/release.sh first" >&2
 	exit 1
@@ -61,6 +66,5 @@ REMOTE
 	exit 0
 fi
 
-echo "No publish target configured."
-echo "Set PANEL_UPDATE_PUBLISH_URL (rsync target) or VM_HOST in .env for automatic deploy."
-echo "Feed remains at $FEED_SRC for manual upload or CI artifacts."
+skip_unreachable_publish \
+	"No publish target configured; set PANEL_UPDATE_PUBLISH_URL or VM_HOST for manual publishing"

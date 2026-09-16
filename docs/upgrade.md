@@ -6,16 +6,19 @@
 
 Every push to `main` runs `.github/workflows/release.yml`, which builds binaries,
 portals, the Debian package, and a signed `stable` update feed, then uploads
-artifacts. When publish secrets are configured, the feed is copied to the host
-update directory (`/usr/local/panel/share/updates/`). If SSH to that VM times
-out, the release still succeeds and keeps the feed in the workflow artifacts.
-A manual `workflow_dispatch` with **Publish feed** fails instead of skipping.
+artifacts. Push releases are artifact-only and never contact a VM, even when
+publish secrets are configured.
+
+Manual `workflow_dispatch` releases are also artifact-only by default. Select
+**Publish feed** explicitly to copy the signed feed to the configured rsync
+target or VM update directory (`/usr/local/panel/share/updates/`). An explicitly
+requested publish fails when the target is unavailable or incomplete.
 
 Local or CI one-shot:
 
 ```bash
 make release          # build + sign feed only
-make auto-update      # build + sign + publish (uses .env or env vars)
+make auto-update      # explicit build + sign + publish (uses .env or env vars)
 bash scripts/ci/auto-update.sh
 ```
 
@@ -25,18 +28,21 @@ Version resolution (`scripts/ci/resolve-release-version.sh`):
 2. Exact git tag on `HEAD` (without the `v` prefix)
 3. `platform_release` from `release-manifest.yaml` plus `GITHUB_RUN_NUMBER` or commit count
 
-Required GitHub secrets for signed CI releases:
+Required GitHub secret for signed CI releases:
 
 | Secret | Purpose |
 | --- | --- |
 | `PANEL_UPDATE_SIGNING_KEY` | Ed25519 **private** key. Accepted formats: 128-char hex private key, 64-char hex seed, OpenSSH PEM (`-----BEGIN OPENSSH PRIVATE KEY-----`), or the PEM file hex-encoded. Must match `installer/phases/release.pub`. Do not paste `release.pub` itself. |
-| `KELMOR_VM_HOST` | Optional VM to publish the feed |
+| `KELMOR_VM_HOST` | Optional VM used only by an explicit manual publish |
 | `KELMOR_VM_USER` | SSH user (default `ubuntu`) |
 | `KELMOR_VM_SSH_KEY` | Private SSH key for the VM |
 | `KELMOR_VM_PORT` | Optional SSH port |
-| `PANEL_UPDATE_PUBLISH_URL` | Optional rsync target instead of VM SSH |
+| `PANEL_UPDATE_PUBLISH_URL` | Optional manual rsync target instead of VM SSH |
 
 Hosts poll the feed via `panel-update.timer` or Director **Check for updates**.
+Provision a new VM separately, download the signed workflow artifact, and upload
+its `update-feed/` contents manually unless an operator intentionally runs the
+manual publish path.
 
 Generate or rotate a signing keypair locally:
 

@@ -12,7 +12,7 @@ on:
       publish_feed:
         description: Publish signed feed to configured VM after build
         required: false
-        default: true
+        default: false
         type: boolean
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.23"
 
       - uses: actions/setup-node@v4
         with:
@@ -64,14 +64,15 @@ jobs:
             dist/release/release.env
 
       - name: Publish update feed to VM
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_feed }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_feed == true }}
         env:
+          PUBLISH_UPDATE_FEED: "true"
           VM_HOST: ${{ secrets.KELMOR_VM_HOST }}
           VM_USER: ${{ secrets.KELMOR_VM_USER }}
           VM_KEY_PATH: ${{ runner.temp }}/vm/ssh-key
           VM_PORT: ${{ secrets.KELMOR_VM_PORT }}
           PANEL_UPDATE_PUBLISH_URL: ${{ secrets.PANEL_UPDATE_PUBLISH_URL }}
-          REQUIRE_FEED_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_feed }}
+          REQUIRE_FEED_PUBLISH: "true"
         run: |
           if [[ -n "${VM_HOST:-}" && -n "${{ secrets.KELMOR_VM_SSH_KEY }}" ]]; then
             install -d -m 700 "$RUNNER_TEMP/vm"

@@ -1,4 +1,4 @@
-.PHONY: bootstrap generate lint test test-integration test-security test-provisioning build pebble package release dev portals refresh-portals
+.PHONY: bootstrap generate lint test test-integration test-security test-provisioning test-release-policy check-go-version build pebble package release dev portals refresh-portals
 
 GO ?= go
 API_PORT ?= 18080
@@ -27,7 +27,14 @@ test-security:
 	$(GO) test ./tests/security/... ./internal/filesystem/... ./agent/policy/...
 
 test-provisioning:
-	$(GO) test ./tests/provisioning/... ./internal/provisioning/...
+	$(GO) test ./tests/provisioning/... ./internal/job/...
+
+check-go-version:
+	bash scripts/ci/check-go-version.sh
+
+test-release-policy: check-go-version
+	bash scripts/ci/check-go-version_test.sh
+	bash scripts/ci/publish-update-feed_test.sh
 
 build:
 	mkdir -p dist/bin
