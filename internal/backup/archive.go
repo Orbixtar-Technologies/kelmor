@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hosting-panel/panel/internal/pkg/secret"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 	"github.com/hosting-panel/panel/internal/store"
 )
 
@@ -104,7 +105,7 @@ func sealArchive(ctx context.Context, box *secret.Box, repo Repository, acc *sto
 		AccountID:     acc.ID,
 		Username:      acc.Username,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
-		PanelVersion:  "0.1.0",
+		PanelVersion:  releaseversion.Current(),
 		Kind:          "full",
 		Files:         map[string]any{"home": acc.HomePath},
 		Checksums:     map[string]string{},

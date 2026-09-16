@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hosting-panel/panel/internal/inventory"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 	"github.com/hosting-panel/panel/internal/update"
 )
 
 func main() {
 	stage := flag.String("stage", "", "release staging directory")
-	release := flag.String("release", "0.2.0", "release version")
+	release := flag.String("release", releaseversion.Current(), "release version")
 	channel := flag.String("channel", "stable", "release channel")
 	privPath := flag.String("priv", "", "ed25519 private key hex file")
 	feedRoot := flag.String("feed-root", "", "feed root containing channel/manifest.json")
@@ -46,7 +48,7 @@ func main() {
 		if rel == "manifest.json" {
 			return nil
 		}
-		target, ok := mapArtifactTarget(rel)
+		target, ok := inventory.MapFeedTarget(rel)
 		if !ok {
 			return nil
 		}
@@ -59,9 +61,14 @@ func main() {
 			return err
 		}
 		sum := sha256.Sum256(data)
+		kind := update.ArtifactRuntime
+		if strings.HasPrefix(target, "share/migrations/") {
+			kind = update.ArtifactSchema
+		}
 		artifacts = append(artifacts, update.Artifact{
 			Path: rel, Target: target, Size: int64(len(data)),
 			SHA256: hex.EncodeToString(sum[:]), Mode: uint32(info.Mode().Perm()),
+			Kind: kind,
 		})
 		return nil
 	})
@@ -91,19 +98,6 @@ func main() {
 		fatal(err)
 	}
 	fmt.Printf("signed %d artifacts for %s\n", len(artifacts), *release)
-}
-
-func mapArtifactTarget(rel string) (string, bool) {
-	switch {
-	case strings.HasPrefix(rel, "bin/"):
-		return rel, true
-	case strings.HasPrefix(rel, "share/portals/server/"):
-		return rel, true
-	case strings.HasPrefix(rel, "share/portals/account/"):
-		return rel, true
-	default:
-		return "", false
-	}
 }
 
 func fatal(err error) {

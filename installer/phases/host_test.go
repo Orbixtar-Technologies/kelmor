@@ -1,6 +1,7 @@
 package phases
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -113,5 +114,47 @@ func TestWaitListenAcceptsOpenPort(t *testing.T) {
 	}
 	if err := waitListen("127.0.0.1:1", 200*time.Millisecond); err == nil {
 		t.Fatal("expected timeout")
+	}
+}
+
+func TestActivateServicesAggregatesRequiredFailures(t *testing.T) {
+	err := ActivateServices([]ServiceSpec{
+		{Name: "nginx", Listen: "127.0.0.1:80", Required: true},
+		{Name: "pdns", Listen: "127.0.0.1:53", Required: true},
+		{Name: "freshclam", Required: false},
+	}, func(spec ServiceSpec) error {
+		if spec.Name == "nginx" {
+			return errors.New("unit failed")
+		}
+		return nil
+	}, func(spec ServiceSpec) error {
+		if spec.Name == "pdns" {
+			return errors.New("not listening")
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("required service failures must block completion")
+	}
+	if !strings.Contains(err.Error(), "nginx") || !strings.Contains(err.Error(), "pdns") {
+		t.Fatalf("missing required service names: %v", err)
+	}
+	if strings.Contains(err.Error(), "freshclam") {
+		t.Fatalf("optional service leaked into aggregate: %v", err)
+	}
+}
+
+func TestRequiredServicesCoverHostingAndSecurity(t *testing.T) {
+	seen := map[string]bool{}
+	for _, spec := range RequiredServices() {
+		seen[spec.Name] = true
+		if spec.Required && spec.Name == "" {
+			t.Fatal("required service missing name")
+		}
+	}
+	for _, name := range []string{"nginx", "pdns", "panel-api", "fail2ban-server"} {
+		if !seen[name] {
+			t.Fatalf("required service %s missing from %v", name, seen)
+		}
 	}
 }

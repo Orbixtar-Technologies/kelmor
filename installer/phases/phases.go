@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/hosting-panel/panel/internal/id"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 )
 
 type Config struct {
@@ -39,13 +40,19 @@ type State struct {
 	InstallationID string            `json:"installation_id"`
 	Release        string            `json:"release"`
 	Phases         map[string]string `json:"phases"`
+	Fingerprints   map[string]string `json:"fingerprints,omitempty"`
+	Attempts       map[string]int    `json:"attempts,omitempty"`
 }
 
 func LoadState(path string) (*State, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &State{InstallationID: id.New(), Release: "0.1.0", Phases: map[string]string{}}, nil
+			return &State{
+				InstallationID: id.New(), Release: releaseversion.Current(),
+				Phases: map[string]string{}, Fingerprints: map[string]string{},
+				Attempts: map[string]int{},
+			}, nil
 		}
 		return nil, err
 	}
@@ -56,6 +63,15 @@ func LoadState(path string) (*State, error) {
 	if s.Phases == nil {
 		s.Phases = map[string]string{}
 	}
+	if s.Fingerprints == nil {
+		s.Fingerprints = map[string]string{}
+	}
+	if s.Attempts == nil {
+		s.Attempts = map[string]int{}
+	}
+	if s.Release == "" {
+		s.Release = releaseversion.Current()
+	}
 	return &s, nil
 }
 
@@ -63,15 +79,35 @@ func (s *State) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(s, "", "  ")
+	body, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o640); err != nil {
+	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if _, err := file.Write(body); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	directory, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func All() []Phase {

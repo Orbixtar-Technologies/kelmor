@@ -34,6 +34,7 @@ import (
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 	"github.com/hosting-panel/panel/internal/rbac"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 	"github.com/hosting-panel/panel/internal/store"
 )
 
@@ -48,7 +49,7 @@ type API struct {
 type ctxActor struct{}
 
 func New(st store.Store, log *logging.Logger, agent *operations.Host) *API {
-	return &API{Store: st, Log: log, Agent: agent, Version: "0.1.0", limiter: newLimiter()}
+	return &API{Store: st, Log: log, Agent: agent, Version: releaseversion.Current(), limiter: newLimiter()}
 }
 
 func (a *API) Handler() http.Handler {

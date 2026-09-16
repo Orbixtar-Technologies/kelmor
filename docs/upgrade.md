@@ -61,6 +61,6 @@ panel-updater apply ./bundle /usr/local/panel ./bundle/release.pub
 panel-updater rollback /usr/local/panel
 ```
 
-Apply snapshots `/usr/local/panel/bin` into `rollback/`, copies hashed artifacts, and writes `current-release`. Rollback restores the snapshot. The operator then restarts `panel-api`, `panel-worker`, and `panel-agent`.
+Apply journals every runtime-asset target from the shared inventory (binaries, aliases, installer, units, timers, portals, templates, policy, and migrations). File rollback restores those runtime files and `current-release`. Forward-compatible schema migrations are not reverted: applied SQL and `share/migrations` stay in place so a failed activation can roll binaries back without undoing expand/backfill work. The operator then restarts `panel-api`, `panel-worker`, and `panel-agent`.
 
 The updater never runs `apt-get dist-upgrade` or other unattended OS upgrades.

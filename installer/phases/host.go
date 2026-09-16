@@ -1,6 +1,7 @@
 package phases
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -9,6 +10,47 @@ import (
 	"syscall"
 	"time"
 )
+
+type ServiceSpec struct {
+	Name     string
+	Listen   string
+	Required bool
+}
+
+func RequiredServices() []ServiceSpec {
+	return []ServiceSpec{
+		{Name: "nginx", Listen: "127.0.0.1:80", Required: true},
+		{Name: "master", Listen: "127.0.0.1:25", Required: true},
+		{Name: "pdns", Listen: "127.0.0.1:53", Required: true},
+		{Name: "panel-api", Listen: "127.0.0.1:18080", Required: true},
+		{Name: "fail2ban-server", Required: true},
+		{Name: "mysqld", Listen: "127.0.0.1:3306", Required: false},
+		{Name: "postgres", Listen: "127.0.0.1:5432", Required: false},
+		{Name: "dovecot", Listen: "127.0.0.1:993", Required: false},
+		{Name: "vsftpd", Listen: "127.0.0.1:21", Required: false},
+	}
+}
+
+func ActivateServices(svcs []ServiceSpec, start, health func(ServiceSpec) error) error {
+	var errs []error
+	for _, spec := range svcs {
+		if start != nil {
+			if err := start(spec); err != nil {
+				if spec.Required {
+					errs = append(errs, fmt.Errorf("%s start: %w", spec.Name, err))
+				}
+				continue
+			}
+		}
+		if health == nil {
+			continue
+		}
+		if err := health(spec); err != nil && spec.Required {
+			errs = append(errs, fmt.Errorf("%s health: %w", spec.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
 
 type hostService struct {
 	Comm   string
@@ -48,36 +90,39 @@ func systemdUnitForHost(comm string) string {
 	}
 }
 
-func startHostService(svc hostService) {
+func startHostService(svc hostService) error {
 	if len(svc.Args) == 0 {
-		return
+		return nil
 	}
 	if _, err := os.Stat(svc.Args[0]); err != nil {
-		return
+		return err
 	}
 	if svc.Listen != "" {
 		if con, err := net.DialTimeout("tcp", svc.Listen, 150*time.Millisecond); err == nil {
 			_ = con.Close()
-			return
+			return nil
 		}
 	}
 	if svc.Comm != "" && exec.Command("/usr/bin/pgrep", "-x", svc.Comm).Run() == nil {
-		return
+		return nil
 	}
 	if unit := systemdUnitForHost(svc.Comm); unit != "" {
-		if exec.Command("/bin/systemctl", "restart", unit).Run() == nil {
+		if err := exec.Command("/bin/systemctl", "restart", unit).Run(); err == nil {
 			if svc.Listen != "" {
-				_ = waitListen(svc.Listen, 5*time.Second)
+				return waitListen(svc.Listen, 5*time.Second)
 			}
-			return
+			return nil
 		}
 	}
 	cmd := exec.Command(svc.Args[0], svc.Args[1:]...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "DEBIAN_FRONTEND=noninteractive"}
-	_ = cmd.Start()
-	if svc.Listen != "" {
-		_ = waitListen(svc.Listen, 3*time.Second)
+	if err := cmd.Start(); err != nil {
+		return err
 	}
+	if svc.Listen != "" {
+		return waitListen(svc.Listen, 3*time.Second)
+	}
+	return nil
 }
 
 func waitListen(addr string, d time.Duration) error {
@@ -106,8 +151,9 @@ func applyHostRuntime(c Config) error {
 	_ = os.Chmod("/run/panel", 0o751)
 	_ = os.MkdirAll("/var/lib/panel/mail", 0o755)
 	_ = os.Chmod("/var/lib/panel", 0o755)
+	started := map[string]error{}
 	for _, svc := range hostServices() {
-		startHostService(svc)
+		started[svc.Comm] = startHostService(svc)
 	}
 	startControlPlane()
 	startSMTPPolicy()
@@ -119,7 +165,30 @@ func applyHostRuntime(c Config) error {
 		_ = applyLiveNFT("/etc/panel/nftables-panel.nft")
 	}
 	applyExistingCgroups()
-	return nil
+	return ActivateServices(RequiredServices(), func(spec ServiceSpec) error {
+		switch spec.Name {
+		case "pdns":
+			return started["pdns_server"]
+		case "panel-api":
+			if err := waitListen("127.0.0.1:18080", 3*time.Second); err == nil {
+				return nil
+			}
+			startControlPlane()
+			return nil
+		case "fail2ban-server":
+			return started["fail2ban-server"]
+		default:
+			return started[spec.Name]
+		}
+	}, func(spec ServiceSpec) error {
+		if spec.Listen != "" {
+			return waitListen(spec.Listen, 2*time.Second)
+		}
+		if exec.Command("/usr/bin/pgrep", "-x", spec.Name).Run() != nil {
+			return fmt.Errorf("%s is not running", spec.Name)
+		}
+		return nil
+	})
 }
 
 func applyExistingCgroups() {

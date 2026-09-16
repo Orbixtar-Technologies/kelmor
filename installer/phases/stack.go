@@ -18,6 +18,7 @@ import (
 	"github.com/hosting-panel/panel/internal/credentials"
 	"github.com/hosting-panel/panel/internal/firewall"
 	"github.com/hosting-panel/panel/internal/netaddr"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 	"github.com/hosting-panel/panel/internal/update"
 
 	"golang.org/x/crypto/ssh"
@@ -1061,7 +1062,7 @@ PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
 	statusPath := root(c, "var/lib/panel/update-status.json")
 	if _, err := os.Stat(statusPath); os.IsNotExist(err) {
 		if err := update.WriteStatus(statusPath, update.Status{
-			State: "idle", InstalledRelease: "0.1.0",
+			State: "idle", InstalledRelease: releaseversion.Current(),
 			Automatic: true, Channel: "stable",
 		}); err != nil {
 			return err
@@ -1074,7 +1075,7 @@ PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
 	}
 	releasePath := root(c, "usr/local/panel/current-release")
 	if _, err := os.Stat(releasePath); os.IsNotExist(err) {
-		if err := os.WriteFile(releasePath, []byte("0.1.0\n"), 0o644); err != nil {
+		if err := os.WriteFile(releasePath, []byte(releaseversion.Current()+"\n"), 0o644); err != nil {
 			return err
 		}
 	}

@@ -15,6 +15,7 @@ import (
 
 	"filippo.io/age"
 	"github.com/hosting-panel/panel/internal/pkg/secret"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 	"github.com/hosting-panel/panel/internal/store"
 )
 
@@ -81,7 +82,7 @@ func SealHPM3WithRingToKey(ctx context.Context, ring *KeyRing, repo Repository, 
 		AccountID:     acc.ID,
 		Username:      acc.Username,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
-		PanelVersion:  "0.1.0",
+		PanelVersion:  releaseversion.Current(),
 		Kind:          "full",
 		Files:         map[string]any{"home": acc.HomePath},
 		Checksums:     map[string]string{},

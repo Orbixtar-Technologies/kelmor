@@ -19,6 +19,7 @@ import (
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/rbac"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 	"github.com/hosting-panel/panel/internal/store"
 )
 
@@ -29,6 +30,28 @@ type failingDomainStore struct {
 
 func (s *failingDomainStore) CreateDomainWithJob(*store.Domain, *store.Job, store.AuditEvent) (*store.Job, error) {
 	return nil, s.err
+}
+
+func TestAPIVersionUsesReleaseIdentity(t *testing.T) {
+	t.Setenv("PANEL_RELEASE_VERSION", "3.2.1")
+	api := New(store.NewMemory(), logging.New("test"), &operations.Host{Root: t.TempDir()})
+	if api.Version != releaseversion.Current() || api.Version != "3.2.1" {
+		t.Fatalf("api version %q", api.Version)
+	}
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/api/v1/version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["version"] != "3.2.1" {
+		t.Fatalf("version payload %#v", got)
+	}
 }
 
 func TestAccountProvisionFlow(t *testing.T) {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build and sign a stable update feed from dist/bin and portal assets.
+# Build and sign a stable update feed from the runtime-asset inventory.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-RELEASE="${PANEL_UPDATE_RELEASE:-0.2.0}"
+RELEASE="${PANEL_UPDATE_RELEASE:-$(bash "$ROOT/scripts/ci/resolve-release-version.sh")}"
 CHANNEL="${PANEL_UPDATE_CHANNEL:-stable}"
 PRIV="${PANEL_UPDATE_SIGNING_KEY:-$ROOT/.run/validation/update-signing.priv}"
 FEED_ROOT="${PANEL_UPDATE_FEED_ROOT:-$ROOT/dist/update-feed}"
@@ -17,13 +17,22 @@ if [[ ! -x "$ROOT/dist/bin/panel-api" ]]; then
 fi
 
 rm -rf "$STAGE"
-mkdir -p "$STAGE/bin" "$STAGE/share/portals/server" "$STAGE/share/portals/account"
+mkdir -p "$STAGE"
 
-for bin in panel-api panel-worker panel-agent panel-cli panel-updater panel-backup panel-smtp-policy panel-object-store; do
-	install -m 0755 "$ROOT/dist/bin/$bin" "$STAGE/bin/$bin"
-done
-cp -a "$ROOT/dist/share/portals/server/." "$STAGE/share/portals/server/"
-cp -a "$ROOT/dist/share/portals/account/." "$STAGE/share/portals/account/"
+while IFS=$'\t' read -r src dest mode kind; do
+	mkdir -p "$STAGE/$(dirname "$dest")"
+	if [[ -z "$src" ]]; then
+		mkdir -p "$STAGE/$dest"
+		continue
+	fi
+	if [[ -d "$ROOT/$src" ]]; then
+		mkdir -p "$STAGE/$dest"
+		cp -a "$ROOT/$src/." "$STAGE/$dest/"
+	else
+		install -m "$mode" "$ROOT/$src" "$STAGE/$dest"
+	fi
+	_="$kind"
+done < <(go run "$ROOT/scripts/release-inventory" -class feed -format feed-copy)
 
 go run "$ROOT/scripts/build-update-feed" \
 	-stage "$STAGE" \

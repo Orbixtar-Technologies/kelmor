@@ -255,13 +255,28 @@ func validRelativePath(value string) bool {
 	return cleaned == value && cleaned != "." && cleaned != ".." && !strings.HasPrefix(cleaned, "../")
 }
 
+func AllowedTarget(target string) bool {
+	return validTarget(target)
+}
+
+func artifactKindForTarget(target string) string {
+	if strings.HasPrefix(target, "share/migrations/") {
+		return ArtifactSchema
+	}
+	return ArtifactRuntime
+}
+
 func validTarget(target string) bool {
 	if !validRelativePath(target) {
 		return false
 	}
 	return strings.HasPrefix(target, "bin/") ||
 		strings.HasPrefix(target, "share/portals/account/") ||
-		strings.HasPrefix(target, "share/portals/server/")
+		strings.HasPrefix(target, "share/portals/server/") ||
+		strings.HasPrefix(target, "share/systemd/") ||
+		strings.HasPrefix(target, "share/migrations/") ||
+		strings.HasPrefix(target, "share/templates/") ||
+		strings.HasPrefix(target, "share/policy/")
 }
 
 func finishStatus(path string, status Status, operationErr error) (*Status, error) {

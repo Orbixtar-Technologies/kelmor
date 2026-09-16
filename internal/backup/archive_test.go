@@ -56,6 +56,32 @@ func TestBuildRestoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBackupManifestUsesReleaseVersion(t *testing.T) {
+	t.Setenv("PANEL_RELEASE_VERSION", "4.5.6")
+	root := t.TempDir()
+	home := filepath.Join(root, "home", "acme42")
+	if err := os.MkdirAll(filepath.Join(home, "public_html"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "public_html", "index.html"), []byte("hello-site"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	key := bytes.Repeat([]byte{7}, 32)
+	box, err := secret.FromBytes(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &Local{Root: filepath.Join(root, "repo")}
+	acc := &store.Account{ID: "a1", Username: "acme42", HomePath: "/home/acme42"}
+	man, _, err := Build(context.Background(), box, repo, acc, nil, nil, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if man.PanelVersion != "4.5.6" {
+		t.Fatalf("backup panel version %q", man.PanelVersion)
+	}
+}
+
 func TestPackSplitV2RoundTrip(t *testing.T) {
 	home, err := PackHome(t.TempDir())
 	if err != nil {

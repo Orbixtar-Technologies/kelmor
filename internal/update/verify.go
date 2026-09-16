@@ -24,12 +24,18 @@ type Manifest struct {
 	PublicKey      string            `json:"public_key,omitempty"`
 }
 
+const (
+	ArtifactRuntime = "runtime"
+	ArtifactSchema  = "schema"
+)
+
 type Artifact struct {
 	Path   string `json:"path"`
 	Target string `json:"target"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
 	Mode   uint32 `json:"mode"`
+	Kind   string `json:"kind,omitempty"`
 }
 
 func Load(path string) (*Manifest, error) {

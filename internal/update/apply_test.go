@@ -144,6 +144,57 @@ func TestApplyRecoversInterruptedTransactionBeforeReadingBundle(t *testing.T) {
 	}
 }
 
+func TestInstallKeepsSchemaWhenActivationRollsBack(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(root, "share", "migrations", "000001.sql"), []byte("old-schema"), 0o644)
+	writeTestFile(t, filepath.Join(root, "current-release"), []byte("1.0.0\n"), 0o644)
+	artifacts := map[string]testArtifact{
+		"panel-api": {
+			target: "bin/panel-api", content: []byte("bad-api"), mode: 0o755,
+		},
+		"000001.sql": {
+			target: "share/migrations/000001.sql", content: []byte("new-schema"),
+			mode: 0o644, kind: ArtifactSchema,
+		},
+		"000032.sql": {
+			target: "share/migrations/000032.sql", content: []byte("forward-only"),
+			mode: 0o644, kind: ArtifactSchema,
+		},
+	}
+	config, cleanup := newInstallConfig(t, root, artifacts)
+	defer cleanup()
+
+	status, err := Install(context.Background(), config, &recordingRunner{failOnceOn: "http://127.0.0.1:18080/healthz"})
+	if err == nil || !strings.Contains(err.Error(), "health") {
+		t.Fatalf("expected health failure, got status=%+v err=%v", status, err)
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+	assertTestFile(t, filepath.Join(root, "current-release"), "1.0.0\n", 0o644)
+	assertTestFile(t, filepath.Join(root, "share", "migrations", "000001.sql"), "new-schema", 0o644)
+	assertTestFile(t, filepath.Join(root, "share", "migrations", "000032.sql"), "forward-only", 0o644)
+}
+
+func TestRecoverInterruptedUpdateRollsRuntimeKeepsSchema(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("interrupted-new"), 0o755)
+	writeTestFile(t, filepath.Join(root, "share", "migrations", "000032.sql"), []byte("applied-schema"), 0o644)
+	writeTestFile(t, filepath.Join(root, "current-release"), []byte("2.0.0\n"), 0o644)
+	journal := filepath.Join(root, transactionDirectory)
+	writeTestFile(t, filepath.Join(journal, "targets", "bin", "panel-api"), []byte("old-api"), 0o755)
+	writeTestFile(t, filepath.Join(journal, "current-release"), []byte("1.0.0\n"), 0o644)
+	writeTestFile(t, filepath.Join(journal, "metadata.json"), []byte(
+		`{"state":"activated","targets":[{"target":"bin/panel-api","exists":true},{"target":"share/migrations/000032.sql","exists":false,"kind":"schema"}],"current_release_exists":true}`,
+	), 0o600)
+
+	if err := Apply(t.TempDir(), root, nil); err == nil {
+		t.Fatal("expected missing manifest after recovery")
+	}
+	assertTestFile(t, filepath.Join(root, "bin", "panel-api"), "old-api", 0o755)
+	assertTestFile(t, filepath.Join(root, "current-release"), "1.0.0\n", 0o644)
+	assertTestFile(t, filepath.Join(root, "share", "migrations", "000032.sql"), "applied-schema", 0o644)
+}
+
 func TestInstallUpdatesBinariesAndPortals(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "bin", "panel-api"), []byte("old-api"), 0o755)
@@ -643,6 +694,7 @@ type testArtifact struct {
 	target  string
 	content []byte
 	mode    uint32
+	kind    string
 }
 
 type recordingRunner struct {
@@ -702,7 +754,7 @@ func newInstallConfig(t *testing.T, root string, artifacts map[string]testArtifa
 		sum := sha256.Sum256(artifact.content)
 		manifest.Artifacts = append(manifest.Artifacts, Artifact{
 			Path: artifactPath, Target: artifact.target, Size: int64(len(artifact.content)),
-			SHA256: hex.EncodeToString(sum[:]), Mode: artifact.mode,
+			SHA256: hex.EncodeToString(sum[:]), Mode: artifact.mode, Kind: artifact.kind,
 		})
 	}
 	if err := Sign(manifest, priv); err != nil {

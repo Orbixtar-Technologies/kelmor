@@ -4,6 +4,8 @@ GO ?= go
 API_PORT ?= 18080
 SERVER_PORTAL_PORT ?= 18443
 ACCOUNT_PORTAL_PORT ?= 18444
+VERSION ?= $(shell bash scripts/ci/resolve-release-version.sh)
+LDFLAGS ?= -X github.com/hosting-panel/panel/internal/releaseversion.Version=$(VERSION)
 
 bootstrap:
 	$(GO) mod download
@@ -38,16 +40,16 @@ test-release-policy: check-go-version
 
 build:
 	mkdir -p dist/bin
-	$(GO) build -o dist/bin/panel-api ./cmd/panel-api
-	$(GO) build -o dist/bin/panel-worker ./cmd/panel-worker
-	$(GO) build -o dist/bin/panel-agent ./cmd/panel-agent
-	$(GO) build -o dist/bin/panel-cli ./cmd/panel-cli
-	$(GO) build -o dist/bin/panel-updater ./cmd/panel-updater
-	$(GO) build -o dist/bin/panel-backup ./cmd/panel-backup
-	$(GO) build -o dist/bin/panel-install ./cmd/panel-install
-	$(GO) build -o dist/bin/panel-dev ./cmd/panel-dev
-	$(GO) build -o dist/bin/panel-smtp-policy ./cmd/panel-smtp-policy
-	$(GO) build -o dist/bin/panel-object-store ./cmd/panel-object-store
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-api ./cmd/panel-api
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-worker ./cmd/panel-worker
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-agent ./cmd/panel-agent
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-cli ./cmd/panel-cli
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-updater ./cmd/panel-updater
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-backup ./cmd/panel-backup
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-install ./cmd/panel-install
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-dev ./cmd/panel-dev
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-smtp-policy ./cmd/panel-smtp-policy
+	$(GO) build -ldflags "$(LDFLAGS)" -o dist/bin/panel-object-store ./cmd/panel-object-store
 	cp dist/bin/panel-api dist/bin/kelmor-api
 	cp dist/bin/panel-worker dist/bin/kelmor-worker
 	cp dist/bin/panel-agent dist/bin/kelmor-agent

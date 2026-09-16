@@ -32,6 +32,7 @@ type Runner interface {
 type snapshotEntry struct {
 	Target string `json:"target"`
 	Exists bool   `json:"exists"`
+	Kind   string `json:"kind,omitempty"`
 }
 
 type snapshotMetadata struct {
@@ -514,9 +515,13 @@ func beginTransaction(root *secureRoot, artifacts []Artifact) (snapshotMetadata,
 		Targets: make([]snapshotEntry, 0, len(artifacts)),
 	}
 	for _, artifact := range artifacts {
+		kind := artifact.Kind
+		if kind == "" {
+			kind = artifactKindForTarget(artifact.Target)
+		}
 		info, err := root.stat(artifact.Target)
 		if errors.Is(err, unix.ENOENT) {
-			metadata.Targets = append(metadata.Targets, snapshotEntry{Target: artifact.Target})
+			metadata.Targets = append(metadata.Targets, snapshotEntry{Target: artifact.Target, Kind: kind})
 			continue
 		}
 		if err != nil {
@@ -525,7 +530,10 @@ func beginTransaction(root *secureRoot, artifacts []Artifact) (snapshotMetadata,
 		if !info.Mode().IsRegular() {
 			return snapshotMetadata{}, fmt.Errorf("target %q is not a regular file", artifact.Target)
 		}
-		metadata.Targets = append(metadata.Targets, snapshotEntry{Target: artifact.Target, Exists: true})
+		metadata.Targets = append(metadata.Targets, snapshotEntry{Target: artifact.Target, Exists: true, Kind: kind})
+		if kind == ArtifactSchema {
+			continue
+		}
 		if err := root.copyAtomicWithDirMode(
 			artifact.Target,
 			path.Join(transactionDirectory, "targets", artifact.Target),
@@ -636,6 +644,9 @@ func rollbackTransactionWithMetadata(root *secureRoot, metadata snapshotMetadata
 	for _, entry := range metadata.Targets {
 		if !validTarget(entry.Target) {
 			return fmt.Errorf("invalid rollback target %q", entry.Target)
+		}
+		if entry.Kind == ArtifactSchema {
+			continue
 		}
 		if !entry.Exists {
 			if err := root.remove(entry.Target); err != nil {

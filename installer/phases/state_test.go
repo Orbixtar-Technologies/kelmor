@@ -3,6 +3,8 @@ package phases
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/hosting-panel/panel/internal/releaseversion"
 )
 
 func TestLoadStateCreatesFreshAndResumes(t *testing.T) {
@@ -25,6 +27,9 @@ func TestLoadStateCreatesFreshAndResumes(t *testing.T) {
 	}
 	if again.Phases["preflight"] != "complete" || again.Phases["packages"] != "failed" {
 		t.Fatalf("phases: %#v", again.Phases)
+	}
+	if st.Release != releaseversion.Current() {
+		t.Fatalf("fresh release %q != %q", st.Release, releaseversion.Current())
 	}
 }
 

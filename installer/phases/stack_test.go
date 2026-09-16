@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hosting-panel/panel/internal/netaddr"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 )
 
 func TestDevInstallWritesHostStack(t *testing.T) {
@@ -80,6 +81,13 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("missing %s: %v", rel, err)
 		}
+	}
+	releaseBody, err := os.ReadFile(filepath.Join(dir, "var/panel/host/usr/local/panel/current-release"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(releaseBody)) != releaseversion.Current() {
+		t.Fatalf("current-release %q != %q", strings.TrimSpace(string(releaseBody)), releaseversion.Current())
 	}
 	adminSecret := filepath.Join(dir, "var/panel/host/var/lib/panel/secrets/admin-bootstrap")
 	info, err := os.Stat(adminSecret)
