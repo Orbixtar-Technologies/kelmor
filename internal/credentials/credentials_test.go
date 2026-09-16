@@ -46,6 +46,30 @@ func TestEnsureUsesProvidedAdminPassword(t *testing.T) {
 	}
 }
 
+func TestEnsureRotatesLeftoverKnownAdminPassword(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "var/lib/panel/secrets")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "admin-bootstrap"), []byte(KnownAdminPassword+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pdns-api-key"), []byte("keep-this-pdns-key-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	secrets, err := Ensure(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secrets.AdminPassword == KnownAdminPassword {
+		t.Fatal("leftover development password must be rotated")
+	}
+	if secrets.PowerDNSAPIKey != "keep-this-pdns-key-value" {
+		t.Fatalf("pdns key %q", secrets.PowerDNSAPIKey)
+	}
+}
+
 func TestEnsureRejectsShortAndKnownPasswords(t *testing.T) {
 	if _, err := Ensure(t.TempDir(), "short"); err == nil {
 		t.Fatal("short password")

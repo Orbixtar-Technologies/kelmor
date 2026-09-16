@@ -51,7 +51,7 @@ webserver-port=8081
 api=yes
 `
 	pdnsConf := root(c, "etc/powerdns/pdns.conf")
-	secrets, err := ensureInstallSecrets(c)
+	secrets, err := credentials.Ensure(secretPrefix(c), "")
 	if err != nil {
 		return err
 	}
@@ -1152,7 +1152,7 @@ func applyAdministrator(c Config) error {
 		return err
 	}
 	if secrets.AdminPassword == credentials.KnownAdminPassword {
-		return fmt.Errorf("refusing repository-known administrator password")
+		return fmt.Errorf("administrator password cannot be the development default ChangeMeOnce!2026; pass --admin-password with a different password (12+ characters)")
 	}
 	body := fmt.Sprintf("admin_email=%s hostname=%s channel=%s\nAdministrator bootstrap credential installed for first login rotation.\n",
 		c.AdminEmail, c.Hostname, c.Channel)

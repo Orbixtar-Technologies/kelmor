@@ -34,24 +34,26 @@ func Generate(root string) (Secrets, error) {
 
 func Ensure(root, adminPassword string) (Secrets, error) {
 	adminPassword = strings.TrimSpace(adminPassword)
+	if adminPassword == KnownAdminPassword {
+		return Secrets{}, fmt.Errorf("administrator password cannot be the development default ChangeMeOnce!2026; pass --admin-password with a different password (12+ characters)")
+	}
+	existing, existingErr := Load(root)
 	if adminPassword == "" {
-		if existing, err := Load(root); err == nil {
-			return existing, nil
+		if existingErr == nil && existing.AdminPassword != KnownAdminPassword {
+			adminPassword = existing.AdminPassword
+		} else {
+			generated, err := randomSecret(24)
+			if err != nil {
+				return Secrets{}, err
+			}
+			adminPassword = generated
 		}
-		generated, err := randomSecret(24)
-		if err != nil {
-			return Secrets{}, err
-		}
-		adminPassword = generated
 	}
 	if len(adminPassword) < 12 {
 		return Secrets{}, fmt.Errorf("administrator password must be at least 12 characters")
 	}
-	if adminPassword == KnownAdminPassword {
-		return Secrets{}, fmt.Errorf("refusing repository-known administrator password")
-	}
 	pdns := ""
-	if existing, err := Load(root); err == nil {
+	if existingErr == nil && existing.PowerDNSAPIKey != "" && existing.PowerDNSAPIKey != KnownPowerDNSKey {
 		pdns = existing.PowerDNSAPIKey
 	}
 	if pdns == "" {
@@ -60,9 +62,6 @@ func Ensure(root, adminPassword string) (Secrets, error) {
 			return Secrets{}, err
 		}
 		pdns = generated
-	}
-	if pdns == KnownPowerDNSKey {
-		return Secrets{}, fmt.Errorf("generated a repository-known secret")
 	}
 	if err := os.MkdirAll(secretDir(root), 0o750); err != nil {
 		return Secrets{}, err

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/hosting-panel/panel/internal/credentials"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/releaseversion"
 )
@@ -170,6 +171,9 @@ func checkPreflight(c Config) error {
 	}
 	if c.Hostname == "" {
 		return fmt.Errorf("hostname required")
+	}
+	if !c.Dev && strings.TrimSpace(c.AdminPassword) == credentials.KnownAdminPassword {
+		return fmt.Errorf("administrator password cannot be the development default ChangeMeOnce!2026; pass --admin-password with a different password (12+ characters)")
 	}
 	if !c.Dev {
 		if mem := memTotalKiB(); mem > 0 && mem < 1024*1024 {

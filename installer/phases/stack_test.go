@@ -254,7 +254,10 @@ func TestApplyDNSForcesBindLaunchOnPackagedConf(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(wd) })
-	cfg := Config{Hostname: "panel.example.net", AdminEmail: "ops@example.net", Dev: true}
+	cfg := Config{
+		Hostname: "panel.example.net", AdminEmail: "ops@example.net", Dev: true,
+		AdminPassword: "ChangeMeOnce!2026",
+	}
 	packaged := filepath.Join(dir, "var/panel/host/etc/powerdns/pdns.conf")
 	if err := os.MkdirAll(filepath.Dir(packaged), 0o755); err != nil {
 		t.Fatal(err)

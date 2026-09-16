@@ -22,6 +22,10 @@ func TestPrefixPreflightRequiresNoble(t *testing.T) {
 	if err := checkPreflight(cfg); err != nil {
 		t.Fatal(err)
 	}
+	cfg.AdminPassword = "ChangeMeOnce!2026"
+	if err := checkPreflight(cfg); err == nil || !strings.Contains(err.Error(), "ChangeMeOnce!2026") {
+		t.Fatalf("known admin password: %v", err)
+	}
 }
 
 func TestUseLabACMEModes(t *testing.T) {
