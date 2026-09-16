@@ -10,12 +10,25 @@ import (
 )
 
 func CallUnix(ctx context.Context, sock string, req Request) (any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	d := net.Dialer{Timeout: 10 * time.Second}
 	c, err := d.DialContext(ctx, "unix", sock)
 	if err != nil {
 		return nil, err
 	}
 	defer c.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = c.SetDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() {
+		_ = c.SetDeadline(time.Now())
+	})
+	defer stop()
 	b, err := json.Marshal(req)
 	if err != nil {
 		return nil, err

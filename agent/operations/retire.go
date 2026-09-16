@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,100 @@ import (
 
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
+
+type retireJournal struct {
+	Completed []string `json:"completed"`
+}
+
+func (h *Host) retireApplication(websiteID, account string) (Result, error) {
+	websiteID = strings.TrimSpace(websiteID)
+	if websiteID == "" || strings.ContainsAny(websiteID, "/\\.;|&$`\n") {
+		return Result{}, fmt.Errorf("invalid website id")
+	}
+	if err := validate.Username(account); err != nil {
+		return Result{}, err
+	}
+	journalPath := "/var/lib/panel/retire/app-" + websiteID + ".json"
+	done := h.loadRetireJournal(journalPath)
+	steps := []struct {
+		name string
+		fn   func() error
+	}{
+		{"stop_unit", func() error {
+			if h.live() {
+				_, _ = runFixed("/bin/systemctl", "stop", "panel-app-"+websiteID+".service")
+				_, _ = runFixed("/bin/systemctl", "disable", "panel-app-"+websiteID+".service")
+			}
+			return nil
+		}},
+		{"remove_socket", func() error {
+			h.removeManaged("/run/panel/apps/" + websiteID + ".sock")
+			return nil
+		}},
+		{"remove_unit", func() error {
+			h.removeManaged("/etc/systemd/system/panel-app-" + websiteID + ".service")
+			if h.live() {
+				_, _ = runFixed("/bin/systemctl", "daemon-reload")
+			}
+			return nil
+		}},
+		{"remove_files", func() error {
+			h.removeManaged("/home/" + account + "/apps/" + websiteID)
+			return nil
+		}},
+	}
+	for _, step := range steps {
+		if retireJournalHas(done, step.name) {
+			continue
+		}
+		if h.FailRetireAfter == step.name {
+			return Result{}, fmt.Errorf("retire crashed at %s", step.name)
+		}
+		if err := step.fn(); err != nil {
+			return Result{}, err
+		}
+		done = append(done, step.name)
+		if err := h.writeRetireJournal(journalPath, done); err != nil {
+			return Result{}, err
+		}
+	}
+	h.removeManaged(journalPath)
+	return Result{OK: true, ObservedState: "absent", Message: "application retired"}, nil
+}
+
+func (h *Host) loadRetireJournal(path string) []string {
+	abs, err := h.resolve(path)
+	if err != nil {
+		return nil
+	}
+	raw, err := os.ReadFile(abs)
+	if err != nil {
+		return nil
+	}
+	var journal retireJournal
+	if json.Unmarshal(raw, &journal) != nil {
+		return nil
+	}
+	return journal.Completed
+}
+
+func (h *Host) writeRetireJournal(path string, completed []string) error {
+	body, err := json.Marshal(retireJournal{Completed: completed})
+	if err != nil {
+		return err
+	}
+	_, err = h.ApplyFile(path, body, 0o640)
+	return err
+}
+
+func retireJournalHas(completed []string, name string) bool {
+	for _, item := range completed {
+		if item == name {
+			return true
+		}
+	}
+	return false
+}
 
 func (h *Host) retireAccount(username string, websiteIDs, domains []string) (Result, error) {
 	if err := validate.Username(username); err != nil {

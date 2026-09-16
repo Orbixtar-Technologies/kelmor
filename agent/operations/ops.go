@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hosting-panel/panel/agent/policy"
@@ -23,6 +24,7 @@ type Envelope struct {
 	ActorID          string `json:"actor_id"`
 	ResourceID       string `json:"resource_id"`
 	ExpectedRevision int64  `json:"expected_revision"`
+	Fence            int64  `json:"fence"`
 }
 
 type Result struct {
@@ -55,8 +57,15 @@ type SystemInfo struct {
 }
 
 type Host struct {
-	Root string // sandbox root in PANEL_DEV
-	Sock string // unix agent socket; when set, Dispatch is forwarded
+	Root            string // sandbox root in PANEL_DEV
+	Sock            string // unix agent socket; when set, Dispatch is forwarded
+	BeforeDispatch  func(context.Context, Request) error
+	FailRetireAfter string
+	dispatchCtx     context.Context
+	boundCtx        context.Context
+	boundEnv        Envelope
+	fenceMu         sync.Mutex
+	fences          map[string]fenceRecord
 }
 
 func (h *Host) resolve(p string) (string, error) {
@@ -71,10 +80,61 @@ func (h *Host) resolve(p string) (string, error) {
 	return filepath.Join(h.Root, rel), nil
 }
 
+func (h *Host) BindEnvelope(env Envelope) {
+	h.boundEnv = env
+}
+
+func (h *Host) BindContext(ctx context.Context) {
+	h.boundCtx = ctx
+}
+
+func (h *Host) commandContext() context.Context {
+	if h != nil && h.dispatchCtx != nil {
+		return h.dispatchCtx
+	}
+	return context.Background()
+}
+
 func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if h.boundCtx != nil {
+		ctx = h.boundCtx
+	}
+	if req.Env.Fence == 0 && h.boundEnv.Fence != 0 {
+		req.Env = h.boundEnv
+	}
+	prevCtx := h.dispatchCtx
+	h.dispatchCtx = ctx
+	defer func() { h.dispatchCtx = prevCtx }()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if replay, ok, err := h.acceptFence(req); err != nil {
+		return nil, err
+	} else if ok {
+		return replay, nil
+	}
+	if h.BeforeDispatch != nil {
+		if err := h.BeforeDispatch(ctx, req); err != nil {
+			return nil, err
+		}
+	}
 	if h.Sock != "" {
 		return CallUnix(ctx, h.Sock, req)
 	}
+	result, err := h.dispatchMethod(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.rememberFence(req, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 	switch req.Method {
 	case "GetSystemInfo":
 		return h.GetSystemInfo()
@@ -214,6 +274,13 @@ func (h *Host) Dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.retireWebsite(p.WebsiteID, p.Account)
+	case "RetireApplication":
+		var p struct {
+			WebsiteID string `json:"website_id"`
+			Account   string `json:"account"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.retireApplication(p.WebsiteID, p.Account)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`

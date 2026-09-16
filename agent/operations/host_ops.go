@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -330,6 +331,7 @@ func (h *Host) ensurePHPRuntime(version string) (Result, error) {
 	}
 	pkg := "php" + version + "-fpm"
 	out, err := runFixedEnv(
+		context.Background(),
 		"/usr/bin/apt-get",
 		[]string{"DEBIAN_FRONTEND=noninteractive"},
 		10*time.Minute,

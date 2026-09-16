@@ -861,7 +861,7 @@ func retryCapability(jobType string) string {
 		return rbac.DomainsWrite
 	case "website.provision", "website.delete":
 		return rbac.WebsitesWrite
-	case "application.deploy", "wordpress.install":
+	case "application.deploy", "wordpress.install", "application.retire":
 		return rbac.ApplicationsWrite
 	case "php.runtime.ensure":
 		return rbac.ServerSettingsWrite
@@ -2437,9 +2437,20 @@ func (a *API) deleteApp(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "application missing", false)
 		return
 	}
-	a.Store.DeleteApp(app.ID)
+	app.Status = "retiring"
+	a.Store.PutApp(app)
+	job, err := a.Store.EnqueueJob(&store.Job{
+		Type: "application.retire", ResourceType: "application", ResourceID: app.ID,
+		Payload: map[string]any{"application_id": app.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	})
+	if err != nil {
+		a.fail(w, r, 500, "APPLICATION_DELETE_ERROR", "Could not persist application retirement", true)
+		return
+	}
 	a.audit(r, "application.delete", "application", app.ID, true, map[string]any{"runtime": app.Runtime}, nil)
-	writeJSON(w, 200, map[string]any{"deleted": app.ID})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "application": app})
 }
 
 type wordpressInstallInput struct {

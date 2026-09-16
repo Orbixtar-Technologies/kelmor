@@ -202,29 +202,33 @@ type Certificate struct {
 }
 
 type Job struct {
-	ID             string         `json:"id"`
-	Type           string         `json:"type"`
-	ResourceType   string         `json:"resource_type,omitempty"`
-	ResourceID     string         `json:"resource_id,omitempty"`
-	Payload        map[string]any `json:"payload"`
-	State          string         `json:"state"`
-	Priority       int            `json:"priority"`
-	Attempts       int            `json:"attempts"`
-	MaxAttempts    int            `json:"max_attempts"`
-	Progress       int            `json:"progress"`
-	TargetRevision int64          `json:"target_revision"`
-	RunAfter       time.Time      `json:"run_after"`
-	LockedBy       string         `json:"locked_by,omitempty"`
-	HeartbeatAt    *time.Time     `json:"heartbeat_at,omitempty"`
-	IdempotencyKey string         `json:"idempotency_key,omitempty"`
-	LastError      string         `json:"last_error,omitempty"`
-	ActorID        string         `json:"actor_id,omitempty"`
-	RequestID      string         `json:"request_id,omitempty"`
-	CreatedAt      time.Time      `json:"created_at"`
-	StartedAt      *time.Time     `json:"started_at,omitempty"`
-	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
-	Logs           []string       `json:"logs,omitempty"`
-	Retryable      *bool          `json:"retryable,omitempty"`
+	ID              string         `json:"id"`
+	Type            string         `json:"type"`
+	ResourceType    string         `json:"resource_type,omitempty"`
+	ResourceID      string         `json:"resource_id,omitempty"`
+	Payload         map[string]any `json:"payload"`
+	State           string         `json:"state"`
+	Priority        int            `json:"priority"`
+	Attempts        int            `json:"attempts"`
+	MaxAttempts     int            `json:"max_attempts"`
+	Progress        int            `json:"progress"`
+	TargetRevision  int64          `json:"target_revision"`
+	Fence           int64          `json:"fence"`
+	OperationID     string         `json:"operation_id,omitempty"`
+	RunAfter        time.Time      `json:"run_after"`
+	LockedBy        string         `json:"locked_by,omitempty"`
+	HeartbeatAt     *time.Time     `json:"heartbeat_at,omitempty"`
+	LeaseExpires    *time.Time     `json:"lease_expires,omitempty"`
+	CancelRequested bool           `json:"cancel_requested,omitempty"`
+	IdempotencyKey  string         `json:"idempotency_key,omitempty"`
+	LastError       string         `json:"last_error,omitempty"`
+	ActorID         string         `json:"actor_id,omitempty"`
+	RequestID       string         `json:"request_id,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	StartedAt       *time.Time     `json:"started_at,omitempty"`
+	FinishedAt      *time.Time     `json:"finished_at,omitempty"`
+	Logs            []string       `json:"logs,omitempty"`
+	Retryable       *bool          `json:"retryable,omitempty"`
 }
 
 type AuditEvent struct {

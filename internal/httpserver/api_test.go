@@ -625,11 +625,11 @@ func TestWordPressInstallAPI(t *testing.T) {
 	if len(apps) != 1 || apps[0].Runtime != "wordpress" {
 		t.Fatalf("%v", apps)
 	}
-	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/applications/"+apps[0].ID, admin, nil) != 200 {
+	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/applications/"+apps[0].ID, admin, nil) != 202 {
 		t.Fatal("delete application")
 	}
-	if len(st.ListApps(aid)) != 0 {
-		t.Fatal("application remained")
+	if len(st.ListApps(aid)) != 1 || st.ListApps(aid)[0].Status != "retiring" {
+		t.Fatalf("application must remain until the fenced retire job finishes: %+v", st.ListApps(aid))
 	}
 }
 

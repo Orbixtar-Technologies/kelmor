@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -11,6 +12,23 @@ import (
 	"syscall"
 	"time"
 )
+
+type limitedBuffer struct {
+	buf        bytes.Buffer
+	overflowed bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if b.overflowed || b.buf.Len()+len(p) > maxCommandOutput {
+		b.overflowed = true
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
+func (b *limitedBuffer) String() string { return b.buf.String() }
+
+func (b *limitedBuffer) Bytes() []byte { return b.buf.Bytes() }
 
 var allowedBins = map[string]bool{
 	"/usr/sbin/nft":         true,
@@ -70,67 +88,67 @@ var allowedServices = map[string]bool{
 }
 
 func runFixed(bin string, args ...string) ([]byte, error) {
-	return runFixedEnv(bin, nil, 0, nil, args...)
+	return runFixedEnv(context.Background(), bin, nil, 0, nil, args...)
 }
 
 func runFixedIO(bin string, stdin []byte, args ...string) ([]byte, error) {
-	return runFixedEnv(bin, nil, 0, stdin, args...)
+	return runFixedEnv(context.Background(), bin, nil, 0, stdin, args...)
 }
 
-func runFixedEnv(bin string, env []string, timeout time.Duration, stdin []byte, args ...string) ([]byte, error) {
+func runFixedEnv(ctx context.Context, bin string, env []string, timeout time.Duration, stdin []byte, args ...string) ([]byte, error) {
 	bin = filepath.Clean(bin)
-	if !allowedBins[bin] {
-		return nil, fmt.Errorf("executable not allow-listed")
+	if err := validateFixedCommand(bin, env, args); err != nil {
+		return nil, err
 	}
-	for _, a := range args {
-		if strings.ContainsAny(a, ";|&$`\n") {
-			return nil, fmt.Errorf("illegal argument")
-		}
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	ctx := context.Background()
 	cancel := func() {}
 	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append([]string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}, env...)
 	if stdin != nil {
 		cmd.Stdin = strings.NewReader(string(stdin))
 	}
-	return cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
+	if len(out) > maxCommandOutput {
+		return nil, fmt.Errorf("command output exceeded %d bytes", maxCommandOutput)
+	}
+	return out, err
 }
 
 func runFixedStdout(bin string, args ...string) ([]byte, error) {
 	bin = filepath.Clean(bin)
-	if !allowedBins[bin] {
-		return nil, fmt.Errorf("executable not allow-listed")
-	}
-	for _, a := range args {
-		if strings.ContainsAny(a, ";|&$`\n") {
-			return nil, fmt.Errorf("illegal argument")
-		}
+	if err := validateFixedCommand(bin, nil, args); err != nil {
+		return nil, err
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/bin", "LC_ALL=C"}
-	var stdout, stderr strings.Builder
+	var stdout, stderr limitedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("%s", strings.TrimSpace(stderr.String()+" "+err.Error()))
 	}
-	return []byte(stdout.String()), nil
+	if stdout.overflowed || stderr.overflowed {
+		return nil, fmt.Errorf("command output exceeded %d bytes", maxCommandOutput)
+	}
+	return stdout.Bytes(), nil
 }
 
 func startDetached(bin, dir string, args ...string) (int, error) {
 	bin = filepath.Clean(bin)
-	if !allowedBins[bin] {
-		return 0, fmt.Errorf("executable not allow-listed")
+	if err := validateFixedCommand(bin, nil, args); err != nil {
+		return 0, err
 	}
-	for _, a := range args {
-		if strings.ContainsAny(a, ";|&$`\n") {
-			return 0, fmt.Errorf("illegal argument")
-		}
+	if err := validateWorkingDir(dir); err != nil {
+		return 0, err
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir

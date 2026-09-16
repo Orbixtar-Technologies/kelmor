@@ -23,12 +23,13 @@ import (
 )
 
 type Worker struct {
-	Store store.Store
-	Agent *operations.Host
-	Log   *logging.Logger
-	Box   *secret.Box
-	Name  string
-	stop  chan struct{}
+	Store          store.Store
+	Agent          *operations.Host
+	Log            *logging.Logger
+	Box            *secret.Box
+	Name           string
+	heartbeatEvery time.Duration
+	stop           chan struct{}
 }
 
 func New(st store.Store, agent *operations.Host, log *logging.Logger, box *secret.Box, name string) *Worker {
@@ -66,15 +67,7 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) reap() {
-	now := time.Now()
-	for _, j := range w.Store.ListJobs("running", 500) {
-		if j.HeartbeatAt != nil && now.Sub(*j.HeartbeatAt) > 2*time.Minute {
-			j.State = "retrying"
-			j.RunAfter = now
-			j.LockedBy = ""
-			w.Store.UpdateJob(&j)
-		}
-	}
+	_ = w.Store.ExpireStaleLeases(time.Now())
 }
 
 func (w *Worker) scanDrift(ctx context.Context) {
@@ -82,7 +75,9 @@ func (w *Worker) scanDrift(ctx context.Context) {
 	for _, acc := range w.Store.DriftedAccounts() {
 		_, _ = w.Store.EnqueueJob(&store.Job{
 			Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
-			Payload: map[string]any{"account_id": acc.ID}, State: "queued",
+			TargetRevision: acc.DesiredRevision,
+			Payload:        map[string]any{"account_id": acc.ID, "target_revision": acc.DesiredRevision},
+			State:          "queued",
 			IdempotencyKey: fmt.Sprintf("reconcile:%s:%d", acc.ID, acc.DesiredRevision),
 		})
 	}
@@ -199,10 +194,34 @@ func (w *Worker) portalContactEmail() string {
 }
 
 func (w *Worker) execute(ctx context.Context, j *store.Job) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if w.Agent != nil {
+		w.Agent.BindEnvelope(operations.Envelope{
+			OperationID:      j.OperationID,
+			RequestID:        j.RequestID,
+			ActorID:          j.ActorID,
+			ResourceID:       j.ResourceID,
+			ExpectedRevision: j.TargetRevision,
+			Fence:            j.Fence,
+		})
+		w.Agent.BindContext(ctx)
+		defer w.Agent.BindEnvelope(operations.Envelope{})
+		defer w.Agent.BindContext(nil)
+	}
+	stopHeartbeat := make(chan struct{})
+	go w.heartbeatUntil(ctx, j, cancel, stopHeartbeat)
+	defer close(stopHeartbeat)
+
 	j.Logs = append(j.Logs, "started "+j.Type)
 	j.Progress = 5
-	w.Store.UpdateJob(j)
+	if err := w.Store.UpdateJob(j); err != nil {
+		return
+	}
 	err := w.handle(ctx, j)
+	if ctx.Err() != nil {
+		return
+	}
 	now := time.Now()
 	if err != nil {
 		j.LastError = err.Error()
@@ -215,7 +234,7 @@ func (w *Worker) execute(ctx context.Context, j *store.Job) {
 			j.RunAfter = now.Add(store.RetryDelay(j.Attempts + 1))
 		}
 		w.Log.Error(ctx, j.Type+".failed", map[string]any{"job_id": j.ID, "error": err.Error()})
-		w.Store.UpdateJob(j)
+		_ = w.Store.UpdateJob(j)
 		return
 	}
 	j.State = "succeeded"
@@ -223,7 +242,34 @@ func (w *Worker) execute(ctx context.Context, j *store.Job) {
 	j.FinishedAt = &now
 	j.Logs = append(j.Logs, "succeeded")
 	w.Log.Info(ctx, j.Type+".success", map[string]any{"job_id": j.ID})
-	w.Store.UpdateJob(j)
+	_ = w.Store.UpdateJob(j)
+}
+
+func (w *Worker) heartbeatUntil(ctx context.Context, j *store.Job, cancel context.CancelFunc, stop <-chan struct{}) {
+	interval := w.heartbeatEvery
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			latest := w.Store.GetJob(j.ID)
+			if latest != nil && latest.CancelRequested {
+				cancel()
+				return
+			}
+			if err := w.Store.HeartbeatJob(j.ID, w.Name, j.Fence); err != nil {
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 func (w *Worker) handle(ctx context.Context, j *store.Job) error {
@@ -272,6 +318,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.syncFTPUsers()
 	case "account.copy_homedir":
 		return w.copyHomedir(j)
+	case "application.retire":
+		return w.retireApplication(ctx, j)
 	default:
 		return fmt.Errorf("unknown job type %s", j.Type)
 	}
@@ -317,8 +365,6 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		if err != nil {
 			return err
 		}
-		delete(j.Payload, "linux_password")
-		w.Store.UpdateJob(j)
 	}
 	_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplySystemdSlice",
@@ -339,7 +385,9 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		now := time.Now()
 		j.HeartbeatAt = &now
 		j.Progress = 20
-		w.Store.UpdateJob(j)
+		if err := w.Store.UpdateJob(j); err != nil {
+			return err
+		}
 	}
 	if err := w.ensureDefaultMailbox(acc, ownerPass); err != nil {
 		return err
@@ -384,7 +432,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 			return w.retireAccount(latest, j)
 		}
 	}
-	acc.ObservedRevision = acc.DesiredRevision
+	w.acknowledgeAccountRevision(acc, j)
 	w.Store.PutAccount(acc)
 	if err := w.applyMigratedData(j); err != nil {
 		return err
@@ -394,9 +442,26 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	_ = w.applyCron(j)
 	_ = w.applyMailStack(acc.ID)
 	w.syncWordPressDatabase(acc)
+	delete(j.Payload, "linux_password")
 	j.Progress = 90
-	w.Store.UpdateJob(j)
+	if err := w.Store.UpdateJob(j); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (w *Worker) acknowledgeAccountRevision(acc *store.Account, j *store.Job) {
+	if acc == nil {
+		return
+	}
+	if latest := w.Store.GetAccount(acc.ID); latest != nil {
+		acc.DesiredRevision = latest.DesiredRevision
+	}
+	if j != nil && j.TargetRevision > 0 {
+		acc.ObservedRevision = j.TargetRevision
+		return
+	}
+	acc.ObservedRevision = acc.DesiredRevision
 }
 
 func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
@@ -434,12 +499,12 @@ func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
 		return err
 	}
 	acc.Status = "terminated"
-	acc.ObservedRevision = acc.DesiredRevision
+	w.acknowledgeAccountRevision(acc, j)
 	w.Store.PutAccount(acc)
 	_ = w.applyMailStack(acc.ID)
 	_ = w.syncFTPUsers()
 	j.Progress = 90
-	w.Store.UpdateJob(j)
+	_ = w.Store.UpdateJob(j)
 	return nil
 }
 
@@ -658,6 +723,33 @@ func (w *Worker) applySiteRuntime(site *store.Website, acc *store.Account) error
 	default:
 		return nil
 	}
+}
+
+func (w *Worker) retireApplication(ctx context.Context, j *store.Job) error {
+	app := w.Store.GetApp(str(j.Payload["application_id"]))
+	if app == nil {
+		return nil
+	}
+	account := ""
+	if acc := w.Store.GetAccount(app.AccountID); acc != nil {
+		account = acc.Username
+	}
+	wid := app.WebsiteID
+	if wid == "" {
+		wid = app.ID
+	}
+	if w.Agent == nil {
+		return fmt.Errorf("agent required")
+	}
+	_, err := w.Agent.Dispatch(ctx, operations.Request{
+		Method: "RetireApplication",
+		Params: mustJSON(map[string]any{"website_id": wid, "account": account}),
+	})
+	if err != nil {
+		return err
+	}
+	w.Store.DeleteApp(app.ID)
+	return nil
 }
 
 func (w *Worker) deployApp(j *store.Job) error {
@@ -1029,7 +1121,9 @@ func (w *Worker) ensureDKIM(recs []mail.Recipient) error {
 		if json.Unmarshal(b, &rec) != nil || rec.TXT == "" {
 			continue
 		}
-		w.publishDKIMTXT(domain, rec.TXT)
+		if err := w.publishDKIMTXT(domain, rec.TXT); err != nil {
+			return err
+		}
 	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyDKIMSigning",
@@ -1038,7 +1132,7 @@ func (w *Worker) ensureDKIM(recs []mail.Recipient) error {
 	return err
 }
 
-func (w *Worker) publishDKIMTXT(domain, txt string) {
+func (w *Worker) publishDKIMTXT(domain, txt string) error {
 	for _, acc := range w.Store.ListAccounts("", "") {
 		for _, d := range w.Store.ListDomains(acc.ID) {
 			if d.ASCII != domain {
@@ -1046,7 +1140,7 @@ func (w *Worker) publishDKIMTXT(domain, txt string) {
 			}
 			z := w.Store.ZoneByDomain(d.ID)
 			if z == nil {
-				return
+				return fmt.Errorf("dkim zone missing for %s", domain)
 			}
 			updated := false
 			for _, rec := range w.Store.ListRecords(z.ID) {
@@ -1065,10 +1159,10 @@ func (w *Worker) publishDKIMTXT(domain, txt string) {
 			}
 			z.DesiredRevision++
 			w.Store.PutZone(z)
-			_ = w.writeZone(z)
-			return
+			return w.writeZone(z)
 		}
 	}
+	return fmt.Errorf("dkim zone missing for %s", domain)
 }
 
 func (w *Worker) provisionMailbox(j *store.Job) error {

@@ -7,9 +7,12 @@ import (
 
 var (
 	ErrStaleAccount     = errors.New("stale account revision")
+	ErrStaleFence       = errors.New("stale job fence")
 	ErrJobNotFound      = errors.New("job not found")
 	ErrJobStateConflict = errors.New("job state does not allow cancellation")
 )
+
+const JobLeaseTTL = 2 * time.Minute
 
 type AuditFilter struct {
 	Query        string
@@ -129,7 +132,10 @@ type Store interface {
 	EnqueueJobWithAudit(job *Job, audit AuditEvent) (*Job, error)
 	RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, job *Job) (*Job, error)
 	ClaimJob(worker string) *Job
-	UpdateJob(*Job)
+	HeartbeatJob(jobID, owner string, fence int64) error
+	ExpireStaleLeases(now time.Time) error
+	RequestJobCancel(jobID string) error
+	UpdateJob(*Job) error
 	GetJob(string) *Job
 	JobByIdempotencyKey(string) *Job
 	ListJobs(state string, limit int) []Job

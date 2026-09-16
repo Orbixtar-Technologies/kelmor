@@ -12,34 +12,35 @@ import (
 )
 
 type Memory struct {
-	mu        sync.RWMutex
-	Users     map[string]*User
-	Sessions  map[string]*Session
-	Packages  map[string]*Package
-	Features  map[string]*FeatureSet
-	Resellers map[string]*Reseller
-	Accounts  map[string]*Account
-	Members   map[string][]string // accountID -> userIDs
-	Domains   map[string]*Domain
-	Websites  map[string]*Website
-	Apps      map[string]*Application
-	DBs       map[string]*HostedDatabase
-	DBUsers   map[string]*DatabaseUser
-	Zones     map[string]*DNSZone
-	Records   map[string]*DNSRecord
-	MailDom   map[string]*MailDomain
-	Mailboxes map[string]*Mailbox
-	Aliases   map[string]*MailAlias
-	Certs     map[string]*Certificate
-	Jobs      map[string]*Job
-	Audit     []*AuditEvent
-	Tokens    map[string]*APIToken
-	Backups   map[string]*BackupRun
-	Crons     map[string]*CronJob
-	SSHKeys   map[string]*SSHKey
-	FTPs      map[string]*FTPAccount
-	Usage     map[string]*Usage
-	NextUID   int
+	mu             sync.RWMutex
+	Users          map[string]*User
+	Sessions       map[string]*Session
+	Packages       map[string]*Package
+	Features       map[string]*FeatureSet
+	Resellers      map[string]*Reseller
+	Accounts       map[string]*Account
+	Members        map[string][]string // accountID -> userIDs
+	Domains        map[string]*Domain
+	Websites       map[string]*Website
+	Apps           map[string]*Application
+	DBs            map[string]*HostedDatabase
+	DBUsers        map[string]*DatabaseUser
+	Zones          map[string]*DNSZone
+	Records        map[string]*DNSRecord
+	MailDom        map[string]*MailDomain
+	Mailboxes      map[string]*Mailbox
+	Aliases        map[string]*MailAlias
+	Certs          map[string]*Certificate
+	Jobs           map[string]*Job
+	Audit          []*AuditEvent
+	Tokens         map[string]*APIToken
+	Backups        map[string]*BackupRun
+	Crons          map[string]*CronJob
+	SSHKeys        map[string]*SSHKey
+	FTPs           map[string]*FTPAccount
+	Usage          map[string]*Usage
+	resourceFences map[string]int64
+	NextUID        int
 }
 
 func NewMemory() *Memory {
@@ -57,7 +58,8 @@ func NewMemory() *Memory {
 		Tokens: map[string]*APIToken{}, Backups: map[string]*BackupRun{},
 		Crons: map[string]*CronJob{}, SSHKeys: map[string]*SSHKey{},
 		FTPs: map[string]*FTPAccount{}, Usage: map[string]*Usage{},
-		NextUID: 20000,
+		resourceFences: map[string]int64{},
+		NextUID:        20000,
 	}
 }
 
@@ -872,16 +874,94 @@ func (m *Memory) ClaimJob(worker string) *Job {
 	t := now
 	best.StartedAt = &t
 	best.HeartbeatAt = &t
+	lease := now.Add(JobLeaseTTL)
+	best.LeaseExpires = &lease
+	best.Fence = m.nextResourceFence(best)
+	best.OperationID = jobOperationID(best.ID, best.Fence)
+	best.CancelRequested = false
 	best.Attempts++
 	cp := *best
 	return &cp
 }
 
-func (m *Memory) UpdateJob(j *Job) {
+func (m *Memory) HeartbeatJob(jobID, owner string, fence int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	j := m.Jobs[jobID]
+	if j == nil {
+		return ErrJobNotFound
+	}
+	if j.State != "running" || j.LockedBy != owner || j.Fence != fence {
+		return ErrStaleFence
+	}
+	now := time.Now()
+	j.HeartbeatAt = &now
+	lease := now.Add(JobLeaseTTL)
+	j.LeaseExpires = &lease
+	return nil
+}
+
+func (m *Memory) ExpireStaleLeases(now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, j := range m.Jobs {
+		if j.State != "running" {
+			continue
+		}
+		expired := false
+		if j.LeaseExpires != nil && !j.LeaseExpires.After(now) {
+			expired = true
+		} else if j.HeartbeatAt != nil && now.Sub(*j.HeartbeatAt) > JobLeaseTTL {
+			expired = true
+		}
+		if !expired {
+			continue
+		}
+		j.State = "retrying"
+		j.LockedBy = ""
+		j.LeaseExpires = nil
+		j.HeartbeatAt = nil
+		j.Fence = m.nextResourceFence(j)
+		j.OperationID = ""
+		j.CancelRequested = false
+		j.RunAfter = time.Now()
+	}
+	return nil
+}
+
+func (m *Memory) nextResourceFence(j *Job) int64 {
+	key := resourceFenceKey(j)
+	if j.Fence > m.resourceFences[key] {
+		m.resourceFences[key] = j.Fence
+	}
+	m.resourceFences[key]++
+	return m.resourceFences[key]
+}
+
+func (m *Memory) RequestJobCancel(jobID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j := m.Jobs[jobID]
+	if j == nil {
+		return ErrJobNotFound
+	}
+	if j.State != "running" {
+		return ErrJobStateConflict
+	}
+	j.CancelRequested = true
+	return nil
+}
+
+func (m *Memory) UpdateJob(j *Job) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := acceptJobMutation(m.Jobs[j.ID], j); err != nil {
+		return err
+	}
 	j.Retryable = nil
-	m.Jobs[j.ID] = j
+	cp := *j
+	m.Jobs[j.ID] = &cp
+	return nil
 }
 
 func (m *Memory) GetJob(id string) *Job {

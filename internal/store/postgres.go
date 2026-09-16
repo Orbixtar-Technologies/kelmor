@@ -1093,7 +1093,9 @@ func (p *PG) JobByIdempotencyKey(key string) *Job {
 	return p.jobByIdem(key)
 }
 
-const jobSelect = `SELECT id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload, state, priority, attempts, max_attempts, progress, target_revision, run_after, COALESCE(locked_by,''), heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''), COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at, started_at, finished_at, logs FROM jobs`
+const jobColumns = `id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload, state, priority, attempts, max_attempts, progress, target_revision, fence, COALESCE(operation_id,''), run_after, COALESCE(locked_by,''), heartbeat_at, lease_expires, cancel_requested, COALESCE(idempotency_key,''), COALESCE(last_error::text,''), COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at, started_at, finished_at, logs`
+
+const jobSelect = `SELECT ` + jobColumns + ` FROM jobs`
 
 func (p *PG) scanJob(row scanner) *Job {
 	j, err := scanJobRow(row)
@@ -1106,7 +1108,13 @@ func (p *PG) scanJob(row scanner) *Job {
 func scanJobRow(row scanner) (*Job, error) {
 	j := &Job{}
 	var payload []byte
-	if err := row.Scan(&j.ID, &j.Type, &j.ResourceType, &j.ResourceID, &payload, &j.State, &j.Priority, &j.Attempts, &j.MaxAttempts, &j.Progress, &j.TargetRevision, &j.RunAfter, &j.LockedBy, &j.HeartbeatAt, &j.IdempotencyKey, &j.LastError, &j.ActorID, &j.RequestID, &j.CreatedAt, &j.StartedAt, &j.FinishedAt, &j.Logs); err != nil {
+	if err := row.Scan(
+		&j.ID, &j.Type, &j.ResourceType, &j.ResourceID, &payload, &j.State, &j.Priority,
+		&j.Attempts, &j.MaxAttempts, &j.Progress, &j.TargetRevision, &j.Fence, &j.OperationID,
+		&j.RunAfter, &j.LockedBy, &j.HeartbeatAt, &j.LeaseExpires, &j.CancelRequested,
+		&j.IdempotencyKey, &j.LastError, &j.ActorID, &j.RequestID, &j.CreatedAt, &j.StartedAt,
+		&j.FinishedAt, &j.Logs,
+	); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal(payload, &j.Payload)
@@ -1133,8 +1141,23 @@ func (p *PG) ClaimJob(worker string) *Job {
 	j.LockedBy = worker
 	j.StartedAt = &now
 	j.HeartbeatAt = &now
+	lease := now.Add(JobLeaseTTL)
+	j.LeaseExpires = &lease
+	nextFence, err := nextResourceFenceTx(p.ctx(), tx, j)
+	if err != nil {
+		return nil
+	}
+	j.Fence = nextFence
+	j.OperationID = jobOperationID(j.ID, j.Fence)
+	j.CancelRequested = false
 	j.Attempts++
-	if _, err := tx.Exec(p.ctx(), `UPDATE jobs SET state='running', locked_by=$2, locked_at=now(), heartbeat_at=now(), started_at=now(), attempts=$3 WHERE id=$1`, j.ID, worker, j.Attempts); err != nil {
+	if _, err := tx.Exec(p.ctx(), `
+		UPDATE jobs
+		SET state='running', locked_by=$2, locked_at=now(), heartbeat_at=now(),
+		    started_at=now(), attempts=$3, fence=$4, operation_id=$5,
+		    lease_expires=$6, cancel_requested=false
+		WHERE id=$1`,
+		j.ID, worker, j.Attempts, j.Fence, j.OperationID, j.LeaseExpires); err != nil {
 		return nil
 	}
 	if err := tx.Commit(p.ctx()); err != nil {
@@ -1143,21 +1166,97 @@ func (p *PG) ClaimJob(worker string) *Job {
 	return j
 }
 
-func (p *PG) UpdateJob(j *Job) {
+func nextResourceFenceTx(ctx context.Context, tx pgx.Tx, job *Job) (int64, error) {
+	var fence int64
+	err := tx.QueryRow(ctx, `
+		INSERT INTO resource_fences(resource_key, fence)
+		VALUES ($1, GREATEST($2, 0) + 1)
+		ON CONFLICT (resource_key) DO UPDATE
+		SET fence = GREATEST(resource_fences.fence, EXCLUDED.fence - 1, $2) + 1
+		RETURNING fence`, resourceFenceKey(job), job.Fence).Scan(&fence)
+	return fence, err
+}
+
+func (p *PG) HeartbeatJob(jobID, owner string, fence int64) error {
+	tag, err := p.pool.Exec(p.ctx(), `
+		UPDATE jobs
+		SET heartbeat_at=now(), lease_expires=now() + INTERVAL '2 minutes'
+		WHERE id=$1 AND state='running' AND locked_by=$2 AND fence=$3`,
+		jobID, owner, fence)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrStaleFence
+	}
+	return nil
+}
+
+func (p *PG) ExpireStaleLeases(now time.Time) error {
+	_, err := p.pool.Exec(p.ctx(), `
+		UPDATE jobs
+		SET state='retrying', locked_by=NULL, locked_at=NULL, heartbeat_at=NULL,
+		    lease_expires=NULL, cancel_requested=false, fence=fence+1,
+		    operation_id=NULL, run_after=now()
+		WHERE state='running'
+		  AND (
+		    (lease_expires IS NOT NULL AND lease_expires <= $1)
+		    OR (heartbeat_at IS NOT NULL AND heartbeat_at <= $1 - INTERVAL '2 minutes')
+		  )`, now)
+	return err
+}
+
+func (p *PG) RequestJobCancel(jobID string) error {
+	tag, err := p.pool.Exec(p.ctx(), `
+		UPDATE jobs SET cancel_requested=true
+		WHERE id=$1 AND state='running'`, jobID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		var exists bool
+		if queryErr := p.pool.QueryRow(p.ctx(), `SELECT EXISTS (SELECT 1 FROM jobs WHERE id=$1)`, jobID).Scan(&exists); queryErr != nil {
+			return queryErr
+		}
+		if !exists {
+			return ErrJobNotFound
+		}
+		return ErrJobStateConflict
+	}
+	return nil
+}
+
+func (p *PG) UpdateJob(j *Job) error {
 	payload, _ := json.Marshal(j.Payload)
 	var last any
 	if j.LastError != "" {
 		b, _ := json.Marshal(map[string]string{"error": j.LastError})
 		last = b
 	}
-	_, _ = p.pool.Exec(p.ctx(), `
+	tag, err := p.pool.Exec(p.ctx(), `
 		UPDATE jobs SET type=$2, payload=$3, state=$4, priority=$5, attempts=$6, progress=$7,
 			target_revision=$8, run_after=$9, locked_by=NULLIF($10,''), heartbeat_at=$11,
-			last_error=$12, started_at=$13, finished_at=$14, logs=$15
-		WHERE id=$1`,
+			last_error=$12, started_at=$13, finished_at=$14, logs=$15,
+			fence=$16, operation_id=NULLIF($17,''), lease_expires=$18, cancel_requested=$19
+		WHERE id=$1 AND (fence=0 OR fence=$16)`,
 		j.ID, j.Type, payload, j.State, j.Priority, j.Attempts, j.Progress,
 		j.TargetRevision, j.RunAfter, j.LockedBy, j.HeartbeatAt, last,
-		j.StartedAt, j.FinishedAt, j.Logs)
+		j.StartedAt, j.FinishedAt, j.Logs, j.Fence, j.OperationID, j.LeaseExpires,
+		j.CancelRequested)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		existing := p.GetJob(j.ID)
+		if existing == nil {
+			return ErrJobNotFound
+		}
+		if err := acceptJobMutation(existing, j); err != nil {
+			return err
+		}
+		return ErrJobNotFound
+	}
+	return nil
 }
 
 func (p *PG) GetJob(jid string) *Job {
@@ -1186,14 +1285,11 @@ func (p *PG) CancelJob(jobID, actorID, requestID string) (*Job, error) {
 	job, err := scanJobRow(p.pool.QueryRow(p.ctx(), `
 		UPDATE jobs
 		SET state='cancelled', finished_at=now(),
-			locked_by=NULL, locked_at=NULL, heartbeat_at=NULL,
+			locked_by=NULL, locked_at=NULL, heartbeat_at=NULL, lease_expires=NULL,
+			cancel_requested=false,
 			actor_id=NULLIF($2,'')::uuid, request_id=NULLIF($3,'')::uuid
 		WHERE id=$1 AND state IN ('queued','failed')
-		RETURNING id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload,
-			state, priority, attempts, max_attempts, progress, run_after, COALESCE(locked_by,''),
-			heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''),
-			COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at,
-			started_at, finished_at, logs`, jobID, actorID, requestID))
+		RETURNING `+jobColumns, jobID, actorID, requestID))
 	if err == nil {
 		return job, nil
 	}
