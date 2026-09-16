@@ -1,0 +1,7 @@
+# Copy to install.yaml next to install.sh, then:
+#   sudo ./install.sh --non-interactive
+hostname: panel.example.net
+admin_email: ops@example.net
+channel: stable
+acme: letsencrypt
+non_interactive: true

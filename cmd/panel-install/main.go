@@ -23,16 +23,48 @@ func main() {
 	flag.Parse()
 	phases.LoadValidationEnv()
 
-	statePath := "/var/lib/panel/install-state.json"
-	if *dev || os.Getenv("PANEL_DEV") == "1" {
-		statePath = filepath.Join("var", "panel", "install-state.json")
-	} else if strings.TrimSpace(*installRoot) != "" {
-		statePath = filepath.Join(*installRoot, "var/lib/panel/install-state.json")
+	setFlags := map[string]bool{}
+	flag.CommandLine.Visit(func(f *flag.Flag) {
+		setFlags[f.Name] = true
+	})
+
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exe)
 	}
-	cfg := phases.Config{
+	cwd, _ := os.Getwd()
+	configPath := phases.DiscoverInstallFile(*config, exeDir, cwd)
+	file := phases.Config{}
+	if configPath != "" {
+		loaded, err := phases.LoadInstallFile(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "config: %v\n", err)
+			os.Exit(1)
+		}
+		file = loaded
+		file.ConfigPath = configPath
+	}
+	cli := phases.Config{
 		Hostname: *hostname, AdminEmail: *adminEmail, Channel: *channel,
 		NonInteractive: *nonInteractive, Dev: *dev || os.Getenv("PANEL_DEV") == "1",
 		ConfigPath: *config, ACMEMode: *acme, Root: strings.TrimSpace(*installRoot),
+	}
+	if os.Getenv("PANEL_DEV") == "1" {
+		cli.Dev = true
+	}
+	cfg := phases.MergeInstallConfig(file, cli, setFlags)
+	if !cfg.NonInteractive && stdinIsTTY() {
+		if err := phases.PromptMissing(&cfg, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "prompt: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	statePath := "/var/lib/panel/install-state.json"
+	if cfg.Dev {
+		statePath = filepath.Join("var", "panel", "install-state.json")
+	} else if strings.TrimSpace(cfg.Root) != "" {
+		statePath = filepath.Join(cfg.Root, "var/lib/panel/install-state.json")
 	}
 	if cfg.Hostname == "" {
 		if h := phases.ValidationHostname(); h != "" {
@@ -69,4 +101,12 @@ Mail:               SMTP relay from .run/validation/smtp.env when present; other
 
 Administrator password was generated or taken from PANEL_ADMIN_PASSWORD and is not written to this report.
 `, cfg.Hostname, cfg.Hostname, st.InstallationID, st.Release, runtime.Version(), runtime.GOARCH, cfg.Channel, cfg.Hostname, cfg.Hostname)
+}
+
+func stdinIsTTY() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }

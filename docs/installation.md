@@ -5,6 +5,20 @@ Target: Ubuntu 24.04 LTS, amd64 or arm64, no container runtime required for the 
 Minimum production: 4 vCPU, 8 GB RAM, 100 GB SSD.
 
 ```bash
+# on a build host (never publishes to a VM):
+make installer
+# copy dist/installer/kelmor-installer_*_linux_*.tar.gz to the new Ubuntu 24.04 machine
+
+# on the new host:
+tar -xzf kelmor-installer_*_linux_*.tar.gz
+cd kelmor-installer_*
+sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --non-interactive
+# or: cp install.yaml.example install.yaml && sudo ./install.sh
+```
+
+Debian package path:
+
+```bash
 # from this tree:
 make package   # dist/deb/hosting-panel_*.deb (binaries, portals, systemd units)
 sudo dpkg -i dist/deb/hosting-panel_*.deb

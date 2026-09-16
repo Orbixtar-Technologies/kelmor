@@ -1,4 +1,4 @@
-.PHONY: bootstrap generate lint test test-integration test-security test-provisioning test-release-policy check-go-version build pebble package release dev portals refresh-portals
+.PHONY: bootstrap generate lint test test-integration test-security test-provisioning test-release-policy check-go-version build pebble package installer release dev portals refresh-portals
 
 GO ?= go
 API_PORT ?= 18080
@@ -68,6 +68,9 @@ pebble:
 
 package: build
 	bash packaging/debian/build.sh
+
+installer: build portals
+	bash scripts/build-installer.sh
 
 release:
 	bash scripts/ci/release.sh

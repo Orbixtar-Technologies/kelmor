@@ -58,8 +58,12 @@ SSL, backup, usage, and access tools.
 ## Production install (Ubuntu 24.04)
 
 ```bash
-# verify installer signature, then:
-sudo ./panel-install --hostname panel.example.net --admin-email ops@example.net --non-interactive
+# on a build host (artifact only; no VM publish):
+make installer
+# copy dist/installer/kelmor-installer_*_linux_*.tar.gz to the new Ubuntu 24.04 machine
+tar -xzf kelmor-installer_*_linux_*.tar.gz
+cd kelmor-installer_*
+sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --non-interactive
 ```
 
 The installer writes `/var/lib/panel/install-state.json` and resumes failed phases. It does not require Docker for the control plane. A live install fails unless built Director/Control SPAs are present (`make portals` or the Debian package). nginx serves them on **8443** and **8444**, proxying `/api` and `/healthz` to the control API.
