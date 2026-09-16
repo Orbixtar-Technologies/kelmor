@@ -56,6 +56,12 @@ func ValidateManagedPath(p string) (string, error) {
 	if strings.HasPrefix(clean, "/etc/rspamd/local.d/") {
 		ok = true
 	}
+	if strings.HasPrefix(clean, "/etc/phpmyadmin/conf.d/panel-") {
+		ok = true
+	}
+	if clean == "/etc/roundcube/config.panel.inc.php" || clean == "/etc/roundcube/config.inc.php" {
+		ok = true
+	}
 	if !ok {
 		return "", fmt.Errorf("path outside approved prefixes")
 	}
@@ -103,6 +109,8 @@ func SplitManaged(clean string) (prefix, relative string, err error) {
 		"/etc/cron.d/",
 		"/etc/nginx/conf.d/",
 		"/etc/rspamd/local.d/",
+		"/etc/phpmyadmin/conf.d/",
+		"/etc/roundcube/",
 	)
 	best := ""
 	for _, root := range candidates {

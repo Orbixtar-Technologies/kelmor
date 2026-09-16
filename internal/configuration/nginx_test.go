@@ -1,6 +1,9 @@
 package configuration
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPortalHTTPRedirect(t *testing.T) {
 	conf := PortalHTTPRedirect("lab.kelmor.host", 2087)
@@ -100,6 +103,36 @@ func TestNginxHTTPSRedirectKeepsHTTP01(t *testing.T) {
 	}
 	if contains(conf, "root /var/lib/panel/acme-www") {
 		t.Fatal("HTTP-01 must not use /var/lib/panel/acme-www")
+	}
+}
+
+func TestNginxToolSiteRedirectsHTTPWhenTLS(t *testing.T) {
+	conf := NginxToolSite(ToolSiteSpec{
+		SiteID: "webmail-acme.test", Hostname: "webmail.acme.test",
+		DocumentRoot: "/usr/share/roundcube",
+		TLSCert:      "/var/lib/panel/certs/acme.test.crt",
+		TLSKey:       "/var/lib/panel/certs/acme.test.key",
+	})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "server_name webmail.acme.test;") {
+		t.Fatal(conf)
+	}
+	if !contains(conf, "location / { return 301 https://$host$request_uri; }") {
+		t.Fatal(conf)
+	}
+	if !contains(conf, "root /usr/share/roundcube") {
+		t.Fatal(conf)
+	}
+}
+
+func TestAccountServiceHostnames(t *testing.T) {
+	got := strings.Join(AccountServiceHostnames(), ",")
+	for _, name := range []string{"www", "mail", "ftp", "webmail", "phpmyadmin"} {
+		if !contains(got, name) {
+			t.Fatalf("missing %s in %s", name, got)
+		}
 	}
 }
 

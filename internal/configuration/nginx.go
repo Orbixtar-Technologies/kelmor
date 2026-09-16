@@ -306,6 +306,13 @@ func writePortalHTTPBlock(b *strings.Builder, serverNames []string, redirectHost
 	b.WriteString("}\n")
 }
 
+// AccountServiceHostnames are the per-account DNS labels Kelmor publishes
+// on every zone. HTTP tools bind webmail and phpmyadmin; the others are
+// mail/FTP/name-server targets.
+func AccountServiceHostnames() []string {
+	return []string{"www", "ns1", "mail", "ftp", "webmail", "phpmyadmin"}
+}
+
 type ToolSiteSpec struct {
 	SiteID       string
 	Hostname     string
@@ -341,8 +348,12 @@ func writeToolServer(b *strings.Builder, listen string, s ToolSiteSpec, tls bool
 		fmt.Fprintf(b, "    ssl_certificate %s;\n", s.TLSCert)
 		fmt.Fprintf(b, "    ssl_certificate_key %s;\n", s.TLSKey)
 	}
-	b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
-	b.WriteString("    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/php8.3-fpm.sock; }\n")
+	if !tls && s.TLSCert != "" && s.TLSKey != "" {
+		b.WriteString("    location / { return 301 https://$host$request_uri; }\n")
+	} else {
+		b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
+		b.WriteString("    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/php8.3-fpm.sock; }\n")
+	}
 	b.WriteString("}\n")
 }
 

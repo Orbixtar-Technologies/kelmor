@@ -536,11 +536,9 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		z := &store.DNSZone{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Name: d.ASCII, Provider: "powerdns", DesiredRevision: 1, ObservedRevision: 1}
 		w.Store.PutZone(z)
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "A", Content: pubIP, TTL: 3600})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "www", Type: "A", Content: pubIP, TTL: 3600})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "ns1", Type: "A", Content: pubIP, TTL: 3600})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "mail", Type: "A", Content: pubIP, TTL: 3600})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "webmail", Type: "A", Content: pubIP, TTL: 3600})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "phpmyadmin", Type: "A", Content: pubIP, TTL: 3600})
+		for _, name := range configuration.AccountServiceHostnames() {
+			w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: name, Type: "A", Content: pubIP, TTL: 3600})
+		}
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "MX", Content: "mail." + d.ASCII, TTL: 3600, Priority: intPtr(10)})
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:" + pubIP + " ~all", TTL: 3600})
 		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "_dmarc", Type: "TXT", Content: "v=DMARC1; p=none", TTL: 3600})
@@ -548,6 +546,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		w.republishPublicAddresses(w.Store.ZoneByDomain(d.ID), pubIP)
 	}
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
+		w.ensureServiceRecords(z, pubIP)
 		if err := w.writeZone(z); err != nil {
 			return fmt.Errorf("publish zone: %w", err)
 		}
@@ -610,10 +609,12 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 		}
 	}
 	if w.Agent != nil && (d.Type == "primary" || d.ASCII == acc.PrimaryDomain) {
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "ApplyAdminTools",
 			Params: mustJSON(map[string]any{"domain": d.ASCII}),
-		})
+		}); err != nil {
+			return fmt.Errorf("admin tools: %w", err)
+		}
 	}
 	return nil
 }
@@ -1006,6 +1007,34 @@ func (w *Worker) republishPublicAddresses(z *store.DNSZone, pubIP string) {
 	w.Store.PutZone(z)
 }
 
+func (w *Worker) ensureServiceRecords(z *store.DNSZone, pubIP string) {
+	if z == nil || pubIP == "" {
+		return
+	}
+	have := map[string]bool{}
+	for _, rec := range w.Store.ListRecords(z.ID) {
+		if rec.Type == "A" {
+			have[rec.Name] = true
+		}
+	}
+	changed := false
+	for _, name := range configuration.AccountServiceHostnames() {
+		if have[name] {
+			continue
+		}
+		w.Store.PutRecord(&store.DNSRecord{
+			ID: store.NewID(), ZoneID: z.ID, Name: name, Type: "A",
+			Content: pubIP, TTL: 3600,
+		})
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	z.DesiredRevision++
+	w.Store.PutZone(z)
+}
+
 func (w *Worker) writeZone(z *store.DNSZone) error {
 	if z == nil {
 		return fmt.Errorf("zone missing")
@@ -1361,6 +1390,7 @@ func (w *Worker) publishAccountPublicDNS(acc *store.Account) error {
 			continue
 		}
 		w.republishPublicAddresses(z, pubIP)
+		w.ensureServiceRecords(z, pubIP)
 		if err := w.writeZone(z); err != nil {
 			return fmt.Errorf("publish zone %s: %w", z.Name, err)
 		}
@@ -1426,10 +1456,12 @@ func (w *Worker) bindCertificateToSites(c *store.Certificate) error {
 		}
 	}
 	if primary := w.primaryDomain(acc); primary != nil && primary.ASCII == c.Hostname {
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "ApplyAdminTools",
 			Params: mustJSON(map[string]any{"domain": primary.ASCII}),
-		})
+		}); err != nil {
+			return fmt.Errorf("admin tools: %w", err)
+		}
 	}
 	return nil
 }
@@ -2097,9 +2129,24 @@ func (w *Worker) aliasesFor(acc *store.Account, siteDomain *store.Domain) []stri
 		return nil
 	}
 	var out []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] || name == siteDomain.ASCII {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	if !strings.HasPrefix(siteDomain.ASCII, "www.") {
+		add("www." + siteDomain.ASCII)
+	}
 	for _, d := range w.Store.ListDomains(acc.ID) {
 		if d.Type == "alias" && d.ASCII != "" {
-			out = append(out, d.ASCII)
+			add(d.ASCII)
+			if !strings.HasPrefix(d.ASCII, "www.") {
+				add("www." + d.ASCII)
+			}
 		}
 	}
 	return out

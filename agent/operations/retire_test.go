@@ -15,6 +15,9 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	if _, err := h.applyWebsite("site-1", "gone42", "gone.test", "/home/gone42/public_html", "php", "", "", false, true, false, 0, nil); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := h.applyAdminTools("gone.test", nil); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := h.applyPHPPool("gone42", "8.3", 4); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +41,12 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/site-1.conf")); !os.IsNotExist(err) {
 		t.Fatal("vhost remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/webmail-gone.test.conf")); !os.IsNotExist(err) {
+		t.Fatal("webmail vhost remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/phpmyadmin-gone.test.conf")); !os.IsNotExist(err) {
+		t.Fatal("phpmyadmin vhost remains")
 	}
 	if _, err := os.Stat(filepath.Join(root, "etc/php/8.3/fpm/pool.d/panel-gone42.conf")); !os.IsNotExist(err) {
 		t.Fatal("php pool remains")
@@ -100,11 +109,17 @@ func TestRetireDomainRemovesZoneKeepsHome(t *testing.T) {
 	if _, err := h.applyDNSZone("gone.keep.test", "$TTL 60\n@ IN SOA ns1.gone.keep.test. hostmaster.gone.keep.test. (1 3600 3600 3600 60)\n"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := h.applyAdminTools("gone.keep.test", nil); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := h.retireDomain("keep43", "gone.keep.test", []string{"site-gone"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/site-gone.conf")); !os.IsNotExist(err) {
 		t.Fatal("vhost remains")
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/webmail-gone.keep.test.conf")); !os.IsNotExist(err) {
+		t.Fatal("webmail vhost remains")
 	}
 	if _, err := os.Stat(filepath.Join(root, "var/lib/panel/dns/zones/gone.keep.test.zone")); !os.IsNotExist(err) {
 		t.Fatal("zone remains")

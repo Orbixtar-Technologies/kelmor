@@ -137,6 +137,7 @@ func (h *Host) retireAccount(username string, websiteIDs, domains []string) (Res
 		if err != nil {
 			continue
 		}
+		h.retireToolSites(ascii)
 		h.removeManaged("/var/lib/panel/certs/" + ascii + ".crt")
 		h.removeManaged("/var/lib/panel/certs/" + ascii + ".key")
 		h.removeManaged("/var/lib/panel/dns/zones/" + ascii + ".zone")
@@ -174,6 +175,7 @@ func (h *Host) retireDomain(account, ascii string, websiteIDs []string) (Result,
 			return Result{}, err
 		}
 	}
+	h.retireToolSites(name)
 	h.removeManaged("/var/lib/panel/certs/" + name + ".crt")
 	h.removeManaged("/var/lib/panel/certs/" + name + ".key")
 	h.removeManaged("/var/lib/panel/dns/zones/" + name + ".zone")

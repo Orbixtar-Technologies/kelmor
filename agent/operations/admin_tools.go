@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	phpMyAdminRoot = "/usr/share/phpmyadmin"
-	webmailRoot    = "/usr/share/roundcube"
+	phpMyAdminRoot          = "/usr/share/phpmyadmin"
+	webmailRoot             = "/usr/share/roundcube"
+	phpMyAdminOverlayPath   = "/etc/phpmyadmin/conf.d/panel-host.inc.php"
+	roundcubeOverlayPath    = "/etc/roundcube/config.panel.inc.php"
+	roundcubeMainConfigPath = "/etc/roundcube/config.inc.php"
 )
 
 func (h *Host) applyAdminTools(domain string, tools []string) (Result, error) {
@@ -54,6 +57,9 @@ func (h *Host) applyAdminTools(domain string, tools []string) (Result, error) {
 			return Result{}, err
 		}
 	}
+	if err := h.applyAdminToolOverlays(); err != nil {
+		return Result{}, err
+	}
 	if h.live() {
 		if err := h.testNginx(); err != nil {
 			return Result{}, err
@@ -64,7 +70,7 @@ func (h *Host) applyAdminTools(domain string, tools []string) (Result, error) {
 }
 
 func (h *Host) applyToolSite(id, host, root, cert, key string) error {
-	rootAbs, err := h.resolve(root)
+	rootAbs, err := h.systemPath(root)
 	if err != nil {
 		return err
 	}
@@ -75,7 +81,10 @@ func (h *Host) applyToolSite(id, host, root, cert, key string) error {
 		if err := os.MkdirAll(rootAbs, 0o755); err != nil {
 			return err
 		}
-		_ = os.WriteFile(filepath.Join(rootAbs, "index.php"), []byte("<?php echo 'panel tool placeholder';\n"), 0o644)
+		placeholder := filepath.Join(rootAbs, "index.php")
+		if err := os.WriteFile(placeholder, []byte("<?php echo 'panel tool placeholder';\n"), 0o644); err != nil {
+			return err
+		}
 	}
 	body := configuration.NginxToolSite(configuration.ToolSiteSpec{
 		SiteID: id, Hostname: host, DocumentRoot: root, TLSCert: cert, TLSKey: key,
@@ -88,10 +97,79 @@ func (h *Host) applyToolSite(id, host, root, cert, key string) error {
 		return err
 	}
 	index := strings.TrimSuffix(root, "/") + "/index.php"
-	if indexAbs, err := h.resolve(index); err == nil {
+	if indexAbs, err := h.systemPath(index); err == nil {
 		if _, err := os.Stat(indexAbs); os.IsNotExist(err) {
 			return fmt.Errorf("%s index missing", host)
 		}
 	}
 	return nil
+}
+
+func (h *Host) applyAdminToolOverlays() error {
+	pma := "<?php\n// Managed by Kelmor\n$cfg['AllowArbitraryServer'] = false;\n"
+	if _, err := h.ApplyFile(phpMyAdminOverlayPath, []byte(pma), 0o644); err != nil {
+		return err
+	}
+	rc := "<?php\n// Managed by Kelmor\n$config['imap_host'] = 'localhost:143';\n$config['smtp_host'] = 'localhost:587';\n$config['smtp_user'] = '%u';\n$config['smtp_pass'] = '%p';\n"
+	if _, err := h.ApplyFile(roundcubeOverlayPath, []byte(rc), 0o644); err != nil {
+		return err
+	}
+	return h.ensureRoundcubeInclude()
+}
+
+func (h *Host) ensureRoundcubeInclude() error {
+	const needle = "include_once('" + roundcubeOverlayPath + "');"
+	abs, err := h.resolve(roundcubeMainConfigPath)
+	if err != nil {
+		return err
+	}
+	prev, err := os.ReadFile(abs)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		_, err = h.ApplyFile(roundcubeMainConfigPath, []byte("<?php\n"+needle+"\n"), 0o640)
+		return err
+	}
+	if strings.Contains(string(prev), roundcubeOverlayPath) {
+		return nil
+	}
+	next := strings.TrimRight(string(prev), "\n") + "\n" + needle + "\n"
+	_, err = h.ApplyFile(roundcubeMainConfigPath, []byte(next), 0o640)
+	return err
+}
+
+func (h *Host) retireToolSites(ascii string) {
+	ascii = strings.TrimSpace(ascii)
+	if ascii == "" || strings.ContainsAny(ascii, "/\\") {
+		return
+	}
+	h.removeManaged("/etc/nginx/panel-sites/phpmyadmin-" + ascii + ".conf")
+	h.removeManaged("/etc/nginx/panel-sites/webmail-" + ascii + ".conf")
+}
+
+// systemPath maps a host package path into the agent sandbox without
+// treating /usr/share as a managed write root.
+func (h *Host) systemPath(p string) (string, error) {
+	if p == "" || strings.ContainsRune(p, 0) || !filepath.IsAbs(p) {
+		return "", fmt.Errorf("invalid system path")
+	}
+	clean := filepath.Clean(p)
+	if strings.Contains(clean, "..") {
+		return "", fmt.Errorf("path escape")
+	}
+	ok := false
+	for _, root := range []string{phpMyAdminRoot, webmailRoot} {
+		if clean == root || strings.HasPrefix(clean, root+"/") {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return "", fmt.Errorf("not a system package path")
+	}
+	if h.Root == "" {
+		return clean, nil
+	}
+	return filepath.Join(h.Root, strings.TrimPrefix(clean, "/")), nil
 }

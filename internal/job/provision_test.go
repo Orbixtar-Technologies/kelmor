@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/secret"
 	"github.com/hosting-panel/panel/internal/store"
@@ -59,14 +60,19 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	if zone == nil {
 		t.Fatal("missing provisioned zone")
 	}
-	hasWWW := false
+	haveA := map[string]bool{}
 	for _, rec := range st.ListRecords(zone.ID) {
-		if rec.Name == "www" && rec.Type == "A" {
-			hasWWW = true
+		if rec.Type == "A" {
+			haveA[rec.Name] = true
 		}
 	}
-	if !hasWWW {
+	if !haveA["www"] {
 		t.Fatal("provision must publish a www A record")
+	}
+	for _, name := range configuration.AccountServiceHostnames() {
+		if !haveA[name] {
+			t.Fatalf("provision must publish a %s A record", name)
+		}
 	}
 	if zone.ObservedRevision != zone.DesiredRevision {
 		t.Fatalf("new account zone left pending %d/%d", zone.ObservedRevision, zone.DesiredRevision)
@@ -86,6 +92,7 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	tlsSite := false
+	wwwAlias := false
 	for _, e := range sites {
 		body, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites", e.Name()))
 		if err != nil {
@@ -93,11 +100,23 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 		}
 		if bytes.Contains(body, []byte("listen 443 ssl")) && bytes.Contains(body, []byte("ssl_certificate /var/lib/panel/certs/acme.test.crt")) {
 			tlsSite = true
-			break
+		}
+		if bytes.Contains(body, []byte("server_name acme.test www.acme.test")) ||
+			bytes.Contains(body, []byte("server_name acme.test")) && bytes.Contains(body, []byte("www.acme.test")) {
+			wwwAlias = true
 		}
 	}
 	if !tlsSite {
 		t.Fatal("provision must re-apply the vhost with the issued customer certificate")
+	}
+	if !wwwAlias {
+		t.Fatal("provision must bind www.<domain> on the site vhost")
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/webmail-acme.test.conf")); err != nil {
+		t.Fatal("webmail vhost", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/nginx/panel-sites/phpmyadmin-acme.test.conf")); err != nil {
+		t.Fatal("phpmyadmin vhost", err)
 	}
 	boxes := st.ListMailboxes(acc.ID)
 	if len(boxes) != 1 || boxes[0].LocalPart != "info" || boxes[0].PasswordHash == "" || boxes[0].PasswordHash == "!" {
@@ -237,6 +256,17 @@ func TestReconcileRewritesLoopbackARecords(t *testing.T) {
 	}
 	if custom != "198.51.100.9" {
 		t.Fatalf("custom A overwritten: %q", custom)
+	}
+	haveA := map[string]bool{}
+	for _, rec := range st.ListRecords("z-dns") {
+		if rec.Type == "A" {
+			haveA[rec.Name] = true
+		}
+	}
+	for _, name := range configuration.AccountServiceHostnames() {
+		if !haveA[name] {
+			t.Fatalf("reconcile must add missing %s A record", name)
+		}
 	}
 }
 

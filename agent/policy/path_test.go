@@ -39,6 +39,21 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/var/www/html/index.html"); err == nil {
 		t.Fatal("must not expose the Ubuntu document root")
 	}
+	if _, err := ValidateManagedPath("/etc/phpmyadmin/conf.d/panel-host.inc.php"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/phpmyadmin/conf.d/evil.php"); err == nil {
+		t.Fatal("only panel- phpMyAdmin overlays")
+	}
+	if _, err := ValidateManagedPath("/etc/roundcube/config.panel.inc.php"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/roundcube/config.inc.php"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/usr/share/phpmyadmin/index.php"); err == nil {
+		t.Fatal("must not treat package roots as managed writes")
+	}
 }
 
 func TestWithinAccount(t *testing.T) {
