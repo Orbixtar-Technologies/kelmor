@@ -5,12 +5,16 @@ Target: Ubuntu 24.04 LTS, amd64 or arm64, no container runtime required for the 
 Minimum production: 4 vCPU, 8 GB RAM, 100 GB SSD.
 
 ```bash
-# on a build host (never publishes to a VM):
-make installer
-# copy dist/installer/kelmor-installer_*_linux_*.tar.gz to the new Ubuntu 24.04 machine
+# any Ubuntu 24.04 VM — GitHub Releases, not the lab VM:
+curl -fsSL https://github.com/usmanliaqatdeveloper/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
+# optional: | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net
+```
 
-# on the new host:
-tar -xzf kelmor-installer_*_linux_*.tar.gz
+Local artifact path (never publishes to a VM):
+
+```bash
+make installer
+tar -xzf dist/installer/kelmor-installer_*_linux_*.tar.gz
 cd kelmor-installer_*
 sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --non-interactive
 # or: cp install.yaml.example install.yaml && sudo ./install.sh

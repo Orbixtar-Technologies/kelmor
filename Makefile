@@ -37,6 +37,7 @@ check-go-version:
 test-release-policy: check-go-version
 	bash scripts/ci/check-go-version_test.sh
 	bash scripts/ci/publish-update-feed_test.sh
+	bash scripts/get-kelmor_test.sh
 
 build:
 	mkdir -p dist/bin

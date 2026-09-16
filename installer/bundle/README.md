@@ -1,7 +1,12 @@
 # Kelmor installer
 
-Self-contained Ubuntu 24.04 host installer. It does not contact a remote VM
-or update feed.
+Self-contained Ubuntu 24.04 host installer. Prefer the GitHub one-liner:
+
+```bash
+curl -fsSL https://github.com/usmanliaqatdeveloper/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
+```
+
+This tarball does not contact the lab VM. Offline install:
 
 ```bash
 tar -xzf kelmor-installer_*_linux_*.tar.gz

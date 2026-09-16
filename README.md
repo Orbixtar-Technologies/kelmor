@@ -58,10 +58,20 @@ SSL, backup, usage, and access tools.
 ## Production install (Ubuntu 24.04)
 
 ```bash
-# on a build host (artifact only; no VM publish):
+curl -fsSL https://github.com/usmanliaqatdeveloper/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
+```
+
+Optional hostname and email:
+
+```bash
+curl -fsSL https://github.com/usmanliaqatdeveloper/kelmor/releases/latest/download/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net
+```
+
+Local artifact path (no GitHub, no VM publish):
+
+```bash
 make installer
-# copy dist/installer/kelmor-installer_*_linux_*.tar.gz to the new Ubuntu 24.04 machine
-tar -xzf kelmor-installer_*_linux_*.tar.gz
+tar -xzf dist/installer/kelmor-installer_*_linux_*.tar.gz
 cd kelmor-installer_*
 sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --non-interactive
 ```

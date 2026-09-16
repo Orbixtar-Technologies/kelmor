@@ -58,4 +58,13 @@ func TestBuildInstallerWritesTarball(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stage, "share/portals/server/index.html")); err != nil {
 		t.Fatal(err)
 	}
+	stable := filepath.Join(filepath.Dir(out), "kelmor-installer-linux-amd64.tar.gz")
+	if _, err := os.Stat(stable); err != nil {
+		if _, armErr := os.Stat(filepath.Join(filepath.Dir(out), "kelmor-installer-linux-arm64.tar.gz")); armErr != nil {
+			t.Fatalf("stable tarball: %v / %v", err, armErr)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(out), "get-kelmor.sh")); err != nil {
+		t.Fatal(err)
+	}
 }

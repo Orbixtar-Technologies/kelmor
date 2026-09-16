@@ -21,14 +21,21 @@ if [[ "$module_baseline" != "$manifest_version" ]]; then
 fi
 
 for workflow in ci.yml release.yml; do
-	workflow_version="$(
+	workflow_versions="$(
 		awk '$1 == "go-version:" {gsub(/"/, "", $2); print $2}' \
 			"$ROOT/.github/workflows/$workflow"
 	)"
-	if [[ "$workflow_version" != "$manifest_version" ]]; then
-		echo "Go version mismatch: $workflow=$workflow_version release-manifest.yaml=$manifest_version" >&2
+	if [[ -z "$workflow_versions" ]]; then
+		echo "Go version mismatch: $workflow= release-manifest.yaml=$manifest_version" >&2
 		exit 1
 	fi
+	while IFS= read -r workflow_version; do
+		[[ -z "$workflow_version" ]] && continue
+		if [[ "$workflow_version" != "$manifest_version" ]]; then
+			echo "Go version mismatch: $workflow=$workflow_version release-manifest.yaml=$manifest_version" >&2
+			exit 1
+		fi
+	done <<< "$workflow_versions"
 done
 
 echo "Go baseline consistent at $manifest_version"

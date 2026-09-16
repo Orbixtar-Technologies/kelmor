@@ -63,4 +63,12 @@ fi
 mkdir -p "$(dirname "$OUT")"
 tar -C "$(dirname "$STAGE")" -czf "$OUT" "$(basename "$STAGE")"
 (cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" >"$(basename "$OUT").sha256")
+
+INSTALLER_DIR="$(dirname "$OUT")"
+STABLE="$INSTALLER_DIR/kelmor-installer-linux-${ARCH}.tar.gz"
+cp -f "$OUT" "$STABLE"
+(cd "$INSTALLER_DIR" && sha256sum "$(basename "$STABLE")" >"$(basename "$STABLE").sha256")
+install -m 0755 "$REPO/scripts/get-kelmor.sh" "$INSTALLER_DIR/get-kelmor.sh"
 echo "wrote $OUT"
+echo "wrote $STABLE"
+echo "wrote $INSTALLER_DIR/get-kelmor.sh"

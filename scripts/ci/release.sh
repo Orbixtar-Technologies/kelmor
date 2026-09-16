@@ -23,6 +23,7 @@ fi
 
 echo "Building Kelmor release $PANEL_UPDATE_RELEASE (channel $PANEL_UPDATE_CHANNEL)"
 make lint test build portals package
+PANEL_INSTALLER_VERSION="$PANEL_UPDATE_RELEASE" bash "$ROOT/scripts/build-installer.sh"
 bash "$ROOT/scripts/bootstrap-update-feed.sh"
 
 "$ROOT/dist/bin/panel-updater" verify \
@@ -39,4 +40,5 @@ EOF
 
 echo "Release $PANEL_UPDATE_RELEASE ready:"
 echo "  deb: $(ls -1 "$ROOT"/dist/deb/hosting-panel_"${PANEL_DEB_VERSION}"_amd64.deb)"
+echo "  installer: $(ls -1 "$ROOT"/dist/installer/kelmor-installer-linux-*.tar.gz)"
 echo "  feed: $PANEL_UPDATE_FEED_ROOT/$PANEL_UPDATE_CHANNEL/manifest.json"
