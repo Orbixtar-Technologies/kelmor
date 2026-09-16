@@ -17,7 +17,7 @@ func TestHostnamesForSitePrimary(t *testing.T) {
 	want := map[string]bool{
 		"example.com": true, "alias.example.net": true,
 		"www.example.com": true, "webmail.example.com": true,
-		"phpmyadmin.example.com": true, "mail.example.com": true,
+		"phpmyadmin.example.com": true,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("count %d vs %d: %v", len(got), len(want), got)

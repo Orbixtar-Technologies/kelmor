@@ -24,7 +24,11 @@ func HostnamesForSite(hostname string, aliases []string, includeToolHosts bool) 
 	names := []string{hostname}
 	names = append(names, aliases...)
 	if includeToolHosts {
-		for _, sub := range []string{"www", "webmail", "phpmyadmin", "mail"} {
+		// mail.<domain> is the MX target (SMTP/IMAP), not an HTTP-01
+		// hostname. Bundling it on the site certificate makes Let's
+		// Encrypt fail the whole order when public DNS cannot resolve
+		// that name.
+		for _, sub := range []string{"www", "webmail", "phpmyadmin"} {
 			names = append(names, sub+"."+hostname)
 		}
 	}

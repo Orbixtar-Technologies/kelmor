@@ -44,11 +44,12 @@ sudo panel-install --hostname panel.example.net --admin-email ops@example.net --
 Production installs use Let's Encrypt HTTP-01 by default (`--acme letsencrypt`). The panel hostname (for example `lab.kelmor.host`) and every account domain provisioned through Kelmor Director receive certificates automatically:
 
 - **Panel hostname** — issued at install and renewed by `certificate.portal` (includes `www.` SAN).
-- **Primary domains** — one certificate covering the apex, `www`, alias domains, and `webmail` / `phpmyadmin` / `mail` tool hosts.
+- **Primary domains** — one certificate covering the apex, `www`, alias domains, and `webmail` / `phpmyadmin` hosts that resolve on public DNS. `mail.<domain>` is the MX target and is not included in HTTP-01 orders.
+- **Delegated zones** — if NS points at this host, UDP/TCP `53` must be open on the cloud security group. Unreachable nameservers make Let's Encrypt return `urn:ietf:params:acme:error:dns`.
 - **Addon and subdomain domains** — separate certificates per hostname.
 - **Renewals** — queued when expiry is within 30 days; failed issuances are retried on the worker drift scan.
 
-Requirements: public DNS A/AAAA records pointing at the server and inbound TCP `:80` for HTTP-01 validation. Use `--acme staging` to test against Let's Encrypt staging before production.
+Requirements: public DNS A/AAAA records pointing at the server and inbound TCP `:80` for HTTP-01 validation. Names that do not resolve on 1.1.1.1/8.8.8.8 are omitted from the order; the requested hostname must resolve. Use `--acme staging` to test against Let's Encrypt staging before production.
 
 Resume is automatic via `/var/lib/panel/install-state.json`. Each phase records an input fingerprint, attempt count, and verify result. Resume skips a phase only when the fingerprint still matches and verification still succeeds. State and JSON-line log writes are durable: a failed sync cannot report installation success. Required hosting and security services must start and listen before a phase can complete.
 

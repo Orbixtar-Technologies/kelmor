@@ -43,6 +43,14 @@ func IssueNames(ctx context.Context, agent *operations.Host, names []string, con
 		}
 		return time.Now().Add(90 * 24 * time.Hour), nil
 	}
+	if !insecureDirectory(directory) {
+		filtered, err := filterPublicHTTP01Names(ctx, names)
+		if err != nil {
+			return time.Time{}, err
+		}
+		names = filtered
+		hostname = names[0]
+	}
 	acctKey, err := loadOrCreateAccountKey(agent)
 	if err != nil {
 		return time.Time{}, err
