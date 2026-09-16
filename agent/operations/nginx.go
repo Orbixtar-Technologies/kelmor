@@ -27,6 +27,9 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 	default:
 		return Result{}, fmt.Errorf("unsupported runtime")
 	}
+	if err := configuration.ValidateDocumentRoot(account, docroot); err != nil {
+		return Result{}, err
+	}
 	if _, err := h.CreateDirectoryTree(docroot, uint32(hostingDirMode(docroot))); err != nil {
 		return Result{}, err
 	}
@@ -44,8 +47,8 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 			spec.TLSKey = "/var/lib/panel/certs/" + domain + ".key"
 		}
 	}
-	body := configuration.NginxSite(spec)
-	if err := configuration.ValidateNginx(body); err != nil {
+	body, err := configuration.NginxSiteChecked(spec)
+	if err != nil {
 		return Result{}, err
 	}
 	path := "/etc/nginx/panel-sites/" + websiteID + ".conf"

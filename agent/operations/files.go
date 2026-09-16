@@ -3,29 +3,16 @@ package operations
 import (
 	"encoding/base64"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 const maxManagedReadBytes = 2 << 20
 
 func (h *Host) readManagedFile(path string) (Result, error) {
-	p, err := h.resolve(path)
-	if err != nil {
-		return Result{}, err
-	}
-	info, err := os.Stat(p)
-	if err != nil {
-		return Result{}, fmt.Errorf("file not found")
-	}
-	if info.IsDir() {
-		return Result{}, fmt.Errorf("path is a directory")
-	}
-	if info.Size() > maxManagedReadBytes {
-		return Result{}, fmt.Errorf("file exceeds read limit")
-	}
-	body, err := os.ReadFile(p)
+	body, err := h.readManaged(path, maxManagedReadBytes)
 	if err != nil {
 		return Result{}, err
 	}
@@ -37,52 +24,64 @@ func (h *Host) readManagedFile(path string) (Result, error) {
 }
 
 func (h *Host) deleteManagedFile(path string) (Result, error) {
-	p, err := h.resolve(path)
+	root, rel, err := h.openManaged(path)
 	if err != nil {
 		return Result{}, err
 	}
-	info, err := os.Stat(p)
+	defer root.Close()
+	info, err := root.Stat(rel)
 	if err != nil {
 		return Result{}, fmt.Errorf("path not found")
 	}
 	if info.IsDir() {
-		entries, err := os.ReadDir(p)
+		dir, err := root.OpenFile(rel, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+		if err != nil {
+			return Result{}, err
+		}
+		entries, err := dir.ReadDir(-1)
+		_ = dir.Close()
 		if err != nil {
 			return Result{}, err
 		}
 		if len(entries) > 0 {
 			return Result{}, fmt.Errorf("directory is not empty")
 		}
-		if err := os.Remove(p); err != nil {
+	}
+	if err := root.Remove(rel); err != nil {
+		if info.IsDir() {
+			if err := root.RemoveTree(rel); err != nil {
+				return Result{}, err
+			}
+		} else {
 			return Result{}, err
 		}
-		return Result{OK: true, ObservedState: "absent"}, nil
-	}
-	if err := os.Remove(p); err != nil {
-		return Result{}, err
 	}
 	return Result{OK: true, ObservedState: "absent"}, nil
 }
 
 func (h *Host) renameManagedPath(oldPath, newPath string) (Result, error) {
-	oldAbs, err := h.resolve(oldPath)
+	oldRoot, oldRel, err := h.openManaged(oldPath)
 	if err != nil {
 		return Result{}, err
 	}
-	newAbs, err := h.resolve(newPath)
+	defer oldRoot.Close()
+	newRoot, newRel, err := h.openManaged(newPath)
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := os.Stat(oldAbs); err != nil {
+	defer newRoot.Close()
+	if oldRoot.Path() != newRoot.Path() {
+		return Result{}, fmt.Errorf("rename across managed roots")
+	}
+	if _, err := oldRoot.Stat(oldRel); err != nil {
 		return Result{}, fmt.Errorf("source not found")
 	}
-	if err := os.MkdirAll(filepath.Dir(newAbs), 0o750); err != nil {
+	if err := oldRoot.Rename(oldRel, newRel); err != nil {
 		return Result{}, err
 	}
-	if err := os.Rename(oldAbs, newAbs); err != nil {
-		return Result{}, err
+	if resolved, err := h.resolve(newPath); err == nil {
+		h.chownAccountPath(resolved)
 	}
-	h.chownAccountPath(newAbs)
 	return Result{OK: true, ObservedState: "renamed"}, nil
 }
 
@@ -90,14 +89,12 @@ func (h *Host) chmodManagedPath(path string, mode uint32) (Result, error) {
 	if mode == 0 {
 		return Result{}, fmt.Errorf("mode required")
 	}
-	p, err := h.resolve(path)
+	root, rel, err := h.openManaged(path)
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := os.Stat(p); err != nil {
-		return Result{}, fmt.Errorf("path not found")
-	}
-	if err := os.Chmod(p, os.FileMode(mode)); err != nil {
+	defer root.Close()
+	if err := root.Chmod(rel, mode); err != nil {
 		return Result{}, err
 	}
 	return Result{OK: true, ObservedState: "chmod"}, nil

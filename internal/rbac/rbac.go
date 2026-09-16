@@ -3,46 +3,48 @@ package rbac
 import "strings"
 
 const (
-	ServerRead            = "server.read"
-	ServerSettingsWrite   = "server.settings.write"
-	ServerServicesRead    = "server.services.read"
-	ServerServicesRestart = "server.services.restart"
-	ServerFirewallRead    = "server.firewall.read"
-	ServerFirewallWrite   = "server.firewall.write"
-	AccountsRead          = "accounts.read"
-	AccountsCreate        = "accounts.create"
-	AccountsModify        = "accounts.modify"
-	AccountsSuspend       = "accounts.suspend"
-	AccountsTerminate     = "accounts.terminate"
-	AccountsImpersonate   = "accounts.impersonate"
-	ResellersRead         = "resellers.read"
-	ResellersCreate       = "resellers.create"
-	ResellersModify       = "resellers.modify"
-	PackagesRead          = "packages.read"
-	PackagesWrite         = "packages.write"
-	DomainsRead           = "domains.read"
-	DomainsWrite          = "domains.write"
-	DNSRead               = "dns.read"
-	DNSWrite              = "dns.write"
-	WebsitesRead          = "websites.read"
-	WebsitesWrite         = "websites.write"
-	ApplicationsRead      = "applications.read"
-	ApplicationsWrite     = "applications.write"
-	DatabasesRead         = "databases.read"
-	DatabasesWrite        = "databases.write"
-	MailRead              = "mail.read"
-	MailWrite             = "mail.write"
-	BackupsRead           = "backups.read"
-	BackupsCreate         = "backups.create"
-	BackupsRestore        = "backups.restore"
-	SecurityAuditRead     = "security.audit.read"
-	APITokensRead         = "api_tokens.read"
-	APITokensWrite        = "api_tokens.write"
-	FilesRead             = "files.read"
-	FilesWrite            = "files.write"
-	CronRead              = "cron.read"
-	CronWrite             = "cron.write"
-	BillingUsageRead      = "billing.usage.read"
+	ServerRead                = "server.read"
+	ServerSettingsWrite       = "server.settings.write"
+	ServerServicesRead        = "server.services.read"
+	ServerServicesRestart     = "server.services.restart"
+	ServerFirewallRead        = "server.firewall.read"
+	ServerFirewallWrite       = "server.firewall.write"
+	AccountsRead              = "accounts.read"
+	AccountsCreate            = "accounts.create"
+	AccountsModify            = "accounts.modify"
+	AccountsSuspend           = "accounts.suspend"
+	AccountsTerminate         = "accounts.terminate"
+	AccountsImpersonate       = "accounts.impersonate"
+	ResellersRead             = "resellers.read"
+	ResellersCreate           = "resellers.create"
+	ResellersModify           = "resellers.modify"
+	PackagesRead              = "packages.read"
+	PackagesWrite             = "packages.write"
+	DomainsRead               = "domains.read"
+	DomainsWrite              = "domains.write"
+	DNSRead                   = "dns.read"
+	DNSWrite                  = "dns.write"
+	WebsitesRead              = "websites.read"
+	WebsitesWrite             = "websites.write"
+	ApplicationsRead          = "applications.read"
+	ApplicationsWrite         = "applications.write"
+	DatabasesRead             = "databases.read"
+	DatabasesWrite            = "databases.write"
+	MailRead                  = "mail.read"
+	MailWrite                 = "mail.write"
+	BackupsRead               = "backups.read"
+	BackupsCreate             = "backups.create"
+	BackupsRestore            = "backups.restore"
+	SecurityAuditRead         = "security.audit.read"
+	APITokensRead             = "api_tokens.read"
+	APITokensWrite            = "api_tokens.write"
+	FilesRead                 = "files.read"
+	FilesWrite                = "files.write"
+	CronRead                  = "cron.read"
+	CronWrite                 = "cron.write"
+	BillingUsageRead          = "billing.usage.read"
+	AccountsExport            = "accounts.export"
+	AccountsExportCredentials = "accounts.export_credentials"
 )
 
 var All = []string{
@@ -57,14 +59,15 @@ var All = []string{
 	BackupsRead, BackupsCreate, BackupsRestore,
 	SecurityAuditRead, APITokensRead, APITokensWrite,
 	FilesRead, FilesWrite, CronRead, CronWrite, BillingUsageRead,
+	AccountsExport, AccountsExportCredentials,
 }
 
 var RoleCaps = map[string][]string{
 	"root_owner":             All,
 	"server_administrator":   All,
 	"server_operator":        {ServerRead, ServerServicesRead, ServerServicesRestart, AccountsRead, PackagesRead, DomainsRead, DNSRead, WebsitesRead, SecurityAuditRead, BillingUsageRead},
-	"reseller":               {AccountsRead, AccountsCreate, AccountsModify, AccountsSuspend, PackagesRead, PackagesWrite, DomainsRead, DomainsWrite, DNSRead, WebsitesRead, BackupsRead, BackupsCreate, BackupsRestore, BillingUsageRead},
-	"customer_owner":         {DomainsRead, DomainsWrite, DNSRead, DNSWrite, WebsitesRead, WebsitesWrite, ApplicationsRead, ApplicationsWrite, DatabasesRead, DatabasesWrite, MailRead, MailWrite, BackupsRead, BackupsCreate, BackupsRestore, FilesRead, FilesWrite, CronRead, CronWrite, APITokensRead, APITokensWrite, BillingUsageRead},
+	"reseller":               {AccountsRead, AccountsCreate, AccountsModify, AccountsSuspend, PackagesRead, PackagesWrite, DomainsRead, DomainsWrite, DNSRead, WebsitesRead, BackupsRead, BackupsCreate, BackupsRestore, BillingUsageRead, AccountsExport},
+	"customer_owner":         {DomainsRead, DomainsWrite, DNSRead, DNSWrite, WebsitesRead, WebsitesWrite, ApplicationsRead, ApplicationsWrite, DatabasesRead, DatabasesWrite, MailRead, MailWrite, BackupsRead, BackupsCreate, BackupsRestore, FilesRead, FilesWrite, CronRead, CronWrite, APITokensRead, APITokensWrite, BillingUsageRead, AccountsExport},
 	"customer_administrator": {DomainsRead, DomainsWrite, DNSRead, DNSWrite, WebsitesRead, WebsitesWrite, ApplicationsRead, ApplicationsWrite, DatabasesRead, DatabasesWrite, MailRead, MailWrite, FilesRead, FilesWrite, CronRead, CronWrite},
 	"customer_user":          {DomainsRead, WebsitesRead, MailRead, FilesRead, DatabasesRead, DNSRead},
 	"auditor":                {ServerRead, AccountsRead, SecurityAuditRead, BillingUsageRead},

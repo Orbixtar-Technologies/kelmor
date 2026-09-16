@@ -535,6 +535,12 @@ func TestCapabilityRBACAndDNSDelete(t *testing.T) {
 	if statusOf(t, http.MethodDelete, srv.URL+"/api/v1/accounts/"+aid+"/dns/zones/"+z.ID+"/records/"+rec.ID, aud, nil) != 403 {
 		t.Fatal("auditor deleted DNS")
 	}
+	if statusOf(t, http.MethodGet, srv.URL+"/api/v1/accounts/"+aid+"/export", aud, nil) != 403 {
+		t.Fatal("auditor exported account")
+	}
+	if statusOf(t, http.MethodGet, srv.URL+"/api/v1/accounts/"+aid+"/export?include_hashes=1", aud, nil) != 403 {
+		t.Fatal("auditor exported credential hashes")
+	}
 	code, body := delStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/dns/zones/"+z.ID+"/records/"+rec.ID, admin)
 	if code != 202 {
 		t.Fatalf("delete %d %v", code, body)

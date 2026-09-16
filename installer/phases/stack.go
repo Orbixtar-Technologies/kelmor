@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hosting-panel/panel/internal/credentials"
 	"github.com/hosting-panel/panel/internal/firewall"
 	"github.com/hosting-panel/panel/internal/netaddr"
 	"github.com/hosting-panel/panel/internal/update"
@@ -47,13 +48,17 @@ webserver=yes
 webserver-address=127.0.0.1
 webserver-port=8081
 api=yes
-api-key=panel-loopback
 `
 	pdnsConf := root(c, "etc/powerdns/pdns.conf")
+	secrets, err := ensureInstallSecrets(c)
+	if err != nil {
+		return err
+	}
+	body += "api-key=" + secrets.PowerDNSAPIKey + "\n"
 	if err := writeUnlessExists(pdnsConf, []byte(body), 0o640); err != nil {
 		return err
 	}
-	if err := reconcilePowerDNSConfig(pdnsConf, listen); err != nil {
+	if err := reconcilePowerDNSConfig(pdnsConf, listen, secrets.PowerDNSAPIKey); err != nil {
 		return err
 	}
 	if err := writePublicEnv(c); err != nil {
@@ -847,7 +852,10 @@ func replaceConfigLine(path, prefix, line string) error {
 	return os.WriteFile(path, []byte(out), 0o640)
 }
 
-func reconcilePowerDNSConfig(path, listen string) error {
+func reconcilePowerDNSConfig(path, listen, apiKey string) error {
+	if apiKey == "" || apiKey == credentials.KnownPowerDNSKey {
+		return fmt.Errorf("refusing known or empty PowerDNS API key")
+	}
 	settings := map[string]string{
 		"bind-config":       "/etc/powerdns/named.conf",
 		"bind-dnssec-db":    "/var/lib/panel/dns/bind-dnssec.sqlite3",
@@ -857,9 +865,18 @@ func reconcilePowerDNSConfig(path, listen string) error {
 		"webserver-address": "127.0.0.1",
 		"webserver-port":    "8081",
 		"api":               "yes",
-		"api-key":           "panel-loopback",
+		"api-key":           apiKey,
 	}
 	return replacePowerDNSSettings(path, settings)
+}
+
+func ensureInstallSecrets(c Config) (credentials.Secrets, error) {
+	dir := root(c, "var/lib/panel/secrets")
+	prefix := strings.TrimSuffix(dir, "/var/lib/panel/secrets")
+	if prefix == "" {
+		prefix = "/"
+	}
+	return credentials.Generate(prefix)
 }
 
 func replacePowerDNSSettings(path string, settings map[string]string) error {
@@ -1112,7 +1129,14 @@ func applyHealth(c Config) error {
 }
 
 func applyAdministrator(c Config) error {
-	body := fmt.Sprintf("admin_email=%s hostname=%s channel=%s\nUse PANEL_ADMIN_PASSWORD for the first Kelmor Director login.\n",
+	secrets, err := ensureInstallSecrets(c)
+	if err != nil {
+		return err
+	}
+	if secrets.AdminPassword == credentials.KnownAdminPassword {
+		return fmt.Errorf("refusing repository-known administrator password")
+	}
+	body := fmt.Sprintf("admin_email=%s hostname=%s channel=%s\nAdministrator bootstrap credential installed for first login rotation.\n",
 		c.AdminEmail, c.Hostname, c.Channel)
 	return os.WriteFile(root(c, "var/lib/panel/administrator.txt"), []byte(body), 0o640)
 }
@@ -1175,7 +1199,9 @@ func verifyDNS(c Config) error {
 		"webserver-address=127.0.0.1",
 		"webserver-port=8081",
 		"api=yes",
-		"api-key=panel-loopback",
+	}
+	if strings.Contains(string(b), "api-key="+credentials.KnownPowerDNSKey) || !strings.Contains(string(b), "api-key=") {
+		return fmt.Errorf("pdns.conf missing unique api-key")
 	}
 	for _, setting := range settings {
 		found := false

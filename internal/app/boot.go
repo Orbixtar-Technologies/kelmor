@@ -8,6 +8,7 @@ import (
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/brand"
+	"github.com/hosting-panel/panel/internal/credentials"
 	"github.com/hosting-panel/panel/internal/httpserver"
 	"github.com/hosting-panel/panel/internal/job"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
@@ -52,9 +53,15 @@ func Boot(ctx context.Context, service string) (*Runtime, error) {
 	pg.SeedDatabaseServers()
 	if os.Getenv("PANEL_SKIP_SEED") != "1" {
 		admin := env("PANEL_ADMIN_USER", "admin")
-		pass := env("PANEL_ADMIN_PASSWORD", "ChangeMeOnce!2026")
 		email := env("PANEL_ADMIN_EMAIL", "admin@localhost")
-		if err := store.SeedDev(pg, admin, pass, email); err != nil {
+		secrets, err := credentials.LoadRuntime()
+		if err != nil {
+			return nil, fmt.Errorf("administrator credentials: %w", err)
+		}
+		if secrets.AdminPassword == credentials.KnownAdminPassword && os.Getenv("PANEL_DEV") != "1" {
+			return nil, fmt.Errorf("refusing repository-known administrator password")
+		}
+		if err := store.SeedAdmin(pg, admin, secrets.AdminPassword, email, true); err != nil {
 			return nil, err
 		}
 	}

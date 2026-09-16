@@ -122,6 +122,10 @@ func (p *PG) RevokeSession(sid string) {
 	_, _ = p.pool.Exec(p.ctx(), `UPDATE sessions SET revoked_at=now() WHERE id=$1`, sid)
 }
 
+func (p *PG) RevokeSessionsForUser(userID string) {
+	_, _ = p.pool.Exec(p.ctx(), `UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID)
+}
+
 func (p *PG) PutFeature(f *FeatureSet) {
 	b, _ := json.Marshal(f.Features)
 	_, _ = p.pool.Exec(p.ctx(), `

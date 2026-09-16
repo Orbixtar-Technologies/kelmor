@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"github.com/hosting-panel/panel/agent/policy"
+	"github.com/hosting-panel/panel/internal/filesystem"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
+	"golang.org/x/sys/unix"
 )
 
 func (h *Host) packDirectory(source, dest string) (Result, error) {
@@ -69,61 +71,33 @@ func (h *Host) packDirectory(source, dest string) (Result, error) {
 }
 
 func (h *Host) unpackDirectory(archive, dest string) (Result, error) {
-	src, err := h.resolve(archive)
+	srcRoot, srcRel, err := h.openManaged(archive)
 	if err != nil {
 		return Result{}, err
 	}
-	out, err := h.resolve(dest)
+	defer srcRoot.Close()
+	destRoot, destRel, err := h.openManaged(dest)
 	if err != nil {
 		return Result{}, err
 	}
-	f, err := os.Open(src)
+	defer destRoot.Close()
+	if err := destRoot.MkdirAll(destRel, uint32(hostingDirMode(dest))); err != nil {
+		return Result{}, err
+	}
+	src, err := srcRoot.OpenFile(srcRel, unix.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return Result{}, err
 	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
+	defer src.Close()
+	gz, err := gzip.NewReader(src)
 	if err != nil {
 		return Result{}, err
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
-	if err := os.MkdirAll(out, hostingDirMode(out)); err != nil {
+	if err := destRoot.ExtractTar(gz, destRel, filesystem.ArchiveLimits{}); err != nil {
 		return Result{}, err
 	}
-	out = filepath.Clean(out)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return Result{OK: true, ObservedState: "unpacked"}, nil
-		}
-		if err != nil {
-			return Result{}, err
-		}
-		name := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
-			return Result{}, fmt.Errorf("archive traversal")
-		}
-		target := filepath.Join(out, name)
-		if !strings.HasPrefix(target, out+string(os.PathSeparator)) && target != out {
-			return Result{}, fmt.Errorf("archive traversal")
-		}
-		if hdr.FileInfo().IsDir() {
-			_ = os.MkdirAll(target, hostingDirMode(target))
-			_ = os.Chmod(target, hostingDirMode(target))
-			continue
-		}
-		_ = os.MkdirAll(filepath.Dir(target), hostingDirMode(filepath.Dir(target)))
-		wf, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
-		if err != nil {
-			return Result{}, err
-		}
-		if _, err := io.Copy(wf, tr); err != nil {
-			_ = wf.Close()
-			return Result{}, err
-		}
-		_ = wf.Close()
-	}
+	return Result{OK: true, ObservedState: "unpacked"}, nil
 }
 
 func (h *Host) copyHomedir(username, source, dest string) (Result, error) {

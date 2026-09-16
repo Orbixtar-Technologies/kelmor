@@ -10,11 +10,12 @@ Environment=PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresq
 Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 Environment=PANEL_STATE_DIR=/var/lib/panel
 Environment=PANEL_PDNS_URL=http://127.0.0.1:8081
-Environment=PANEL_PDNS_API_KEY=panel-loopback
 EnvironmentFile=-/var/lib/panel/acme.env
 EnvironmentFile=-/var/lib/panel/public.env
 EnvironmentFile=-/var/lib/panel/secrets/backup-sftp.env
 EnvironmentFile=-/var/lib/panel/secrets/backup-s3.env
+LoadCredential=admin-bootstrap:/var/lib/panel/secrets/admin-bootstrap
+LoadCredential=pdns-api-key:/var/lib/panel/secrets/pdns-api-key
 ExecStart=/usr/local/panel/bin/panel-worker
 Restart=on-failure
 RestartSec=2

@@ -49,6 +49,8 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/var/lib/panel/secrets/backup-sftp.env",
 		"var/panel/host/var/lib/panel/objects",
 		"var/panel/host/var/lib/panel/secrets/backup-s3.env",
+		"var/panel/host/var/lib/panel/secrets/admin-bootstrap",
+		"var/panel/host/var/lib/panel/secrets/pdns-api-key",
 		"var/panel/host/etc/vsftpd.conf",
 		"var/panel/host/etc/pam.d/vsftpd",
 		"var/panel/host/var/lib/panel/ftp/user_conf",
@@ -79,6 +81,21 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 			t.Fatalf("missing %s: %v", rel, err)
 		}
 	}
+	adminSecret := filepath.Join(dir, "var/panel/host/var/lib/panel/secrets/admin-bootstrap")
+	info, err := os.Stat(adminSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("admin secret mode %o", info.Mode().Perm())
+	}
+	adminBody, err := os.ReadFile(adminSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(adminBody), "ChangeMeOnce!2026") {
+		t.Fatal("install reused the repository-known administrator password")
+	}
 	unit, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/systemd/system/panel-api.service"))
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +109,12 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	}
 	if !contains(string(worker), "PANEL_PDNS_URL=http://127.0.0.1:8081") {
 		t.Fatalf("worker unit missing PowerDNS URL: %s", worker)
+	}
+	if contains(string(worker), "PANEL_PDNS_API_KEY=") {
+		t.Fatalf("worker unit must not embed a PowerDNS key: %s", worker)
+	}
+	if !contains(string(worker), "LoadCredential=pdns-api-key:") {
+		t.Fatalf("worker unit missing PowerDNS credential: %s", worker)
 	}
 	if !contains(string(worker), "EnvironmentFile=-/var/lib/panel/acme.env") {
 		t.Fatalf("worker unit missing ACME env file: %s", worker)
@@ -305,7 +328,6 @@ launch=
 		"webserver-address=127.0.0.1",
 		"webserver-port=8081",
 		"api=yes",
-		"api-key=panel-loopback",
 	}
 	for _, line := range want {
 		count := 0
@@ -317,6 +339,12 @@ launch=
 		if count != 1 {
 			t.Errorf("expected exactly one %q, got %d in:\n%s", line, count, body)
 		}
+	}
+	if strings.Contains(string(body), "api-key=panel-loopback") {
+		t.Fatal("must not reuse the repository-known PowerDNS key")
+	}
+	if !strings.Contains(string(body), "api-key=") {
+		t.Fatal("missing generated PowerDNS key")
 	}
 }
 

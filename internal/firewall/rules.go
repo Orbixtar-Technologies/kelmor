@@ -44,6 +44,11 @@ func Rules(extraTCP []int) string {
 	b.WriteString("    icmp type echo-request accept\n")
 	b.WriteString("    ip6 nexthdr icmpv6 accept\n")
 	b.WriteString("  }\n")
+	b.WriteString("  chain output {\n")
+	b.WriteString("    type filter hook output priority 0; policy accept;\n")
+	b.WriteString("    ip daddr 127.0.0.1 tcp dport 8081 skuid != { 0, panel, pdns } drop\n")
+	b.WriteString("    ip6 daddr ::1 tcp dport 8081 skuid != { 0, panel, pdns } drop\n")
+	b.WriteString("  }\n")
 	b.WriteString("}\n")
 	return b.String()
 }

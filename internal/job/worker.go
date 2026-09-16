@@ -13,6 +13,7 @@ import (
 	"github.com/hosting-panel/panel/internal/acme"
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/backup"
+	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/dns"
 	"github.com/hosting-panel/panel/internal/mail"
 	"github.com/hosting-panel/panel/internal/netaddr"
@@ -1812,6 +1813,9 @@ func (w *Worker) bandwidthHold(acc *store.Account) bool {
 func (w *Worker) applyWebsiteDispatch(acc *store.Account, site *store.Website, d *store.Domain) error {
 	if acc == nil || site == nil || d == nil || w.Agent == nil {
 		return fmt.Errorf("website apply missing account, site, or domain")
+	}
+	if err := configuration.ValidateDocumentRoot(acc.Username, site.DocumentRoot); err != nil {
+		return err
 	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyWebsite",

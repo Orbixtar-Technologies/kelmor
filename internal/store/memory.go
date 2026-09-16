@@ -114,6 +114,17 @@ func (m *Memory) RevokeSession(id string) {
 	}
 }
 
+func (m *Memory) RevokeSessionsForUser(userID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	for _, s := range m.Sessions {
+		if s != nil && s.UserID == userID {
+			s.RevokedAt = &now
+		}
+	}
+}
+
 func (m *Memory) PutFeature(f *FeatureSet) { m.mu.Lock(); m.Features[f.ID] = f; m.mu.Unlock() }
 func (m *Memory) ListFeatureSets() []FeatureSet {
 	m.mu.RLock()

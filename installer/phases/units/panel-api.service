@@ -11,6 +11,8 @@ Environment=PANEL_AGENT_SOCK=/run/panel/agent.sock
 Environment=PANEL_STATE_DIR=/var/lib/panel
 Environment=PANEL_API_ADDR=127.0.0.1:18080
 EnvironmentFile=-/var/lib/panel/public.env
+LoadCredential=admin-bootstrap:/var/lib/panel/secrets/admin-bootstrap
+LoadCredential=pdns-api-key:/var/lib/panel/secrets/pdns-api-key
 ExecStart=/usr/local/panel/bin/panel-api
 Restart=on-failure
 RestartSec=2

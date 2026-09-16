@@ -143,9 +143,14 @@ func TestMVPAcceptancePath(t *testing.T) {
 	post(t, srv.URL+"/api/v1/accounts/"+aid+"/unsuspend", token, map[string]any{})
 	w.Drain(context.Background())
 
-	raw, _ := json.Marshal(mustExport(t, st, aid))
+	exp := mustExport(t, st, aid)
+	exp.Account.PackageID = ""
+	raw, _ := json.Marshal(exp)
 	imp := store.NewMemory()
-	got, err := migration.Import(imp, raw)
+	if err := store.SeedDev(imp, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := migration.ImportAs(imp, raw, "", "", imp.UserByUsername("admin").ID)
 	if err != nil {
 		t.Fatal(err)
 	}

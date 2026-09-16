@@ -30,7 +30,15 @@ type HostingAccountExport struct {
 	MySQLDump     string                 `json:"mysql_dump,omitempty"`
 }
 
+type ExportOptions struct {
+	IncludeCredentialHashes bool
+}
+
 func Export(st store.Store, accountID string) (*HostingAccountExport, error) {
+	return ExportWithOptions(st, accountID, ExportOptions{})
+}
+
+func ExportWithOptions(st store.Store, accountID string, opts ExportOptions) (*HostingAccountExport, error) {
 	acc := st.GetAccount(accountID)
 	if acc == nil {
 		return nil, errMissing("account")
@@ -68,7 +76,21 @@ func Export(st store.Store, accountID string) (*HostingAccountExport, error) {
 		}
 		exp.FTPHashes[f.Username] = f.PasswordHash
 	}
+	if !opts.IncludeCredentialHashes {
+		stripExportHashes(exp)
+	}
 	return exp, nil
+}
+
+func stripExportHashes(exp *HostingAccountExport) {
+	exp.MailboxHashes = nil
+	exp.FTPHashes = nil
+	for i := range exp.Mailboxes {
+		exp.Mailboxes[i].PasswordHash = ""
+	}
+	for i := range exp.FTP {
+		exp.FTP[i].PasswordHash = ""
+	}
 }
 
 func Import(st store.Store, raw []byte) (*store.Account, error) {

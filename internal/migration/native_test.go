@@ -54,7 +54,7 @@ func TestImportAsRenames(t *testing.T) {
 	src.PutDB(&store.HostedDatabase{ID: "db1", AccountID: "acc1", Engine: "mariadb", Name: "acme42_app", Status: "active"})
 	src.PutCron(&store.CronJob{ID: "cr1", AccountID: "acc1", Schedule: "0 * * * *", Command: "php cron.php", WorkingDirectory: "/home/acme42/public_html", Enabled: true})
 	src.PutFTP(&store.FTPAccount{ID: "ftp1", AccountID: "acc1", Username: "acme42_ftp", HomePath: "/home/acme42/public_html", PasswordHash: "hash-ftp", Status: "active"})
-	exp, err := Export(src, "acc1")
+	exp, err := ExportWithOptions(src, "acc1", ExportOptions{IncludeCredentialHashes: true})
 	if err != nil {
 		t.Fatal(err)
 	}

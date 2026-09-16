@@ -21,6 +21,22 @@ func TestRulesIncludesHostingAndExtra(t *testing.T) {
 	}
 }
 
+func TestRulesIsolatePowerDNSManagement(t *testing.T) {
+	body := Rules(nil)
+	if !contains(body, "chain output") {
+		t.Fatal("missing output filter")
+	}
+	if !contains(body, "8081") {
+		t.Fatal("missing PowerDNS management port")
+	}
+	if !contains(body, "ip6 daddr ::1") {
+		t.Fatal("missing IPv6 loopback management filter")
+	}
+	if !contains(body, "skuid") {
+		t.Fatal("missing identity-based output filter")
+	}
+}
+
 func TestSplitHexAddr(t *testing.T) {
 	host, port, err := splitHexAddr("0100007F:4652")
 	if err != nil || port != 0x4652 || host != "0100007F" {

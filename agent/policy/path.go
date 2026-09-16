@@ -79,3 +79,48 @@ func WithinAccount(username, requested string) (string, error) {
 	}
 	return clean, nil
 }
+
+func AccountRelative(clean string) (username, relative string, ok bool) {
+	const prefix = "/home/"
+	if !strings.HasPrefix(clean, prefix) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(clean, prefix)
+	username, remainder, found := strings.Cut(rest, "/")
+	if username == "" {
+		return "", "", false
+	}
+	if !found {
+		return username, "", true
+	}
+	return username, remainder, true
+}
+
+func SplitManaged(clean string) (prefix, relative string, err error) {
+	candidates := append([]string{}, allowedRoots...)
+	candidates = append(candidates,
+		"/etc/cron.d/",
+		"/etc/nginx/conf.d/",
+		"/etc/rspamd/local.d/",
+	)
+	best := ""
+	for _, root := range candidates {
+		base := strings.TrimSuffix(root, "/")
+		if clean == base || strings.HasPrefix(clean, root) || strings.HasPrefix(clean+"/", root) {
+			if len(base) > len(best) {
+				best = base
+			}
+		}
+	}
+	if best == "" {
+		return "", "", fmt.Errorf("path outside approved prefixes")
+	}
+	if clean == best {
+		return "", "", fmt.Errorf("managed path requires a relative name")
+	}
+	rel := strings.TrimPrefix(clean, best+"/")
+	if rel == "" || rel == clean || strings.Contains(rel, "..") {
+		return "", "", fmt.Errorf("invalid managed relative path")
+	}
+	return best, rel, nil
+}

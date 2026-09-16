@@ -23,6 +23,65 @@ type WebsiteSpec struct {
 	Aliases               []string
 }
 
+func NginxSiteChecked(s WebsiteSpec) (string, error) {
+	if err := ValidateWebsiteSpec(s); err != nil {
+		return "", err
+	}
+	body := NginxSite(s)
+	if err := ValidateNginx(body); err != nil {
+		return "", err
+	}
+	return body, nil
+}
+
+func ValidateWebsiteSpec(s WebsiteSpec) error {
+	if err := validateNginxToken(s.WebsiteID, "website id"); err != nil {
+		return err
+	}
+	if err := validateNginxToken(s.Domain, "domain"); err != nil {
+		return err
+	}
+	if s.Account != "" {
+		if err := validateNginxToken(s.Account, "account"); err != nil {
+			return err
+		}
+	}
+	if err := ValidateDocumentRoot(s.Account, s.DocumentRoot); err != nil {
+		return err
+	}
+	if s.ProxyTarget != "" && strings.ContainsAny(s.ProxyTarget, " \t\n{};") {
+		return fmt.Errorf("proxy target contains nginx metacharacters")
+	}
+	return nil
+}
+
+func ValidateDocumentRoot(account, docroot string) error {
+	if docroot == "" {
+		return fmt.Errorf("document root required")
+	}
+	if strings.ContainsAny(docroot, " \t\n{};$\"'`|&") {
+		return fmt.Errorf("document root contains nginx metacharacters")
+	}
+	if !strings.HasPrefix(docroot, "/") || strings.Contains(docroot, "..") {
+		return fmt.Errorf("document root must be a canonical absolute path")
+	}
+	if account == "" {
+		return nil
+	}
+	home := "/home/" + account
+	if docroot != home && !strings.HasPrefix(docroot, home+"/") {
+		return fmt.Errorf("document root outside account boundary")
+	}
+	return nil
+}
+
+func validateNginxToken(value, name string) error {
+	if value == "" || strings.ContainsAny(value, " \t\n{};$\"'`|&") {
+		return fmt.Errorf("%s contains nginx metacharacters", name)
+	}
+	return nil
+}
+
 func NginxSite(s WebsiteSpec) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Managed by Kelmor\n# resource: %s\n# revision: %d\n# template: nginx/%s-site/v3\n# DO NOT EDIT\n", s.WebsiteID, s.Revision, s.Runtime)

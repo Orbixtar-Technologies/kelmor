@@ -26,6 +26,7 @@ import (
 	openapi "github.com/hosting-panel/panel/api"
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/brand"
+	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/limits"
 	"github.com/hosting-panel/panel/internal/migration"
@@ -354,7 +355,14 @@ func (a *API) completePasswordChange(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if account == nil {
+	isServerAdmin := false
+	for _, role := range u.Roles {
+		if role == "root_owner" || role == "server_administrator" {
+			isServerAdmin = true
+			break
+		}
+	}
+	if account == nil && !isServerAdmin {
 		a.fail(w, r, 409, "ACCOUNT_REQUIRED", "No owned account is attached to this user", false)
 		return
 	}
@@ -363,23 +371,36 @@ func (a *API) completePasswordChange(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "PASSWORD_ERROR", "Could not update password", false)
 		return
 	}
-	job, err := a.Store.RotatePasswordAndEnqueue(u.ID, passwordHash, false, &store.Job{
-		Type: "account.reconcile", ResourceType: "account", ResourceID: account.ID,
-		Payload: map[string]any{"account_id": account.ID, "linux_password": in.NewPassword},
-		ActorID: u.ID, RequestID: logging.RequestID(r.Context()),
-	})
-	if err != nil {
-		a.fail(w, r, 500, "PASSWORD_ERROR", "Could not update password", false)
-		return
+	var jobID string
+	if account != nil {
+		job, err := a.Store.RotatePasswordAndEnqueue(u.ID, passwordHash, false, &store.Job{
+			Type: "account.reconcile", ResourceType: "account", ResourceID: account.ID,
+			Payload: map[string]any{"account_id": account.ID, "linux_password": in.NewPassword},
+			ActorID: u.ID, RequestID: logging.RequestID(r.Context()),
+		})
+		if err != nil {
+			a.fail(w, r, 500, "PASSWORD_ERROR", "Could not update password", false)
+			return
+		}
+		jobID = job.ID
+	} else {
+		u.PasswordHash = passwordHash
+		u.MustChangePassword = false
+		a.Store.PutUser(u)
+	}
+	a.Store.RevokeSessionsForUser(u.ID)
+	accountID := ""
+	if account != nil {
+		accountID = account.ID
 	}
 	a.Store.AppendAudit(store.AuditEvent{
-		ActorType: "user", ActorID: u.ID, EffectiveActor: u.ID, AccountID: account.ID,
+		ActorType: "user", ActorID: u.ID, EffectiveActor: u.ID, AccountID: accountID,
 		Action: "auth.password.complete", ResourceType: "user", ResourceID: u.ID,
 		RequestID: logging.RequestID(r.Context()), Success: true, SourceIP: ip, UserAgent: r.UserAgent(),
 		Before: map[string]any{"must_change_password": true},
-		After:  map[string]any{"must_change_password": false, "operation_id": job.ID},
+		After:  map[string]any{"must_change_password": false, "operation_id": jobID},
 	})
-	writeJSON(w, 200, map[string]any{"ok": true, "operation_id": job.ID})
+	writeJSON(w, 200, map[string]any{"ok": true, "operation_id": jobID})
 }
 
 func (a *API) logout(w http.ResponseWriter, r *http.Request) {
@@ -1561,15 +1582,20 @@ func accountOverQuota(account store.Account, packages map[string]store.Package, 
 
 func (a *API) exportAccount(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
-	if !a.requireAccount(w, r, aid, rbac.AccountsRead) {
+	if !a.requireAccount(w, r, aid, rbac.AccountsExport) {
 		return
 	}
-	exp, err := migration.Export(a.Store, aid)
+	includeHashes := r.URL.Query().Get("include_hashes") == "1" || r.URL.Query().Get("include_hashes") == "true"
+	if includeHashes && !actor(r).Has(rbac.AccountsExportCredentials) {
+		a.fail(w, r, 403, "FORBIDDEN", "Missing credential export capability", false)
+		return
+	}
+	exp, err := migration.ExportWithOptions(a.Store, aid, migration.ExportOptions{IncludeCredentialHashes: includeHashes})
 	if err != nil {
 		a.fail(w, r, 404, "NOT_FOUND", err.Error(), false)
 		return
 	}
-	a.audit(r, "account.export", "account", aid, true, nil, map[string]any{"username": exp.Account.Username})
+	a.audit(r, "account.export", "account", aid, true, nil, map[string]any{"username": exp.Account.Username, "include_hashes": includeHashes})
 	writeJSON(w, 200, exp)
 }
 
@@ -1598,7 +1624,7 @@ func (a *API) migrateAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
 		return
 	}
-	exp, err := migration.Export(a.Store, srcID)
+	exp, err := migration.ExportWithOptions(a.Store, srcID, migration.ExportOptions{IncludeCredentialHashes: actor(r).Has(rbac.AccountsExportCredentials)})
 	if err != nil {
 		a.fail(w, r, 404, "NOT_FOUND", err.Error(), false)
 		return
@@ -1678,7 +1704,7 @@ func (a *API) importCPanel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) exportAccounts(w http.ResponseWriter, r *http.Request) {
-	if !a.require(w, r, rbac.AccountsRead) {
+	if !a.require(w, r, rbac.AccountsExport) {
 		return
 	}
 	items := a.Store.ListAccounts("", "")
@@ -2239,6 +2265,12 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 		in.DocumentRoot = acc.HomePath + "/public_html"
 		if d := a.Store.GetDomain(in.DomainID); d != nil && d.DocumentRoot != "" {
 			in.DocumentRoot = d.DocumentRoot
+		}
+	}
+	if acc != nil {
+		if err := configuration.ValidateDocumentRoot(acc.Username, in.DocumentRoot); err != nil {
+			a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+			return
 		}
 	}
 	if d := a.Store.GetDomain(in.DomainID); d != nil && d.AccountID == aid {

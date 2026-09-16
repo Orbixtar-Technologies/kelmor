@@ -706,18 +706,15 @@ func (h *Host) CreateDirectoryTree(path string, mode uint32) (Result, error) {
 		}
 		return Result{OK: true, ObservedState: "exists"}, nil
 	}
-	p, err := h.resolve(path)
-	if err != nil {
-		return Result{}, err
-	}
 	if mode == 0 {
-		mode = uint32(hostingDirMode(p))
+		mode = uint32(hostingDirMode(path))
 	}
-	if err := os.MkdirAll(p, os.FileMode(mode)); err != nil {
+	if err := h.mkdirManaged(path, mode); err != nil {
 		return Result{}, err
 	}
-	_ = os.Chmod(p, os.FileMode(mode))
-	h.chownAccountPath(p)
+	if resolved, err := h.resolve(path); err == nil {
+		h.chownAccountPath(resolved)
+	}
 	return Result{OK: true, ObservedState: "exists"}, nil
 }
 
@@ -731,27 +728,15 @@ func (h *Host) ApplyFile(path string, content []byte, mode uint32) (Result, erro
 		}
 		return Result{OK: true, ObservedState: "written"}, nil
 	}
-	p, err := h.resolve(path)
-	if err != nil {
-		return Result{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-		return Result{}, err
-	}
-	tmp := p + ".staging"
 	if mode == 0 {
 		mode = 0o640
 	}
-	if err := os.WriteFile(tmp, content, os.FileMode(mode)); err != nil {
+	if err := h.writeManaged(path, content, mode); err != nil {
 		return Result{}, err
 	}
-	_ = os.Chmod(tmp, os.FileMode(mode))
-	if err := os.Rename(tmp, p); err != nil {
-		_ = os.Remove(tmp)
-		return Result{}, err
+	if resolved, err := h.resolve(path); err == nil {
+		h.chownAccountPath(resolved)
 	}
-	_ = os.Chmod(p, os.FileMode(mode))
-	h.chownAccountPath(p)
 	return Result{OK: true, ObservedState: "written"}, nil
 }
 

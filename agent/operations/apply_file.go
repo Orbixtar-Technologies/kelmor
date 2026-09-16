@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
-	"path/filepath"
 )
 
 // MaxRPCLine is the largest JSON line the unix agent protocol accepts.
@@ -67,48 +65,17 @@ func (h *Host) applyFileChunk(path string, data []byte, mode uint32, offset int6
 		}
 		return Result{OK: true, ObservedState: "chunked"}, nil
 	}
-	p, err := h.resolve(path)
-	if err != nil {
-		return Result{}, err
-	}
 	if mode == 0 {
 		mode = 0o640
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+	if err := h.appendManagedChunk(path, data, mode, offset, last); err != nil {
 		return Result{}, err
 	}
-	tmp := p + ".staging"
-	if offset == 0 {
-		if err := os.WriteFile(tmp, data, os.FileMode(mode)); err != nil {
-			return Result{}, err
+	if last {
+		if resolved, err := h.resolve(path); err == nil {
+			h.chownAccountPath(resolved)
 		}
-	} else {
-		st, err := os.Stat(tmp)
-		if err != nil {
-			return Result{}, err
-		}
-		if st.Size() != offset {
-			return Result{}, fmt.Errorf("file chunk offset mismatch")
-		}
-		f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_APPEND, os.FileMode(mode))
-		if err != nil {
-			return Result{}, err
-		}
-		_, err = f.Write(data)
-		_ = f.Close()
-		if err != nil {
-			return Result{}, err
-		}
+		return Result{OK: true, ObservedState: "written"}, nil
 	}
-	_ = os.Chmod(tmp, os.FileMode(mode))
-	if !last {
-		return Result{OK: true, ObservedState: "chunked"}, nil
-	}
-	if err := os.Rename(tmp, p); err != nil {
-		_ = os.Remove(tmp)
-		return Result{}, err
-	}
-	_ = os.Chmod(p, os.FileMode(mode))
-	h.chownAccountPath(p)
-	return Result{OK: true, ObservedState: "written"}, nil
+	return Result{OK: true, ObservedState: "chunked"}, nil
 }

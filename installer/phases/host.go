@@ -302,7 +302,6 @@ func startControlPlane() {
 			"PANEL_API_ADDR=127.0.0.1:18080",
 			"PANEL_DATABASE_URL=postgres:///panel_control?host=/var/run/postgresql",
 			"PANEL_PDNS_URL=http://127.0.0.1:8081",
-			"PANEL_PDNS_API_KEY=panel-loopback",
 		}
 		args = append(args, loadEnvPairs("/var/lib/panel/public.env")...)
 		args = append(args, loadEnvPairs("/var/lib/panel/acme.env")...)

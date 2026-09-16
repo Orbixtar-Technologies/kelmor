@@ -32,6 +32,7 @@ type Store interface {
 	PutSession(*Session)
 	SessionByHash([]byte) *Session
 	RevokeSession(string)
+	RevokeSessionsForUser(userID string)
 
 	PutFeature(*FeatureSet)
 	ListFeatureSets() []FeatureSet

@@ -8,6 +8,10 @@ import (
 )
 
 func SeedDev(st Store, adminUser, adminPass, adminEmail string) error {
+	return SeedAdmin(st, adminUser, adminPass, adminEmail, false)
+}
+
+func SeedAdmin(st Store, adminUser, adminPass, adminEmail string, mustChange bool) error {
 	if existing := st.UserByUsername(adminUser); existing != nil {
 		if len(st.ListPackages()) == 0 {
 			return seedCatalog(st)
@@ -21,7 +25,7 @@ func SeedDev(st Store, adminUser, adminPass, adminEmail string) error {
 	st.PutUser(&User{
 		ID: id.New(), Username: adminUser, Email: adminEmail, PasswordHash: hash,
 		DisplayName: "Root Owner", Status: "active", Roles: []string{"root_owner"},
-		MustChangePassword: false, CreatedAt: time.Now().UTC(),
+		MustChangePassword: mustChange, CreatedAt: time.Now().UTC(),
 	})
 	return seedCatalog(st)
 }
