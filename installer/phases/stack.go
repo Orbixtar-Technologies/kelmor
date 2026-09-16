@@ -1244,9 +1244,12 @@ func verifyDNS(c Config) error {
 	if err := waitListen("127.0.0.1:53", 2*time.Second); err != nil {
 		return fmt.Errorf("powerdns is not listening: %w", err)
 	}
-	if pub := netaddr.PublicIPv4(); pub != "127.0.0.1" {
-		if err := waitListen(net.JoinHostPort(pub, "53"), 2*time.Second); err != nil {
-			return fmt.Errorf("powerdns is not listening on public %s: %w", pub, err)
+	for _, addr := range netaddr.DNSListenIPv4() {
+		if addr == "127.0.0.1" {
+			continue
+		}
+		if err := waitListen(net.JoinHostPort(addr, "53"), 2*time.Second); err != nil {
+			return fmt.Errorf("powerdns is not listening on %s: %w", addr, err)
 		}
 	}
 	return nil

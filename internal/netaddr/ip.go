@@ -2,34 +2,132 @@ package netaddr
 
 import (
 	"bufio"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-// PublicIPv4 is the address published in DNS A records and bound by
-// PowerDNS. PANEL_PUBLIC_IPV4 wins; otherwise the UDP source address
-// toward 1.1.1.1 is used; then /var/lib/panel/public.env. Loopback is
-// the last-resort lab default.
+var lookupExternalIPv4 = lookupExternalIPv4Default
+
+// PublicIPv4 is the address published in DNS A records and FTP PASV.
+// PANEL_PUBLIC_IPV4 wins when it is a globally routable IPv4. Private
+// NIC addresses (Aliyun/AWS NAT, RFC1918) are skipped so Let's Encrypt
+// does not see "no valid A records". Next: UDP source toward 1.1.1.1,
+// then public.env, then cloud metadata / HTTPS echo. Loopback is the
+// last-resort lab default. PowerDNS still binds the local NIC via
+// DNSListenIPv4.
 func PublicIPv4() string {
-	if v := strings.TrimSpace(os.Getenv("PANEL_PUBLIC_IPV4")); v != "" {
-		if ip := net.ParseIP(v); ip != nil && ip.To4() != nil {
-			return ip.To4().String()
+	for _, candidate := range []string{
+		strings.TrimSpace(os.Getenv("PANEL_PUBLIC_IPV4")),
+		udpSourceIPv4(),
+		readPublicEnvFile(),
+	} {
+		if ip := publishableIPv4(candidate); ip != "" {
+			return ip
 		}
 	}
-	c, err := net.DialTimeout("udp", "1.1.1.1:53", 400*time.Millisecond)
-	if err == nil {
-		defer c.Close()
-		if addr, ok := c.LocalAddr().(*net.UDPAddr); ok && addr.IP.To4() != nil && !addr.IP.IsLoopback() {
-			return addr.IP.To4().String()
-		}
-	}
-	if v := readPublicEnvFile(); v != "" {
-		return v
+	if ip := publishableIPv4(lookupExternalIPv4()); ip != "" {
+		return ip
 	}
 	return "127.0.0.1"
+}
+
+func udpSourceIPv4() string {
+	c, err := net.DialTimeout("udp", "1.1.1.1:53", 400*time.Millisecond)
+	if err != nil {
+		return ""
+	}
+	defer c.Close()
+	addr, ok := c.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP.To4() == nil || addr.IP.IsLoopback() {
+		return ""
+	}
+	return addr.IP.To4().String()
+}
+
+func publishableIPv4(s string) string {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	if ip == nil || ip.To4() == nil || IsPrivateIPv4(ip) {
+		return ""
+	}
+	return ip.To4().String()
+}
+
+// IsPrivateIPv4 reports loopback, link-local, unspecified, multicast,
+// RFC1918, and CGNAT addresses that Let's Encrypt will not accept.
+func IsPrivateIPv4(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	return ip4.IsPrivate() || ip4.IsLoopback() || ip4.IsLinkLocalUnicast() ||
+		ip4.IsUnspecified() || ip4.IsMulticast()
+}
+
+func IsPrivateIPv4String(s string) bool {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	return ip != nil && IsPrivateIPv4(ip)
+}
+
+// RewritePrivateIP4Tokens replaces ip4:<private> tokens in SPF-style
+// text with ip4:<pubIP>.
+func RewritePrivateIP4Tokens(content, pubIP string) string {
+	if pubIP == "" || IsPrivateIPv4String(pubIP) {
+		return content
+	}
+	const prefix = "ip4:"
+	out := content
+	start := 0
+	for {
+		rel := strings.Index(out[start:], prefix)
+		if rel < 0 {
+			return out
+		}
+		i := start + rel + len(prefix)
+		j := i
+		for j < len(out) && (out[j] == '.' || (out[j] >= '0' && out[j] <= '9')) {
+			j++
+		}
+		token := out[i:j]
+		if IsPrivateIPv4String(token) && token != pubIP {
+			out = out[:i] + pubIP + out[j:]
+			start = i + len(pubIP)
+			continue
+		}
+		start = j
+	}
+}
+
+func lookupExternalIPv4Default() string {
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, raw := range []string{
+		"http://100.100.100.200/latest/meta-data/eipv4",
+		"http://100.100.100.200/latest/meta-data/public-ipv4",
+		"https://api.ipify.org",
+		"https://ipv4.icanhazip.com",
+	} {
+		req, err := http.NewRequest(http.MethodGet, raw, nil)
+		if err != nil {
+			continue
+		}
+		res, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 64))
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			continue
+		}
+		if ip := publishableIPv4(string(body)); ip != "" {
+			return ip
+		}
+	}
+	return ""
 }
 
 func publicEnvPath() string {

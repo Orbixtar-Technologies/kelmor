@@ -978,21 +978,22 @@ func (w *Worker) syncDNS(j *store.Job) error {
 }
 
 func (w *Worker) republishPublicAddresses(z *store.DNSZone, pubIP string) {
-	if z == nil || pubIP == "" || pubIP == "127.0.0.1" {
+	if z == nil || pubIP == "" || netaddr.IsPrivateIPv4String(pubIP) {
 		return
 	}
 	changed := false
 	for _, rec := range w.Store.ListRecords(z.ID) {
 		switch rec.Type {
 		case "A":
-			if rec.Content == "127.0.0.1" || rec.Content == "0.0.0.0" {
+			if rec.Content != pubIP && netaddr.IsPrivateIPv4String(rec.Content) {
 				rec.Content = pubIP
 				w.Store.PutRecord(&rec)
 				changed = true
 			}
 		case "TXT":
-			if strings.Contains(rec.Content, "ip4:127.0.0.1") {
-				rec.Content = strings.ReplaceAll(rec.Content, "ip4:127.0.0.1", "ip4:"+pubIP)
+			next := netaddr.RewritePrivateIP4Tokens(rec.Content, pubIP)
+			if next != rec.Content {
+				rec.Content = next
 				w.Store.PutRecord(&rec)
 				changed = true
 			}
@@ -1323,9 +1324,32 @@ func (w *Worker) inflightCertJob(certID string) bool {
 	return false
 }
 
+func (w *Worker) publishAccountPublicDNS(acc *store.Account) error {
+	if acc == nil {
+		return nil
+	}
+	pubIP := publicIPv4()
+	for _, d := range w.Store.ListDomains(acc.ID) {
+		z := w.Store.ZoneByDomain(d.ID)
+		if z == nil {
+			continue
+		}
+		w.republishPublicAddresses(z, pubIP)
+		if err := w.writeZone(z); err != nil {
+			return fmt.Errorf("publish zone %s: %w", z.Name, err)
+		}
+	}
+	return nil
+}
+
 func (w *Worker) issueStoredCertificate(c *store.Certificate) error {
 	if c == nil {
 		return fmt.Errorf("certificate missing")
+	}
+	if acc := w.Store.GetAccount(c.AccountID); acc != nil {
+		if err := w.publishAccountPublicDNS(acc); err != nil {
+			return err
+		}
 	}
 	contact := "admin@localhost"
 	if acc := w.Store.GetAccount(c.AccountID); acc != nil {

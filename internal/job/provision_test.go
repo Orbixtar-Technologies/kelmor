@@ -237,6 +237,114 @@ func TestReconcileRewritesLoopbackARecords(t *testing.T) {
 	}
 }
 
+func TestReconcileRewritesPrivateARecords(t *testing.T) {
+	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.50")
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	pkgs := st.ListPackages()
+	acc := &store.Account{
+		ID: "acc-nat", Username: "nat42", PrimaryDomain: "nat.test",
+		PackageID: pkgs[0].ID, Status: "active", HomePath: "/home/nat42",
+		LinuxUID: 20041, LinuxGID: 20041, DesiredRevision: 2,
+	}
+	st.PutAccount(acc)
+	st.PutDomain(&store.Domain{
+		ID: "dom-nat", AccountID: acc.ID, FQDN: "nat.test", ASCII: "nat.test",
+		Type: "primary", DocumentRoot: "/home/nat42/public_html", Status: "active",
+	})
+	st.PutZone(&store.DNSZone{ID: "z-nat", AccountID: acc.ID, DomainID: "dom-nat", Name: "nat.test", Provider: "powerdns", DesiredRevision: 1})
+	st.PutRecord(&store.DNSRecord{ID: "r-nat-a", ZoneID: "z-nat", Name: "@", Type: "A", Content: "172.21.76.48", TTL: 3600})
+	st.PutRecord(&store.DNSRecord{ID: "r-nat-mail", ZoneID: "z-nat", Name: "mail", Type: "A", Content: "172.21.76.48", TTL: 3600})
+	st.PutRecord(&store.DNSRecord{ID: "r-nat-spf", ZoneID: "z-nat", Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:172.21.76.48 ~all", TTL: 3600})
+	st.PutRecord(&store.DNSRecord{ID: "r-nat-custom", ZoneID: "z-nat", Name: "cdn", Type: "A", Content: "198.51.100.9", TTL: 3600})
+	root := t.TempDir()
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: root}, logging.New("test"), box, "tester")
+	if err := w.provisionAccount(&store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var apex, mailA, spf, custom string
+	for _, rec := range st.ListRecords("z-nat") {
+		switch {
+		case rec.Type == "A" && rec.Name == "@":
+			apex = rec.Content
+		case rec.Type == "A" && rec.Name == "mail":
+			mailA = rec.Content
+		case rec.Type == "TXT" && rec.Name == "@":
+			spf = rec.Content
+		case rec.Type == "A" && rec.Name == "cdn":
+			custom = rec.Content
+		}
+	}
+	if apex != "203.0.113.50" || mailA != "203.0.113.50" {
+		t.Fatalf("A records %q %q", apex, mailA)
+	}
+	if !bytes.Contains([]byte(spf), []byte("ip4:203.0.113.50")) ||
+		bytes.Contains([]byte(spf), []byte("ip4:172.21.76.48")) {
+		t.Fatalf("spf %q", spf)
+	}
+	if custom != "198.51.100.9" {
+		t.Fatalf("custom A overwritten: %q", custom)
+	}
+}
+
+func TestIssueCertificateRewritesPrivateARecords(t *testing.T) {
+	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.50")
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	pkgs := st.ListPackages()
+	acc := &store.Account{
+		ID: "acc-cert-nat", Username: "certnat", PrimaryDomain: "certnat.test",
+		PackageID: pkgs[0].ID, Status: "active", HomePath: "/home/certnat",
+		LinuxUID: 20042, LinuxGID: 20042,
+	}
+	st.PutAccount(acc)
+	st.PutDomain(&store.Domain{
+		ID: "dom-cert-nat", AccountID: acc.ID, FQDN: "certnat.test",
+		ASCII: "certnat.test", Type: "primary", Status: "active",
+	})
+	st.PutZone(&store.DNSZone{
+		ID: "z-cert-nat", AccountID: acc.ID, DomainID: "dom-cert-nat",
+		Name: "certnat.test", Provider: "powerdns", DesiredRevision: 1,
+	})
+	st.PutRecord(&store.DNSRecord{
+		ID: "r-cert-nat", ZoneID: "z-cert-nat", Name: "@", Type: "A",
+		Content: "172.21.76.48", TTL: 3600,
+	})
+	cert := &store.Certificate{
+		ID: "c-nat", AccountID: acc.ID, Hostname: "certnat.test",
+		Kind: "domain", Status: "requested",
+	}
+	st.PutCert(cert)
+	box, err := secret.FromBytes(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := New(st, &operations.Host{Root: t.TempDir()}, logging.New("test"), box, "tester")
+	if err := w.issueStoredCertificate(cert); err != nil {
+		t.Fatal(err)
+	}
+	var apex string
+	for _, rec := range st.ListRecords("z-cert-nat") {
+		if rec.Type == "A" && rec.Name == "@" {
+			apex = rec.Content
+		}
+	}
+	if apex != "203.0.113.50" {
+		t.Fatalf("apex A after cert issue %q", apex)
+	}
+}
+
 func TestRestoreDoesNotUnsuspend(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
