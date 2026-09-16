@@ -3,7 +3,7 @@
 Self-contained Ubuntu 24.04 host installer. Prefer the GitHub one-liner:
 
 ```bash
-curl -fsSL https://github.com/usmanliaqatdeveloper/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
+curl -fsSL https://github.com/OrbixtarTechnologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
 ```
 
 This tarball does not contact the lab VM. Offline install:

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Single-command Kelmor installer. Intended as:
-#   curl -fsSL https://github.com/usmanliaqatdeveloper/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
+#   curl -fsSL https://github.com/OrbixtarTechnologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
 # Downloads the published Ubuntu 24.04 installer tarball from GitHub Releases.
 # Does not publish to or require the broken lab VM.
 set -euo pipefail
 
-REPO="${KELMOR_GITHUB_REPO:-usmanliaqatdeveloper/kelmor}"
+REPO="${KELMOR_GITHUB_REPO:-OrbixtarTechnologies/kelmor}"
 BASE="${KELMOR_DOWNLOAD_BASE:-https://github.com/${REPO}/releases/latest/download}"
 DEV=0
 ROOT="${PANEL_INSTALL_ROOT:-}"
