@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Single-command Kelmor installer. Intended as:
-#   curl -fsSL https://github.com/OrbixtarTechnologies/public/releases/latest/download/get-kelmor.sh | sudo bash
+#   curl -fsSL https://github.com/Orbixtar-Technologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
 # Downloads the published Ubuntu 24.04 installer tarball from GitHub Releases.
-# Does not publish to or require the broken lab VM.
+# Does not publish to or require the lab VM.
 set -euo pipefail
 
-REPO="${KELMOR_GITHUB_REPO:-OrbixtarTechnologies/public}"
-BASE="${KELMOR_DOWNLOAD_BASE:-https://github.com/${REPO}/releases/latest/download}"
+REPO="${KELMOR_GITHUB_REPO:-Orbixtar-Technologies/kelmor}"
+RELEASE_BASE="https://github.com/${REPO}/releases/latest/download"
+BASE="${KELMOR_DOWNLOAD_BASE:-$RELEASE_BASE}"
 DEV=0
 ROOT="${PANEL_INSTALL_ROOT:-}"
 HOSTNAME_VALUE="${KELMOR_HOSTNAME:-}"
@@ -18,12 +19,12 @@ ARGS=()
 
 usage() {
 	cat <<EOF
-Usage: curl -fsSL ${BASE}/get-kelmor.sh | sudo bash
-   or: curl -fsSL ${BASE}/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net
+Usage: curl -fsSL ${RELEASE_BASE}/get-kelmor.sh | sudo bash
+   or: curl -fsSL ${RELEASE_BASE}/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net
 
 Environment:
   KELMOR_GITHUB_REPO     GitHub owner/name (default: ${REPO})
-  KELMOR_DOWNLOAD_BASE   Override release download URL
+  KELMOR_DOWNLOAD_BASE   Override installer download URL
   KELMOR_HOSTNAME        Default hostname when --hostname is omitted
   KELMOR_ADMIN_EMAIL     Default administrator email
 EOF

@@ -56,7 +56,7 @@ chmod 0755 "$TMP/bin/curl"
 export PATH="$TMP/bin:$PATH"
 export KELMOR_WEB="$TMP/web"
 export KELMOR_CURL_LOG="$TMP/curl.log"
-export KELMOR_DOWNLOAD_BASE="https://github.com/OrbixtarTechnologies/public/releases/latest/download"
+export KELMOR_DOWNLOAD_BASE="https://github.com/Orbixtar-Technologies/kelmor/releases/latest/download"
 : >"$KELMOR_CURL_LOG"
 
 printf 'NAME="Debian GNU/Linux"\nVERSION_ID="12"\n' >"$TMP/host/etc/os-release"
@@ -75,8 +75,12 @@ out="$(bash "$ROOT/scripts/get-kelmor.sh" --root "$TMP/host" --hostname panel.ex
 	echo "hostname not forwarded: $out" >&2
 	exit 1
 }
+grep -Fq 'Orbixtar-Technologies/kelmor' "$ROOT/scripts/get-kelmor.sh" || {
+	echo "get-kelmor.sh must default to Orbixtar-Technologies/kelmor" >&2
+	exit 1
+}
 grep -Fq "${KELMOR_DOWNLOAD_BASE}/kelmor-installer-linux-amd64.tar.gz" "$KELMOR_CURL_LOG" || {
-	echo "did not fetch GitHub latest installer: $(cat "$KELMOR_CURL_LOG")" >&2
+	echo "did not fetch installer tarball: $(cat "$KELMOR_CURL_LOG")" >&2
 	exit 1
 }
 grep -Fq "${KELMOR_DOWNLOAD_BASE}/kelmor-installer-linux-amd64.tar.gz.sha256" "$KELMOR_CURL_LOG" || {
