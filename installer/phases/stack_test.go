@@ -218,6 +218,9 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 	if !contains(string(acme), "return 404") {
 		t.Fatalf("default vhost must 404 unknown hosts: %s", acme)
 	}
+	if !contains(string(acme), "/var/www/panel-acme") {
+		t.Fatalf("default vhost must serve HTTP-01 from /var/www/panel-acme: %s", acme)
+	}
 	maincf, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/postfix/main.cf"))
 	if err != nil {
 		t.Fatal(err)

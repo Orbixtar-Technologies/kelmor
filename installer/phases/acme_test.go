@@ -84,6 +84,12 @@ func TestApplyTLSDisablesUbuntuDefault(t *testing.T) {
 	if !strings.Contains(string(acme), "listen 80 default_server") {
 		t.Fatalf("00-acme.conf: %s", acme)
 	}
+	if !strings.Contains(string(acme), "/var/www/panel-acme") {
+		t.Fatalf("00-acme.conf must serve HTTP-01 from /var/www/panel-acme: %s", acme)
+	}
+	if strings.Contains(string(acme), "root /var/lib/panel/acme-www") {
+		t.Fatalf("00-acme.conf must not use acme-www: %s", acme)
+	}
 	if st, err := os.Stat(filepath.Join(root, "var/lib/panel/acme-www")); err != nil {
 		t.Fatal(err)
 	} else if st.Mode().Perm()&0o005 == 0 {

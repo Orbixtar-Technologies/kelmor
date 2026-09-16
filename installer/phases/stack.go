@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/credentials"
 	"github.com/hosting-panel/panel/internal/firewall"
 	"github.com/hosting-panel/panel/internal/netaddr"
@@ -772,18 +773,7 @@ func applyTLS(c Config) error {
 	} {
 		_ = os.Chmod(p, 0o755)
 	}
-	acme := `server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name _;
-    location ^~ /.well-known/acme-challenge/ {
-        root /var/lib/panel/acme-www;
-        default_type text/plain;
-    }
-    location / { default_type text/plain; return 404 'no such site\n'; }
-}
-`
-	if err := os.WriteFile(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644); err != nil {
+	if err := os.WriteFile(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(configuration.NginxACMEDefaultServer()), 0o644); err != nil {
 		return err
 	}
 	disableUbuntuDefaultSite(c)
@@ -803,6 +793,9 @@ func verifyTLS(c Config) error {
 	}
 	if !strings.Contains(string(acme), "listen 80 default_server") {
 		return fmt.Errorf("00-acme.conf is not the HTTP-01 default_server")
+	}
+	if !strings.Contains(string(acme), configuration.ACMEHTTP01Root) {
+		return fmt.Errorf("00-acme.conf must serve HTTP-01 from %s", configuration.ACMEHTTP01Root)
 	}
 	if _, err := os.Lstat(root(c, "etc/nginx/sites-enabled/default")); err == nil {
 		return fmt.Errorf("Ubuntu default site still enabled")

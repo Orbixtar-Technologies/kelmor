@@ -132,7 +132,30 @@ func NginxSite(s WebsiteSpec) string {
 	return b.String()
 }
 
-const nginxACMEChallengeLocation = "    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n"
+// ACMEHTTP01Root is the AppArmor-reachable webroot for Let's Encrypt
+// HTTP-01. Ubuntu nginx may not read /var/lib/panel, so challenges live
+// under /var/www rather than acme-www.
+const ACMEHTTP01Root = "/var/www/panel-acme"
+
+const NginxACMEChallengeLocation = "    location ^~ /.well-known/acme-challenge/ { root /var/www/panel-acme; default_type text/plain; }\n"
+
+const nginxACMEChallengeLocation = NginxACMEChallengeLocation
+
+// NginxACMEDefaultServer is the catch-all :80 vhost that serves HTTP-01
+// tokens and 404s every other host.
+func NginxACMEDefaultServer() string {
+	return `server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/panel-acme;
+        default_type text/plain;
+    }
+    location / { default_type text/plain; return 404 'no such site\n'; }
+}
+`
+}
 
 func writeRuntimeLocations(b *strings.Builder, s WebsiteSpec) {
 	switch s.Runtime {

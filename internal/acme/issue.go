@@ -157,7 +157,7 @@ func IssueNames(ctx context.Context, agent *operations.Host, names []string, con
 
 func waitHTTP01(hostname, token, body string) error {
 	url := "http://127.0.0.1/.well-known/acme-challenge/" + token
-	deadline := time.Now().Add(8 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	var last error
 	for time.Now().Before(deadline) {
 		req, err := http.NewRequest(http.MethodGet, url, nil)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hosting-panel/panel/agent/policy"
+	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
@@ -110,6 +111,12 @@ func (h *Host) applyACMEChallenge(token, body string) (Result, error) {
 		}
 	}
 	h.exposeACMEWebroot()
+	if _, err := h.ApplyFile("/etc/nginx/panel-sites/00-acme.conf", []byte(configuration.NginxACMEDefaultServer()), 0o644); err != nil {
+		return Result{}, err
+	}
+	if err := h.retargetACMEChallengeLocations(); err != nil {
+		return Result{}, err
+	}
 	if h.live() {
 		if err := publishUbuntuHTMLChallenge(token, body); err != nil {
 			return Result{}, err
@@ -120,6 +127,39 @@ func (h *Host) applyACMEChallenge(token, body string) (Result, error) {
 		}
 	}
 	return Result{OK: true, ObservedState: "published"}, nil
+}
+
+func (h *Host) retargetACMEChallengeLocations() error {
+	dir, err := h.resolve("/etc/nginx/panel-sites")
+	if err != nil {
+		return err
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	const staleRoot = "root /var/lib/panel/acme-www;"
+	nextRoot := "root " + configuration.ACMEHTTP01Root + ";"
+	for _, e := range ents {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		updated := strings.ReplaceAll(string(raw), staleRoot, nextRoot)
+		if updated == string(raw) {
+			continue
+		}
+		if _, err := h.ApplyFile("/etc/nginx/panel-sites/"+e.Name(), []byte(updated), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Host) exposeACMEWebroot() {

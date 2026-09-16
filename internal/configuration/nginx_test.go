@@ -95,6 +95,28 @@ func TestNginxHTTPSRedirectKeepsHTTP01(t *testing.T) {
 	if !contains(conf, "/.well-known/acme-challenge/") {
 		t.Fatal("redirecting vhost must keep HTTP-01")
 	}
+	if !contains(conf, "root "+ACMEHTTP01Root) {
+		t.Fatal("HTTP-01 must use the AppArmor-reachable webroot")
+	}
+	if contains(conf, "root /var/lib/panel/acme-www") {
+		t.Fatal("HTTP-01 must not use /var/lib/panel/acme-www")
+	}
+}
+
+func TestNginxACMEDefaultServerUsesWWWRoot(t *testing.T) {
+	conf := NginxACMEDefaultServer()
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "listen 80 default_server") {
+		t.Fatal(conf)
+	}
+	if !contains(conf, "root "+ACMEHTTP01Root) {
+		t.Fatal(conf)
+	}
+	if contains(conf, "root /var/lib/panel/acme-www") {
+		t.Fatal("default HTTP-01 vhost must not use acme-www")
+	}
 }
 
 func TestNginxSiteValid(t *testing.T) {
