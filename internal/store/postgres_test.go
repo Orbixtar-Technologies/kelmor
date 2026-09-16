@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/hosting-panel/panel/internal/id"
-	"github.com/hosting-panel/panel/internal/rbac"
 )
 
 func postgresTestAccountUsername(prefix string) string {
@@ -161,18 +160,19 @@ func TestPostgresDesiredState(t *testing.T) {
 	}
 	pg.PutReseller(legacyReseller)
 	migrationName := "000025_backfill_legacy_reseller_privileges.sql"
-	if _, err := pg.pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version=$1`, migrationName); err != nil {
+	correctionName := "000027_accounts_package_fk_and_reseller_fail_closed.sql"
+	if _, err := pg.pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version IN ($1,$2)`, migrationName, correctionName); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = pg.pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING`, migrationName)
+		_, _ = pg.pool.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ($1),($2) ON CONFLICT DO NOTHING`, migrationName, correctionName)
 	})
 	if err := Migrate(ctx, pg.pool); err != nil {
 		t.Fatal(err)
 	}
 	if got := pg.GetReseller(legacyReseller.ID); got == nil ||
-		!reflect.DeepEqual(got.PrivilegeMask, rbac.RoleCaps["reseller"]) {
-		t.Fatalf("legacy reseller privileges were not backfilled: %+v", got)
+		!reflect.DeepEqual(got.PrivilegeMask, []string{}) {
+		t.Fatalf("ambiguous legacy reseller privileges did not fail closed: %+v", got)
 	}
 
 	newOwner := &User{

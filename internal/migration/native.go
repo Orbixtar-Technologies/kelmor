@@ -76,6 +76,14 @@ func Import(st store.Store, raw []byte) (*store.Account, error) {
 }
 
 func ImportAs(st store.Store, raw []byte, username, domain, ownerUserID string) (*store.Account, error) {
+	return importAs(st, raw, username, domain, ownerUserID, nil)
+}
+
+func ImportAsWithAudit(st store.Store, raw []byte, username, domain, ownerUserID string, audit store.AuditEvent) (*store.Account, error) {
+	return importAs(st, raw, username, domain, ownerUserID, &audit)
+}
+
+func importAs(st store.Store, raw []byte, username, domain, ownerUserID string, audit *store.AuditEvent) (*store.Account, error) {
 	var exp HostingAccountExport
 	if err := json.Unmarshal(raw, &exp); err != nil {
 		return nil, err
@@ -116,10 +124,6 @@ func ImportAs(st store.Store, raw []byte, username, domain, ownerUserID string) 
 		}
 	}
 	acc := exp.Account
-	if acc.LinuxUID < 20000 {
-		acc.LinuxUID = st.AllocUID()
-		acc.LinuxGID = acc.LinuxUID
-	}
 	if acc.HomePath == "" {
 		acc.HomePath = "/home/" + acc.Username
 	}
@@ -138,69 +142,73 @@ func ImportAs(st store.Store, raw []byte, username, domain, ownerUserID string) 
 	}
 	acc.Status = "provisioning"
 	acc.DesiredRevision = acc.ObservedRevision + 1
-	st.PutAccount(&acc)
-	if st.GetAccount(acc.ID) == nil {
-		return nil, errMissing("account persist")
-	}
 	for i := range exp.Domains {
-		st.PutDomain(&exp.Domains[i])
+		exp.Domains[i].Status = "provisioning"
+		exp.Domains[i].DesiredRevision = exp.Domains[i].ObservedRevision + 1
 	}
 	for i := range exp.Websites {
-		st.PutWebsite(&exp.Websites[i])
+		exp.Websites[i].DesiredRevision = exp.Websites[i].ObservedRevision + 1
 	}
-	for i := range exp.Applications {
-		st.PutApp(&exp.Applications[i])
+	for i := range exp.Zones {
+		exp.Zones[i].DesiredRevision = exp.Zones[i].ObservedRevision + 1
 	}
 	engines := map[string]bool{}
 	for i := range exp.Databases {
-		st.PutDB(&exp.Databases[i])
 		if exp.Databases[i].Engine != "" {
 			engines[exp.Databases[i].Engine] = true
 		}
 	}
-	if len(engines) > 0 && len(st.ListDBUsers(acc.ID)) == 0 {
-		for engine := range engines {
-			st.PutDBUser(&store.DatabaseUser{
-				ID: store.NewID(), AccountID: acc.ID,
-				Username: acc.Username + "_u", Engine: engine,
-			})
-		}
-	}
-	for i := range exp.MailDomains {
-		st.PutMailDomain(&exp.MailDomains[i])
-	}
-	for i := range exp.Mailboxes {
-		st.PutMailbox(&exp.Mailboxes[i])
-	}
-	for i := range exp.Aliases {
-		st.PutMailAlias(&exp.Aliases[i])
-	}
-	for i := range exp.Zones {
-		st.PutZone(&exp.Zones[i])
-	}
-	for i := range exp.Records {
-		st.PutRecord(&exp.Records[i])
-	}
-	for i := range exp.Cron {
-		st.PutCron(&exp.Cron[i])
-	}
-	for i := range exp.SSH {
-		st.PutSSH(&exp.SSH[i])
+	var databaseUsers []store.DatabaseUser
+	for engine := range engines {
+		databaseUsers = append(databaseUsers, store.DatabaseUser{
+			ID: store.NewID(), AccountID: acc.ID,
+			Username: acc.Username + "_u", Engine: engine,
+		})
 	}
 	for i := range exp.FTP {
-		ftp := exp.FTP[i]
-		if st.FTPUsernameTaken(ftp.Username, ftp.ID) {
-			ftp.Username = acc.Username + "_" + ftp.Username
+		if st.FTPUsernameTaken(exp.FTP[i].Username, exp.FTP[i].ID) {
+			exp.FTP[i].Username = acc.Username + "_" + exp.FTP[i].Username
 		}
-		st.PutFTP(&ftp)
 	}
 	plan["account_id"] = acc.ID
 	plan["username"] = acc.Username
 	plan["copy_dest"] = acc.HomePath
-	_, _ = st.EnqueueJob(&store.Job{
+	exp.Account = acc
+	job := &store.Job{
 		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
 		Payload: plan, State: "queued",
-	})
+	}
+	if audit != nil {
+		audit.AccountID = acc.ID
+		audit.ResourceID = acc.ID
+		job.ActorID = audit.ActorID
+		job.RequestID = audit.RequestID
+	}
+	imported := &store.AccountImport{
+		Account:       exp.Account,
+		Domains:       exp.Domains,
+		Websites:      exp.Websites,
+		Applications:  exp.Applications,
+		Databases:     exp.Databases,
+		DatabaseUsers: databaseUsers,
+		MailDomains:   exp.MailDomains,
+		Mailboxes:     exp.Mailboxes,
+		Aliases:       exp.Aliases,
+		Zones:         exp.Zones,
+		Records:       exp.Records,
+		Crons:         exp.Cron,
+		FTP:           exp.FTP,
+		SSH:           exp.SSH,
+	}
+	var err error
+	if audit == nil {
+		_, err = st.ImportAccountWithJob(imported, job)
+	} else {
+		_, err = st.ImportAccountWithJobAndAudit(imported, job, *audit)
+	}
+	if err != nil {
+		return nil, err
+	}
 	return &acc, nil
 }
 

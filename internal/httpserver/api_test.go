@@ -22,6 +22,15 @@ import (
 	"github.com/hosting-panel/panel/internal/store"
 )
 
+type failingDomainStore struct {
+	store.Store
+	err error
+}
+
+func (s *failingDomainStore) CreateDomainWithJob(*store.Domain, *store.Job, store.AuditEvent) (*store.Job, error) {
+	return nil, s.err
+}
+
 func TestAccountProvisionFlow(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
@@ -55,6 +64,67 @@ func TestAccountProvisionFlow(t *testing.T) {
 	}
 	if mig["source_id"] != aid {
 		t.Fatalf("source %v", mig)
+	}
+}
+
+func TestCreateAccountReplaysBeforeUniquenessChecks(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(st, logging.New("test"), &operations.Host{Root: t.TempDir()}).Handler())
+	defer srv.Close()
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	body := map[string]string{
+		"username": "replay-owner", "primary_domain": "replay.test",
+		"package_id": st.ListPackages()[0].ID, "owner_email": "owner@replay.test",
+		"owner_password": "TenantPass!2026",
+	}
+	headers := map[string]string{"Idempotency-Key": "account-create-replay"}
+	firstStatus, first := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts", token, body, headers)
+	secondStatus, second := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts", token, body, headers)
+	if firstStatus != http.StatusAccepted || secondStatus != http.StatusAccepted {
+		t.Fatalf("replay statuses: %d, %d", firstStatus, secondStatus)
+	}
+	if first["operation_id"] != second["operation_id"] || first["resource_id"] != second["resource_id"] {
+		t.Fatalf("replay returned a different operation: first=%v second=%v", first, second)
+	}
+}
+
+func TestCreateDomainPersistenceFailureLeavesNoResourceOrAudit(t *testing.T) {
+	base := store.NewMemory()
+	if err := store.SeedDev(base, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	st := &failingDomainStore{Store: base, err: errors.New("injected job persistence failure")}
+	srv := httptest.NewServer(New(st, logging.New("test"), &operations.Host{Root: t.TempDir()}).Handler())
+	defer srv.Close()
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	account := post(t, srv.URL+"/api/v1/accounts", token, map[string]string{
+		"username": "domain-fault", "primary_domain": "domain-fault.test",
+		"package_id": base.ListPackages()[0].ID, "owner_email": "owner@domain-fault.test",
+		"owner_password": "TenantPass!2026",
+	})
+	accountID := account["resource_id"].(string)
+	domainCount := len(base.ListDomains(accountID))
+
+	status, _ := requestJSONStatus(t, http.MethodPost,
+		srv.URL+"/api/v1/accounts/"+accountID+"/domains", token,
+		map[string]string{"fqdn": "addon.domain-fault.test", "type": "addon"}, nil)
+	if status != http.StatusInternalServerError {
+		t.Fatalf("persistence failure status %d", status)
+	}
+	if got := len(base.ListDomains(accountID)); got != domainCount {
+		t.Fatalf("failed request persisted a domain: got %d domains, want %d", got, domainCount)
+	}
+	for _, event := range base.ListAudit(100) {
+		if event.Action == "domain.create" {
+			t.Fatalf("failed request persisted success audit: %+v", event)
+		}
 	}
 }
 
@@ -361,14 +431,23 @@ func TestPackageLimitsAndDiskQuota(t *testing.T) {
 	if code != 403 {
 		t.Fatalf("second ftp: %d %v", code, body)
 	}
+	domains := st.ListDomains(aid)
+	if len(domains) != 1 {
+		t.Fatalf("expected primary domain, got %+v", domains)
+	}
+	secondDomain := &store.Domain{
+		ID: id.New(), AccountID: aid, FQDN: "second.tiny.test",
+		ASCII: "second.tiny.test", Type: "addon", Status: "active",
+	}
+	st.PutDomain(secondDomain)
 	code, _ = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/websites", token, map[string]string{
-		"domain_id": "missing", "runtime": "php",
+		"domain_id": domains[0].ID, "runtime": "php",
 	})
 	if code >= 400 {
 		t.Fatalf("first website should succeed: %d", code)
 	}
 	code, body = postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/websites", token, map[string]string{
-		"domain_id": "missing", "runtime": "php",
+		"domain_id": secondDomain.ID, "runtime": "php",
 	})
 	if code != 403 {
 		t.Fatalf("second website: %d %v", code, body)
@@ -1888,7 +1967,15 @@ func (s failingAccountMutationStore) CreateAccountWithJob(*store.User, *store.Ac
 	return nil, errors.New("queue unavailable")
 }
 
+func (s failingAccountMutationStore) CreateAccountWithJobAndAudit(*store.User, *store.Account, *store.Domain, []string, *store.Job, store.AuditEvent) (*store.Job, error) {
+	return nil, errors.New("queue unavailable")
+}
+
 func (s failingAccountMutationStore) UpdateAccountWithJob(*store.Account, *store.Job) (*store.Job, error) {
+	return nil, errors.New("queue unavailable")
+}
+
+func (s failingAccountMutationStore) UpdateAccountWithJobAndAudit(*store.Account, *store.Job, store.AuditEvent) (*store.Job, error) {
 	return nil, errors.New("queue unavailable")
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/id"
+	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 	"github.com/hosting-panel/panel/internal/rbac"
 	"github.com/hosting-panel/panel/internal/store"
@@ -222,12 +223,16 @@ func (a *API) ensurePHPRuntime(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", "unsupported PHP version", false)
 		return
 	}
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.EnqueueJobWithAudit(&store.Job{
 		Type: "php.runtime.ensure", ResourceType: "php", ResourceID: in.Version,
 		Payload: map[string]any{"version": in.Version},
-		State:   "queued",
-	})
-	a.audit(r, "server.runtime.ensure", "php", in.Version, true, nil, map[string]any{"version": in.Version})
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, "", "server.runtime.ensure", "php", in.Version, nil, map[string]any{"version": in.Version}))
+	if err != nil {
+		a.fail(w, r, 500, "RUNTIME_ENSURE_ERROR", "Could not persist runtime installation", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{
 		"operation_id": job.ID, "status": "provisioning", "version": in.Version,
 	})
@@ -274,13 +279,16 @@ func (a *API) createMailingList(w http.ResponseWriter, r *http.Request) {
 		dest += ","
 	}
 	al := &store.MailAlias{ID: id.New(), AccountID: aid, DomainID: md.ID, Address: in.LocalPart, Destination: dest}
-	a.Store.PutMailAlias(al)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertMailAliasWithJob(al, &store.Job{
 		Type: "mail.alias", ResourceType: "mail_alias", ResourceID: al.ID,
 		Payload: map[string]any{"account_id": aid, "alias_id": al.ID, "kind": "list"},
-		State:   "queued",
-	})
-	a.audit(r, "mail.list.create", "mail_alias", al.ID, true, nil, map[string]any{"address": al.Address})
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mail.list.create", "mail_alias", al.ID, nil, map[string]any{"address": al.Address}))
+	if err != nil {
+		a.fail(w, r, 500, "MAIL_LIST_CREATE_ERROR", "Could not persist mailing list", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "list": mailingListFromAlias(al, "provisioning")})
 }
 
@@ -307,13 +315,16 @@ func (a *API) updateMailingList(w http.ResponseWriter, r *http.Request) {
 		dest += ","
 	}
 	al.Destination = dest
-	a.Store.PutMailAlias(al)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertMailAliasWithJob(al, &store.Job{
 		Type: "mail.alias", ResourceType: "mail_alias", ResourceID: al.ID,
 		Payload: map[string]any{"account_id": aid, "alias_id": al.ID, "kind": "list"},
-		State:   "queued",
-	})
-	a.audit(r, "mail.list.update", "mail_alias", al.ID, true, nil, map[string]any{"members": len(in.Members)})
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mail.list.update", "mail_alias", al.ID, nil, map[string]any{"members": len(in.Members)}))
+	if err != nil {
+		a.fail(w, r, 500, "MAIL_LIST_UPDATE_ERROR", "Could not persist mailing list update", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "list": mailingListFromAlias(al, "provisioning")})
 }
 
@@ -327,13 +338,16 @@ func (a *API) deleteMailingList(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "mailing list missing", false)
 		return
 	}
-	a.Store.DeleteMailAlias(al.ID)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.DeleteMailAliasWithJob(al.ID, aid, &store.Job{
 		Type: "mail.alias", ResourceType: "mail_alias", ResourceID: al.ID,
 		Payload: map[string]any{"account_id": aid, "alias_id": al.ID},
-		State:   "queued",
-	})
-	a.audit(r, "mail.list.delete", "mail_alias", al.ID, true, map[string]any{"address": al.Address}, nil)
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mail.list.delete", "mail_alias", al.ID, map[string]any{"address": al.Address}, nil))
+	if err != nil {
+		a.fail(w, r, 500, "MAIL_LIST_DELETE_ERROR", "Could not persist mailing list deletion", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 

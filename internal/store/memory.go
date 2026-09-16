@@ -194,6 +194,14 @@ func (m *Memory) ListResellers() []Reseller {
 func (m *Memory) PutAccount(a *Account) { m.mu.Lock(); m.Accounts[a.ID] = a; m.mu.Unlock() }
 
 func (m *Memory) CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error) {
+	return m.createAccountWithJob(owner, account, domain, memberUserIDs, job, nil)
+}
+
+func (m *Memory) CreateAccountWithJobAndAudit(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job, audit AuditEvent) (*Job, error) {
+	return m.createAccountWithJob(owner, account, domain, memberUserIDs, job, &audit)
+}
+
+func (m *Memory) createAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job, audit *AuditEvent) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -211,6 +219,14 @@ func (m *Memory) CreateAccountWithJob(owner *User, account *Account, domain *Dom
 	}
 	if job.ResourceID != "" && job.ResourceID != account.ID {
 		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	if job.IdempotencyKey != "" {
+		for _, existing := range m.Jobs {
+			if existing.IdempotencyKey == job.IdempotencyKey {
+				cp := *existing
+				return &cp, nil
+			}
+		}
 	}
 	if m.Packages[account.PackageID] == nil {
 		return nil, fmt.Errorf("package %q not found", account.PackageID)
@@ -250,9 +266,17 @@ func (m *Memory) CreateAccountWithJob(owner *User, account *Account, domain *Dom
 			return nil, fmt.Errorf("member user %q not found", userID)
 		}
 	}
+	if job.TargetRevision == 0 {
+		job.TargetRevision = account.DesiredRevision
+	}
 	normalizeJob(job)
 	if err := m.validateNewJobLocked(job); err != nil {
 		return nil, err
+	}
+	if account.LinuxUID < 20000 {
+		account.LinuxUID = m.NextUID
+		account.LinuxGID = m.NextUID
+		m.NextUID++
 	}
 
 	ownerCopy := *owner
@@ -265,15 +289,31 @@ func (m *Memory) CreateAccountWithJob(owner *User, account *Account, domain *Dom
 	m.Members[account.ID] = unique(append([]string(nil), memberUserIDs...))
 	m.Domains[domain.ID] = &domainCopy
 	m.Jobs[job.ID] = &jobCopy
+	if audit != nil {
+		normalizeAudit(audit, job)
+		auditCopy := *audit
+		m.Audit = append(m.Audit, &auditCopy)
+	}
 	return &jobCopy, nil
 }
 
 func (m *Memory) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
+	return m.updateAccountWithJob(account, job, nil)
+}
+
+func (m *Memory) UpdateAccountWithJobAndAudit(account *Account, job *Job, audit AuditEvent) (*Job, error) {
+	return m.updateAccountWithJob(account, job, &audit)
+}
+
+func (m *Memory) updateAccountWithJob(account *Account, job *Job, audit *AuditEvent) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if account == nil || job == nil {
 		return nil, fmt.Errorf("account and job are required")
+	}
+	if replay := m.jobReplayLocked(job); replay != nil {
+		return replay, nil
 	}
 	current := m.Accounts[account.ID]
 	if account.ID == "" || current == nil {
@@ -291,6 +331,9 @@ func (m *Memory) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) 
 	if account.ResellerID != "" && m.Resellers[account.ResellerID] == nil {
 		return nil, fmt.Errorf("reseller %q not found", account.ResellerID)
 	}
+	if job.TargetRevision == 0 {
+		job.TargetRevision = account.DesiredRevision
+	}
 	normalizeJob(job)
 	if err := m.validateNewJobLocked(job); err != nil {
 		return nil, err
@@ -300,6 +343,11 @@ func (m *Memory) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) 
 	jobCopy := *job
 	m.Accounts[account.ID] = &accountCopy
 	m.Jobs[job.ID] = &jobCopy
+	if audit != nil {
+		normalizeAudit(audit, job)
+		auditCopy := *audit
+		m.Audit = append(m.Audit, &auditCopy)
+	}
 	return &jobCopy, nil
 }
 
@@ -367,7 +415,14 @@ func (m *Memory) DomainTaken(ascii string) bool {
 	return false
 }
 
-func (m *Memory) PutDomain(d *Domain) { m.mu.Lock(); m.Domains[d.ID] = d; m.mu.Unlock() }
+func (m *Memory) PutDomain(d *Domain) {
+	m.mu.Lock()
+	if d.Status == "active" && d.DesiredRevision > d.ObservedRevision {
+		d.ObservedRevision = d.DesiredRevision
+	}
+	m.Domains[d.ID] = d
+	m.mu.Unlock()
+}
 func (m *Memory) GetDomain(id string) *Domain {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -712,6 +767,18 @@ func (m *Memory) EnqueueJob(j *Job) (*Job, error) {
 	return &cp, nil
 }
 
+func (m *Memory) JobByIdempotencyKey(key string) *Job {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, job := range m.Jobs {
+		if key != "" && job.IdempotencyKey == key {
+			copy := *job
+			return &copy
+		}
+	}
+	return nil
+}
+
 func (m *Memory) RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, j *Job) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -741,6 +808,19 @@ func (m *Memory) RotatePasswordAndEnqueue(userID, passwordHash string, mustChang
 
 func normalizeJob(j *Job) {
 	j.Retryable = nil
+	if j.TargetRevision == 0 {
+		switch revision := j.Payload["target_revision"].(type) {
+		case int:
+			j.TargetRevision = int64(revision)
+		case int64:
+			j.TargetRevision = revision
+		case float64:
+			j.TargetRevision = int64(revision)
+		}
+	}
+	if j.TargetRevision == 0 {
+		j.TargetRevision = 1
+	}
 	if j.ID == "" {
 		j.ID = id.New()
 	}

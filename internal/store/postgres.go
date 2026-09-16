@@ -295,6 +295,14 @@ func (p *PG) PutAccount(a *Account) {
 }
 
 func (p *PG) CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error) {
+	return p.createAccountWithJob(owner, account, domain, memberUserIDs, job, nil)
+}
+
+func (p *PG) CreateAccountWithJobAndAudit(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job, audit AuditEvent) (*Job, error) {
+	return p.createAccountWithJob(owner, account, domain, memberUserIDs, job, &audit)
+}
+
+func (p *PG) createAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job, audit *AuditEvent) (*Job, error) {
 	if owner == nil || account == nil || domain == nil || job == nil {
 		return nil, fmt.Errorf("owner, account, domain, and job are required")
 	}
@@ -306,6 +314,9 @@ func (p *PG) CreateAccountWithJob(owner *User, account *Account, domain *Domain,
 	}
 	if job.ResourceID != "" && job.ResourceID != account.ID {
 		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	if job.TargetRevision == 0 {
+		job.TargetRevision = account.DesiredRevision
 	}
 	normalizeJob(job)
 	payload, err := json.Marshal(job.Payload)
@@ -320,6 +331,26 @@ func (p *PG) CreateAccountWithJob(owner *User, account *Account, domain *Domain,
 	}
 	defer tx.Rollback(ctx)
 
+	if job.IdempotencyKey != "" {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, job.IdempotencyKey); err != nil {
+			return nil, fmt.Errorf("lock account creation idempotency key: %w", err)
+		}
+		existing, scanErr := scanJobRow(tx.QueryRow(ctx, jobSelect+" WHERE idempotency_key=$1 FOR UPDATE", job.IdempotencyKey))
+		if scanErr == nil {
+			return existing, nil
+		}
+		if !errors.Is(scanErr, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("lookup account creation replay: %w", scanErr)
+		}
+	}
+	if account.LinuxUID < 20000 {
+		if err := tx.QueryRow(ctx, `
+			UPDATE id_allocators SET next_value=next_value+1
+			WHERE name='linux_uid' RETURNING next_value-1`).Scan(&account.LinuxUID); err != nil {
+			return nil, fmt.Errorf("allocate account UID: %w", err)
+		}
+		account.LinuxGID = account.LinuxUID
+	}
 	if err := validateAccountReferences(ctx, tx, account); err != nil {
 		return nil, err
 	}
@@ -359,14 +390,21 @@ func (p *PG) CreateAccountWithJob(owner *User, account *Account, domain *Domain,
 		}
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO domains (id, account_id, fqdn, ascii_fqdn, type, document_root, dns_managed, status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		INSERT INTO domains (id, account_id, fqdn, ascii_fqdn, type, document_root, dns_managed, status, desired_revision, observed_revision)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 		domain.ID, domain.AccountID, domain.FQDN, domain.ASCII, domain.Type,
-		domain.DocumentRoot, domain.DNSManaged, domain.Status); err != nil {
+		domain.DocumentRoot, domain.DNSManaged, domain.Status, domain.DesiredRevision,
+		domain.ObservedRevision); err != nil {
 		return nil, fmt.Errorf("insert primary domain: %w", err)
 	}
 	if err := insertJobTx(ctx, tx, job, payload); err != nil {
 		return nil, fmt.Errorf("insert account creation job: %w", err)
+	}
+	if audit != nil {
+		normalizeAudit(audit, job)
+		if err := insertAuditTx(ctx, tx, *audit); err != nil {
+			return nil, fmt.Errorf("insert account creation audit: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit account creation: %w", err)
@@ -376,11 +414,22 @@ func (p *PG) CreateAccountWithJob(owner *User, account *Account, domain *Domain,
 }
 
 func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
+	return p.updateAccountWithJob(account, job, nil)
+}
+
+func (p *PG) UpdateAccountWithJobAndAudit(account *Account, job *Job, audit AuditEvent) (*Job, error) {
+	return p.updateAccountWithJob(account, job, &audit)
+}
+
+func (p *PG) updateAccountWithJob(account *Account, job *Job, audit *AuditEvent) (*Job, error) {
 	if account == nil || job == nil {
 		return nil, fmt.Errorf("account and job are required")
 	}
 	if job.ResourceID != "" && job.ResourceID != account.ID {
 		return nil, fmt.Errorf("job resource %q does not match account %q", job.ResourceID, account.ID)
+	}
+	if job.TargetRevision == 0 {
+		job.TargetRevision = account.DesiredRevision
 	}
 	normalizeJob(job)
 	payload, err := json.Marshal(job.Payload)
@@ -395,6 +444,18 @@ func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
 	}
 	defer tx.Rollback(ctx)
 
+	if job.IdempotencyKey != "" {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, job.IdempotencyKey); err != nil {
+			return nil, fmt.Errorf("lock account update idempotency key: %w", err)
+		}
+		existing, scanErr := scanJobRow(tx.QueryRow(ctx, jobSelect+" WHERE idempotency_key=$1 FOR UPDATE", job.IdempotencyKey))
+		if scanErr == nil {
+			return existing, nil
+		}
+		if !errors.Is(scanErr, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("lookup account update replay: %w", scanErr)
+		}
+	}
 	if err := validateAccountReferences(ctx, tx, account); err != nil {
 		return nil, err
 	}
@@ -417,6 +478,12 @@ func (p *PG) UpdateAccountWithJob(account *Account, job *Job) (*Job, error) {
 	}
 	if err := insertJobTx(ctx, tx, job, payload); err != nil {
 		return nil, fmt.Errorf("insert account update job: %w", err)
+	}
+	if audit != nil {
+		normalizeAudit(audit, job)
+		if err := insertAuditTx(ctx, tx, *audit); err != nil {
+			return nil, fmt.Errorf("insert account update audit: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit account update: %w", err)
@@ -447,10 +514,10 @@ func validateAccountReferences(ctx context.Context, tx pgx.Tx, account *Account)
 
 func insertJobTx(ctx context.Context, tx pgx.Tx, job *Job, payload []byte) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
-		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')::uuid,NULLIF($14,'')::uuid,$15,$16)`,
+		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, target_revision, run_after, idempotency_key, actor_id, request_id, created_at, logs)
+		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,''),NULLIF($14,'')::uuid,NULLIF($15,'')::uuid,$16,$17)`,
 		job.ID, job.Type, job.ResourceType, job.ResourceID, payload, job.State, job.Priority,
-		job.Attempts, job.MaxAttempts, job.Progress, job.RunAfter, job.IdempotencyKey,
+		job.Attempts, job.MaxAttempts, job.Progress, job.TargetRevision, job.RunAfter, job.IdempotencyKey,
 		job.ActorID, job.RequestID, job.CreatedAt, job.Logs)
 	return err
 }
@@ -542,17 +609,22 @@ func (p *PG) DomainTaken(ascii string) bool {
 }
 
 func (p *PG) PutDomain(d *Domain) {
+	if d.Status == "active" && d.DesiredRevision > d.ObservedRevision {
+		d.ObservedRevision = d.DesiredRevision
+	}
 	_, _ = p.pool.Exec(p.ctx(), `
-		INSERT INTO domains (id, account_id, fqdn, ascii_fqdn, type, document_root, dns_managed, status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, document_root=EXCLUDED.document_root`,
-		d.ID, d.AccountID, d.FQDN, d.ASCII, d.Type, d.DocumentRoot, d.DNSManaged, d.Status)
+		INSERT INTO domains (id, account_id, fqdn, ascii_fqdn, type, document_root, dns_managed, status, desired_revision, observed_revision)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, document_root=EXCLUDED.document_root,
+			desired_revision=EXCLUDED.desired_revision, observed_revision=EXCLUDED.observed_revision`,
+		d.ID, d.AccountID, d.FQDN, d.ASCII, d.Type, d.DocumentRoot, d.DNSManaged, d.Status,
+		d.DesiredRevision, d.ObservedRevision)
 }
 
 func (p *PG) GetDomain(did string) *Domain {
 	d := &Domain{}
-	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, fqdn, ascii_fqdn, type, COALESCE(document_root,''), dns_managed, status FROM domains WHERE id=$1`, did).
-		Scan(&d.ID, &d.AccountID, &d.FQDN, &d.ASCII, &d.Type, &d.DocumentRoot, &d.DNSManaged, &d.Status); err != nil {
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, account_id, fqdn, ascii_fqdn, type, COALESCE(document_root,''), dns_managed, status, desired_revision, observed_revision FROM domains WHERE id=$1`, did).
+		Scan(&d.ID, &d.AccountID, &d.FQDN, &d.ASCII, &d.Type, &d.DocumentRoot, &d.DNSManaged, &d.Status, &d.DesiredRevision, &d.ObservedRevision); err != nil {
 		return nil
 	}
 	return d
@@ -570,7 +642,7 @@ func (p *PG) DeleteDomain(id string) {
 }
 
 func (p *PG) ListDomains(accountID string) []Domain {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, fqdn, ascii_fqdn, type, COALESCE(document_root,''), dns_managed, status FROM domains WHERE $1='' OR account_id::text=$1`, accountID)
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, fqdn, ascii_fqdn, type, COALESCE(document_root,''), dns_managed, status, desired_revision, observed_revision FROM domains WHERE $1='' OR account_id::text=$1`, accountID)
 	if err != nil {
 		return nil
 	}
@@ -578,7 +650,7 @@ func (p *PG) ListDomains(accountID string) []Domain {
 	var out []Domain
 	for rows.Next() {
 		var d Domain
-		_ = rows.Scan(&d.ID, &d.AccountID, &d.FQDN, &d.ASCII, &d.Type, &d.DocumentRoot, &d.DNSManaged, &d.Status)
+		_ = rows.Scan(&d.ID, &d.AccountID, &d.FQDN, &d.ASCII, &d.Type, &d.DocumentRoot, &d.DNSManaged, &d.Status, &d.DesiredRevision, &d.ObservedRevision)
 		out = append(out, d)
 	}
 	return out
@@ -959,9 +1031,9 @@ func (p *PG) EnqueueJob(j *Job) (*Job, error) {
 	normalizeJob(j)
 	payload, _ := json.Marshal(j.Payload)
 	_, err := p.pool.Exec(p.ctx(), `
-		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
-		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')::uuid,NULLIF($14,'')::uuid,$15,$16)`,
-		j.ID, j.Type, j.ResourceType, j.ResourceID, payload, j.State, j.Priority, j.Attempts, j.MaxAttempts, j.Progress, j.RunAfter, j.IdempotencyKey, j.ActorID, j.RequestID, j.CreatedAt, j.Logs)
+		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, target_revision, run_after, idempotency_key, actor_id, request_id, created_at, logs)
+		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,''),NULLIF($14,'')::uuid,NULLIF($15,'')::uuid,$16,$17)`,
+		j.ID, j.Type, j.ResourceType, j.ResourceID, payload, j.State, j.Priority, j.Attempts, j.MaxAttempts, j.Progress, j.TargetRevision, j.RunAfter, j.IdempotencyKey, j.ActorID, j.RequestID, j.CreatedAt, j.Logs)
 	if err != nil {
 		if existing := p.jobByIdem(j.IdempotencyKey); existing != nil {
 			return existing, nil
@@ -996,11 +1068,7 @@ func (p *PG) RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bo
 	if result.RowsAffected() != 1 {
 		return nil, fmt.Errorf("user %q not found", userID)
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO jobs (id, type, resource_type, resource_id, payload, state, priority, attempts, max_attempts, progress, run_after, idempotency_key, actor_id, request_id, created_at, logs)
-		VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')::uuid,NULLIF($14,'')::uuid,$15,$16)`,
-		j.ID, j.Type, j.ResourceType, j.ResourceID, payload, j.State, j.Priority, j.Attempts, j.MaxAttempts, j.Progress, j.RunAfter, j.IdempotencyKey, j.ActorID, j.RequestID, j.CreatedAt, j.Logs)
-	if err != nil {
+	if err := insertJobTx(ctx, tx, j, payload); err != nil {
 		return nil, fmt.Errorf("insert password reconciliation job: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1017,7 +1085,11 @@ func (p *PG) jobByIdem(key string) *Job {
 	return p.scanJob(p.pool.QueryRow(p.ctx(), jobSelect+" WHERE idempotency_key=$1", key))
 }
 
-const jobSelect = `SELECT id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload, state, priority, attempts, max_attempts, progress, run_after, COALESCE(locked_by,''), heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''), COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at, started_at, finished_at, logs FROM jobs`
+func (p *PG) JobByIdempotencyKey(key string) *Job {
+	return p.jobByIdem(key)
+}
+
+const jobSelect = `SELECT id, type, COALESCE(resource_type,''), COALESCE(resource_id::text,''), payload, state, priority, attempts, max_attempts, progress, target_revision, run_after, COALESCE(locked_by,''), heartbeat_at, COALESCE(idempotency_key,''), COALESCE(last_error::text,''), COALESCE(actor_id::text,''), COALESCE(request_id::text,''), created_at, started_at, finished_at, logs FROM jobs`
 
 func (p *PG) scanJob(row scanner) *Job {
 	j, err := scanJobRow(row)
@@ -1030,7 +1102,7 @@ func (p *PG) scanJob(row scanner) *Job {
 func scanJobRow(row scanner) (*Job, error) {
 	j := &Job{}
 	var payload []byte
-	if err := row.Scan(&j.ID, &j.Type, &j.ResourceType, &j.ResourceID, &payload, &j.State, &j.Priority, &j.Attempts, &j.MaxAttempts, &j.Progress, &j.RunAfter, &j.LockedBy, &j.HeartbeatAt, &j.IdempotencyKey, &j.LastError, &j.ActorID, &j.RequestID, &j.CreatedAt, &j.StartedAt, &j.FinishedAt, &j.Logs); err != nil {
+	if err := row.Scan(&j.ID, &j.Type, &j.ResourceType, &j.ResourceID, &payload, &j.State, &j.Priority, &j.Attempts, &j.MaxAttempts, &j.Progress, &j.TargetRevision, &j.RunAfter, &j.LockedBy, &j.HeartbeatAt, &j.IdempotencyKey, &j.LastError, &j.ActorID, &j.RequestID, &j.CreatedAt, &j.StartedAt, &j.FinishedAt, &j.Logs); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal(payload, &j.Payload)
@@ -1075,9 +1147,13 @@ func (p *PG) UpdateJob(j *Job) {
 		last = b
 	}
 	_, _ = p.pool.Exec(p.ctx(), `
-		UPDATE jobs SET type=$2, payload=$3, state=$4, priority=$5, attempts=$6, progress=$7, run_after=$8, locked_by=NULLIF($9,''), heartbeat_at=$10, last_error=$11, started_at=$12, finished_at=$13, logs=$14
+		UPDATE jobs SET type=$2, payload=$3, state=$4, priority=$5, attempts=$6, progress=$7,
+			target_revision=$8, run_after=$9, locked_by=NULLIF($10,''), heartbeat_at=$11,
+			last_error=$12, started_at=$13, finished_at=$14, logs=$15
 		WHERE id=$1`,
-		j.ID, j.Type, payload, j.State, j.Priority, j.Attempts, j.Progress, j.RunAfter, j.LockedBy, j.HeartbeatAt, last, j.StartedAt, j.FinishedAt, j.Logs)
+		j.ID, j.Type, payload, j.State, j.Priority, j.Attempts, j.Progress,
+		j.TargetRevision, j.RunAfter, j.LockedBy, j.HeartbeatAt, last,
+		j.StartedAt, j.FinishedAt, j.Logs)
 }
 
 func (p *PG) GetJob(jid string) *Job {

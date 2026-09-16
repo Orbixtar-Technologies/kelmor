@@ -49,7 +49,11 @@ type Store interface {
 	AllocUID() int
 	PutAccount(*Account)
 	CreateAccountWithJob(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job) (*Job, error)
+	CreateAccountWithJobAndAudit(owner *User, account *Account, domain *Domain, memberUserIDs []string, job *Job, audit AuditEvent) (*Job, error)
 	UpdateAccountWithJob(account *Account, job *Job) (*Job, error)
+	UpdateAccountWithJobAndAudit(account *Account, job *Job, audit AuditEvent) (*Job, error)
+	ImportAccountWithJob(imported *AccountImport, job *Job) (*Job, error)
+	ImportAccountWithJobAndAudit(imported *AccountImport, job *Job, audit AuditEvent) (*Job, error)
 	GetAccount(string) *Account
 	AccountByUsername(string) *Account
 	ListAccounts(q, status string) []Account
@@ -59,21 +63,27 @@ type Store interface {
 
 	DomainTaken(ascii string) bool
 	PutDomain(*Domain)
+	CreateDomainWithJob(domain *Domain, job *Job, audit AuditEvent) (*Job, error)
+	UpdateDomainWithJob(domain *Domain, job *Job, audit AuditEvent) (*Job, error)
 	GetDomain(string) *Domain
 	ListDomains(accountID string) []Domain
 	DeleteDomain(id string)
 
 	PutWebsite(*Website)
+	UpsertWebsiteWithJob(website *Website, job *Job, audit AuditEvent) (*Job, error)
 	GetWebsite(string) *Website
 	ListWebsites(accountID string) []Website
 	DeleteWebsite(id string)
 
 	PutApp(*Application)
+	UpsertApplicationWithJob(application *Application, job *Job, audit AuditEvent) (*Job, error)
 	GetApp(string) *Application
 	ListApps(accountID string) []Application
 	DeleteApp(id string)
 
 	PutDB(*HostedDatabase)
+	UpsertDatabaseWithJob(database *HostedDatabase, user *DatabaseUser, job *Job, audit AuditEvent) (*Job, error)
+	DeleteDatabaseWithJob(databaseID, accountID string, job *Job, audit AuditEvent) (*Job, error)
 	GetDB(string) *HostedDatabase
 	ListDBs(accountID string) []HostedDatabase
 	DeleteDB(id string)
@@ -85,31 +95,42 @@ type Store interface {
 	ZoneByDomain(domainID string) *DNSZone
 	ListZones(accountID string) []DNSZone
 	PutRecord(*DNSRecord)
+	UpsertZoneWithJob(zone *DNSZone, job *Job, audit AuditEvent) (*Job, error)
+	CreateRecordWithJob(record *DNSRecord, accountID string, job *Job, audit AuditEvent) (*Job, error)
+	DeleteRecordWithJob(recordID, zoneID, accountID string, job *Job, audit AuditEvent) (*Job, error)
 	ListRecords(zoneID string) []DNSRecord
 	DeleteRecord(id string)
 
 	PutMailDomain(*MailDomain)
+	UpsertMailDomainWithJob(domain *MailDomain, job *Job, audit AuditEvent) (*Job, error)
 	GetMailDomain(string) *MailDomain
 	MailDomainByDomain(domainID string) *MailDomain
 	ListMailDomains(accountID string) []MailDomain
 	PutMailbox(*Mailbox)
+	UpsertMailboxWithJob(mailbox *Mailbox, job *Job, audit AuditEvent) (*Job, error)
+	DeleteMailboxWithJob(mailboxID, accountID string, job *Job, audit AuditEvent) (*Job, error)
 	GetMailbox(string) *Mailbox
 	ListMailboxes(accountID string) []Mailbox
 	DeleteMailbox(id string)
 	PutMailAlias(*MailAlias)
+	UpsertMailAliasWithJob(alias *MailAlias, job *Job, audit AuditEvent) (*Job, error)
+	DeleteMailAliasWithJob(aliasID, accountID string, job *Job, audit AuditEvent) (*Job, error)
 	GetMailAlias(string) *MailAlias
 	ListMailAliases(accountID string) []MailAlias
 	DeleteMailAlias(id string)
 
 	PutCert(*Certificate)
+	UpsertCertificateWithJob(certificate *Certificate, job *Job, audit AuditEvent) (*Job, error)
 	GetCert(string) *Certificate
 	ListCerts(accountID string) []Certificate
 
 	EnqueueJob(*Job) (*Job, error)
+	EnqueueJobWithAudit(job *Job, audit AuditEvent) (*Job, error)
 	RotatePasswordAndEnqueue(userID, passwordHash string, mustChange bool, job *Job) (*Job, error)
 	ClaimJob(worker string) *Job
 	UpdateJob(*Job)
 	GetJob(string) *Job
+	JobByIdempotencyKey(string) *Job
 	ListJobs(state string, limit int) []Job
 	CancelJob(jobID, actorID, requestID string) (*Job, error)
 
@@ -124,10 +145,13 @@ type Store interface {
 	DeleteToken(id string)
 
 	PutBackup(*BackupRun)
+	CreateBackupWithJob(backup *BackupRun, job *Job, audit AuditEvent) (*Job, error)
 	GetBackup(string) *BackupRun
 	ListBackups(accountID string) []BackupRun
 
 	PutCron(*CronJob)
+	UpsertCronWithJob(cron *CronJob, job *Job, audit AuditEvent) (*Job, error)
+	DeleteCronWithJob(cronID, accountID string, job *Job, audit AuditEvent) (*Job, error)
 	GetCron(id string) *CronJob
 	ListCrons(accountID string) []CronJob
 	DeleteCron(id string)
@@ -136,6 +160,8 @@ type Store interface {
 	ListSSH(accountID string) []SSHKey
 	DeleteSSH(id string)
 	PutFTP(*FTPAccount)
+	UpsertFTPWithJob(ftp *FTPAccount, job *Job, audit AuditEvent) (*Job, error)
+	DeleteFTPWithJob(ftpID, accountID string, job *Job, audit AuditEvent) (*Job, error)
 	ListFTP(accountID string) []FTPAccount
 	ListAllFTP() []FTPAccount
 	FTPUsernameTaken(username, exceptID string) bool

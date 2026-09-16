@@ -1608,14 +1608,13 @@ func (a *API) migrateAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "EXPORT", err.Error(), false)
 		return
 	}
-	acc, err := migration.ImportAs(a.Store, raw, in.Username, ascii, actor(r).UserID)
+	acc, err := migration.ImportAsWithAudit(a.Store, raw, in.Username, ascii, actor(r).UserID,
+		a.auditEvent(r, "", "account.migrate", "account", "", map[string]any{"source": srcID}, map[string]any{"username": in.Username, "domain": ascii}))
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
-	a.Store.AddMember(acc.ID, actor(r).UserID)
 	copied := queuedReconcileJob(a.Store, acc.ID)
-	a.audit(r, "account.migrate", "account", acc.ID, true, map[string]any{"source": srcID}, map[string]any{"username": acc.Username, "domain": ascii})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "homedir_job": copied, "source_id": srcID})
 }
 
@@ -1632,14 +1631,13 @@ func (a *API) importAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "INVALID_JSON", "invalid export", false)
 		return
 	}
-	acc, err := migration.ImportAs(a.Store, raw, r.URL.Query().Get("username"), r.URL.Query().Get("domain"), actor(r).UserID)
+	acc, err := migration.ImportAsWithAudit(a.Store, raw, r.URL.Query().Get("username"), r.URL.Query().Get("domain"), actor(r).UserID,
+		a.auditEvent(r, "", "account.import", "account", "", nil, map[string]any{"source": "native"}))
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
-	a.Store.AddMember(acc.ID, actor(r).UserID)
 	copied := queuedReconcileJob(a.Store, acc.ID)
-	a.audit(r, "account.import", "account", acc.ID, true, nil, map[string]any{"username": acc.Username})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "homedir_job": copied})
 }
 
@@ -1669,14 +1667,13 @@ func (a *API) importCPanel(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "CPANEL_IMPORT", err.Error(), false)
 		return
 	}
-	acc, err := migration.ImportAs(a.Store, raw, "", "", actor(r).UserID)
+	acc, err := migration.ImportAsWithAudit(a.Store, raw, "", "", actor(r).UserID,
+		a.auditEvent(r, "", "account.import.cpanel", "account", "", nil, map[string]any{"username": exp.Account.Username, "homedir": exp.Homedir}))
 	if err != nil {
 		a.fail(w, r, 409, "IMPORT_CONFLICT", err.Error(), false)
 		return
 	}
-	a.Store.AddMember(acc.ID, actor(r).UserID)
 	copied := queuedReconcileJob(a.Store, acc.ID)
-	a.audit(r, "account.import.cpanel", "account", acc.ID, true, nil, map[string]any{"username": acc.Username, "homedir": exp.Homedir})
 	writeJSON(w, 202, map[string]any{"resource_id": acc.ID, "status": "provisioning", "account": acc, "source": "cpanel", "homedir_job": copied})
 }
 
@@ -1733,6 +1730,23 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "INVALID_JSON", "Invalid account", false)
 		return
 	}
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if replay := a.Store.JobByIdempotencyKey(idempotencyKey); replay != nil {
+		if replay.Type != "account.provision" {
+			a.fail(w, r, 409, "IDEMPOTENCY_CONFLICT", "Idempotency key belongs to another operation", false)
+			return
+		}
+		account := a.Store.GetAccount(replay.ResourceID)
+		if account == nil {
+			a.fail(w, r, 500, "IDEMPOTENCY_STATE_ERROR", "Stored account operation has no resource", false)
+			return
+		}
+		writeJSON(w, 202, map[string]any{
+			"operation_id": replay.ID, "resource_id": account.ID,
+			"status": account.Status, "account": account,
+		})
+		return
+	}
 	if err := validate.Username(in.Username); err != nil {
 		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
 		return
@@ -1787,10 +1801,9 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 	if owner.Email == "" {
 		owner.Email = in.Username + "@" + ascii
 	}
-	uid := a.Store.AllocUID()
 	acc := &store.Account{
 		ID: id.New(), ResellerID: in.ResellerID, OwnerUserID: owner.ID, Username: in.Username,
-		PrimaryDomain: ascii, LinuxUID: uid, LinuxGID: uid, PackageID: pkg.ID,
+		PrimaryDomain: ascii, PackageID: pkg.ID,
 		Status: "provisioning", HomePath: "/home/" + in.Username, ShellClass: "sftp-only",
 		DesiredRevision: 1,
 	}
@@ -1798,19 +1811,26 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 	if who.ResellerID != "" && who.UserID != owner.ID {
 		memberUserIDs = append(memberUserIDs, who.UserID)
 	}
-	dom := &store.Domain{ID: id.New(), AccountID: acc.ID, FQDN: ascii, ASCII: ascii, Type: "primary", DocumentRoot: acc.HomePath + "/public_html", DNSManaged: true, Status: "provisioning"}
-	job, err := a.Store.CreateAccountWithJob(owner, acc, dom, memberUserIDs, &store.Job{
+	dom := &store.Domain{ID: id.New(), AccountID: acc.ID, FQDN: ascii, ASCII: ascii, Type: "primary", DocumentRoot: acc.HomePath + "/public_html", DNSManaged: true, Status: "provisioning", DesiredRevision: 1}
+	job, err := a.Store.CreateAccountWithJobAndAudit(owner, acc, dom, memberUserIDs, &store.Job{
 		Type: "account.provision", ResourceType: "account", ResourceID: acc.ID,
-		Payload: map[string]any{"account_id": acc.ID, "domain_id": dom.ID, "linux_password": in.OwnerPassword},
-		State:   "queued", Priority: 10, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		Payload: map[string]any{"account_id": acc.ID, "domain_id": dom.ID, "linux_password": in.OwnerPassword, "target_revision": acc.DesiredRevision},
+		State:   "queued", Priority: 10, IdempotencyKey: idempotencyKey,
 		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
-	})
+	}, a.auditEvent(r, acc.ID, "account.create", "account", acc.ID, nil, map[string]any{"username": acc.Username, "domain": ascii}))
 	if err != nil {
 		a.fail(w, r, 500, "ACCOUNT_CREATE_ERROR", "Could not create account and queue provisioning", false)
 		return
 	}
-	a.audit(r, "account.create", "account", acc.ID, true, nil, map[string]any{"username": acc.Username, "domain": ascii})
-	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "resource_id": acc.ID, "status": "provisioning", "account": acc})
+	if job.ResourceID != acc.ID {
+		replayedAccount := a.Store.GetAccount(job.ResourceID)
+		if replayedAccount == nil {
+			a.fail(w, r, 500, "IDEMPOTENCY_STATE_ERROR", "Stored account operation has no resource", false)
+			return
+		}
+		acc = replayedAccount
+	}
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "resource_id": acc.ID, "status": acc.Status, "account": acc})
 }
 
 func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
@@ -1892,7 +1912,14 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 		acc.LoginDisabled = v
 	}
 	acc.DesiredRevision++
-	job, err := a.Store.UpdateAccountWithJob(acc, &store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID}, State: "queued"})
+	job, err := a.Store.UpdateAccountWithJobAndAudit(acc, &store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID, "target_revision": acc.DesiredRevision},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, acc.ID, "account.modify", "account", acc.ID,
+		map[string]any{"package_id": before.PackageID},
+		map[string]any{"package_id": acc.PackageID, "desired_revision": acc.DesiredRevision}))
 	if err != nil {
 		if errors.Is(err, store.ErrStaleAccount) {
 			a.fail(w, r, 409, "ACCOUNT_CONFLICT", "Account changed while this update was being reviewed", false)
@@ -1901,7 +1928,6 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "ACCOUNT_UPDATE_ERROR", "Could not update account and queue reconciliation", false)
 		return
 	}
-	a.audit(r, "account.modify", "account", acc.ID, true, map[string]any{"package_id": before.PackageID}, map[string]any{"package_id": acc.PackageID})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "account": acc})
 }
 
@@ -1983,7 +2009,14 @@ func (a *API) setAccountStatus(w http.ResponseWriter, r *http.Request, status, a
 	before := acc.Status
 	acc.Status = status
 	acc.DesiredRevision++
-	job, err := a.Store.UpdateAccountWithJob(acc, &store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID, "status": status}, State: "queued"})
+	job, err := a.Store.UpdateAccountWithJobAndAudit(acc, &store.Job{
+		Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID, "status": status, "target_revision": acc.DesiredRevision},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, acc.ID, action, "account", acc.ID,
+		map[string]any{"status": before},
+		map[string]any{"status": status, "desired_revision": acc.DesiredRevision}))
 	if err != nil {
 		if errors.Is(err, store.ErrStaleAccount) {
 			a.fail(w, r, 409, "ACCOUNT_CONFLICT", "Account changed while this action was being reviewed", false)
@@ -1992,7 +2025,6 @@ func (a *API) setAccountStatus(w http.ResponseWriter, r *http.Request, status, a
 		a.fail(w, r, 500, "ACCOUNT_STATUS_ERROR", "Could not update account status and queue reconciliation", false)
 		return
 	}
-	a.audit(r, action, "account", acc.ID, true, map[string]any{"status": before}, map[string]any{"status": status})
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "account": acc})
 }
 
@@ -2066,10 +2098,25 @@ func (a *API) bulkAccountStatus(w http.ResponseWriter, r *http.Request, status s
 			continue
 		}
 		if acc := a.Store.GetAccount(id); acc != nil {
+			before := acc.Status
 			acc.Status = status
 			acc.DesiredRevision++
-			a.Store.PutAccount(acc)
-			j, _ := a.Store.EnqueueJob(&store.Job{Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID, Payload: map[string]any{"account_id": acc.ID}, State: "queued"})
+			idempotencyKey := r.Header.Get("Idempotency-Key")
+			if idempotencyKey != "" {
+				idempotencyKey += ":" + acc.ID
+			}
+			j, err := a.Store.UpdateAccountWithJobAndAudit(acc, &store.Job{
+				Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
+				Payload: map[string]any{"account_id": acc.ID, "status": status, "target_revision": acc.DesiredRevision},
+				State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+				IdempotencyKey: idempotencyKey,
+			}, a.auditEvent(r, acc.ID, "account.bulk-status", "account", acc.ID,
+				map[string]any{"status": before},
+				map[string]any{"status": status, "desired_revision": acc.DesiredRevision}))
+			if err != nil {
+				a.fail(w, r, 500, "ACCOUNT_STATUS_ERROR", "Could not persist account status request", true)
+				return
+			}
 			ops = append(ops, j.ID)
 		}
 	}
@@ -2122,10 +2169,17 @@ func (a *API) createDomain(w http.ResponseWriter, r *http.Request) {
 	if in.Type == "alias" {
 		doc = acc.HomePath + "/public_html"
 	}
-	d := &store.Domain{ID: id.New(), AccountID: aid, FQDN: ascii, ASCII: ascii, Type: in.Type, DocumentRoot: doc, DNSManaged: true, Status: "provisioning"}
-	a.Store.PutDomain(d)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "domain.provision", ResourceType: "domain", ResourceID: d.ID, Payload: map[string]any{"domain_id": d.ID, "account_id": aid, "runtime": in.Runtime}, State: "queued"})
-	a.audit(r, "domain.create", "domain", d.ID, true, nil, map[string]any{"fqdn": ascii, "runtime": in.Runtime})
+	d := &store.Domain{ID: id.New(), AccountID: aid, FQDN: ascii, ASCII: ascii, Type: in.Type, DocumentRoot: doc, DNSManaged: true, Status: "provisioning", DesiredRevision: 1}
+	job, err := a.Store.CreateDomainWithJob(d, &store.Job{
+		Type: "domain.provision", ResourceType: "domain", ResourceID: d.ID,
+		Payload: map[string]any{"domain_id": d.ID, "account_id": aid, "runtime": in.Runtime, "target_revision": d.DesiredRevision},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "domain.create", "domain", d.ID, nil, map[string]any{"fqdn": ascii, "runtime": in.Runtime}))
+	if err != nil {
+		a.fail(w, r, 500, "DOMAIN_CREATE_ERROR", "Could not persist domain provisioning request", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "resource_id": d.ID, "status": "provisioning", "domain": d})
 }
 
@@ -2143,12 +2197,19 @@ func (a *API) deleteDomain(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 409, "IN_USE", "primary domain cannot be deleted", false)
 		return
 	}
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	before := map[string]any{"fqdn": d.ASCII, "type": d.Type, "status": d.Status}
+	d.Status = "terminating"
+	d.DesiredRevision++
+	job, err := a.Store.UpdateDomainWithJob(d, &store.Job{
 		Type: "domain.delete", ResourceType: "domain", ResourceID: d.ID,
-		Payload: map[string]any{"domain_id": d.ID, "account_id": aid},
-		State:   "queued",
-	})
-	a.audit(r, "domain.delete", "domain", d.ID, true, map[string]any{"fqdn": d.ASCII, "type": d.Type}, nil)
+		Payload: map[string]any{"domain_id": d.ID, "account_id": aid, "target_revision": d.DesiredRevision},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "domain.delete", "domain", d.ID, before, map[string]any{"status": d.Status}))
+	if err != nil {
+		a.fail(w, r, 500, "DOMAIN_DELETE_ERROR", "Could not persist domain deletion request", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
@@ -2192,8 +2253,16 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 				existing.DocumentRoot = in.DocumentRoot
 			}
 			existing.DesiredRevision++
-			a.Store.PutWebsite(&existing)
-			job, _ := a.Store.EnqueueJob(&store.Job{Type: "website.provision", ResourceType: "website", ResourceID: existing.ID, Payload: map[string]any{"website_id": existing.ID}, State: "queued"})
+			job, err := a.Store.UpsertWebsiteWithJob(&existing, &store.Job{
+				Type: "website.provision", ResourceType: "website", ResourceID: existing.ID,
+				Payload: map[string]any{"website_id": existing.ID, "account_id": aid, "target_revision": existing.DesiredRevision},
+				State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+				IdempotencyKey: r.Header.Get("Idempotency-Key"),
+			}, a.auditEvent(r, aid, "website.update", "website", existing.ID, nil, map[string]any{"desired_revision": existing.DesiredRevision}))
+			if err != nil {
+				a.fail(w, r, 500, "WEBSITE_UPDATE_ERROR", "Could not persist website provisioning request", true)
+				return
+			}
 			writeJSON(w, 202, map[string]any{"operation_id": job.ID, "website": existing})
 			return
 		}
@@ -2204,8 +2273,16 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 		a.rejectLimit(w, r, err)
 		return
 	}
-	a.Store.PutWebsite(&in)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "website.provision", ResourceType: "website", ResourceID: in.ID, Payload: map[string]any{"website_id": in.ID}, State: "queued"})
+	job, err := a.Store.UpsertWebsiteWithJob(&in, &store.Job{
+		Type: "website.provision", ResourceType: "website", ResourceID: in.ID,
+		Payload: map[string]any{"website_id": in.ID, "account_id": aid, "target_revision": in.DesiredRevision},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "website.create", "website", in.ID, nil, map[string]any{"desired_revision": in.DesiredRevision}))
+	if err != nil {
+		a.fail(w, r, 500, "WEBSITE_CREATE_ERROR", "Could not persist website provisioning request", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "website": in})
 }
 
@@ -2223,12 +2300,19 @@ func (a *API) deleteWebsite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 409, "IN_USE", "primary domain website cannot be deleted", false)
 		return
 	}
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	before := map[string]any{"domain_id": site.DomainID, "enabled": site.Enabled}
+	site.Enabled = false
+	site.DesiredRevision++
+	job, err := a.Store.UpsertWebsiteWithJob(site, &store.Job{
 		Type: "website.delete", ResourceType: "website", ResourceID: site.ID,
-		Payload: map[string]any{"website_id": site.ID},
-		State:   "queued",
-	})
-	a.audit(r, "website.delete", "website", site.ID, true, map[string]any{"domain_id": site.DomainID}, nil)
+		Payload: map[string]any{"website_id": site.ID, "account_id": aid, "target_revision": site.DesiredRevision},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "website.delete", "website", site.ID, before, map[string]any{"enabled": false, "desired_revision": site.DesiredRevision}))
+	if err != nil {
+		a.fail(w, r, 500, "WEBSITE_DELETE_ERROR", "Could not persist website deletion request", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
@@ -2289,8 +2373,16 @@ func (a *API) createApp(w http.ResponseWriter, r *http.Request) {
 	if in.Status == "" {
 		in.Status = "provisioning"
 	}
-	a.Store.PutApp(&in)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "application.deploy", ResourceType: "application", ResourceID: in.ID, Payload: map[string]any{"application_id": in.ID}, State: "queued"})
+	job, err := a.Store.UpsertApplicationWithJob(&in, &store.Job{
+		Type: "application.deploy", ResourceType: "application", ResourceID: in.ID,
+		Payload: map[string]any{"application_id": in.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "application.create", "application", in.ID, nil, map[string]any{"runtime": in.Runtime}))
+	if err != nil {
+		a.fail(w, r, 500, "APPLICATION_CREATE_ERROR", "Could not persist application deployment", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "application": in})
 }
 
@@ -2378,19 +2470,22 @@ func (a *API) queueWordPressInstall(w http.ResponseWriter, r *http.Request, aid 
 		ID: id.New(), WebsiteID: site.ID, AccountID: aid,
 		Runtime: "wordpress", WorkingDirectory: site.DocumentRoot, Status: "provisioning",
 	}
-	a.Store.PutApp(app)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertApplicationWithJob(app, &store.Job{
 		Type: "wordpress.install", ResourceType: "application", ResourceID: app.ID,
 		Payload: map[string]any{
 			"application_id": app.ID, "title": in.Title, "hostname": hostname,
 			"admin_user": in.AdminUser, "admin_password": in.AdminPassword,
 			"admin_email": in.AdminEmail,
 		},
-		State: "queued",
-	})
-	a.audit(r, "wordpress.install", "application", app.ID, true, nil, map[string]any{
+		State: "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "wordpress.install", "application", app.ID, nil, map[string]any{
 		"website_id": site.ID, "title": in.Title,
-	})
+	}))
+	if err != nil {
+		a.fail(w, r, 500, "WORDPRESS_INSTALL_ERROR", "Could not persist WordPress installation", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "application": app})
 }
 
@@ -2442,11 +2537,20 @@ func (a *API) createDB(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.Store.PutDB(d)
+	var databaseUser *store.DatabaseUser
 	if len(a.Store.ListDBUsers(aid)) == 0 {
-		a.Store.PutDBUser(&store.DatabaseUser{ID: id.New(), AccountID: aid, Username: acc.Username + "_u", Engine: in.Engine})
+		databaseUser = &store.DatabaseUser{ID: id.New(), AccountID: aid, Username: acc.Username + "_u", Engine: in.Engine}
 	}
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "database.provision", ResourceType: "database", ResourceID: d.ID, Payload: map[string]any{"database_id": d.ID}, State: "queued"})
+	job, err := a.Store.UpsertDatabaseWithJob(d, databaseUser, &store.Job{
+		Type: "database.provision", ResourceType: "database", ResourceID: d.ID,
+		Payload: map[string]any{"database_id": d.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "database.create", "database", d.ID, nil, map[string]any{"name": d.Name, "engine": d.Engine}))
+	if err != nil {
+		a.fail(w, r, 500, "DATABASE_CREATE_ERROR", "Could not persist database provisioning", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "database": d})
 }
 
@@ -2460,12 +2564,16 @@ func (a *API) deleteDB(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "database missing", false)
 		return
 	}
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.DeleteDatabaseWithJob(d.ID, aid, &store.Job{
 		Type: "database.delete", ResourceType: "database", ResourceID: d.ID,
-		Payload: map[string]any{"database_id": d.ID},
-		State:   "queued",
-	})
-	a.audit(r, "database.delete", "database", d.ID, true, map[string]any{"name": d.Name, "engine": d.Engine}, nil)
+		Payload: map[string]any{"database_id": d.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "database.delete", "database", d.ID, map[string]any{"name": d.Name, "engine": d.Engine}, nil))
+	if err != nil {
+		a.fail(w, r, 500, "DATABASE_DELETE_ERROR", "Could not persist database deletion", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
@@ -2512,8 +2620,16 @@ func (a *API) createRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	rec.ID = id.New()
 	rec.ZoneID = zoneID
-	a.Store.PutRecord(&rec)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "dns.sync", ResourceType: "dns_zone", ResourceID: rec.ZoneID, Payload: map[string]any{"zone_id": rec.ZoneID}, State: "queued"})
+	job, err := a.Store.CreateRecordWithJob(&rec, aid, &store.Job{
+		Type: "dns.sync", ResourceType: "dns_zone", ResourceID: rec.ZoneID,
+		Payload: map[string]any{"zone_id": rec.ZoneID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "dns.record.create", "dns_record", rec.ID, nil, map[string]any{"zone_id": zoneID}))
+	if err != nil {
+		a.fail(w, r, 500, "DNS_RECORD_CREATE_ERROR", "Could not persist DNS record", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "record": rec})
 }
 
@@ -2540,9 +2656,16 @@ func (a *API) deleteRecord(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "record missing", false)
 		return
 	}
-	a.Store.DeleteRecord(rid)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "dns.sync", ResourceType: "dns_zone", ResourceID: zid, Payload: map[string]any{"zone_id": zid}, State: "queued"})
-	a.audit(r, "dns.record.delete", "dns_record", rid, true, nil, map[string]any{"zone_id": zid})
+	job, err := a.Store.DeleteRecordWithJob(rid, zid, aid, &store.Job{
+		Type: "dns.sync", ResourceType: "dns_zone", ResourceID: zid,
+		Payload: map[string]any{"zone_id": zid, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "dns.record.delete", "dns_record", rid, nil, map[string]any{"zone_id": zid}))
+	if err != nil {
+		a.fail(w, r, 500, "DNS_RECORD_DELETE_ERROR", "Could not persist DNS record deletion", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "deleted": rid})
 }
 
@@ -2566,12 +2689,16 @@ func (a *API) setDNSSEC(w http.ResponseWriter, r *http.Request) {
 	}
 	z.DNSSECEnabled = *in.Enabled
 	z.DesiredRevision++
-	a.Store.PutZone(z)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertZoneWithJob(z, &store.Job{
 		Type: "dns.dnssec", ResourceType: "dns_zone", ResourceID: z.ID,
-		Payload: map[string]any{"zone_id": z.ID}, State: "queued",
-	})
-	a.audit(r, "dns.dnssec", "dns_zone", z.ID, true, nil, map[string]any{"enabled": z.DNSSECEnabled})
+		Payload: map[string]any{"zone_id": z.ID, "account_id": aid, "target_revision": z.DesiredRevision},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "dns.dnssec", "dns_zone", z.ID, nil, map[string]any{"enabled": z.DNSSECEnabled, "desired_revision": z.DesiredRevision}))
+	if err != nil {
+		a.fail(w, r, 500, "DNSSEC_UPDATE_ERROR", "Could not persist DNSSEC update", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "zone": z})
 }
 
@@ -2655,12 +2782,16 @@ func (a *API) patchMailDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	before := md.CatchallPolicy
 	md.CatchallPolicy = policy
-	a.Store.PutMailDomain(md)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertMailDomainWithJob(md, &store.Job{
 		Type: "mail.maps", ResourceType: "mail_domain", ResourceID: md.ID,
 		Payload: map[string]any{"account_id": aid}, State: "queued",
-	})
-	a.audit(r, "mail.catchall", "mail_domain", md.ID, true, map[string]any{"catchall_policy": before}, map[string]any{"catchall_policy": policy})
+		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mail.catchall", "mail_domain", md.ID, map[string]any{"catchall_policy": before}, map[string]any{"catchall_policy": policy}))
+	if err != nil {
+		a.fail(w, r, 500, "MAIL_DOMAIN_UPDATE_ERROR", "Could not persist mail domain update", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mail_domain": md})
 }
 
@@ -2726,8 +2857,16 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.Store.PutMailbox(mb)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "mailbox.provision", ResourceType: "mailbox", ResourceID: mb.ID, Payload: map[string]any{"mailbox_id": mb.ID}, State: "queued"})
+	job, err := a.Store.UpsertMailboxWithJob(mb, &store.Job{
+		Type: "mailbox.provision", ResourceType: "mailbox", ResourceID: mb.ID,
+		Payload: map[string]any{"mailbox_id": mb.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mailbox.upsert", "mailbox", mb.ID, nil, map[string]any{"local_part": mb.LocalPart, "status": mb.Status}))
+	if err != nil {
+		a.fail(w, r, 500, "MAILBOX_UPDATE_ERROR", "Could not persist mailbox provisioning", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mailbox": mb})
 }
 
@@ -2747,13 +2886,16 @@ func (a *API) deleteMailbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.Store.DeleteMailbox(mb.ID)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.DeleteMailboxWithJob(mb.ID, aid, &store.Job{
 		Type: "mailbox.delete", ResourceType: "mailbox", ResourceID: mb.ID,
 		Payload: map[string]any{"account_id": aid, "mailbox_id": mb.ID},
-		State:   "queued",
-	})
-	a.audit(r, "mailbox.delete", "mailbox", mb.ID, true, map[string]any{"local_part": mb.LocalPart}, nil)
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mailbox.delete", "mailbox", mb.ID, map[string]any{"local_part": mb.LocalPart}, nil))
+	if err != nil {
+		a.fail(w, r, 500, "MAILBOX_DELETE_ERROR", "Could not persist mailbox deletion", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
@@ -2799,13 +2941,16 @@ func (a *API) createMailAlias(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	al := &store.MailAlias{ID: id.New(), AccountID: aid, DomainID: md.ID, Address: in.Address, Destination: dest}
-	a.Store.PutMailAlias(al)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertMailAliasWithJob(al, &store.Job{
 		Type: "mail.alias", ResourceType: "mail_alias", ResourceID: al.ID,
 		Payload: map[string]any{"account_id": aid, "alias_id": al.ID},
-		State:   "queued",
-	})
-	a.audit(r, "mail.alias.create", "mail_alias", al.ID, true, nil, map[string]any{"address": al.Address, "destination": al.Destination})
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mail.alias.create", "mail_alias", al.ID, nil, map[string]any{"address": al.Address, "destination": al.Destination}))
+	if err != nil {
+		a.fail(w, r, 500, "MAIL_ALIAS_CREATE_ERROR", "Could not persist mail alias", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "alias": al})
 }
 
@@ -2819,13 +2964,16 @@ func (a *API) deleteMailAlias(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "alias missing", false)
 		return
 	}
-	a.Store.DeleteMailAlias(al.ID)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.DeleteMailAliasWithJob(al.ID, aid, &store.Job{
 		Type: "mail.alias", ResourceType: "mail_alias", ResourceID: al.ID,
 		Payload: map[string]any{"account_id": aid, "alias_id": al.ID},
-		State:   "queued",
-	})
-	a.audit(r, "mail.alias.delete", "mail_alias", al.ID, true, map[string]any{"address": al.Address}, nil)
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mail.alias.delete", "mail_alias", al.ID, map[string]any{"address": al.Address}, nil))
+	if err != nil {
+		a.fail(w, r, 500, "MAIL_ALIAS_DELETE_ERROR", "Could not persist mail alias deletion", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
@@ -2909,11 +3057,16 @@ func (a *API) requestCert(w http.ResponseWriter, r *http.Request) {
 	} else {
 		c.Status = "requested"
 	}
-	a.Store.PutCert(c)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertCertificateWithJob(c, &store.Job{
 		Type: "certificate.provision", ResourceType: "certificate", ResourceID: c.ID,
-		Payload: map[string]any{"certificate_id": c.ID}, State: "queued",
-	})
+		Payload: map[string]any{"certificate_id": c.ID, "account_id": aid, "hostname": host},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "certificate.request", "certificate", c.ID, nil, map[string]any{"hostname": host, "status": c.Status}))
+	if err != nil {
+		a.fail(w, r, 500, "CERTIFICATE_REQUEST_ERROR", "Could not persist certificate request", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "certificate": c})
 }
 
@@ -2998,8 +3151,16 @@ func (a *API) createBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := &store.BackupRun{ID: id.New(), AccountID: aid, Kind: in.Kind, State: "queued", Destination: in.Destination, CreatedAt: time.Now().UTC()}
-	a.Store.PutBackup(b)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "backup.create", ResourceType: "backup", ResourceID: b.ID, Payload: map[string]any{"backup_id": b.ID, "account_id": aid}, State: "queued"})
+	job, err := a.Store.CreateBackupWithJob(b, &store.Job{
+		Type: "backup.create", ResourceType: "backup", ResourceID: b.ID,
+		Payload: map[string]any{"backup_id": b.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "backup.create", "backup", b.ID, nil, map[string]any{"kind": b.Kind, "destination": b.Destination}))
+	if err != nil {
+		a.fail(w, r, 500, "BACKUP_CREATE_ERROR", "Could not persist backup request", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "backup": b})
 }
 
@@ -3013,7 +3174,16 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		Mode     string `json:"mode"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "backup.restore", ResourceType: "backup", ResourceID: in.BackupID, Payload: map[string]any{"backup_id": in.BackupID, "account_id": aid, "mode": in.Mode}, State: "queued"})
+	job, err := a.Store.EnqueueJobWithAudit(&store.Job{
+		Type: "backup.restore", ResourceType: "backup", ResourceID: in.BackupID,
+		Payload: map[string]any{"backup_id": in.BackupID, "account_id": aid, "mode": in.Mode},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "backup.restore", "backup", in.BackupID, nil, map[string]any{"mode": in.Mode}))
+	if err != nil {
+		a.fail(w, r, 500, "BACKUP_RESTORE_ERROR", "Could not persist backup restore request", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
 }
 
@@ -3129,8 +3299,16 @@ func (a *API) createCron(w http.ResponseWriter, r *http.Request) {
 	c.ID = id.New()
 	c.AccountID = aid
 	c.Enabled = true
-	a.Store.PutCron(&c)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "cron.apply", ResourceType: "account", ResourceID: aid, Payload: map[string]any{"account_id": aid}, State: "queued"})
+	job, err := a.Store.UpsertCronWithJob(&c, &store.Job{
+		Type: "cron.apply", ResourceType: "account", ResourceID: aid,
+		Payload: map[string]any{"account_id": aid}, State: "queued",
+		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "cron.create", "cron_job", c.ID, nil, map[string]any{"schedule": c.Schedule, "command": c.Command}))
+	if err != nil {
+		a.fail(w, r, 500, "CRON_CREATE_ERROR", "Could not persist cron update", true)
+		return
+	}
 	writeJSON(w, 201, map[string]any{"cron": c, "operation_id": job.ID})
 }
 
@@ -3144,9 +3322,16 @@ func (a *API) deleteCron(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "cron job missing", false)
 		return
 	}
-	a.Store.DeleteCron(c.ID)
-	job, _ := a.Store.EnqueueJob(&store.Job{Type: "cron.apply", ResourceType: "account", ResourceID: aid, Payload: map[string]any{"account_id": aid}, State: "queued"})
-	a.audit(r, "cron.delete", "cron_job", c.ID, true, map[string]any{"schedule": c.Schedule, "command": c.Command}, nil)
+	job, err := a.Store.DeleteCronWithJob(c.ID, aid, &store.Job{
+		Type: "cron.apply", ResourceType: "account", ResourceID: aid,
+		Payload: map[string]any{"account_id": aid}, State: "queued",
+		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "cron.delete", "cron_job", c.ID, map[string]any{"schedule": c.Schedule, "command": c.Command}, nil))
+	if err != nil {
+		a.fail(w, r, 500, "CRON_DELETE_ERROR", "Could not persist cron deletion", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "deleted": c.ID})
 }
 
@@ -3334,12 +3519,16 @@ func (a *API) createFTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.Store.PutFTP(ftp)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.UpsertFTPWithJob(ftp, &store.Job{
 		Type: "ftp.apply", ResourceType: "account", ResourceID: aid,
 		Payload: map[string]any{"account_id": aid}, State: "queued",
-	})
-	a.audit(r, "ftp.create", "ftp_account", ftp.ID, true, nil, map[string]any{"username": ftp.Username})
+		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "ftp.create", "ftp_account", ftp.ID, nil, map[string]any{"username": ftp.Username}))
+	if err != nil {
+		a.fail(w, r, 500, "FTP_CREATE_ERROR", "Could not persist FTP update", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "ftp": ftp})
 }
 
@@ -3360,12 +3549,16 @@ func (a *API) deleteFTP(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 404, "NOT_FOUND", "FTP account missing", false)
 		return
 	}
-	a.Store.DeleteFTP(fid)
-	job, _ := a.Store.EnqueueJob(&store.Job{
+	job, err := a.Store.DeleteFTPWithJob(fid, aid, &store.Job{
 		Type: "ftp.apply", ResourceType: "account", ResourceID: aid,
 		Payload: map[string]any{"account_id": aid}, State: "queued",
-	})
-	a.audit(r, "ftp.delete", "ftp_account", fid, true, nil, nil)
+		ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "ftp.delete", "ftp_account", fid, nil, nil))
+	if err != nil {
+		a.fail(w, r, 500, "FTP_DELETE_ERROR", "Could not persist FTP deletion", true)
+		return
+	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "deleted": fid})
 }
 
@@ -3450,12 +3643,19 @@ func (a *API) notImplemented(name string) http.HandlerFunc {
 }
 
 func (a *API) audit(r *http.Request, action, rtype, rid string, ok bool, before, after map[string]any) {
+	event := a.auditEvent(r, "", action, rtype, rid, before, after)
+	event.Success = ok
+	a.Store.AppendAudit(event)
+}
+
+func (a *API) auditEvent(r *http.Request, accountID, action, resourceType, resourceID string, before, after map[string]any) store.AuditEvent {
 	ac := actor(r)
-	a.Store.AppendAudit(store.AuditEvent{
+	return store.AuditEvent{
 		ActorType: "user", ActorID: ac.UserID, EffectiveActor: firstNonEmpty(ac.ImpersonatorID, ac.UserID),
-		Action: action, ResourceType: rtype, ResourceID: rid, RequestID: logging.RequestID(r.Context()),
-		Success: ok, SourceIP: clientIP(r), UserAgent: r.UserAgent(), Before: before, After: after,
-	})
+		AccountID: accountID, Action: action, ResourceType: resourceType, ResourceID: resourceID,
+		RequestID: logging.RequestID(r.Context()), Success: true, SourceIP: clientIP(r),
+		UserAgent: r.UserAgent(), Before: before, After: after,
+	}
 }
 
 func (a *API) logAuthFailure(ip, username string) {

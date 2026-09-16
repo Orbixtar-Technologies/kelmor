@@ -105,6 +105,36 @@ func TestMemoryCreateAccountWithJobRejectsMissingMember(t *testing.T) {
 	}
 }
 
+func TestMemoryCreateAccountWithJobReplaysIdempotentlyBeforeUniquenessChecks(t *testing.T) {
+	data := NewMemory()
+	data.PutPackage(&Package{ID: "package-1"})
+	owner := &User{ID: "owner-1", Username: "customer", Email: "customer@example.test"}
+	account := &Account{
+		ID: "account-1", OwnerUserID: owner.ID, Username: owner.Username,
+		PrimaryDomain: "example.test", PackageID: "package-1",
+	}
+	domain := &Domain{ID: "domain-1", AccountID: account.ID, ASCII: "example.test"}
+	intent := &Job{
+		ID: "job-1", Type: "account.provision", ResourceType: "account",
+		ResourceID: account.ID, IdempotencyKey: "create-account:request-1",
+	}
+
+	first, err := data.CreateAccountWithJob(owner, account, domain, []string{owner.ID}, intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := data.CreateAccountWithJob(owner, account, domain, []string{owner.ID}, &Job{
+		ID: "different-job-id", Type: "account.provision", ResourceType: "account",
+		ResourceID: account.ID, IdempotencyKey: intent.IdempotencyKey,
+	})
+	if err != nil {
+		t.Fatalf("idempotent replay reached uniqueness validation: %v", err)
+	}
+	if replay == nil || replay.ID != first.ID {
+		t.Fatalf("replay returned %+v, want original job %q", replay, first.ID)
+	}
+}
+
 func TestMemoryUpdateAccountWithJobCommitsBoth(t *testing.T) {
 	data := NewMemory()
 	data.PutPackage(&Package{ID: "package-1"})

@@ -137,3 +137,43 @@ func TestImportRejectsCollision(t *testing.T) {
 		t.Fatal("expected collision")
 	}
 }
+
+func TestImportAsRollsBackMalformedResourceTree(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	owner := st.UserByUsername("admin")
+	exp := HostingAccountExport{
+		FormatVersion: 1,
+		Account: store.Account{
+			ID: "import-account", Username: "atomic-import", PrimaryDomain: "atomic.test",
+			OwnerUserID: owner.ID, PackageID: st.ListPackages()[0].ID,
+		},
+		Domains: []store.Domain{{
+			ID: "import-domain", AccountID: "import-account", FQDN: "atomic.test",
+			ASCII: "atomic.test", Type: "primary",
+		}},
+		Websites: []store.Website{{
+			ID: "import-website", AccountID: "import-account", DomainID: "missing-domain",
+			Runtime: "php", DocumentRoot: "/home/atomic-import/public_html",
+		}},
+	}
+	raw, err := json.Marshal(exp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ImportAs(st, raw, "", "", owner.ID); err == nil {
+		t.Fatal("malformed import unexpectedly committed")
+	}
+	if got := st.GetAccount("import-account"); got != nil {
+		t.Fatalf("failed import left account behind: %+v", got)
+	}
+	if got := st.GetDomain("import-domain"); got != nil {
+		t.Fatalf("failed import left domain behind: %+v", got)
+	}
+	if jobs := st.ListJobs("queued", 100); len(jobs) != 0 {
+		t.Fatalf("failed import left jobs behind: %+v", jobs)
+	}
+}

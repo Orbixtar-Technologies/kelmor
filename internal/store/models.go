@@ -89,14 +89,16 @@ type Account struct {
 }
 
 type Domain struct {
-	ID           string `json:"id"`
-	AccountID    string `json:"account_id"`
-	FQDN         string `json:"fqdn"`
-	ASCII        string `json:"ascii_fqdn"`
-	Type         string `json:"type"`
-	DocumentRoot string `json:"document_root,omitempty"`
-	DNSManaged   bool   `json:"dns_managed"`
-	Status       string `json:"status"`
+	ID               string `json:"id"`
+	AccountID        string `json:"account_id"`
+	FQDN             string `json:"fqdn"`
+	ASCII            string `json:"ascii_fqdn"`
+	Type             string `json:"type"`
+	DocumentRoot     string `json:"document_root,omitempty"`
+	DNSManaged       bool   `json:"dns_managed"`
+	Status           string `json:"status"`
+	DesiredRevision  int64  `json:"desired_revision"`
+	ObservedRevision int64  `json:"observed_revision"`
 }
 
 type Website struct {
@@ -210,6 +212,7 @@ type Job struct {
 	Attempts       int            `json:"attempts"`
 	MaxAttempts    int            `json:"max_attempts"`
 	Progress       int            `json:"progress"`
+	TargetRevision int64          `json:"target_revision"`
 	RunAfter       time.Time      `json:"run_after"`
 	LockedBy       string         `json:"locked_by,omitempty"`
 	HeartbeatAt    *time.Time     `json:"heartbeat_at,omitempty"`
@@ -267,6 +270,23 @@ type BackupRun struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	FinishedAt  *time.Time     `json:"finished_at,omitempty"`
 	Manifest    map[string]any `json:"manifest,omitempty"`
+}
+
+type AccountImport struct {
+	Account       Account
+	Domains       []Domain
+	Websites      []Website
+	Applications  []Application
+	Databases     []HostedDatabase
+	DatabaseUsers []DatabaseUser
+	MailDomains   []MailDomain
+	Mailboxes     []Mailbox
+	Aliases       []MailAlias
+	Zones         []DNSZone
+	Records       []DNSRecord
+	Crons         []CronJob
+	FTP           []FTPAccount
+	SSH           []SSHKey
 }
 
 type CronJob struct {
