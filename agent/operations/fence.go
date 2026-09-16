@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -13,7 +15,13 @@ type fenceRecord struct {
 	Fence       int64           `json:"fence"`
 	OperationID string          `json:"operation_id"`
 	Method      string          `json:"method"`
+	Fingerprint string          `json:"fingerprint,omitempty"`
 	Receipt     json.RawMessage `json:"receipt"`
+}
+
+func requestFingerprint(req Request) string {
+	sum := sha256.Sum256(append(append([]byte(req.Method), 0), req.Params...))
+	return hex.EncodeToString(sum[:])
 }
 
 func fenceKey(env Envelope) string {
@@ -35,7 +43,7 @@ func (h *Host) acceptFence(req Request) (any, bool, error) {
 	if rec.Fence > req.Env.Fence {
 		return nil, false, ErrStaleFence
 	}
-	if rec.Fence == req.Env.Fence && rec.OperationID == req.Env.OperationID && rec.Method == req.Method && len(rec.Receipt) > 0 {
+	if rec.Fence == req.Env.Fence && rec.OperationID == req.Env.OperationID && rec.Method == req.Method && rec.Fingerprint == requestFingerprint(req) && rec.Fingerprint != "" && len(rec.Receipt) > 0 {
 		var replay any
 		_ = json.Unmarshal(rec.Receipt, &replay)
 		return replay, true, nil
@@ -62,6 +70,7 @@ func (h *Host) rememberFence(req Request, result any) error {
 		Fence:       req.Env.Fence,
 		OperationID: req.Env.OperationID,
 		Method:      req.Method,
+		Fingerprint: requestFingerprint(req),
 		Receipt:     raw,
 	})
 	return nil
