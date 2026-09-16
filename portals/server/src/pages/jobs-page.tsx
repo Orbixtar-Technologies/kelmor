@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { Dialog, EmptyState, ErrorState, LoadingState, Metric, PageHeader, Pagination, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
+import { RequestSequence } from '../request-sequence'
 import { useCapabilities } from '../rbac'
 import { filterRows, paginateRows, sortRows } from '../table-helpers'
 import type { Job } from '../types'
@@ -19,14 +20,21 @@ export function JobsPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const requests = useRef(new RequestSequence()).current
 	const load = useCallback(() => {
+		const request = requests.begin('jobs')
 		setLoading(true); setError('')
 		api<{ items: Job[] }>(`/api/v1/jobs${state ? `?state=${encodeURIComponent(state)}` : ''}`).then((result) => {
+			if (!requests.isCurrent(request)) return
 			const next = asList(result); setItems(next)
 			const selectedId = params.get('selected')
 			if (selectedId) setSelected(next.find((job) => job.id === selectedId) || null)
-		}).catch((requestError) => setError(messageFrom(requestError))).finally(() => setLoading(false))
-	}, [params, state])
+		}).catch((requestError) => {
+			if (requests.isCurrent(request)) setError(messageFrom(requestError))
+		}).finally(() => {
+			if (requests.isCurrent(request)) setLoading(false)
+		})
+	}, [params, requests, state])
 	useEffect(load, [load])
 	const accountId = params.get('account')
 	const scoped = useMemo(() => items.filter((job) => jobMatchesAccount(job, accountId || '')), [items, accountId])

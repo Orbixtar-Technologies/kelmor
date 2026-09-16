@@ -217,9 +217,7 @@ func (a *API) ensurePHPRuntime(w http.ResponseWriter, r *http.Request) {
 		Version string `json:"version"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
-	switch in.Version {
-	case "8.3", "8.4", "8.5":
-	default:
+	if !supportedPHPVersion(in.Version) {
 		a.fail(w, r, 400, "VALIDATION", "unsupported PHP version", false)
 		return
 	}
@@ -428,4 +426,13 @@ func normalizeAliasDestinations(raw string) (string, error) {
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+func supportedPHPVersion(version string) bool {
+	switch version {
+	case "8.3", "8.4", "8.5":
+		return true
+	default:
+		return false
+	}
 }

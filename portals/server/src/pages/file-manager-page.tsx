@@ -27,6 +27,7 @@ export function FileManagerPage () {
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
 	const [editorOpen, setEditorOpen] = useState(false)
+	const [editorAccountId, setEditorAccountId] = useState('')
 	const [editorPath, setEditorPath] = useState('')
 	const [editorContent, setEditorContent] = useState('')
 	const [query, setQuery] = useState('')
@@ -96,22 +97,23 @@ export function FileManagerPage () {
 		loadDirectory(accountId, path)
 	}
 
-	function openEditor (path: string, content = '') {
+	function openEditor (path: string, content = '', ownerAccountId = accountId) {
+		setEditorAccountId(ownerAccountId)
 		setEditorPath(path)
 		setEditorContent(content)
 		setEditorOpen(true)
 	}
 
 	async function saveFile () {
-		if (!accountId || !editorPath) return
+		if (!editorAccountId || !editorPath) return
 		try {
-			await api(`/api/v1/accounts/${accountId}/files`, {
+			await api(`/api/v1/accounts/${editorAccountId}/files`, {
 				method: 'POST',
 				body: JSON.stringify({ path: editorPath, content: editorContent }),
 			})
 			setMessage(`Saved ${editorPath}`)
 			setEditorOpen(false)
-			loadDirectory(accountId, currentPath)
+			if (currentAccountId.current === editorAccountId) loadDirectory(editorAccountId, currentPath)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
 		}
@@ -123,16 +125,17 @@ export function FileManagerPage () {
 
 	async function readFile (entry: FileEntry) {
 		if (!accountId) return
+		const requestedAccountId = accountId
 		const path = entryPath(entry)
 		if (entry.dir) {
 			navigateTo(path)
 			return
 		}
 		try {
-			const result = await api<{ content: string }>(`/api/v1/accounts/${accountId}/files/content?path=${encodeURIComponent(path)}`)
-			openEditor(path.startsWith('/') ? path : `/${path}`, result.content)
+			const result = await api<{ content: string }>(`/api/v1/accounts/${requestedAccountId}/files/content?path=${encodeURIComponent(path)}`)
+			openEditor(path.startsWith('/') ? path : `/${path}`, result.content, requestedAccountId)
 		} catch {
-			openEditor(path.startsWith('/') ? path : `/${path}`)
+			openEditor(path.startsWith('/') ? path : `/${path}`, '', requestedAccountId)
 		}
 	}
 

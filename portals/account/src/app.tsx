@@ -1,7 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { api, APIClientError, asList, clearToken, consumeImpersonationSession, getToken, setToken } from './client'
+import { BackupsPage } from './pages/backups-page'
+import { DNSPage } from './pages/dns-page'
+import { FilesPage } from './pages/files-page'
+import { PasswordChangeForm } from './pages/password-change-form'
+import { WebsitesPage } from './pages/websites-page'
+import { createPendingGuard } from './pending-submit'
+import { RequestSequence } from './request-sequence'
 import { Can, CapProvider } from './rbac'
+import { RequireCap } from './require-cap'
 
 interface Me {
 	user: { username: string; roles: string[] }
@@ -13,21 +21,28 @@ export function App () {
 	const [error, setError] = useState('')
 	const [username, setUsername] = useState('livehost')
 	const [password, setPassword] = useState('TenantPass!2026')
-	const [newPassword, setNewPassword] = useState('')
-	const [confirmPassword, setConfirmPassword] = useState('')
 	const [passwordChangeRequired, setPasswordChangeRequired] = useState(false)
 	const [checking, setChecking] = useState(() => {
 		consumeImpersonationSession()
 		return Boolean(getToken())
 	})
+	const session = useRef(new RequestSequence()).current
+	const loginGuard = useRef(createPendingGuard()).current
 
 	useEffect(() => {
 		if (!getToken()) {
 			setChecking(false)
 			return
 		}
-		api<Me>('/api/v1/me').then(setMe).catch(() => clearToken()).finally(() => setChecking(false))
-	}, [])
+		const request = session.begin('me')
+		api<Me>('/api/v1/me').then((next) => {
+			if (session.isCurrent(request)) setMe(next)
+		}).catch(() => {
+			if (session.isCurrent(request)) clearToken()
+		}).finally(() => {
+			if (session.isCurrent(request)) setChecking(false)
+		})
+	}, [session])
 
 	if (checking) {
 		return <main className="auth"><section><p className="eyebrow">Kelmor</p><h1>Kelmor Control</h1><p>Restoring your hosting session…</p></section></main>
@@ -42,51 +57,23 @@ export function App () {
 					{passwordChangeRequired ? (
 						<>
 							<p>Your administrator requires you to choose a new password before continuing.</p>
-							<form onSubmit={async (event) => {
-								event.preventDefault()
-								setError('')
-								if (newPassword !== confirmPassword) {
-									setError('New passwords do not match')
-									return
-								}
-								try {
-									const replacementPassword = newPassword
-									await api('/api/v1/auth/complete-password-change', {
-										method: 'POST',
-										body: JSON.stringify({
-											username,
-											current_password: password,
-											new_password: replacementPassword,
-										}),
-									})
+							<PasswordChangeForm
+								username={username}
+								currentPassword={password}
+								onSignedIn={(next) => {
 									setPassword('')
-									setNewPassword('')
-									setConfirmPassword('')
 									setPasswordChangeRequired(false)
-									const login = await api<{ token: string }>('/api/v1/auth/login', {
-										method: 'POST',
-										body: JSON.stringify({ username, password: replacementPassword }),
-									})
-									setToken(login.token)
-									setMe(await api<Me>('/api/v1/me'))
-								} catch (requestError) {
-									clearToken()
-									setError(requestError instanceof Error ? requestError.message : 'Password change failed')
-								}
-							}}>
-								<label>Username<input value={username} readOnly autoComplete="username" /></label>
-								<label>Current password<input value={password} type="password" readOnly autoComplete="current-password" /></label>
-								<label>New password<input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={12} required autoComplete="new-password" autoFocus /></label>
-								<label>Confirm new password<input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" minLength={12} required autoComplete="new-password" /></label>
-								{error ? <p className="error" role="alert">{error}</p> : null}
-								<button type="submit">Change password and sign in</button>
-							</form>
+									setMe(next)
+								}}
+							/>
+							{error ? <p className="error" role="alert">{error}</p> : null}
 						</>
 					) : (
 						<>
 							<p>Tenant self-serve for the Kelmor product family. Host hardware controls live in Kelmor Director.</p>
 							<form onSubmit={async (event) => {
 								event.preventDefault()
+								if (!loginGuard.tryStart()) return
 								setError('')
 								try {
 									const login = await api<{ token: string }>('/api/v1/auth/login', {
@@ -102,6 +89,8 @@ export function App () {
 										return
 									}
 									setError(requestError instanceof Error ? requestError.message : 'Login failed')
+								} finally {
+									loginGuard.finish()
 								}
 							}}>
 								<label>Username<input name="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" /></label>
@@ -144,15 +133,15 @@ export function App () {
 					{!accountId ? <p>No hosting account is attached to this login yet. Ask the administrator to provision one, then sign in as that username.</p> : (
 						<Routes>
 							<Route path="/" element={<Dash accountId={accountId} />} />
-							<Route path="/websites" element={<Websites accountId={accountId} />} />
-							<Route path="/domains" element={<Domains accountId={accountId} />} />
-							<Route path="/dns" element={<DNS accountId={accountId} />} />
-							<Route path="/email" element={<Email accountId={accountId} />} />
-							<Route path="/databases" element={<Databases accountId={accountId} />} />
-							<Route path="/files" element={<Files accountId={accountId} />} />
-							<Route path="/ssl" element={<Certificates accountId={accountId} />} />
-							<Route path="/backups" element={<Backups accountId={accountId} />} />
-							<Route path="/cron" element={<Cron accountId={accountId} />} />
+							<Route path="/websites" element={<RequireCap cap="websites.read"><WebsitesPage accountId={accountId} /></RequireCap>} />
+							<Route path="/domains" element={<RequireCap cap="domains.read"><Domains accountId={accountId} /></RequireCap>} />
+							<Route path="/dns" element={<RequireCap cap="dns.read"><DNSPage accountId={accountId} /></RequireCap>} />
+							<Route path="/email" element={<RequireCap cap="mail.read"><Email accountId={accountId} /></RequireCap>} />
+							<Route path="/databases" element={<RequireCap cap="databases.read"><Databases accountId={accountId} /></RequireCap>} />
+							<Route path="/files" element={<RequireCap cap="files.read"><FilesPage accountId={accountId} /></RequireCap>} />
+							<Route path="/ssl" element={<RequireCap cap="websites.read"><Certificates accountId={accountId} /></RequireCap>} />
+							<Route path="/backups" element={<RequireCap cap="backups.read"><BackupsPage accountId={accountId} /></RequireCap>} />
+							<Route path="/cron" element={<RequireCap cap="cron.read"><Cron accountId={accountId} /></RequireCap>} />
 						</Routes>
 					)}
 				</main>
@@ -184,100 +173,6 @@ function Dash ({ accountId }: { accountId: string }) {
 			{usage ? (
 				<p>Disk {usage.disk_bytes || 0} bytes. Monthly transfer {usage.bandwidth_bytes || 0} bytes (nginx body bytes this calendar month). Sites return HTTP 509 when the package bandwidth cap is reached.</p>
 			) : null}
-		</>
-	)
-}
-
-function Websites ({ accountId }: { accountId: string }) {
-	const [items, setItems] = useState<any[]>([])
-	const [domains, setDomains] = useState<any[]>([])
-	const [msg, setMsg] = useState('')
-	const load = () => Promise.all([
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/websites`).then((r) => setItems(asList(r))),
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/domains`).then((r) => setDomains(r.items || [])),
-	])
-	useEffect(() => { load() }, [accountId])
-	return (
-		<>
-			<h1>Websites</h1>
-			<p>PHP-FPM, static files, or a Node/Python unit applied through the privileged agent.</p>
-			<Can cap="websites.write">
-			<form onSubmit={async (e) => {
-				e.preventDefault()
-				const fd = new FormData(e.currentTarget)
-				try {
-					await api(`/api/v1/accounts/${accountId}/websites`, { method: 'POST', body: JSON.stringify({
-						domain_id: fd.get('domain_id'), runtime: fd.get('runtime'),
-					}) })
-					setMsg('Website apply queued')
-					await load()
-				} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
-			}}>
-				<select name="domain_id">{domains.map((d) => <option key={d.id} value={d.id}>{d.ascii_fqdn}</option>)}</select>
-				<select name="runtime">
-					<option value="php">PHP 8.3</option>
-					<option value="static">Static</option>
-					<option value="node">Node</option>
-					<option value="python">Python</option>
-				</select>
-				<button type="submit">Apply website</button>
-			</form>
-			</Can>
-			<Can cap="applications.write">
-			<form onSubmit={async (e) => {
-				e.preventDefault()
-				const fd = new FormData(e.currentTarget)
-				try {
-					await api(`/api/v1/accounts/${accountId}/wordpress`, { method: 'POST', body: JSON.stringify({
-						website_id: fd.get('website_id'),
-						title: fd.get('title'),
-						admin_user: fd.get('admin_user'),
-						admin_password: fd.get('admin_password'),
-						admin_email: fd.get('admin_email'),
-					}) })
-					setMsg('WordPress install queued')
-					await load()
-				} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
-			}}>
-				<select name="website_id">{items.map((it) => <option key={it.id} value={it.id}>{it.document_root}</option>)}</select>
-				<input name="title" placeholder="Site title" defaultValue="My site" required />
-				<input name="admin_user" placeholder="wp admin" defaultValue="wpadmin" required />
-				<input name="admin_password" type="password" minLength={8} required />
-				<input name="admin_email" type="email" placeholder="owner@example.test" required />
-				<button type="submit">Install WordPress</button>
-			</form>
-			</Can>
-			{msg ? <p>{msg}</p> : null}
-			{items.length === 0 ? <p>No websites yet. Provisioning creates one after the account job finishes.</p> : (
-				<table>
-					<thead><tr><th>Hostname</th><th>Runtime</th><th>Document root</th><th>State</th><th></th></tr></thead>
-					<tbody>{items.map((it) => {
-						const domain = domains.find((d) => d.id === it.domain_id)
-						const isPrimary = domain?.type === 'primary'
-						return (
-							<tr key={it.id}>
-								<td>{domain?.ascii_fqdn || it.domain_id}</td>
-								<td>{it.runtime} {it.runtime_version}</td>
-								<td>{it.document_root}</td>
-								<td>{it.enabled === false ? 'disabled' : 'ready'}</td>
-								<td>
-									<Can cap="websites.write">
-										{isPrimary ? 'primary' : (
-											<button type="button" onClick={async () => {
-												try {
-													await api(`/api/v1/accounts/${accountId}/websites/${it.id}`, { method: 'DELETE' })
-													setMsg('Website retire queued')
-													await load()
-												} catch (err) { setMsg(err instanceof Error ? err.message : 'failed') }
-											}}>Remove</button>
-										)}
-									</Can>
-								</td>
-							</tr>
-						)
-					})}</tbody>
-				</table>
-			)}
 		</>
 	)
 }
@@ -371,124 +266,6 @@ function Domains ({ accountId }: { accountId: string }) {
 	)
 }
 
-function DNS ({ accountId }: { accountId: string }) {
-	const [zones, setZones] = useState<any[]>([])
-	const [zoneId, setZoneId] = useState('')
-	const [records, setRecords] = useState<any[]>([])
-	const [ds, setDS] = useState<any[]>([])
-	const [msg, setMsg] = useState('')
-	const zone = zones.find((z) => z.id === zoneId) || zones[0]
-	async function load (keepId?: string) {
-		const r = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones`)
-		setZones(r.items)
-		const id = keepId || zoneId || (r.items[0] && r.items[0].id) || ''
-		if (!zoneId && id) setZoneId(id)
-		const selected = r.items.find((z) => z.id === id) || r.items[0]
-		if (selected) {
-			if (!keepId && !zoneId) setZoneId(selected.id)
-			const rec = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${selected.id}/records`)
-			setRecords(rec.items)
-			const keys = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/dns/zones/${selected.id}/ds`).catch(() => ({ items: [] }))
-			setDS(keys.items || [])
-		} else {
-			setRecords([])
-			setDS([])
-		}
-	}
-	useEffect(() => { load().catch((e) => setMsg(e instanceof Error ? e.message : 'failed')) }, [accountId])
-	useEffect(() => {
-		if (!zoneId) return
-		load(zoneId).catch((e) => setMsg(e instanceof Error ? e.message : 'failed'))
-	}, [zoneId])
-	return (
-		<>
-			<h1>DNS</h1>
-			{zones.length === 0 ? <p>No zones yet. They appear after account provisioning completes.</p> : (
-				<>
-					<label>Zone
-						<select value={zone?.id || ''} onChange={(e) => setZoneId(e.target.value)}>
-							{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
-						</select>
-					</label>
-					<p>{zone?.name} — DNSSEC {zone?.dnssec_enabled ? 'on' : 'off'}.</p>
-					<Can cap="dns.write">
-					<button type="button" onClick={async () => {
-						if (!zone) return
-						try {
-							await api(`/api/v1/accounts/${accountId}/dns/zones/${zone.id}/dnssec`, {
-								method: 'POST',
-								body: JSON.stringify({ enabled: !zone.dnssec_enabled }),
-							})
-							setMsg(zone.dnssec_enabled ? 'DNSSEC disable queued' : 'DNSSEC enable queued')
-							await load(zone.id)
-						} catch (err) {
-							setMsg(err instanceof Error ? err.message : 'failed')
-						}
-					}}>{zone?.dnssec_enabled ? 'Disable DNSSEC' : 'Enable DNSSEC'}</button>
-					</Can>
-					{ds.length > 0 ? (
-						<table>
-							<thead><tr><th>DS for the parent / registrar</th></tr></thead>
-							<tbody>{ds.map((row, i) => <tr key={i}><td>{row.content}</td></tr>)}</tbody>
-						</table>
-					) : null}
-					<Can cap="dns.write">
-					<form onSubmit={async (e) => {
-						e.preventDefault()
-						const fd = new FormData(e.currentTarget)
-						try {
-							await api(`/api/v1/accounts/${accountId}/dns/zones/${zone.id}/records`, {
-								method: 'POST',
-								body: JSON.stringify({
-									name: fd.get('name'),
-									type: fd.get('type'),
-									content: fd.get('content'),
-									ttl: Number(fd.get('ttl') || 300),
-								}),
-							})
-							setMsg('Record queued for sync')
-							await load()
-						} catch (err) {
-							setMsg(err instanceof Error ? err.message : 'failed')
-						}
-					}}>
-						<input name="name" placeholder="www" required />
-						<select name="type">
-							<option value="A">A</option>
-							<option value="AAAA">AAAA</option>
-							<option value="CNAME">CNAME</option>
-							<option value="MX">MX</option>
-							<option value="TXT">TXT</option>
-							<option value="NS">NS</option>
-						</select>
-						<input name="content" placeholder="203.0.113.10" required />
-						<input name="ttl" type="number" defaultValue={300} min={60} />
-						<button type="submit">Add record</button>
-					</form>
-					</Can>
-					{msg ? <p>{msg}</p> : null}
-					<table>
-						<thead><tr><th>Name</th><th>Type</th><th>Content</th><th></th></tr></thead>
-						<tbody>{records.map((r) => (
-							<tr key={r.id}>
-								<td>{r.name}</td><td>{r.type}</td><td>{r.content}</td>
-								<td>
-									<Can cap="dns.write">
-										<button type="button" onClick={async () => {
-											await api(`/api/v1/accounts/${accountId}/dns/zones/${zone.id}/records/${r.id}`, { method: 'DELETE' })
-											setMsg('Record deleted')
-											await load()
-										}}>Delete</button>
-									</Can>
-								</td>
-							</tr>
-						))}</tbody>
-					</table>
-				</>
-			)}
-		</>
-	)
-}
 
 function Email ({ accountId }: { accountId: string }) {
 	const [boxes, setBoxes] = useState<any[]>([])
@@ -627,178 +404,7 @@ function Databases ({ accountId }: { accountId: string }) {
 	)
 }
 
-function Files ({ accountId }: { accountId: string }) {
-	const [items, setItems] = useState<any[]>([])
-	const [ftpUsers, setFtpUsers] = useState<any[]>([])
-	const [sshKeys, setSSHKeys] = useState<any[]>([])
-	const [path, setPath] = useState('/')
-	const loadFTP = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/ftp`).then((r) => setFtpUsers(asList(r)))
-	const loadSSH = () => api<{ items: any[] }>(`/api/v1/accounts/${accountId}/ssh-keys`).then((r) => setSSHKeys(asList(r)))
-	useEffect(() => {
-		api<{ items: any[] }>(`/api/v1/accounts/${accountId}/files?path=${encodeURIComponent(path)}`).then((r) => setItems(asList(r)))
-	}, [accountId, path])
-	useEffect(() => { loadFTP(); loadSSH() }, [accountId])
-	return (
-		<>
-			<h1>Files</h1>
-			<p>Path {path}</p>
-			<Can cap="files.write">
-			<form onSubmit={async (e) => {
-				e.preventDefault()
-				const fd = new FormData(e.currentTarget)
-				await api(`/api/v1/accounts/${accountId}/sftp-password`, {
-					method: 'POST',
-					body: JSON.stringify({ password: fd.get('password') }),
-				})
-			}}>
-				<label>SFTP password (chrooted to your home)
-					<input name="password" type="password" minLength={8} required />
-				</label>
-				<button type="submit">Set SFTP password</button>
-			</form>
-			<h2>SSH public keys</h2>
-			<p>Keys are written to <code>~/.ssh/authorized_keys</code> through the privileged agent. Password SSH is not used for the hosting account.</p>
-			<form onSubmit={async (e) => {
-				e.preventDefault()
-				const fd = new FormData(e.currentTarget)
-				await api(`/api/v1/accounts/${accountId}/ssh-keys`, {
-					method: 'POST',
-					body: JSON.stringify({ public_key: fd.get('public_key'), label: fd.get('label') }),
-				})
-				e.currentTarget.reset()
-				await loadSSH()
-			}}>
-				<input name="public_key" placeholder="ssh-ed25519 AAAA…" required />
-				<input name="label" placeholder="laptop" />
-				<button type="submit">Add SSH key</button>
-			</form>
-			<ul>{sshKeys.map((k) => (
-				<li key={k.id}>
-					{k.label || k.fingerprint}
-					<Can cap="files.write">
-						<button type="button" onClick={async () => {
-							await api(`/api/v1/accounts/${accountId}/ssh-keys/${k.id}`, { method: 'DELETE' })
-							await loadSSH()
-						}}>Remove</button>
-					</Can>
-				</li>
-			))}</ul>
-			<h2>FTP users</h2>
-			<p>Virtual FTP logins map to this account and chroot to public_html (port 21).</p>
-			<form onSubmit={async (e) => {
-				e.preventDefault()
-				const fd = new FormData(e.currentTarget)
-				await api(`/api/v1/accounts/${accountId}/ftp`, {
-					method: 'POST',
-					body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') }),
-				})
-				e.currentTarget.reset()
-				await loadFTP()
-			}}>
-				<input name="username" placeholder="siteftp" required />
-				<input name="password" type="password" minLength={8} required />
-				<button type="submit">Create FTP user</button>
-			</form>
-			<ul>
-				{ftpUsers.map((f) => (
-					<li key={f.id}>
-						{f.username} — {f.home_path}
-						<button type="button" className="link" onClick={async () => {
-							await api(`/api/v1/accounts/${accountId}/ftp/${f.id}`, { method: 'DELETE' })
-							await loadFTP()
-						}}>Remove</button>
-					</li>
-				))}
-			</ul>
-			<form onSubmit={async (e) => {
-				e.preventDefault()
-				const fd = new FormData(e.currentTarget)
-				await api(`/api/v1/accounts/${accountId}/files`, {
-					method: 'POST',
-					body: JSON.stringify({ path: fd.get('path'), content: fd.get('content') }),
-				})
-				setPath(String(fd.get('path') || path))
-			}}>
-				<input name="path" defaultValue={path === '/' ? '/public_html/note.txt' : path} />
-				<textarea name="content" rows={6} placeholder="file contents" required />
-				<button type="submit">Write file</button>
-			</form>
-			</Can>
-			<ul>
-				{items.map((f) => (
-					<li key={f.name}>
-						{f.dir ? <button type="button" className="link" onClick={() => setPath((p) => (p.endsWith('/') ? p : p + '/') + f.name)}>{f.name}/</button> : <span>{f.name} ({f.size})</span>}
-					</li>
-				))}
-			</ul>
-		</>
-	)
-}
 
-function Backups ({ accountId }: { accountId: string }) {
-	const [items, setItems] = useState<any[]>([])
-	const [notice, setNotice] = useState('')
-	useEffect(() => {
-		let stop = false
-		async function tick () {
-			try {
-				const r = await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)
-				if (!stop) setItems(asList(r))
-			} catch {
-				// keep last list until the next poll
-			}
-		}
-		tick()
-		const timer = window.setInterval(tick, 1000)
-		return () => {
-			stop = true
-			window.clearInterval(timer)
-		}
-	}, [accountId])
-	return (
-		<>
-			<h1>Backups</h1>
-			<p>Encrypted HPM1 copies of home, databases, and mail. Local disk, offsite SFTP, and the loopback S3 store are live destinations on this host.</p>
-			{notice ? <p className="notice">{notice}</p> : null}
-			<Can cap="backups.create">
-			<form onSubmit={async (e) => {
-				e.preventDefault()
-				const fd = new FormData(e.currentTarget)
-				const destination = String(fd.get('destination') || 'local')
-				await api(`/api/v1/accounts/${accountId}/backups`, {
-					method: 'POST',
-					body: JSON.stringify({ kind: 'full', destination }),
-				})
-				setNotice(`Full backup queued to ${destination}`)
-				setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
-			}}>
-				<select name="destination">
-					<option value="local">Local disk</option>
-					<option value="sftp">Offsite SFTP</option>
-					<option value="s3">S3-compatible</option>
-				</select>
-				<button type="submit">Create full backup</button>
-			</form>
-			</Can>
-			{items.length === 0 ? <p>No backup runs yet.</p> : (
-			<ul>{items.map((b) => (
-				<li key={b.id} data-backup-id={b.id} data-backup-state={b.state} data-backup-destination={b.destination}>
-					{b.kind} {b.state} {b.destination} {b.checksum ? `sha256:${b.checksum.slice(0, 12)}` : ''}
-					{b.state === 'succeeded' ? (
-						<Can cap="backups.restore">
-						<button type="button" data-restore={b.id} onClick={async () => {
-							await api(`/api/v1/accounts/${accountId}/restores`, { method: 'POST', body: JSON.stringify({ backup_id: b.id, mode: 'in_place' }) })
-							setNotice(`Restore queued for ${b.destination} backup`)
-							setItems(asList(await api<{ items: any[] }>(`/api/v1/accounts/${accountId}/backups`)))
-						}}>Restore</button>
-						</Can>
-					) : null}
-				</li>
-			))}</ul>
-			)}
-		</>
-	)
-}
 
 function Cron ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<any[]>([])

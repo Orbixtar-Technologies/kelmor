@@ -29,6 +29,7 @@ export function AccountSummaryPage () {
 	const [confirmation, setConfirmation] = useState('')
 	const [pendingLifecycle, setPendingLifecycle] = useState<LifecycleAction | null>(null)
 	const requestSequence = useRef(0)
+	const passwordPending = useRef(false)
 	const assignmentRef = useRef<HTMLElement>(null)
 	const navigate = useNavigate()
 	const canModify = useCan('accounts.modify')
@@ -177,6 +178,8 @@ export function AccountSummaryPage () {
 			<Dialog open={passwordOpen} title="Rotate account password" onClose={() => setPasswordOpen(false)}>
 				<form onSubmit={async (event) => {
 					event.preventDefault()
+					if (passwordPending.current) return
+					passwordPending.current = true
 					const data = new FormData(event.currentTarget)
 					try {
 						await api(`/api/v1/accounts/${id}/password`, { method: 'POST', body: JSON.stringify({ password: data.get('password'), must_change_password: data.get('must_change_password') === 'on' }) })
@@ -184,6 +187,7 @@ export function AccountSummaryPage () {
 						setPasswordOpen(false)
 						navigate(`/accounts/${id}`, { replace: true })
 					} catch (requestError) { setMessage(messageFrom(requestError)) }
+					finally { passwordPending.current = false }
 				}}>
 					<label>New password<input name="password" type="password" minLength={12} required autoFocus /></label>
 					<label className="checkbox-label"><input name="must_change_password" type="checkbox" /> Require the owner to change it at next login</label>

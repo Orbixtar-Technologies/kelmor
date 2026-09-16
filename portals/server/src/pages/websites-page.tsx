@@ -5,11 +5,10 @@ import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
+import { isSupportedPHPVersion, SUPPORTED_PHP_VERSIONS } from '../php-runtimes'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
-
-const phpVersions = ['8.1', '8.2', '8.3', '8.4']
 
 interface WebsiteRow extends ResourceItem {
 	account_username?: string
@@ -120,6 +119,10 @@ export function WebsitesPage () {
 	}
 
 	async function changeRuntime (ownerAccountId: string, website: WebsiteRow, runtime: string, runtimeVersion: string) {
+		if (runtime === 'php' && !isSupportedPHPVersion(runtimeVersion)) {
+			setMessage(`Unsupported PHP version ${runtimeVersion}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
+			return
+		}
 		try {
 			await api(`/api/v1/accounts/${ownerAccountId}/websites`, {
 				method: 'POST',
@@ -162,7 +165,7 @@ export function WebsitesPage () {
 				<form className="inline-form" onSubmit={createWebsite}>
 					<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label>
 					<label>Runtime<select name="runtime"><option value="php">PHP</option><option value="static">Static</option><option value="node">Node</option><option value="python">Python</option></select></label>
-					<label>PHP version<select name="runtime_version">{phpVersions.map((version) => <option key={version} value={version}>{version}</option>)}</select></label>
+					<label>PHP version<select name="runtime_version">{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}</select></label>
 					<button type="submit" disabled={!domains.length}>Save website</button>
 				</form>
 			</section> : null}
@@ -185,7 +188,7 @@ export function WebsitesPage () {
 												defaultValue={String(website.runtime_version || '8.3')}
 												onChange={(event) => changeRuntime(ownerId, website, String(website.runtime || 'php'), event.target.value)}
 											>
-												{phpVersions.map((version) => <option key={version} value={version}>{version}</option>)}
+												{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
 											</select>
 										</label>
 									) : valueOf(website, 'runtime_version')}
