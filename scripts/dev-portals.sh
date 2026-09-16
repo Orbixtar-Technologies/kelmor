@@ -12,7 +12,7 @@ trap cleanup EXIT INT TERM
 echo "Kelmor Director (Vite): http://127.0.0.1:18443/"
 echo "Kelmor Control (Vite):  http://127.0.0.1:18444/"
 echo "API proxy target:       http://127.0.0.1:18080/"
-echo "Installed nginx :8443/:8444 stays stale until: make refresh-portals"
+echo "Installed nginx :2087/:2083 stays stale until: make refresh-portals"
 
 (cd "$ROOT/portals/server" && npm install && npm run dev) &
 (cd "$ROOT/portals/account" && npm install && npm run dev) &

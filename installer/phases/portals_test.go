@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hosting-panel/panel/internal/configuration"
 )
 
 func TestPortalIsBuilt(t *testing.T) {
@@ -58,7 +60,7 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(conf), "ssl_certificate") ||
-		!strings.Contains(string(conf), "listen 8443 ssl") ||
+		!strings.Contains(string(conf), "listen 2087 ssl") ||
 		!strings.Contains(string(conf), "location /updates/") ||
 		!strings.Contains(string(conf), "proxy_set_header X-Forwarded-Host $http_host;") {
 		t.Fatalf("portal nginx missing TLS or update feed: %s", conf)
@@ -74,7 +76,7 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 	if err := os.WriteFile(hostKey, []byte("KEY"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writePortalNginx(cfg, "90-server-portal.conf", 8443, "usr/local/panel/share/portals/server"); err != nil {
+	if err := writePortalNginx(cfg, "90-server-portal.conf", configuration.DirectorHTTPSPort, "usr/local/panel/share/portals/server"); err != nil {
 		t.Fatal(err)
 	}
 	conf, err = os.ReadFile(filepath.Join(dir, "etc/nginx/panel-sites/90-server-portal.conf"))
@@ -89,7 +91,7 @@ func TestLivePortalsRequireBuiltAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(httpConf), "server_name panel.example.net") ||
-		!strings.Contains(string(httpConf), "return 301 https://panel.example.net:8443") ||
+		!strings.Contains(string(httpConf), "return 301 https://panel.example.net:2087") ||
 		!strings.Contains(string(httpConf), "acme-challenge") {
 		t.Fatalf("portal HTTP redirect: %s", httpConf)
 	}
@@ -117,11 +119,11 @@ func TestVerifyPortalsRequiresTLS(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "usr/local/panel/share/portals/account/index.html"), []byte(accountHTML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plain := "server {\n    listen 8443;\n    root /usr/local/panel/share/portals/server;\n}\n"
+	plain := "server {\n    listen 2087;\n    root /usr/local/panel/share/portals/server;\n}\n"
 	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/90-server-portal.conf"), []byte(plain), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/91-account-portal.conf"), []byte(strings.ReplaceAll(plain, "8443", "8444")), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/91-account-portal.conf"), []byte(strings.ReplaceAll(plain, "2087", "2083")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := verifyPortals(cfg); err == nil {
@@ -152,11 +154,11 @@ func TestVerifyPortalsRejectsLegacyBrand(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "usr/local/panel/share/portals/account/index.html"), []byte(control), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tls := "server {\n    listen 8443 ssl;\n    ssl_certificate /tmp/x.crt;\n    ssl_certificate_key /tmp/x.key;\n    root /usr/local/panel/share/portals/server;\n}\n"
+	tls := "server {\n    listen 2087 ssl;\n    ssl_certificate /tmp/x.crt;\n    ssl_certificate_key /tmp/x.key;\n    root /usr/local/panel/share/portals/server;\n}\n"
 	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/90-server-portal.conf"), []byte(tls), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/91-account-portal.conf"), []byte(strings.ReplaceAll(tls, "8443", "8444")), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "etc/nginx/panel-sites/91-account-portal.conf"), []byte(strings.ReplaceAll(tls, "2087", "2083")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "var/lib/panel/certs/panel-portals.crt"), []byte("CERT"), 0o644); err != nil {

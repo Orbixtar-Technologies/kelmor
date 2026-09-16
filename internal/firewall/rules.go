@@ -10,7 +10,7 @@ import (
 )
 
 // HostingTCP is the inbound TCP set for a dedicated hosting node.
-var HostingTCP = []int{21, 22, 25, 53, 80, 443, 587, 993, 8443, 8444}
+var HostingTCP = []int{21, 22, 25, 53, 80, 443, 587, 993, 2083, 2087}
 
 // HostingPASV is the vsftpd passive-mode range (inclusive).
 var HostingPASV = [2]int{40000, 40100}

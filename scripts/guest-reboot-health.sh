@@ -61,13 +61,13 @@ token=$(echo "$login" | python3 -c 'import json,sys; print(json.load(sys.stdin).
 [[ -n "$token" ]] || { echo "login failed after reboot: $login" >&2; exit 1; }
 echo "login-ok"
 
-curl -sk --max-time 8 -o /tmp/director.html -w '%{http_code}' https://127.0.0.1:8443/ \
-  | grep -qE '200|301|302' || { echo "Director :8443 down after reboot" >&2; exit 1; }
+curl -sk --max-time 8 -o /tmp/director.html -w '%{http_code}' https://127.0.0.1:2087/ \
+  | grep -qE '200|301|302' || { echo "Director :2087 down after reboot" >&2; exit 1; }
 grep -qi 'Kelmor' /tmp/director.html || { echo "Director HTML missing Kelmor after reboot" >&2; exit 1; }
 echo "director-ok"
 
-curl -sk --max-time 8 -o /tmp/control.html -w '%{http_code}' https://127.0.0.1:8444/ \
-  | grep -qE '200|301|302' || { echo "Control :8444 down after reboot" >&2; exit 1; }
+curl -sk --max-time 8 -o /tmp/control.html -w '%{http_code}' https://127.0.0.1:2083/ \
+  | grep -qE '200|301|302' || { echo "Control :2083 down after reboot" >&2; exit 1; }
 grep -qi 'Kelmor Control' /tmp/control.html || { echo "Control HTML missing brand after reboot" >&2; exit 1; }
 echo "control-html-ok"
 

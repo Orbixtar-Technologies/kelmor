@@ -50,7 +50,7 @@ Ubuntu 24.04 native. No Docker/K8s required for the control plane.
 | Step | Status | Evidence |
 | --- | --- | --- |
 | Fresh Ubuntu 24.04 install | **VERIFIED** (nested QEMU) | Official Noble cloud image, systemd PID 1, `panel-install --acme pebble`. Not a bare-metal ISO. First boot left a competing `pdns_server` daemon; this slice prefers `systemctl restart pdns`. |
-| Director admin login | **VERIFIED** | API login + Kelmor Director HTML on guest `:8443` (`director-ok`). Default admin is a **dev seed**. |
+| Director admin login | **VERIFIED** | API login + Kelmor Director HTML on guest `:2087` (`director-ok`). Default admin is a **dev seed**. |
 | Create hosting account | **VERIFIED** | `POST /accounts` → `account.provision`; guest account `freshhost` became `active`. |
 | Linux tenant | **VERIFIED** (live) / **MOCK** (sandbox) | Guest `freshhost` UID 20000, home `0751 root:root`, shell `nologin`. |
 | Nginx site | **VERIFIED** | Guest `Host: freshhost.test` HTTP 200. |
@@ -102,7 +102,7 @@ Focused path (no WordPress / Node / Python / cPanel import):
 # host tools: qemu-system-x86, OVMF, cloud-localds
 make qemu-host-ready
 make build
-# optional: make portals   # required for Director HTML on :8443
+# optional: make portals   # required for Director HTML on :2087
 sudo ./scripts/qemu-kelmor-path.sh
 ```
 
@@ -114,7 +114,7 @@ cloud image + `panel-install --acme pebble`) then:
    password SFTP).
 2. `scripts/qemu-kelmor-reboot.sh` → guest `shutdown -r now` →
    `guest-reboot-health.sh` (no `systemctl start` repair).
-3. `scripts/control-ui-mvp.sh` → Chrome against Control `:8444` (host
+3. `scripts/control-ui-mvp.sh` → Chrome against Control `:2083` (host
    forward `39444`) as the provisioned tenant.
 
 `scripts/qemu-mvp.sh` still runs the broader `live-e2e.sh` (import/WP).
@@ -149,7 +149,7 @@ Public hostnames still require **all** of:
 - Nested KVM on some hosts hits `kvm_spurious_fault`; this proof used TCG
   (`PANEL_QEMU_ACCEL=tcg`). Prefer KVM only when dmesg is clean.
 - Offsite backup destinations configured and restored.
-- Production admin password / TLS for Director:8443 and Control:8444.
+- Production admin password / TLS for Director:2087 and Control:2083.
 - `quotaon.service` on images without usrquota leaves systemd `degraded`
   (MVP services were still active).
 - Optional: migrate on-disk `panel` paths to `kelmor` (separate, breaking).

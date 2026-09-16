@@ -13,7 +13,7 @@ if [[ ! -x "$CHROME" ]]; then
 fi
 export PANEL_ACCOUNT_PORTAL="${PANEL_ACCOUNT_PORTAL:-https://127.0.0.1:39444}"
 # QEMU user-net :18080 forwards have been observed to RST after guest reboot.
-# Control nginx on :8444 (host 39444) already proxies /api.
+# Control nginx on :2083 (host 39444) already proxies /api.
 export PANEL_API="${PANEL_API:-$PANEL_ACCOUNT_PORTAL}"
 export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
 export PANEL_CONTROL_USER="${PANEL_CONTROL_USER:-freshhost}"

@@ -40,7 +40,7 @@ echo "Running remote verification..."
 set -e
 curl -fsS -H "X-API-Key: panel-loopback" http://127.0.0.1:8081/api/v1/servers/localhost >/dev/null
 curl -fsS http://127.0.0.1:18080/healthz
-curl -kfsS https://127.0.0.1:8443/updates/stable/manifest.json >/dev/null
+curl -kfsS https://127.0.0.1:2087/updates/stable/manifest.json >/dev/null
 sudo /usr/local/panel/bin/panel-updater check --config /etc/panel/update.env
 systemctl is-active pdns panel-api panel-worker
 systemctl is-enabled panel-update.timer

@@ -19,8 +19,8 @@ if [[ ! -r "$KEY" ]]; then
 fi
 "${SSH[@]}" -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-  -L 38443:127.0.0.1:8443 \
-  -L 38444:127.0.0.1:8444 \
+  -L 38443:127.0.0.1:2087 \
+  -L 38444:127.0.0.1:2083 \
   -L 38080:127.0.0.1:18080 \
   -L 38081:127.0.0.1:80 \
   -L 38445:127.0.0.1:443 \

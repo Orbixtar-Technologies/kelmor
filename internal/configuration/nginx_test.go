@@ -3,21 +3,21 @@ package configuration
 import "testing"
 
 func TestPortalHTTPRedirect(t *testing.T) {
-	conf := PortalHTTPRedirect("lab.kelmor.host", 8443)
+	conf := PortalHTTPRedirect("lab.kelmor.host", 2087)
 	if err := ValidateNginx(conf); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		"server_name lab.kelmor.host www.lab.kelmor.host;",
 		"server_name kelmor.host www.kelmor.host;",
-		"return 301 https://lab.kelmor.host:8443$request_uri;",
+		"return 301 https://lab.kelmor.host:2087$request_uri;",
 		"/.well-known/acme-challenge/",
 	} {
 		if !contains(conf, want) {
 			t.Fatalf("missing %q in %s", want, conf)
 		}
 	}
-	if PortalHTTPRedirect("localhost", 8443) != "" {
+	if PortalHTTPRedirect("localhost", 2087) != "" {
 		t.Fatal("localhost must not emit portal HTTP config")
 	}
 }

@@ -460,7 +460,7 @@ enabled = true
 enabled = true
 [panel-auth]
 enabled = true
-port = 8443,8444,18080
+port = 2087,2083,18080
 filter = panel-auth
 logpath = /var/lib/panel/logs/api.jsonl
 [vsftpd]
@@ -994,7 +994,7 @@ func verifySystemd(c Config) error {
 	if err != nil {
 		return fmt.Errorf("update.env missing")
 	}
-	if !strings.Contains(string(updateEnv), "PANEL_UPDATE_FEED_URL=https://127.0.0.1:8443/updates") {
+	if !strings.Contains(string(updateEnv), "PANEL_UPDATE_FEED_URL=https://127.0.0.1:2087/updates") {
 		return fmt.Errorf("update.env is not configured for the local signed feed")
 	}
 	return nil
@@ -1040,7 +1040,7 @@ func applyUpdatePolicy(c Config) error {
 	if err := os.MkdirAll(root(c, "etc/panel"), 0o755); err != nil {
 		return err
 	}
-	feedURL := "https://127.0.0.1:8443/updates"
+	feedURL := "https://127.0.0.1:2087/updates"
 	body := fmt.Sprintf(`PANEL_UPDATE_FEED_URL=%s
 PANEL_UPDATE_CHANNEL=stable
 PANEL_UPDATE_AUTOMATIC=true

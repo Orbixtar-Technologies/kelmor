@@ -31,10 +31,10 @@ func applyPortals(c Config) error {
 	}
 	writePortalHostnameFile(c)
 	tryIssuePortalHostnameCertificate(c)
-	if err := writePortalNginx(c, "90-server-portal.conf", 8443, "usr/local/panel/share/portals/server"); err != nil {
+	if err := writePortalNginx(c, "90-server-portal.conf", configuration.DirectorHTTPSPort, "usr/local/panel/share/portals/server"); err != nil {
 		return err
 	}
-	if err := writePortalNginx(c, "91-account-portal.conf", 8444, "usr/local/panel/share/portals/account"); err != nil {
+	if err := writePortalNginx(c, "91-account-portal.conf", configuration.ControlHTTPSPort, "usr/local/panel/share/portals/account"); err != nil {
 		return err
 	}
 	if err := writePortalHTTPNginx(c); err != nil {
@@ -82,10 +82,10 @@ func verifyPortals(c Config) error {
 	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
-	if err := waitListen("127.0.0.1:8443", 2*time.Second); err != nil {
+	if err := waitListen(fmt.Sprintf("127.0.0.1:%d", configuration.DirectorHTTPSPort), 2*time.Second); err != nil {
 		return fmt.Errorf("kelmor director is not listening: %w", err)
 	}
-	if err := waitListen("127.0.0.1:8444", 2*time.Second); err != nil {
+	if err := waitListen(fmt.Sprintf("127.0.0.1:%d", configuration.ControlHTTPSPort), 2*time.Second); err != nil {
 		return fmt.Errorf("kelmor control is not listening: %w", err)
 	}
 	return nil
@@ -143,14 +143,14 @@ func verifyPortalTLS(c Config) error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(server), "listen 8443 ssl") || !strings.Contains(string(server), "ssl_certificate") {
-		return fmt.Errorf("kelmor director nginx is not listening TLS on 8443")
+	if !strings.Contains(string(server), fmt.Sprintf("listen %d ssl", configuration.DirectorHTTPSPort)) || !strings.Contains(string(server), "ssl_certificate") {
+		return fmt.Errorf("kelmor director nginx is not listening TLS on %d", configuration.DirectorHTTPSPort)
 	}
 	if !strings.Contains(string(server), "location /updates/") {
 		return fmt.Errorf("kelmor director nginx is missing the signed update feed location")
 	}
-	if !strings.Contains(string(account), "listen 8444 ssl") || !strings.Contains(string(account), "ssl_certificate") {
-		return fmt.Errorf("kelmor control nginx is not listening TLS on 8444")
+	if !strings.Contains(string(account), fmt.Sprintf("listen %d ssl", configuration.ControlHTTPSPort)) || !strings.Contains(string(account), "ssl_certificate") {
+		return fmt.Errorf("kelmor control nginx is not listening TLS on %d", configuration.ControlHTTPSPort)
 	}
 	if !c.Dev && installPrefix(c) == "" {
 		host := strings.TrimSpace(c.Hostname)
@@ -170,7 +170,7 @@ func verifyPortalTLS(c Config) error {
 
 func writePortalHTTPNginx(c Config) error {
 	host := strings.TrimSpace(c.Hostname)
-	body := configuration.PortalHTTPRedirect(host, 8443)
+	body := configuration.PortalHTTPRedirect(host, configuration.DirectorHTTPSPort)
 	path := root(c, "etc/nginx/panel-sites/89-portal-http.conf")
 	if body == "" {
 		return os.Remove(path)

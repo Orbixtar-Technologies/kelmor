@@ -53,5 +53,5 @@ if [[ -d /usr/local/panel/share/portals ]]; then
   fi
 fi
 
-echo "Kelmor Director: https://127.0.0.1:8443/  (or Vite http://127.0.0.1:18443/)"
-echo "Kelmor Control:  https://127.0.0.1:8444/  (or Vite http://127.0.0.1:18444/)"
+echo "Kelmor Director: https://127.0.0.1:2087/  (or Vite http://127.0.0.1:18443/)"
+echo "Kelmor Control:  https://127.0.0.1:2083/  (or Vite http://127.0.0.1:18444/)"

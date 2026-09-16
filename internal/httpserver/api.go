@@ -256,7 +256,7 @@ func (a *API) openapi(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) productIndex(w http.ResponseWriter, r *http.Request) {
-	writeBrandHTML(w, brand.Product, `<h1>Kelmor</h1><p>Product family Kelmor. Portals are not compiled into this binary — run <code>npm run dev</code> or <code>make refresh-portals</code>.</p><ul><li>Kelmor Director — provider console on :8443 (installed nginx) or :18443 (Vite)</li><li>Kelmor Control — tenant self-serve on :8444 or :18444</li><li><a href="/openapi">Kelmor Control Plane API</a></li></ul>`)
+	writeBrandHTML(w, brand.Product, `<h1>Kelmor</h1><p>Product family Kelmor. Portals are not compiled into this binary — run <code>npm run dev</code> or <code>make refresh-portals</code>.</p><ul><li>Kelmor Director — provider console on :2087 (installed nginx) or :18443 (Vite)</li><li>Kelmor Control — tenant self-serve on :2083 or :18444</li><li><a href="/openapi">Kelmor Control Plane API</a></li></ul>`)
 }
 
 func (a *API) openapiUI(w http.ResponseWriter, r *http.Request) {

@@ -88,13 +88,13 @@ fi
 sudo test -S /run/panel/agent.sock || { echo "missing Kelmor Agent socket /run/panel/agent.sock" >&2; exit 1; }
 echo "privilege-ok api_user=$api_user"
 
-if curl -sk --max-time 8 -o /tmp/director.html -w '%{http_code}' https://127.0.0.1:8443/ | grep -qE '200|301|302'; then
+if curl -sk --max-time 8 -o /tmp/director.html -w '%{http_code}' https://127.0.0.1:2087/ | grep -qE '200|301|302'; then
   grep -qi 'Kelmor' /tmp/director.html || { echo "Director HTML missing Kelmor brand" >&2; cat /tmp/director.html >&2; exit 1; }
   echo "director-ok"
 else
   echo "director-https missing"
   if [[ "$REQUIRE_DIRECTOR" == "1" ]]; then
-    echo "expected Kelmor Director on :8443" >&2
+    echo "expected Kelmor Director on :2087" >&2
     exit 1
   fi
 fi

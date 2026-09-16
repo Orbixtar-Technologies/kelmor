@@ -236,7 +236,7 @@ ssh_cmd 'set -e
   systemctl is-enabled panel-agent panel-api panel-worker
   systemctl is-active panel-agent panel-api panel-worker
   curl -sS -o /dev/null -w "health:%{http_code}\n" http://127.0.0.1:18080/healthz
-  curl -sk -o /dev/null -w "portal_https:%{http_code}\n" https://127.0.0.1:8443/healthz
-  grep -q "listen 8443 ssl" /etc/nginx/panel-sites/90-server-portal.conf
+  curl -sk -o /dev/null -w "portal_https:%{http_code}\n" https://127.0.0.1:2087/healthz
+  grep -q "listen 2087 ssl" /etc/nginx/panel-sites/90-server-portal.conf
   echo QEMU_UBUNTU_INSTALL_OK
 '

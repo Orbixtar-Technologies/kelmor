@@ -258,18 +258,21 @@ php_admin_value[open_basedir] = /home/%s:/tmp:/usr/share/php
 `, account, account, group, account, maxChildren, account)
 }
 
-const defaultDirectorHTTPSPort = 8443
+const (
+	DirectorHTTPSPort = 2087
+	ControlHTTPSPort  = 2083
+)
 
 // PortalHTTPRedirect returns nginx :80 vhosts for the panel hostname. Each
 // block serves HTTP-01 challenges and redirects browsers to the Director HTTPS
-// port (default 8443).
+// port (default 2087).
 func PortalHTTPRedirect(hostname string, directorPort int) string {
 	hostname = strings.TrimSpace(hostname)
 	if hostname == "" || hostname == "localhost" {
 		return ""
 	}
 	if directorPort < 1 {
-		directorPort = defaultDirectorHTTPSPort
+		directorPort = DirectorHTTPSPort
 	}
 	var b strings.Builder
 	writePortalHTTPBlock(&b, []string{hostname, "www." + hostname}, hostname, directorPort)

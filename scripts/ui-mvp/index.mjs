@@ -5,8 +5,8 @@ import https from 'node:https'
 import puppeteer from 'puppeteer-core'
 import { setTimeout as delay } from 'node:timers/promises'
 
-const SERVER = process.env.PANEL_SERVER_PORTAL || 'http://127.0.0.1:8443'
-const ACCOUNT = process.env.PANEL_ACCOUNT_PORTAL || 'http://127.0.0.1:8444'
+const SERVER = process.env.PANEL_SERVER_PORTAL || 'http://127.0.0.1:2087'
+const ACCOUNT = process.env.PANEL_ACCOUNT_PORTAL || 'http://127.0.0.1:2083'
 const API = process.env.PANEL_API || 'http://127.0.0.1:18080'
 const TENANT_HTTP_PORT = Number(process.env.PANEL_TENANT_HTTP_PORT || 80)
 const TENANT_HTTPS_PORT = Number(process.env.PANEL_TENANT_HTTPS_PORT || 443)

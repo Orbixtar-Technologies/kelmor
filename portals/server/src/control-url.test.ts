@@ -7,12 +7,12 @@ describe('controlPortalOrigin', () => {
 	})
 
 	test('maps installed Director TLS to installed Control TLS', () => {
-		expect(controlPortalOrigin({ protocol: 'https:', hostname: 'host.example.net', port: '8443' })).toBe('https://host.example.net:8444')
+		expect(controlPortalOrigin({ protocol: 'https:', hostname: 'host.example.net', port: '2087' })).toBe('https://host.example.net:2083')
 	})
 })
 
 describe('controlImpersonationUrl', () => {
 	test('puts the session token in the fragment', () => {
-		expect(controlImpersonationUrl('https://host.example.net:8444', 'tok/en')).toBe('https://host.example.net:8444/#session=tok%2Fen')
+		expect(controlImpersonationUrl('https://host.example.net:2083', 'tok/en')).toBe('https://host.example.net:2083/#session=tok%2Fen')
 	})
 })

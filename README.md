@@ -13,7 +13,7 @@ This repository is the first production slice of that architecture: schema, auth
 
 ## Local preview (this environment)
 
-Director and Control are Vite SPAs. They are **not** embedded in `panel-dev` / `panel-api`. After `git pull`, `https://127.0.0.1:8443` keeps the last *installed* HTML until you rebuild and copy assets.
+Director and Control are Vite SPAs. They are **not** embedded in `panel-dev` / `panel-api`. After `git pull`, `https://127.0.0.1:2087` keeps the last *installed* HTML until you rebuild and copy assets.
 
 The control plane requires PostgreSQL (`panel_control`). Local peer auth:
 
@@ -34,7 +34,7 @@ npm install --prefix portals/server && npm install --prefix portals/account
 npm run dev
 # or: cd portals/server && npm run dev    # Kelmor Director :18443
 #     cd portals/account && npm run dev   # Kelmor Control  :18444
-# refresh installed nginx if you use :8443 / :8444:
+# refresh installed nginx if you use :2087 / :2083:
 make refresh-portals
 ./scripts/live-e2e.sh
 ./scripts/ui-mvp.sh          # Chrome: provision → files/mail/backups → suspend → migrate → audit
@@ -43,8 +43,8 @@ make refresh-portals
 - API / OpenAPI HTML: `http://127.0.0.1:18080/` and `http://127.0.0.1:18080/openapi` — titles are Kelmor, not a SPA
 - **Kelmor Director (this tree, Vite):** `http://127.0.0.1:18443` — `admin` / `ChangeMeOnce!2026`
 - **Kelmor Control (this tree, Vite):** `http://127.0.0.1:18444` — sign in as a provisioned account username
-- Kelmor Director (installed nginx): `https://127.0.0.1:8443` — only after `make refresh-portals` (self-signed portal cert)
-- Kelmor Control (installed nginx): `https://127.0.0.1:8444`
+- Kelmor Director (installed nginx): `https://127.0.0.1:2087` — only after `make refresh-portals` (self-signed portal cert)
+- Kelmor Control (installed nginx): `https://127.0.0.1:2083`
 
 Default admin password is for development only. Change it before any real host.
 
@@ -76,7 +76,7 @@ cd kelmor-installer_*
 sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --non-interactive
 ```
 
-The installer writes `/var/lib/panel/install-state.json` and resumes failed phases. It does not require Docker for the control plane. A live install fails unless built Director/Control SPAs are present (`make portals` or the Debian package). nginx serves them on **8443** and **8444**, proxying `/api` and `/healthz` to the control API.
+The installer writes `/var/lib/panel/install-state.json` and resumes failed phases. It does not require Docker for the control plane. A live install fails unless built Director/Control SPAs are present (`make portals` or the Debian package). nginx serves them on **2087** (Director) and **2083** (Control), proxying `/api` and `/healthz` to the control API.
 
 On a host with systemd as PID 1, the control plane and `panel-object-store` start only as systemd units (no forked duplicates). After install, `scripts/fresh-provision-smoke.sh` covers login → provision → HTTP/PHP isolation → mailbox → local backup → suspend → audit. Full path: `scripts/live-e2e.sh`.
 
@@ -104,7 +104,7 @@ Encrypted account backups (HPM1) and native export/import are documented in `doc
 
 ## Ports
 
-21 (FTP) + 40000–40100 (PASV), 22, 25, 53, 80, 443, 587, 993, **8443** (Kelmor Director), **8444** (Kelmor Control), **19090** (loopback S3 object store). Development preview uses 18443/18444/18080.
+21 (FTP) + 40000–40100 (PASV), 22, 25, 53, 80, 443, 587, 993, **2087** (Kelmor Director), **2083** (Kelmor Control), **19090** (loopback S3 object store). Development preview uses 18443/18444/18080.
 
 MVP gap vs `main`: see `docs/kelmor-mvp-gap.md`.
 

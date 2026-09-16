@@ -690,8 +690,8 @@ func runActivationAndHealthChecks(ctx context.Context, runner Runner) error {
 		{"/bin/systemctl", "restart", "panel-api", "panel-worker", "panel-agent", "nginx"},
 		{"/bin/systemctl", "is-active", "panel-api", "panel-worker", "panel-agent"},
 		{"/usr/bin/curl", "-fsS", "http://127.0.0.1:18080/healthz"},
-		{"/usr/bin/curl", "-kfsS", "https://127.0.0.1:8443/"},
-		{"/usr/bin/curl", "-kfsS", "https://127.0.0.1:8444/"},
+		{"/usr/bin/curl", "-kfsS", "https://127.0.0.1:2087/"},
+		{"/usr/bin/curl", "-kfsS", "https://127.0.0.1:2083/"},
 		{"/usr/bin/curl", "-fsS", "-H", "X-API-Key: panel-loopback", "http://127.0.0.1:8081/api/v1/servers/localhost"},
 	}
 	for index, command := range commands {

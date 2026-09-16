@@ -88,7 +88,7 @@ portals:
 	cp -a portals/account/dist dist/share/portals/account
 
 # API only on :18080. Director/Control chrome is Vite (`npm run dev`) or
-# installed nginx after `make refresh-portals` (:8443 / :8444).
+# installed nginx after `make refresh-portals` (:2087 / :2083).
 dev:
 	PANEL_DEV=1 PANEL_API_ADDR=127.0.0.1:$(API_PORT) ./scripts/dev.sh
 

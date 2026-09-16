@@ -88,8 +88,8 @@ func main() {
 	}
 	fmt.Printf(`Installation successful
 
-Kelmor Director URL: https://%s:8443/
-Kelmor Control URL:  https://%s:8444/
+Kelmor Director URL: https://%s:2087/
+Kelmor Control URL:  https://%s:2083/
 Administrator:      admin
 Installation ID:    %s
 Release:            %s
