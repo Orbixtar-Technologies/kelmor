@@ -73,6 +73,64 @@ func TestInstallScriptStagesAndExecsPanelInstall(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "usr/local/panel/share/portals/server/index.html")); err != nil {
 		t.Fatal(err)
 	}
+	link := filepath.Join(root, "usr/local/bin/panel-install")
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("panel-install PATH link: %v", err)
+	}
+	if target != filepath.Join(root, "usr/local/panel/bin/panel-install") {
+		t.Fatalf("panel-install link %q", target)
+	}
+}
+
+func TestInstallScriptReplacesBusyBinary(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep not available")
+	}
+	script, err := filepath.Abs("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := stageTree(t, script)
+	if err := os.WriteFile(filepath.Join(ready, "bin", "panel-api"), []byte("#!/bin/sh\necho replaced\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "host")
+	dest := filepath.Join(root, "usr/local/panel/bin")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc", "os-release"), []byte("NAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busy := filepath.Join(dest, "panel-api")
+	if err := os.WriteFile(busy, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(busy, "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	out, err := runInstall(ready, []string{"--root", root, "--non-interactive", "--hostname", "panel.example.net"})
+	if err != nil {
+		t.Fatalf("busy replace: %v\n%s", err, out)
+	}
+	got, err := os.ReadFile(busy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "replaced") {
+		t.Fatalf("running binary was not replaced: %q", got)
+	}
 }
 
 func stageTree(t *testing.T, script string) string {

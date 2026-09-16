@@ -79,17 +79,55 @@ if [[ "$DEV" -eq 0 ]]; then
 	fi
 fi
 
+stop_panel_services() {
+	if [[ -n "$ROOT" || "$DEV" -eq 1 ]]; then
+		return 0
+	fi
+	if ! command -v systemctl >/dev/null 2>&1; then
+		return 0
+	fi
+	echo "kelmor-install: stopping panel services so running binaries can be replaced"
+	local unit
+	for unit in panel-api panel-worker panel-agent panel-smtp-policy \
+		panel-object-store panel-updater pebble; do
+		systemctl stop "$unit" 2>/dev/null || true
+	done
+}
+
+replace_file() {
+	local src="$1"
+	local dest="$2"
+	local tmp="${dest}.new.$$"
+	mkdir -p "$(dirname "$dest")"
+	cp -a "$src" "$tmp"
+	mv -f "$tmp" "$dest"
+}
+
 install_tree() {
-	local dest_bin dest_share
+	local dest_bin dest_share dest_local src name
 	if [[ "$DEV" -eq 1 && -z "$ROOT" ]]; then
 		return 0
 	fi
 	dest_bin="${ROOT}/usr/local/panel/bin"
 	dest_share="${ROOT}/usr/local/panel/share"
-	mkdir -p "$dest_bin" "$dest_share"
-	cp -a "$HERE/bin/." "$dest_bin/"
+	dest_local="${ROOT}/usr/local/bin"
+	stop_panel_services
+	mkdir -p "$dest_bin" "$dest_share" "$dest_local"
+	for src in "$HERE/bin/"*; do
+		[[ -e "$src" ]] || continue
+		name="$(basename "$src")"
+		replace_file "$src" "$dest_bin/$name"
+		if [[ -x "$dest_bin/$name" ]]; then
+			chmod 0755 "$dest_bin/$name" || true
+		fi
+	done
 	cp -a "$HERE/share/." "$dest_share/"
-	chmod 0755 "$dest_bin/"* 2>/dev/null || true
+	if [[ -e "$dest_bin/panel-install" ]]; then
+		ln -sfn "$dest_bin/panel-install" "$dest_local/panel-install"
+	fi
+	if [[ -e "$dest_bin/panel-cli" ]]; then
+		ln -sfn "$dest_bin/panel-cli" "$dest_local/panel-cli"
+	fi
 }
 
 echo "kelmor-install: staging binaries and portals"

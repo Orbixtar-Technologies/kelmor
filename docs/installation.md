@@ -20,7 +20,7 @@ sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --a
 # or: cp install.yaml.example install.yaml && sudo ./install.sh
 ```
 
-Director login is user `admin`. The installer prints the password, or uses `--admin-password` / `PANEL_ADMIN_PASSWORD`. Change it later with `sudo panel-install --set-admin-password 'your-password'`.
+Director login is user `admin`. The installer prints the password, or uses `--admin-password` / `PANEL_ADMIN_PASSWORD`. Change it later with `sudo panel-install --set-admin-password 'your-password'` (or `/usr/local/panel/bin/panel-install` if `/usr/local/bin` is not on PATH). Do not use `ChangeMeOnce!2026` — that development password is refused.
 
 Debian package path:
 
