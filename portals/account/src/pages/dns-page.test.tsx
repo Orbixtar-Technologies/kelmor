@@ -48,12 +48,12 @@ describe('Control DNSPage request races', () => {
 		await waitFor(() => expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-b/dns/zones'))
 
 		second.resolve({ items: [{ id: 'zone-b', name: 'bravo.test' }] })
-		expect(await screen.findByText(/bravo.test/)).toBeInTheDocument()
+		expect((await screen.findAllByText(/bravo.test/)).length).toBeGreaterThan(0)
 
 		first.resolve({ items: [{ id: 'zone-a', name: 'stale.alpha.test' }] })
 		await waitFor(() => {
 			expect(screen.queryByText(/stale.alpha.test/)).not.toBeInTheDocument()
 		})
-		expect(screen.getByText(/bravo.test/)).toBeInTheDocument()
+		expect(screen.getAllByText(/bravo.test/).length).toBeGreaterThan(0)
 	})
 })

@@ -14,9 +14,12 @@ interface BackupItem {
 export function BackupsPage ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<BackupItem[]>([])
 	const [notice, setNotice] = useState('')
+	const [restorePending, setRestorePending] = useState(false)
 	const restoreGuard = useRef(createPendingGuard()).current
 
 	useEffect(() => {
+		restoreGuard.finish()
+		setRestorePending(false)
 		let cancelled = false
 		let timer = 0
 		let inFlight = false
@@ -70,13 +73,15 @@ export function BackupsPage ({ accountId }: { accountId: string }) {
 					{backup.kind} {backup.state} {backup.destination} {backup.checksum ? `sha256:${backup.checksum.slice(0, 12)}` : ''}
 					{backup.state === 'succeeded' ? (
 						<Can cap="backups.restore">
-						<button type="button" data-restore={backup.id} onClick={async () => {
+						<button type="button" data-restore={backup.id} disabled={restorePending} onClick={async () => {
 							if (!restoreGuard.tryStart()) return
+							setRestorePending(true)
 							try {
 								await api(`/api/v1/accounts/${accountId}/restores`, { method: 'POST', body: JSON.stringify({ backup_id: backup.id, mode: 'in_place' }) })
 								setNotice(`Restore queued for ${backup.destination} backup`)
-							} finally {
+							} catch {
 								restoreGuard.finish()
+								setRestorePending(false)
 							}
 						}}>Restore</button>
 						</Can>
