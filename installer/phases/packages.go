@@ -143,7 +143,11 @@ func applyWebStack(c Config) error {
 		if err := os.WriteFile(root(c, "etc/nginx/panel-modsec.conf"), []byte(modsec), 0o644); err != nil {
 			return err
 		}
-		return os.WriteFile(root(c, "etc/nginx/conf.d/panel-conn-limit.conf"), []byte(conn), 0o644)
+		if err := os.WriteFile(root(c, "etc/nginx/conf.d/panel-conn-limit.conf"), []byte(conn), 0o644); err != nil {
+			return err
+		}
+		disableUbuntuDefaultSite(c)
+		return nil
 	}
 	if err := os.WriteFile(root(c, "etc/nginx/conf.d/panel-sites.conf"), []byte(include), 0o644); err != nil {
 		return err
@@ -151,7 +155,11 @@ func applyWebStack(c Config) error {
 	if err := os.WriteFile(root(c, "etc/nginx/conf.d/panel-modsec.conf"), []byte(modsec), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(root(c, "etc/nginx/conf.d/panel-conn-limit.conf"), []byte(conn), 0o644)
+	if err := os.WriteFile(root(c, "etc/nginx/conf.d/panel-conn-limit.conf"), []byte(conn), 0o644); err != nil {
+		return err
+	}
+	disableUbuntuDefaultSite(c)
+	return nil
 }
 
 func applyDatabaseStack(c Config) error {

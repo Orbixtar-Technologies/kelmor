@@ -18,6 +18,7 @@ var allowedRoots = []string{
 	"/etc/ssh/sshd_config.d/",
 	"/var/tmp/panel-imports/",
 	"/var/log/nginx/",
+	"/var/www/panel-acme/",
 }
 
 func ValidateManagedPath(p string) (string, error) {

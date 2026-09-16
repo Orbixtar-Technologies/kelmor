@@ -33,6 +33,12 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/etc/cron.d/evil"); err == nil {
 		t.Fatal("only panel- cron files")
 	}
+	if _, err := ValidateManagedPath("/var/www/panel-acme/.well-known/acme-challenge/tok"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/var/www/html/index.html"); err == nil {
+		t.Fatal("must not expose the Ubuntu document root")
+	}
 }
 
 func TestWithinAccount(t *testing.T) {

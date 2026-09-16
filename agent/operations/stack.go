@@ -100,11 +100,55 @@ func (h *Host) applyACMEChallenge(token, body string) (Result, error) {
 	if token == "" || strings.ContainsAny(token, "/\\") {
 		return Result{}, fmt.Errorf("invalid ACME token")
 	}
-	path := "/var/lib/panel/acme-www/.well-known/acme-challenge/" + token
-	if _, err := h.ApplyFile(path, []byte(body), 0o644); err != nil {
-		return Result{}, err
+	payload := []byte(body)
+	for _, path := range []string{
+		"/var/lib/panel/acme-www/.well-known/acme-challenge/" + token,
+		"/var/www/panel-acme/.well-known/acme-challenge/" + token,
+	} {
+		if _, err := h.ApplyFile(path, payload, 0o644); err != nil {
+			return Result{}, err
+		}
+	}
+	h.exposeACMEWebroot()
+	if h.live() {
+		if err := publishUbuntuHTMLChallenge(token, body); err != nil {
+			return Result{}, err
+		}
+		_ = os.Remove("/etc/nginx/sites-enabled/default")
+		if err := reloadNamedService("nginx"); err != nil {
+			return Result{}, fmt.Errorf("nginx reload after HTTP-01: %w", err)
+		}
 	}
 	return Result{OK: true, ObservedState: "published"}, nil
+}
+
+func (h *Host) exposeACMEWebroot() {
+	for _, p := range []string{
+		"/var/lib/panel",
+		"/var/lib/panel/acme-www",
+		"/var/lib/panel/acme-www/.well-known",
+		"/var/lib/panel/acme-www/.well-known/acme-challenge",
+		"/var/www/panel-acme",
+		"/var/www/panel-acme/.well-known",
+		"/var/www/panel-acme/.well-known/acme-challenge",
+	} {
+		resolved := p
+		if h.Root != "" {
+			resolved = filepath.Join(h.Root, p)
+		}
+		_ = os.Chmod(resolved, 0o755)
+	}
+}
+
+func publishUbuntuHTMLChallenge(token, body string) error {
+	dir := "/var/www/html/.well-known/acme-challenge"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		if os.IsNotExist(err) || os.IsPermission(err) {
+			return nil
+		}
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, token), []byte(body), 0o644)
 }
 
 func (h *Host) applyAppUnit(websiteID, account, runtime, workDir, command string) (Result, error) {

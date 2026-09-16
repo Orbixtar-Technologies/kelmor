@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PANEL_PUBLIC_IPV4="${PANEL_PUBLIC_IPV4:-127.0.0.1}"
 
 sudo mkdir -p /run/panel /var/lib/panel/{mail,dns/zones,certs,acme-www/.well-known/acme-challenge,backups/staging,cron,logs} \
+  /var/www/panel-acme/.well-known/acme-challenge \
   /var/vmail /etc/nginx/panel-sites /etc/nginx/modsec /etc/rspamd/local.d /etc/clamav /etc/php/8.3/fpm/pool.d
 echo 'SecRuleEngine On' | sudo tee /etc/nginx/modsec/panel.conf >/dev/null
 echo 'enabled = true;' | sudo tee /etc/rspamd/local.d/panel.conf >/dev/null
@@ -105,7 +106,9 @@ if [[ ! -s /var/lib/panel/mail/passwd ]]; then
   echo "# dovecot passwd-file" | sudo tee /var/lib/panel/mail/passwd >/dev/null
 fi
 sudo chown -R root:ubuntu /var/lib/panel/mail || true
-sudo chmod 0755 /var/lib/panel /var/lib/panel/mail /var/lib/panel/dns /var/lib/panel/dns/zones
+sudo chmod 0755 /var/lib/panel /var/lib/panel/mail /var/lib/panel/dns /var/lib/panel/dns/zones \
+  /var/lib/panel/acme-www /var/lib/panel/acme-www/.well-known /var/lib/panel/acme-www/.well-known/acme-challenge \
+  /var/www/panel-acme /var/www/panel-acme/.well-known /var/www/panel-acme/.well-known/acme-challenge
 sudo chmod 0644 /var/lib/panel/mail/* || true
 sudo chmod 0644 /var/lib/panel/dns/named-zones.conf || true
 

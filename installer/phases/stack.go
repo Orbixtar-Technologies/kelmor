@@ -749,6 +749,9 @@ func applyTLS(c Config) error {
 	if err := os.MkdirAll(root(c, "var/lib/panel/acme-www/.well-known/acme-challenge"), 0o755); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(root(c, "var/www/panel-acme/.well-known/acme-challenge"), 0o755); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(root(c, "var/lib/panel/certs"), 0o750); err != nil {
 		return err
 	}
@@ -757,6 +760,17 @@ func applyTLS(c Config) error {
 	}
 	if err := os.MkdirAll(root(c, "etc/nginx/panel-sites"), 0o755); err != nil {
 		return err
+	}
+	for _, p := range []string{
+		root(c, "var/lib/panel"),
+		root(c, "var/lib/panel/acme-www"),
+		root(c, "var/lib/panel/acme-www/.well-known"),
+		root(c, "var/lib/panel/acme-www/.well-known/acme-challenge"),
+		root(c, "var/www/panel-acme"),
+		root(c, "var/www/panel-acme/.well-known"),
+		root(c, "var/www/panel-acme/.well-known/acme-challenge"),
+	} {
+		_ = os.Chmod(p, 0o755)
 	}
 	acme := `server {
     listen 80 default_server;
@@ -772,12 +786,26 @@ func applyTLS(c Config) error {
 	if err := os.WriteFile(root(c, "etc/nginx/panel-sites/00-acme.conf"), []byte(acme), 0o644); err != nil {
 		return err
 	}
+	disableUbuntuDefaultSite(c)
+	if err := reloadNginxIfLive(c); err != nil {
+		return err
+	}
 	return ensureACME(c)
 }
 
 func verifyTLS(c Config) error {
 	if _, err := os.Stat(root(c, "var/lib/panel/acme-www/.well-known/acme-challenge")); err != nil {
 		return err
+	}
+	acme, err := os.ReadFile(root(c, "etc/nginx/panel-sites/00-acme.conf"))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(acme), "listen 80 default_server") {
+		return fmt.Errorf("00-acme.conf is not the HTTP-01 default_server")
+	}
+	if _, err := os.Lstat(root(c, "etc/nginx/sites-enabled/default")); err == nil {
+		return fmt.Errorf("Ubuntu default site still enabled")
 	}
 	if c.Dev {
 		return nil

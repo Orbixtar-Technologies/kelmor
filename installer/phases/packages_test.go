@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestApplyWebStackDisablesUbuntuDefault(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{Root: dir}
+	def := filepath.Join(dir, "etc/nginx/sites-enabled/default")
+	if err := os.MkdirAll(filepath.Dir(def), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(def, []byte("server { listen 80 default_server; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyWebStack(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(def); !os.IsNotExist(err) {
+		t.Fatal("Ubuntu default site must be removed")
+	}
+}
+
 func TestApplyWebStackWritesConnZone(t *testing.T) {
 	orig, err := os.Getwd()
 	if err != nil {

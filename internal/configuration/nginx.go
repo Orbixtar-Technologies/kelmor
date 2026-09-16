@@ -108,26 +108,11 @@ func NginxSite(s WebsiteSpec) string {
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
 	fmt.Fprintf(&b, "    error_log /var/log/nginx/%s.error.log;\n", s.WebsiteID)
 	b.WriteString(connLimitLines(s))
-	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+	b.WriteString(nginxACMEChallengeLocation)
 	if s.HTTPSRedirect && s.TLSCert != "" {
-		b.WriteString("    if ($scheme = http) { return 301 https://$host$request_uri; }\n")
-	}
-	switch s.Runtime {
-	case "php":
-		sock := s.Account
-		if sock == "" {
-			sock = s.WebsiteID
-		}
-		b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
-		fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
-	case "node", "python":
-		fmt.Fprintf(&b, "    location / { proxy_pass http://unix:/run/panel/apps/%s.sock; proxy_set_header Host $host; }\n", s.WebsiteID)
-	case "proxy":
-		if s.ProxyTarget != "" {
-			fmt.Fprintf(&b, "    location / { proxy_pass %s; proxy_set_header Host $host; }\n", s.ProxyTarget)
-		}
-	default:
-		b.WriteString("    location / { try_files $uri $uri/ =404; }\n")
+		b.WriteString("    location / { return 301 https://$host$request_uri; }\n")
+	} else {
+		writeRuntimeLocations(&b, s)
 	}
 	b.WriteString("}\n")
 	if s.TLSCert != "" && s.TLSKey != "" {
@@ -140,27 +125,33 @@ func NginxSite(s WebsiteSpec) string {
 		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)
 		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.TLSKey)
 		b.WriteString(connLimitLines(s))
-		b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
-		switch s.Runtime {
-		case "php":
-			sock := s.Account
-			if sock == "" {
-				sock = s.WebsiteID
-			}
-			b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
-			fmt.Fprintf(&b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
-		case "node", "python":
-			fmt.Fprintf(&b, "    location / { proxy_pass http://unix:/run/panel/apps/%s.sock; proxy_set_header Host $host; }\n", s.WebsiteID)
-		case "proxy":
-			if s.ProxyTarget != "" {
-				fmt.Fprintf(&b, "    location / { proxy_pass %s; proxy_set_header Host $host; }\n", s.ProxyTarget)
-			}
-		default:
-			b.WriteString("    location / { try_files $uri $uri/ =404; }\n")
-		}
+		b.WriteString(nginxACMEChallengeLocation)
+		writeRuntimeLocations(&b, s)
 		b.WriteString("}\n")
 	}
 	return b.String()
+}
+
+const nginxACMEChallengeLocation = "    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n"
+
+func writeRuntimeLocations(b *strings.Builder, s WebsiteSpec) {
+	switch s.Runtime {
+	case "php":
+		sock := s.Account
+		if sock == "" {
+			sock = s.WebsiteID
+		}
+		b.WriteString("    location / { try_files $uri $uri/ /index.php?$query_string; }\n")
+		fmt.Fprintf(b, "    location ~ \\.php$ { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_pass unix:/run/php/panel-%s.sock; }\n", sock)
+	case "node", "python":
+		fmt.Fprintf(b, "    location / { proxy_pass http://unix:/run/panel/apps/%s.sock; proxy_set_header Host $host; }\n", s.WebsiteID)
+	case "proxy":
+		if s.ProxyTarget != "" {
+			fmt.Fprintf(b, "    location / { proxy_pass %s; proxy_set_header Host $host; }\n", s.ProxyTarget)
+		}
+	default:
+		b.WriteString("    location / { try_files $uri $uri/ =404; }\n")
+	}
 }
 
 func serverNames(s WebsiteSpec) string {
@@ -214,7 +205,7 @@ func limitedServer(listen string, s WebsiteSpec, status int, body string) string
 		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.TLSCert)
 		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.TLSKey)
 	}
-	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+	b.WriteString(nginxACMEChallengeLocation)
 	fmt.Fprintf(&b, "    location / { default_type text/plain; return %d '%s'; }\n", status, body)
 	b.WriteString("}\n")
 	return b.String()
@@ -287,7 +278,7 @@ func writePortalHTTPBlock(b *strings.Builder, serverNames []string, redirectHost
 	b.WriteString("    listen 80;\n")
 	b.WriteString("    listen [::]:80;\n")
 	fmt.Fprintf(b, "    server_name %s;\n", strings.Join(serverNames, " "))
-	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+	b.WriteString(nginxACMEChallengeLocation)
 	fmt.Fprintf(b, "    location / { return 301 https://%s:%d$request_uri; }\n", redirectHost, directorPort)
 	b.WriteString("}\n")
 }
@@ -322,7 +313,7 @@ func writeToolServer(b *strings.Builder, listen string, s ToolSiteSpec, tls bool
 	b.WriteString("    index index.php index.html;\n")
 	fmt.Fprintf(b, "    access_log /var/log/nginx/%s.access.log;\n", s.SiteID)
 	fmt.Fprintf(b, "    error_log /var/log/nginx/%s.error.log;\n", s.SiteID)
-	b.WriteString("    location ^~ /.well-known/acme-challenge/ { root /var/lib/panel/acme-www; default_type text/plain; }\n")
+	b.WriteString(nginxACMEChallengeLocation)
 	if tls {
 		fmt.Fprintf(b, "    ssl_certificate %s;\n", s.TLSCert)
 		fmt.Fprintf(b, "    ssl_certificate_key %s;\n", s.TLSKey)

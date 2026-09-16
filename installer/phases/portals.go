@@ -428,14 +428,18 @@ func copyPortalTree(src, dest string) error {
 	})
 }
 
+func disableUbuntuDefaultSite(c Config) {
+	_ = os.Remove(root(c, "etc/nginx/sites-enabled/default"))
+}
+
 func reloadNginxIfLive(c Config) error {
+	disableUbuntuDefaultSite(c)
 	if c.Dev || installPrefix(c) != "" {
 		return nil
 	}
 	if _, err := os.Stat("/usr/sbin/nginx"); err != nil {
 		return nil
 	}
-	_ = os.Remove("/etc/nginx/sites-enabled/default")
 	if out, err := exec.Command("/usr/sbin/nginx", "-t").CombinedOutput(); err != nil {
 		return fmt.Errorf("nginx -t: %s", strings.TrimSpace(string(out)))
 	}

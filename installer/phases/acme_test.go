@@ -55,6 +55,42 @@ func TestUseLabACMEModes(t *testing.T) {
 	}
 }
 
+func TestApplyTLSDisablesUbuntuDefault(t *testing.T) {
+	t.Setenv("PANEL_ACME_DIRECTORY", "")
+	t.Setenv("PANEL_ACME_LAB", "")
+	t.Setenv("PANEL_INSTALL_ROOT", "")
+	root := t.TempDir()
+	cfg := Config{Hostname: "panel.example.net", ACMEMode: "letsencrypt", Root: root}
+	def := filepath.Join(root, "etc/nginx/sites-enabled/default")
+	if err := os.MkdirAll(filepath.Dir(def), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(def, []byte("server { listen 80 default_server; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyTLS(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyTLS(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(def); !os.IsNotExist(err) {
+		t.Fatal("Ubuntu default site must be removed")
+	}
+	acme, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites/00-acme.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(acme), "listen 80 default_server") {
+		t.Fatalf("00-acme.conf: %s", acme)
+	}
+	if st, err := os.Stat(filepath.Join(root, "var/lib/panel/acme-www")); err != nil {
+		t.Fatal(err)
+	} else if st.Mode().Perm()&0o005 == 0 {
+		t.Fatalf("acme-www must be world-traversable, got %o", st.Mode().Perm())
+	}
+}
+
 func TestWritePublicACMEUsesLetsEncrypt(t *testing.T) {
 	t.Setenv("PANEL_ACME_DIRECTORY", "")
 	t.Setenv("PANEL_ACME_LAB", "")

@@ -76,6 +76,27 @@ func TestNginxBandwidthHoldReturns509(t *testing.T) {
 	}
 }
 
+func TestNginxHTTPSRedirectKeepsHTTP01(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{
+		WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html",
+		Runtime: "php", HTTPSRedirect: true, Enabled: true,
+		TLSCert: "/var/lib/panel/certs/acme.test.crt",
+		TLSKey:  "/var/lib/panel/certs/acme.test.key",
+	})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "location / { return 301 https://$host$request_uri; }") {
+		t.Fatal(conf)
+	}
+	if contains(conf, "if ($scheme = http)") {
+		t.Fatal("HTTP-01 must not sit behind a server-level HTTPS if")
+	}
+	if !contains(conf, "/.well-known/acme-challenge/") {
+		t.Fatal("redirecting vhost must keep HTTP-01")
+	}
+}
+
 func TestNginxSiteValid(t *testing.T) {
 	conf := NginxSite(WebsiteSpec{WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html", Runtime: "php", PHPVersion: "8.3", HTTPSRedirect: true, Revision: 3, Enabled: true})
 	if err := ValidateNginx(conf); err != nil {

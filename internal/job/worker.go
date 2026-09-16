@@ -1350,6 +1350,7 @@ func (w *Worker) issueStoredCertificate(c *store.Certificate) error {
 		if err := w.publishAccountPublicDNS(acc); err != nil {
 			return err
 		}
+		w.reapplyAccountWebsites(acc)
 	}
 	contact := "admin@localhost"
 	if acc := w.Store.GetAccount(c.AccountID); acc != nil {
