@@ -159,7 +159,7 @@ func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell str
 	}
 	args := []string{"-u", strconv.Itoa(uid), "-g", username, "-d", home, "-s", shell, "-m", "-G", "panel-sftp", username}
 	if out, err := runFixed("/usr/sbin/useradd", args...); err != nil && !strings.Contains(string(out), "already exists") {
-		return Result{}, fmt.Errorf("useradd: %s", strings.TrimSpace(string(out)))
+		return Result{}, commandFailure("useradd", out, err)
 	}
 	if _, err := user.Lookup(username); err == nil {
 		_, _ = runFixed("/usr/sbin/usermod", "-aG", "panel-sftp", username)

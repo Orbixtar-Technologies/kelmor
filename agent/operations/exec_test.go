@@ -2,10 +2,25 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestUseraddAllowsSupplementaryGroup(t *testing.T) {
+	args := []string{"-u", "20000", "-g", "acme42", "-d", "/home/acme42", "-s", "/usr/sbin/nologin", "-m", "-G", "panel-sftp", "acme42"}
+	if err := validateFixedCommand("/usr/sbin/useradd", nil, args); err != nil {
+		t.Fatalf("account reconcile useradd args must be allow-listed: %v", err)
+	}
+}
+
+func TestCommandFailureUsesErrWhenOutputEmpty(t *testing.T) {
+	err := commandFailure("useradd", nil, fmt.Errorf("leading option"))
+	if err == nil || err.Error() != "useradd: leading option" {
+		t.Fatalf("got %v", err)
+	}
+}
 
 func TestRunFixedRejects(t *testing.T) {
 	if _, err := runFixed("/bin/sh", "-c", "id"); err == nil {

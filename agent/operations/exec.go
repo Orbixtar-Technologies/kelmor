@@ -87,6 +87,17 @@ var allowedServices = map[string]bool{
 	"vsftpd":            true,
 }
 
+func commandFailure(name string, out []byte, err error) error {
+	msg := strings.TrimSpace(string(out))
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	if msg == "" {
+		return fmt.Errorf("%s failed", name)
+	}
+	return fmt.Errorf("%s: %s", name, msg)
+}
+
 func runFixed(bin string, args ...string) ([]byte, error) {
 	return runFixedEnv(context.Background(), bin, nil, 0, nil, args...)
 }

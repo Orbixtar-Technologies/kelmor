@@ -16,7 +16,7 @@ var allowedFlags = map[string]map[string]bool{
 	"/usr/sbin/nft":         {"f": true},
 	"/usr/bin/setfacl":      {"m": true},
 	"/usr/bin/pgrep":        {"x": true},
-	"/usr/sbin/useradd":     {"u": true, "g": true, "d": true, "s": true, "M": true, "r": true, "m": true},
+	"/usr/sbin/useradd":     {"u": true, "g": true, "G": true, "d": true, "s": true, "M": true, "r": true, "m": true},
 	"/usr/sbin/userdel":     {"f": true, "r": true},
 	"/usr/sbin/usermod":     {"aG": true, "L": true, "U": true, "s": true, "f": true, "a": true, "G": true},
 	"/usr/sbin/groupadd":    {"g": true},
