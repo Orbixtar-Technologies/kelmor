@@ -70,6 +70,7 @@ func Run(cfg Config, statePath, logPath string, phases []Phase) error {
 				if err := appendLog(phase.Name(), "skip", map[string]any{"reason": "fingerprint and verify hold"}); err != nil {
 					return fmt.Errorf("log: %w", err)
 				}
+				fmt.Fprintf(os.Stdout, "kelmor-install: %s skip\n", phase.Name())
 				continue
 			}
 			if err := appendLog(phase.Name(), "reapply", map[string]any{"reason": "verify failed after claimed complete"}); err != nil {
@@ -84,6 +85,7 @@ func Run(cfg Config, statePath, logPath string, phases []Phase) error {
 		if err := appendLog(phase.Name(), "start", nil); err != nil {
 			return fmt.Errorf("log: %w", err)
 		}
+		fmt.Fprintf(os.Stdout, "kelmor-install: %s start\n", phase.Name())
 		if err := phase.Check(cfg); err != nil {
 			return failPhase(st, statePath, appendLog, phase.Name(), err)
 		}
@@ -104,6 +106,7 @@ func Run(cfg Config, statePath, logPath string, phases []Phase) error {
 		if err := appendLog(phase.Name(), "complete", nil); err != nil {
 			return fmt.Errorf("log: %w", err)
 		}
+		fmt.Fprintf(os.Stdout, "kelmor-install: %s complete\n", phase.Name())
 	}
 	return nil
 }

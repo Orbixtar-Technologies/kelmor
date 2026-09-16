@@ -79,6 +79,10 @@ grep -Fq 'Orbixtar-Technologies/kelmor' "$ROOT/scripts/get-kelmor.sh" || {
 	echo "get-kelmor.sh must default to Orbixtar-Technologies/kelmor" >&2
 	exit 1
 }
+grep -Fq 'trap - EXIT' "$ROOT/scripts/get-kelmor.sh" || {
+	echo "get-kelmor.sh must clear EXIT trap before exec" >&2
+	exit 1
+}
 grep -Fq "${KELMOR_DOWNLOAD_BASE}/kelmor-installer-linux-amd64.tar.gz" "$KELMOR_CURL_LOG" || {
 	echo "did not fetch installer tarball: $(cat "$KELMOR_CURL_LOG")" >&2
 	exit 1

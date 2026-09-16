@@ -28,6 +28,33 @@ func TestGenerateRejectsKnownAdminPassword(t *testing.T) {
 	}
 }
 
+func TestEnsureUsesProvidedAdminPassword(t *testing.T) {
+	root := t.TempDir()
+	secrets, err := Ensure(root, "OperatorPass!2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secrets.AdminPassword != "OperatorPass!2026" {
+		t.Fatalf("got %q", secrets.AdminPassword)
+	}
+	again, err := Ensure(root, "OperatorPass!2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.AdminPassword != "OperatorPass!2026" || again.PowerDNSAPIKey != secrets.PowerDNSAPIKey {
+		t.Fatal("ensure must keep PowerDNS key when replacing admin password")
+	}
+}
+
+func TestEnsureRejectsShortAndKnownPasswords(t *testing.T) {
+	if _, err := Ensure(t.TempDir(), "short"); err == nil {
+		t.Fatal("short password")
+	}
+	if _, err := Ensure(t.TempDir(), KnownAdminPassword); err == nil {
+		t.Fatal("known password")
+	}
+}
+
 func TestLoadReusesExistingSecrets(t *testing.T) {
 	root := t.TempDir()
 	first, err := Generate(root)

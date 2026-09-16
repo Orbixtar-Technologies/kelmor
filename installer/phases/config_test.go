@@ -12,6 +12,7 @@ func TestLoadInstallFileReadsDeclaredFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "install.yaml")
 	body := "hostname: panel.example.net\n" +
 		"admin_email: ops@example.net\n" +
+		"admin_password: OperatorPass!2026\n" +
 		"channel: beta\n" +
 		"acme: staging\n" +
 		"non_interactive: true\n" +
@@ -24,7 +25,7 @@ func TestLoadInstallFileReadsDeclaredFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Hostname != "panel.example.net" || cfg.AdminEmail != "ops@example.net" {
+	if cfg.Hostname != "panel.example.net" || cfg.AdminEmail != "ops@example.net" || cfg.AdminPassword != "OperatorPass!2026" {
 		t.Fatalf("identity: %#v", cfg)
 	}
 	if cfg.Channel != "beta" || cfg.ACMEMode != "staging" {
@@ -46,14 +47,17 @@ func TestLoadInstallFileRejectsUnknownKeys(t *testing.T) {
 }
 
 func TestMergeInstallConfigCLIWinsWhenFlagSet(t *testing.T) {
-	file := Config{Hostname: "file.test", AdminEmail: "file@test", Channel: "beta", ACMEMode: "staging"}
-	cli := Config{Hostname: "cli.test", Channel: "stable"}
-	got := MergeInstallConfig(file, cli, map[string]bool{"hostname": true, "channel": true})
+	file := Config{Hostname: "file.test", AdminEmail: "file@test", AdminPassword: "FilePass!2026", Channel: "beta", ACMEMode: "staging"}
+	cli := Config{Hostname: "cli.test", Channel: "stable", AdminPassword: "CliPass!2026"}
+	got := MergeInstallConfig(file, cli, map[string]bool{"hostname": true, "channel": true, "admin-password": true})
 	if got.Hostname != "cli.test" {
 		t.Fatalf("hostname %q", got.Hostname)
 	}
 	if got.Channel != "stable" {
 		t.Fatalf("channel %q", got.Channel)
+	}
+	if got.AdminPassword != "CliPass!2026" {
+		t.Fatalf("admin password %q", got.AdminPassword)
 	}
 	if got.AdminEmail != "file@test" || got.ACMEMode != "staging" {
 		t.Fatalf("file fields dropped: %#v", got)
@@ -87,7 +91,7 @@ func TestDiscoverInstallFilePrefersExplicitThenCwdThenExe(t *testing.T) {
 
 func TestPromptMissingFillsBlankFields(t *testing.T) {
 	cfg := Config{}
-	in := strings.NewReader("lab.kelmor.host\nops@kelmor.host\nstaging\n")
+	in := strings.NewReader("lab.kelmor.host\nops@kelmor.host\n\nstaging\n")
 	var out bytes.Buffer
 	if err := PromptMissing(&cfg, in, &out); err != nil {
 		t.Fatal(err)

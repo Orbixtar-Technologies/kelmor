@@ -646,9 +646,6 @@ Match User panel-backup
 	}
 	if installPrefix(c) == "" {
 		_ = exec.Command("/bin/chown", "panel:panel", root(c, "var/lib/panel/secrets/backup-sftp.env")).Run()
-		if pid := sshdPID(); pid > 0 {
-			_ = exec.Command("/bin/kill", "-HUP", fmt.Sprintf("%d", pid)).Run()
-		}
 	}
 	return nil
 }
@@ -871,13 +868,33 @@ func reconcilePowerDNSConfig(path, listen, apiKey string) error {
 	return replacePowerDNSSettings(path, settings)
 }
 
-func ensureInstallSecrets(c Config) (credentials.Secrets, error) {
+func secretPrefix(c Config) string {
 	dir := root(c, "var/lib/panel/secrets")
 	prefix := strings.TrimSuffix(dir, "/var/lib/panel/secrets")
 	if prefix == "" {
 		prefix = "/"
 	}
-	return credentials.Generate(prefix)
+	return prefix
+}
+
+func ensureInstallSecrets(c Config) (credentials.Secrets, error) {
+	return credentials.Ensure(secretPrefix(c), c.AdminPassword)
+}
+
+func PeekInstallSecrets(c Config) (credentials.Secrets, error) {
+	return ensureInstallSecrets(c)
+}
+
+func SetAdministratorPassword(c Config, password string) error {
+	password = strings.TrimSpace(password)
+	secrets, err := credentials.Ensure(secretPrefix(c), password)
+	if err != nil {
+		return err
+	}
+	if err := updateLiveAdminPassword(secrets.AdminPassword); err != nil {
+		fmt.Fprintf(os.Stdout, "kelmor-install: control database not updated yet (%v); bootstrap secret written\n", err)
+	}
+	return nil
 }
 
 func replacePowerDNSSettings(path string, settings map[string]string) error {

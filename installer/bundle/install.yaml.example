@@ -2,6 +2,7 @@
 #   sudo ./install.sh --non-interactive
 hostname: panel.example.net
 admin_email: ops@example.net
+# admin_password: 'choose-at-least-12-characters'
 channel: stable
 acme: letsencrypt
 non_interactive: true

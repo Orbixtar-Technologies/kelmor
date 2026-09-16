@@ -1,10 +1,13 @@
 package phases
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -34,8 +37,8 @@ func InstallPackages(names []string) error {
 	env := aptEnv()
 	update := exec.Command("/usr/bin/apt-get", "update")
 	update.Env = env
-	if out, err := update.CombinedOutput(); err != nil {
-		return fmt.Errorf("apt-get update: %s", string(out))
+	if out, err := runAptLogged(update); err != nil {
+		return fmt.Errorf("apt-get update: %s", out)
 	}
 	args := append([]string{
 		"-y",
@@ -45,36 +48,82 @@ func InstallPackages(names []string) error {
 	}, names...)
 	cmd := exec.Command("/usr/bin/apt-get", args...)
 	cmd.Env = env
-	out, err := cmd.CombinedOutput()
+	out, err := runAptLogged(cmd)
 	if err != nil {
-		return fmt.Errorf("apt-get: %s", string(out))
+		return fmt.Errorf("apt-get: %s", out)
 	}
 	return nil
+}
+
+func runAptLogged(cmd *exec.Cmd) (string, error) {
+	var buf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
+	err := cmd.Run()
+	return buf.String(), err
 }
 
 func aptEnv() []string {
 	return []string{
 		"DEBIAN_FRONTEND=noninteractive",
 		"DEBCONF_NONINTERACTIVE_SEEN=true",
+		"NEEDRESTART_MODE=l",
+		"NEEDRESTART_SUSPEND=1",
 		"UCF_FORCE_CONFFNEW=1",
 		"PATH=/usr/sbin:/usr/bin:/bin",
 	}
+}
+
+const lowMemoryClamAVKiB = 3 * 1024 * 1024
+
+func systemPackageList(memKiB int) []string {
+	pkgs := []string{
+		"nginx", "php8.3-fpm", "php8.3-cli", "php8.3-mysql", "php8.3-xml",
+		"mariadb-server", "postgresql", "pdns-server", "pdns-backend-pgsql",
+		"postfix", "dovecot-core", "dovecot-imapd", "dovecot-lmtpd",
+		"redis-server", "rspamd", "fail2ban", "quota",
+		"libnginx-mod-http-modsecurity", "nodejs", "python3",
+		"nftables", "acl", "vsftpd", "libpam-pwdfile",
+		"curl", "ca-certificates",
+		"phpmyadmin", "roundcube-core", "roundcube-mysql",
+	}
+	if memKiB <= 0 || memKiB >= lowMemoryClamAVKiB {
+		pkgs = append(pkgs, "clamav-daemon")
+	}
+	return pkgs
+}
+
+func memTotalKiB() int {
+	body, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if !strings.HasPrefix(line, "MemTotal:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		n, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 func applySystemPackages(c Config) error {
 	if c.Dev {
 		return nil
 	}
-	return InstallPackages([]string{
-		"nginx", "php8.3-fpm", "php8.3-cli", "php8.3-mysql", "php8.3-xml",
-		"mariadb-server", "postgresql", "pdns-server", "pdns-backend-pgsql",
-		"postfix", "dovecot-core", "dovecot-imapd", "dovecot-lmtpd",
-		"redis-server", "rspamd", "clamav-daemon", "fail2ban", "quota",
-		"libnginx-mod-http-modsecurity", "nodejs", "python3", "openssh-server",
-		"nftables", "acl", "vsftpd", "libpam-pwdfile",
-		"curl", "ca-certificates",
-		"phpmyadmin", "roundcube-core", "roundcube-mysql",
-	})
+	mem := memTotalKiB()
+	if mem > 0 && mem < lowMemoryClamAVKiB {
+		fmt.Fprintf(os.Stdout, "kelmor-install: %d MiB RAM — skipping ClamAV\n", mem/1024)
+	}
+	return InstallPackages(systemPackageList(mem))
 }
 
 func applyWebStack(c Config) error {

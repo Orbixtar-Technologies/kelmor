@@ -7,7 +7,7 @@ Minimum production: 4 vCPU, 8 GB RAM, 100 GB SSD.
 ```bash
 # any Ubuntu 24.04 VM — GitHub Releases, not the lab VM:
 curl -fsSL https://github.com/Orbixtar-Technologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
-# optional: | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net
+# optional: | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net --admin-password 'your-password'
 ```
 
 Local artifact path (never publishes to a VM):
@@ -16,9 +16,11 @@ Local artifact path (never publishes to a VM):
 make installer
 tar -xzf dist/installer/kelmor-installer_*_linux_*.tar.gz
 cd kelmor-installer_*
-sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --non-interactive
+sudo ./install.sh --hostname panel.example.net --admin-email ops@example.net --admin-password 'your-password' --non-interactive
 # or: cp install.yaml.example install.yaml && sudo ./install.sh
 ```
+
+Director login is user `admin`. The installer prints the password, or uses `--admin-password` / `PANEL_ADMIN_PASSWORD`. Change it later with `sudo panel-install --set-admin-password 'your-password'`.
 
 Debian package path:
 

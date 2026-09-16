@@ -29,30 +29,51 @@ func secretDir(root string) string {
 }
 
 func Generate(root string) (Secrets, error) {
+	return Ensure(root, "")
+}
+
+func Ensure(root, adminPassword string) (Secrets, error) {
+	adminPassword = strings.TrimSpace(adminPassword)
+	if adminPassword == "" {
+		if existing, err := Load(root); err == nil {
+			return existing, nil
+		}
+		generated, err := randomSecret(24)
+		if err != nil {
+			return Secrets{}, err
+		}
+		adminPassword = generated
+	}
+	if len(adminPassword) < 12 {
+		return Secrets{}, fmt.Errorf("administrator password must be at least 12 characters")
+	}
+	if adminPassword == KnownAdminPassword {
+		return Secrets{}, fmt.Errorf("refusing repository-known administrator password")
+	}
+	pdns := ""
 	if existing, err := Load(root); err == nil {
-		return existing, nil
+		pdns = existing.PowerDNSAPIKey
 	}
-	admin, err := randomSecret(24)
-	if err != nil {
-		return Secrets{}, err
+	if pdns == "" {
+		generated, err := randomSecret(24)
+		if err != nil {
+			return Secrets{}, err
+		}
+		pdns = generated
 	}
-	pdns, err := randomSecret(24)
-	if err != nil {
-		return Secrets{}, err
-	}
-	if admin == KnownAdminPassword || pdns == KnownPowerDNSKey {
+	if pdns == KnownPowerDNSKey {
 		return Secrets{}, fmt.Errorf("generated a repository-known secret")
 	}
 	if err := os.MkdirAll(secretDir(root), 0o750); err != nil {
 		return Secrets{}, err
 	}
-	if err := writeSecret(filepath.Join(secretDir(root), adminSecretName), admin); err != nil {
+	if err := writeSecret(filepath.Join(secretDir(root), adminSecretName), adminPassword); err != nil {
 		return Secrets{}, err
 	}
 	if err := writeSecret(filepath.Join(secretDir(root), pdnsSecretName), pdns); err != nil {
 		return Secrets{}, err
 	}
-	return Secrets{AdminPassword: admin, PowerDNSAPIKey: pdns}, nil
+	return Secrets{AdminPassword: adminPassword, PowerDNSAPIKey: pdns}, nil
 }
 
 func Load(root string) (Secrets, error) {

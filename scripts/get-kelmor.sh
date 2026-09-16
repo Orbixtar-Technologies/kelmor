@@ -20,7 +20,7 @@ ARGS=()
 usage() {
 	cat <<EOF
 Usage: curl -fsSL ${RELEASE_BASE}/get-kelmor.sh | sudo bash
-   or: curl -fsSL ${RELEASE_BASE}/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net
+   or: curl -fsSL ${RELEASE_BASE}/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net --admin-password 'your-password'
 
 Environment:
   KELMOR_GITHUB_REPO     GitHub owner/name (default: ${REPO})
@@ -76,6 +76,18 @@ while [[ $# -gt 0 ]]; do
 	--admin-email=*)
 		HAS_ADMIN=1
 		ADMIN_EMAIL="${1#--admin-email=}"
+		ARGS+=("$1")
+		shift
+		;;
+	--admin-password)
+		if [[ $# -lt 2 ]]; then
+			echo "get-kelmor: --admin-password requires a value" >&2
+			exit 2
+		fi
+		ARGS+=("$1" "$2")
+		shift 2
+		;;
+	--admin-password=*)
 		ARGS+=("$1")
 		shift
 		;;
@@ -144,6 +156,7 @@ curl -fsSL "${BASE}/${TAR}.sha256" -o "${WORKDIR}/${TAR}.sha256"
 	sha256sum -c "${TAR}.sha256"
 )
 
+echo "get-kelmor: extracting installer (this can take a minute)"
 tar -xzf "${WORKDIR}/${TAR}" -C "$WORKDIR"
 EXTRACT="$(find "$WORKDIR" -mindepth 1 -maxdepth 1 -type d -name 'kelmor-installer_*' | head -n 1)"
 if [[ -z "$EXTRACT" || ! -x "$EXTRACT/install.sh" ]]; then
@@ -151,4 +164,6 @@ if [[ -z "$EXTRACT" || ! -x "$EXTRACT/install.sh" ]]; then
 	exit 1
 fi
 
+echo "get-kelmor: starting host install — SSH will stay up; apt output follows"
+trap - EXIT
 exec "$EXTRACT/install.sh" "${ARGS[@]+"${ARGS[@]}"}"

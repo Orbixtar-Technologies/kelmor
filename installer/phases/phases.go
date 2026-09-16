@@ -17,6 +17,7 @@ import (
 type Config struct {
 	Hostname       string
 	AdminEmail     string
+	AdminPassword  string
 	Channel        string
 	NonInteractive bool
 	Dev            bool
@@ -169,6 +170,11 @@ func checkPreflight(c Config) error {
 	}
 	if c.Hostname == "" {
 		return fmt.Errorf("hostname required")
+	}
+	if !c.Dev {
+		if mem := memTotalKiB(); mem > 0 && mem < 1024*1024 {
+			return fmt.Errorf("need at least 1 GiB RAM (have %d MiB)", mem/1024)
+		}
 	}
 	return nil
 }

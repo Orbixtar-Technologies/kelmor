@@ -12,6 +12,7 @@ import (
 var allowedInstallKeys = map[string]struct{}{
 	"hostname":        {},
 	"admin_email":     {},
+	"admin_password":  {},
 	"channel":         {},
 	"acme":            {},
 	"non_interactive": {},
@@ -60,6 +61,8 @@ func LoadInstallFile(path string) (Config, error) {
 			cfg.Hostname = value
 		case "admin_email":
 			cfg.AdminEmail = value
+		case "admin_password":
+			cfg.AdminPassword = value
 		case "channel":
 			cfg.Channel = value
 		case "acme":
@@ -92,6 +95,11 @@ func MergeInstallConfig(file, cli Config, setFlags map[string]bool) Config {
 	}
 	if setFlags["admin-email"] {
 		out.AdminEmail = cli.AdminEmail
+	}
+	if setFlags["admin-password"] {
+		out.AdminPassword = cli.AdminPassword
+	} else if out.AdminPassword == "" {
+		out.AdminPassword = cli.AdminPassword
 	}
 	if setFlags["channel"] {
 		out.Channel = cli.Channel
@@ -142,6 +150,11 @@ func PromptMissing(cfg *Config, in io.Reader, out io.Writer) error {
 	if admin != "" {
 		cfg.AdminEmail = admin
 	}
+	password, err := promptLine(reader, out, "Administrator password (empty generates one)", cfg.AdminPassword)
+	if err != nil {
+		return err
+	}
+	cfg.AdminPassword = password
 	acmeDefault := cfg.ACMEMode
 	if acmeDefault == "" {
 		acmeDefault = "letsencrypt"

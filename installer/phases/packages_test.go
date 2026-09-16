@@ -45,10 +45,31 @@ func indexOf(s, sub string) int {
 func TestAptEnvIsNoninteractive(t *testing.T) {
 	env := aptEnv()
 	joined := strings.Join(env, "\n")
-	for _, want := range []string{"DEBIAN_FRONTEND=noninteractive", "UCF_FORCE_CONFFNEW=1"} {
+	for _, want := range []string{
+		"DEBIAN_FRONTEND=noninteractive",
+		"UCF_FORCE_CONFFNEW=1",
+		"NEEDRESTART_SUSPEND=1",
+		"NEEDRESTART_MODE=l",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %s in %v", want, env)
 		}
+	}
+}
+
+func TestSystemPackageListSkipsClamAVOnLowMemory(t *testing.T) {
+	low := systemPackageList(512 * 1024)
+	high := systemPackageList(4 * 1024 * 1024)
+	joinedLow := strings.Join(low, " ")
+	joinedHigh := strings.Join(high, " ")
+	if strings.Contains(joinedLow, "clamav-daemon") {
+		t.Fatal("low-memory install must skip clamav-daemon")
+	}
+	if strings.Contains(joinedLow, "openssh-server") {
+		t.Fatal("must not reinstall openssh-server during apt")
+	}
+	if !strings.Contains(joinedHigh, "clamav-daemon") {
+		t.Fatal("high-memory install must include clamav-daemon")
 	}
 }
 

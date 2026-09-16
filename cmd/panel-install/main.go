@@ -14,6 +14,8 @@ import (
 func main() {
 	hostname := flag.String("hostname", "", "server FQDN")
 	adminEmail := flag.String("admin-email", "", "administrator email")
+	adminPassword := flag.String("admin-password", os.Getenv("PANEL_ADMIN_PASSWORD"), "Director admin password (min 12 chars; generated if empty)")
+	setAdminPassword := flag.String("set-admin-password", "", "set Director admin password and exit")
 	channel := flag.String("channel", "stable", "release channel")
 	nonInteractive := flag.Bool("non-interactive", false, "unattended install")
 	config := flag.String("config", "", "install.yaml")
@@ -22,6 +24,9 @@ func main() {
 	installRoot := flag.String("root", os.Getenv("PANEL_INSTALL_ROOT"), "filesystem prefix for packaged file writes")
 	flag.Parse()
 	phases.LoadValidationEnv()
+	if strings.TrimSpace(*adminPassword) == "" {
+		*adminPassword = os.Getenv("PANEL_ADMIN_PASSWORD")
+	}
 
 	setFlags := map[string]bool{}
 	flag.CommandLine.Visit(func(f *flag.Flag) {
@@ -45,8 +50,8 @@ func main() {
 		file.ConfigPath = configPath
 	}
 	cli := phases.Config{
-		Hostname: *hostname, AdminEmail: *adminEmail, Channel: *channel,
-		NonInteractive: *nonInteractive, Dev: *dev || os.Getenv("PANEL_DEV") == "1",
+		Hostname: *hostname, AdminEmail: *adminEmail, AdminPassword: strings.TrimSpace(*adminPassword),
+		Channel: *channel, NonInteractive: *nonInteractive, Dev: *dev || os.Getenv("PANEL_DEV") == "1",
 		ConfigPath: *config, ACMEMode: *acme, Root: strings.TrimSpace(*installRoot),
 	}
 	if os.Getenv("PANEL_DEV") == "1" {
@@ -76,6 +81,15 @@ func main() {
 	if cfg.AdminEmail == "" {
 		cfg.AdminEmail = "admin@" + cfg.Hostname
 	}
+	if pass := strings.TrimSpace(*setAdminPassword); pass != "" {
+		if err := phases.SetAdministratorPassword(cfg, pass); err != nil {
+			fmt.Fprintf(os.Stderr, "admin password: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Administrator password updated for user admin.")
+		fmt.Println("Also stored at /var/lib/panel/secrets/admin-bootstrap (root-only).")
+		os.Exit(0)
+	}
 	logPath := filepath.Join(filepath.Dir(statePath), "install.log.jsonl")
 	if err := phases.Run(cfg, statePath, logPath, phases.All()); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -86,11 +100,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "state: %v\n", err)
 		os.Exit(1)
 	}
+	secrets, err := phases.PeekInstallSecrets(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "admin password: %v\n", err)
+		os.Exit(1)
+	}
 	fmt.Printf(`Installation successful
 
 Kelmor Director URL: https://%s:2087/
 Kelmor Control URL:  https://%s:2083/
 Administrator:      admin
+Password:           %s
 Installation ID:    %s
 Release:            %s
 Go/arch:            %s/%s
@@ -99,8 +119,10 @@ Firewall:           table inet panel (dev sandbox)
 DNS nameservers:    ns1.%s ns2.%s
 Mail:               SMTP relay from .run/validation/smtp.env when present; otherwise configure a relay if port 25 is blocked
 
-Administrator password was generated or taken from PANEL_ADMIN_PASSWORD and is not written to this report.
-`, cfg.Hostname, cfg.Hostname, st.InstallationID, st.Release, runtime.Version(), runtime.GOARCH, cfg.Channel, cfg.Hostname, cfg.Hostname)
+Change the password later with:
+  sudo panel-install --set-admin-password 'your-new-password'
+The bootstrap secret is also at /var/lib/panel/secrets/admin-bootstrap (root-only).
+`, cfg.Hostname, cfg.Hostname, secrets.AdminPassword, st.InstallationID, st.Release, runtime.Version(), runtime.GOARCH, cfg.Channel, cfg.Hostname, cfg.Hostname)
 }
 
 func stdinIsTTY() bool {

@@ -92,8 +92,10 @@ install_tree() {
 	chmod 0755 "$dest_bin/"* 2>/dev/null || true
 }
 
+echo "kelmor-install: staging binaries and portals"
 install_tree
 
+echo "kelmor-install: launching panel-install"
 CONFIG_ARGS=()
 has_config=0
 if [[ ${#ARGS[@]} -gt 0 ]]; then
