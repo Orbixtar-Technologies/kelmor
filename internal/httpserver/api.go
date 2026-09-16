@@ -418,7 +418,64 @@ func (a *API) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) refresh(w http.ResponseWriter, r *http.Request) {
-	a.login(w, r)
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		a.fail(w, r, 400, "INVALID_JSON", "Invalid request", false)
+		return
+	}
+	if strings.TrimSpace(in.Username) != "" || in.Password != "" {
+		a.fail(w, r, 400, "REFRESH_REQUIRES_SESSION", "Session refresh does not accept login credentials", false)
+		return
+	}
+	token := bearer(r)
+	if token == "" {
+		if c, err := r.Cookie("panel_session"); err == nil {
+			token = c.Value
+		}
+	}
+	if token == "" || strings.HasPrefix(token, "hp_live_") {
+		a.fail(w, r, 401, "UNAUTHENTICATED", "Authentication required", false)
+		return
+	}
+	current := a.Store.SessionByHash(auth.HashToken(token))
+	if current == nil {
+		a.fail(w, r, 401, "UNAUTHENTICATED", "Session expired", false)
+		return
+	}
+	u := a.Store.UserByID(current.UserID)
+	if u == nil || !a.userCanAuthenticate(u) {
+		a.fail(w, r, 401, "UNAUTHENTICATED", "Unknown user", false)
+		return
+	}
+	if u.MustChangePassword {
+		a.fail(w, r, 403, "PASSWORD_CHANGE_REQUIRED", "Password change required", false)
+		return
+	}
+	plain, hash, err := auth.NewOpaqueToken()
+	if err != nil {
+		a.fail(w, r, 500, "SESSION_ERROR", "Could not refresh session", false)
+		return
+	}
+	next := &store.Session{
+		ID:                  id.New(),
+		UserID:              u.ID,
+		TokenHash:           hash,
+		ExpiresAt:           time.Now().Add(12 * time.Hour),
+		SourceIP:            clientIP(r),
+		UserAgent:           r.UserAgent(),
+		ImpersonatorID:      current.ImpersonatorID,
+		ImpersonationReason: current.ImpersonationReason,
+	}
+	a.Store.PutSession(next)
+	a.Store.RevokeSession(current.ID)
+	http.SetCookie(w, &http.Cookie{
+		Name: "panel_session", Value: plain, Path: "/", HttpOnly: true,
+		Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600,
+	})
+	writeJSON(w, 200, map[string]any{"token": plain, "user": publicUser(u), "expires_at": next.ExpiresAt})
 }
 
 func (a *API) authenticate(next http.Handler) http.Handler {

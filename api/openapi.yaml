@@ -5,31 +5,63 @@ info:
   description: Desired-state Kelmor control plane (Director admin and Control tenant). Server endpoints require server-scoped capabilities. Account tokens are never valid for server-admin operations.
 servers:
   - url: /api/v1
+security:
+  - bearerAuth: []
+  - cookieAuth: []
 paths:
+  /:
+    servers:
+      - url: /
+    get:
+      operationId: productIndex
+      security: []
+      responses:
+        "200": { description: product index HTML }
   /openapi.yaml:
+    servers:
+      - url: /
+      - url: /api/v1
     get:
       operationId: getOpenAPI
+      security: []
       responses:
         "200": { description: OpenAPI 3 document }
+  /openapi:
+    servers:
+      - url: /
+      - url: /api/v1
+    get:
+      operationId: getOpenAPIUI
+      security: []
+      responses:
+        "200": { description: OpenAPI HTML }
   /healthz:
+    servers:
+      - url: /
     get:
       operationId: healthz
+      security: []
       responses:
         "200": { description: liveness }
   /readyz:
+    servers:
+      - url: /
     get:
       operationId: readyz
+      security: []
       responses:
         "200": { description: readiness }
   /version:
     get:
       operationId: getVersion
+      security: []
       responses:
         "200": { description: control-plane version }
   /auth/login:
     post:
       operationId: login
       x-audit-action: auth.login
+      security: []
       requestBody:
         required: true
         content:
@@ -48,6 +80,7 @@ paths:
     post:
       operationId: completePasswordChange
       x-audit-action: auth.password.complete
+      security: []
       requestBody:
         required: true
         content:
@@ -68,13 +101,24 @@ paths:
   /auth/logout:
     post:
       operationId: logout
+      security: []
       responses:
         "200": { description: session revoked }
   /auth/refresh:
     post:
       operationId: refreshSession
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
       responses:
-        "200": { description: session extended }
+        "200": { description: session rotated and predecessor revoked }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
   /me:
     get:
       operationId: getMe
@@ -235,6 +279,19 @@ paths:
       x-capability: server.services.read
       responses:
         "200": { description: host service probes }
+  /server/services/{serviceName}/{action}:
+    post:
+      operationId: controlService
+      x-capability: server.services.restart
+      x-audit-action: server.service.control
+      parameters:
+        - { name: serviceName, in: path, required: true, schema: { type: string } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [start, stop, restart, reload] } }
+      responses:
+        "200": { description: service action applied }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /server/reboot:
     post:
       operationId: rebootHost
@@ -500,8 +557,20 @@ paths:
       x-capability: cron.write
       parameters:
         - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [schedule, command]
+              properties:
+                schedule: { type: string }
+                command: { type: string }
+                working_directory: { type: string }
       responses:
-        "202": { description: cron apply queued }
+        "201": { description: cron persisted and apply queued }
+        "400": { $ref: "#/components/responses/Error" }
   /accounts/{accountID}/cron/{cronID}:
     delete:
       operationId: deleteCron
@@ -640,8 +709,19 @@ paths:
       x-capability: databases.write
       parameters:
         - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                engine: { type: string, enum: [mariadb, mysql, postgres] }
       responses:
         "202": { description: queued }
+        "400": { $ref: "#/components/responses/Error" }
         "403": { description: package database limit exceeded }
   /accounts/{accountID}/databases/{databaseID}:
     delete:
@@ -845,9 +925,104 @@ paths:
       x-capability: files.write
       parameters:
         - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+                content: { type: string }
+                content_b64: { type: string }
       responses:
         "200": { description: written via agent }
         "403": { description: package disk quota exceeded }
+    delete:
+      operationId: deleteFile
+      x-capability: files.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        "200": { description: deleted via agent }
+        "400": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: patchFile
+      x-capability: files.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+                new_path: { type: string }
+                mode: { type: string }
+      responses:
+        "200": { description: renamed or chmod applied }
+        "400": { $ref: "#/components/responses/Error" }
+  /accounts/{accountID}/files/content:
+    get:
+      operationId: readFileContent
+      x-capability: files.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: path, in: query, schema: { type: string } }
+      responses:
+        "200": { description: file content }
+        "400": { $ref: "#/components/responses/Error" }
+  /accounts/{accountID}/files/mkdir:
+    post:
+      operationId: mkdirPath
+      x-capability: files.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+                mode: { type: integer }
+      responses:
+        "200": { description: directory created }
+        "400": { $ref: "#/components/responses/Error" }
+  /accounts/{accountID}/admin-tools:
+    get:
+      operationId: accountAdminTools
+      x-capability: accounts.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: phpMyAdmin and webmail helper URLs }
+  /accounts/{accountID}/databases/credentials:
+    get:
+      operationId: databaseCredentials
+      x-capability: databases.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: engine, in: query, schema: { type: string } }
+        - { name: database, in: query, schema: { type: string } }
+      responses:
+        "200": { description: provisioned database credentials }
+        "404": { $ref: "#/components/responses/Error" }
   /accounts/{accountID}/sftp-password:
     post:
       operationId: setSFTPPassword
