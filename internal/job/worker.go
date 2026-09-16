@@ -1007,12 +1007,38 @@ func (w *Worker) republishPublicAddresses(z *store.DNSZone, pubIP string) {
 }
 
 func (w *Worker) writeZone(z *store.DNSZone) error {
+	if z == nil {
+		return fmt.Errorf("zone missing")
+	}
+	if latest := w.Store.GetZone(z.ID); latest != nil && latest.DesiredRevision > z.DesiredRevision {
+		z.DesiredRevision = latest.DesiredRevision
+	}
 	body := dns.ZoneFile(*z, w.Store.ListRecords(z.ID), z.DesiredRevision)
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyDNSZone",
 		Params: mustJSON(map[string]any{"name": z.Name, "body": body}),
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	w.markZonePublished(z)
+	return nil
+}
+
+func (w *Worker) markZonePublished(z *store.DNSZone) {
+	if z == nil {
+		return
+	}
+	desired := z.DesiredRevision
+	if latest := w.Store.GetZone(z.ID); latest != nil {
+		if latest.DesiredRevision > desired {
+			desired = latest.DesiredRevision
+		}
+		z = latest
+	}
+	z.DesiredRevision = desired
+	z.ObservedRevision = desired
+	w.Store.PutZone(z)
 }
 
 func (w *Worker) applyZoneDNSSEC(j *store.Job) error {

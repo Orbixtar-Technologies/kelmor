@@ -68,6 +68,9 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 	if !hasWWW {
 		t.Fatal("provision must publish a www A record")
 	}
+	if zone.ObservedRevision != zone.DesiredRevision {
+		t.Fatalf("new account zone left pending %d/%d", zone.ObservedRevision, zone.DesiredRevision)
+	}
 	sites, err := os.ReadDir(filepath.Join(root, "etc/nginx/panel-sites"))
 	if err != nil || len(sites) == 0 {
 		t.Fatalf("nginx sites: %v %v", sites, err)
