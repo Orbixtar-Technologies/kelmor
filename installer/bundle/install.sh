@@ -54,6 +54,15 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
+if [[ ! -x "$HERE/bin/panel-install" ]]; then
+	echo "kelmor-install: missing $HERE/bin/panel-install" >&2
+	exit 1
+fi
+if [[ ! -f "$HERE/share/portals/server/index.html" || ! -f "$HERE/share/portals/account/index.html" ]]; then
+	echo "kelmor-install: built Director/Control portals are required under share/portals" >&2
+	exit 1
+fi
+
 if [[ "$DEV" -eq 0 && -z "$ROOT" && "$(id -u)" -ne 0 ]]; then
 	echo "kelmor-install: must run as root on Ubuntu 24.04" >&2
 	exit 1
@@ -68,15 +77,6 @@ if [[ "$DEV" -eq 0 ]]; then
 		echo "kelmor-install: Ubuntu 24.04 LTS required" >&2
 		exit 1
 	fi
-fi
-
-if [[ ! -x "$HERE/bin/panel-install" ]]; then
-	echo "kelmor-install: missing $HERE/bin/panel-install" >&2
-	exit 1
-fi
-if [[ ! -f "$HERE/share/portals/server/index.html" || ! -f "$HERE/share/portals/account/index.html" ]]; then
-	echo "kelmor-install: built Director/Control portals are required under share/portals" >&2
-	exit 1
 fi
 
 install_tree() {
