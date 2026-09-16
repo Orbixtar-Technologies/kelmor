@@ -36,16 +36,7 @@ func (h *Host) openManaged(path string) (*filesystem.Root, string, error) {
 		if err := validate.Username(username); err != nil {
 			return nil, "", err
 		}
-		home := policy.AccountRoot(username)
-		if err := filesystem.Create(home, "account root"); err != nil {
-			return nil, "", err
-		}
-		parent, err := filesystem.Open(filepath.Dir(home), "home parent")
-		if err != nil {
-			return nil, "", err
-		}
-		defer parent.Close()
-		root, err := filesystem.OpenNested(parent, filepath.Base(home), "account root")
+		root, err := openAccountRoot(policy.AccountRoot(username))
 		if err != nil {
 			return nil, "", err
 		}
@@ -67,6 +58,18 @@ func (h *Host) openManaged(path string) (*filesystem.Root, string, error) {
 		return nil, "", err
 	}
 	return root, rel, nil
+}
+
+func openAccountRoot(home string) (*filesystem.Root, error) {
+	if err := filesystem.Create(home, "account root"); err != nil {
+		return nil, err
+	}
+	// Quota placement bind-mounts /var/lib/panel/homes/<user> onto
+	// /home/<user>. Opening that child from /home with RESOLVE_NO_XDEV
+	// fails with EXDEV ("account root: invalid cross-device link").
+	// Open the account home from / instead; symlink and magic-link
+	// rejection still apply at the home path.
+	return filesystem.Open(home, "account root")
 }
 
 func (h *Host) writeManaged(path string, content []byte, mode uint32) error {

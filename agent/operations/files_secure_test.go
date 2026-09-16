@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestApplyFileRejectsSymlinkEscape(t *testing.T) {
@@ -99,5 +101,50 @@ func TestRenameRejectsSymlinkEscape(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "stolen.txt")); err == nil {
 		t.Fatal("renamed a file outside the account root")
+	}
+}
+
+func TestOpenAccountRootCreatesAndOpensHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "acme42")
+	root, err := openAccountRoot(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := root.WriteAtomic("public_html/index.html", []byte("ok"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(home, "public_html", "index.html"))
+	if err != nil || string(got) != "ok" {
+		t.Fatalf("%v %q", err, got)
+	}
+}
+
+func TestOpenAccountRootAcceptsQuotaBindMount(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("bind mount requires root")
+	}
+	parent := t.TempDir()
+	backing := t.TempDir()
+	home := filepath.Join(parent, "acme42")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mount(backing, home, "", unix.MS_BIND, ""); err != nil {
+		t.Skipf("bind mount unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = unix.Unmount(home, unix.MNT_DETACH) })
+
+	root, err := openAccountRoot(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := root.WriteAtomic("public_html/index.html", []byte("ok"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(backing, "public_html", "index.html"))
+	if err != nil || string(got) != "ok" {
+		t.Fatalf("write through quota bind: %v %q", err, got)
 	}
 }
