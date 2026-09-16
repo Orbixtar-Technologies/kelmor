@@ -58,13 +58,13 @@ SSL, backup, usage, and access tools.
 ## Production install (Ubuntu 24.04)
 
 ```bash
-curl -fsSL https://github.com/OrbixtarTechnologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
+curl -fsSL https://github.com/OrbixtarTechnologies/public/releases/latest/download/get-kelmor.sh | sudo bash
 ```
 
 Optional hostname and email:
 
 ```bash
-curl -fsSL https://github.com/OrbixtarTechnologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net
+curl -fsSL https://github.com/OrbixtarTechnologies/public/releases/latest/download/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net
 ```
 
 Local artifact path (no GitHub, no VM publish):

@@ -56,7 +56,7 @@ chmod 0755 "$TMP/bin/curl"
 export PATH="$TMP/bin:$PATH"
 export KELMOR_WEB="$TMP/web"
 export KELMOR_CURL_LOG="$TMP/curl.log"
-export KELMOR_DOWNLOAD_BASE="https://github.com/OrbixtarTechnologies/kelmor/releases/latest/download"
+export KELMOR_DOWNLOAD_BASE="https://github.com/OrbixtarTechnologies/public/releases/latest/download"
 : >"$KELMOR_CURL_LOG"
 
 printf 'NAME="Debian GNU/Linux"\nVERSION_ID="12"\n' >"$TMP/host/etc/os-release"

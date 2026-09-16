@@ -6,7 +6,7 @@ Minimum production: 4 vCPU, 8 GB RAM, 100 GB SSD.
 
 ```bash
 # any Ubuntu 24.04 VM — GitHub Releases, not the lab VM:
-curl -fsSL https://github.com/OrbixtarTechnologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash
+curl -fsSL https://github.com/OrbixtarTechnologies/public/releases/latest/download/get-kelmor.sh | sudo bash
 # optional: | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net
 ```
 
