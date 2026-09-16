@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,13 @@ func TestBuildInstallerWritesTarball(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(stage, "install.sh")); err != nil {
 		t.Fatal(err)
+	}
+	ver, err := os.ReadFile(filepath.Join(stage, "VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(ver)) != "0.0.0-test" {
+		t.Fatalf("VERSION %q", ver)
 	}
 	if _, err := os.Stat(filepath.Join(stage, "bin/panel-install")); err != nil {
 		t.Fatal(err)

@@ -26,8 +26,9 @@ describe('UpdatesPage', () => {
 
 	it('renders installed and available releases', async () => {
 		render(<MemoryRouter><UpdatesPage /></MemoryRouter>)
-		expect(await screen.findByText('0.1.0')).toBeInTheDocument()
+		expect((await screen.findAllByText('0.1.0')).length).toBeGreaterThan(0)
 		expect(screen.getByText('0.2.0')).toBeInTheDocument()
+		expect(screen.getByText(/get-kelmor\.sh/)).toBeInTheDocument()
 	})
 
 	it('requires confirmation before install', async () => {

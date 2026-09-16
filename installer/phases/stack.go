@@ -1105,24 +1105,19 @@ PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
 		return err
 	}
 	statusPath := root(c, "var/lib/panel/update-status.json")
-	if _, err := os.Stat(statusPath); os.IsNotExist(err) {
-		if err := update.WriteStatus(statusPath, update.Status{
-			State: "idle", InstalledRelease: releaseversion.Current(),
-			Automatic: true, Channel: "stable",
-		}); err != nil {
-			return err
-		}
-	} else if err := update.ReconcileStatusPermissions(statusPath); err != nil {
+	version := strings.TrimSpace(releaseversion.Current())
+	if version == "" {
+		return fmt.Errorf("release version missing")
+	}
+	if err := update.StampInstalledRelease(statusPath, version); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(root(c, "usr/local/panel/share/updates"), 0o755); err != nil {
 		return err
 	}
 	releasePath := root(c, "usr/local/panel/current-release")
-	if _, err := os.Stat(releasePath); os.IsNotExist(err) {
-		if err := os.WriteFile(releasePath, []byte(releaseversion.Current()+"\n"), 0o644); err != nil {
-			return err
-		}
+	if err := os.WriteFile(releasePath, []byte(version+"\n"), 0o644); err != nil {
+		return err
 	}
 	return nil
 }

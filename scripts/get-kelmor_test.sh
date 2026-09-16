@@ -71,6 +71,10 @@ out="$(bash "$ROOT/scripts/get-kelmor.sh" --root "$TMP/host" --hostname panel.ex
 	echo "expected panel-install to run: $out" >&2
 	exit 1
 }
+[[ "$out" == *"extracted kelmor-installer_0.0.0-test_linux_amd64"* ]] || {
+	echo "expected extracted installer name: $out" >&2
+	exit 1
+}
 [[ "$out" == *"--hostname panel.example.net"* ]] || {
 	echo "hostname not forwarded: $out" >&2
 	exit 1

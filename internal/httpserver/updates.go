@@ -35,6 +35,10 @@ func (a *API) updateStatus(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, http.StatusInternalServerError, "UPDATE_STATUS_ERROR", "Could not decode update status", false)
 		return
 	}
+	if a.Version != "" {
+		status.RunningRelease = a.Version
+		status.InstalledRelease = a.Version
+	}
 	writeJSON(w, http.StatusOK, status)
 }
 

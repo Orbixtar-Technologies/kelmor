@@ -70,6 +70,13 @@ func TestInstallScriptStagesAndExecsPanelInstall(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "usr/local/panel/bin/panel-install")); err != nil {
 		t.Fatal(err)
 	}
+	release, err := os.ReadFile(filepath.Join(root, "usr/local/panel/current-release"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(release)) != "0.2.325-test" {
+		t.Fatalf("current-release %q", release)
+	}
 	if _, err := os.Stat(filepath.Join(root, "usr/local/panel/share/portals/server/index.html")); err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +167,9 @@ func stageTree(t *testing.T, script string) string {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "share/portals/account/index.html"), []byte("<!doctype html><title>Kelmor Control</title>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "VERSION"), []byte("0.2.325-test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir

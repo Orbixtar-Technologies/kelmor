@@ -54,6 +54,7 @@ if [[ ! -f "$STAGE/share/portals/server/index.html" || ! -f "$STAGE/share/portal
 	exit 1
 fi
 
+printf '%s\n' "$VER" >"$STAGE/VERSION"
 install -m 0755 "$REPO/installer/bundle/install.sh" "$STAGE/install.sh"
 install -m 0644 "$REPO/installer/bundle/install.yaml.example" "$STAGE/install.yaml.example"
 if [[ -f "$REPO/installer/bundle/README.md" ]]; then

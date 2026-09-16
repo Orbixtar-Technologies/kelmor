@@ -8,7 +8,46 @@ import (
 
 	"github.com/hosting-panel/panel/internal/netaddr"
 	"github.com/hosting-panel/panel/internal/releaseversion"
+	"github.com/hosting-panel/panel/internal/update"
 )
+
+func TestApplyUpdatePolicyRewritesExistingRelease(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Root: root}
+	releasePath := filepath.Join(root, "usr/local/panel/current-release")
+	statusPath := filepath.Join(root, "var/lib/panel/update-status.json")
+	if err := os.MkdirAll(filepath.Dir(releasePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statusPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(releasePath, []byte("0.2.312\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "idle", InstalledRelease: "0.2.312", Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyUpdatePolicy(cfg); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(releasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(body)) != releaseversion.Current() {
+		t.Fatalf("current-release %q", body)
+	}
+	status, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(status), releaseversion.Current()) || contains(string(status), "0.2.312") {
+		t.Fatalf("update-status %s", status)
+	}
+}
 
 func TestDevInstallWritesHostStack(t *testing.T) {
 	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.10")

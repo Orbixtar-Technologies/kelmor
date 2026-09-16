@@ -8,6 +8,7 @@ import { useCan } from '../rbac'
 interface UpdateStatus {
 	state: string
 	installed_release: string
+	running_release?: string
 	available_release?: string
 	last_checked_at?: string
 	error?: string
@@ -71,7 +72,7 @@ export function UpdatesPage () {
 	return <>
 		<PageHeader
 			title="Software Updates"
-			description="Review the installed release, check the signed stable feed, and install verified updates."
+			description="This page shows the running panel binaries. Check now only reads the local signed feed on this host, not GitHub Releases. Upgrade a live host with get-kelmor.sh from the latest GitHub release."
 		/>
 		{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 		{message ? <p className="feedback" role="status">{message}</p> : null}
@@ -79,7 +80,8 @@ export function UpdatesPage () {
 			<SectionHeading title="Release status" detail="Updates are fetched from the configured HTTPS feed and verified with a pinned public key." />
 			{loading ? <LoadingState /> : error ? <ErrorState error={error} onRetry={() => { void load() }} /> : status ? <>
 				<dl className="detail-list">
-					<div><dt>Installed</dt><dd><code>{status.installed_release}</code></dd></div>
+					<div><dt>Running</dt><dd><code>{status.running_release || status.installed_release}</code></dd></div>
+					<div><dt>Recorded install</dt><dd><code>{status.installed_release}</code></dd></div>
 					<div><dt>Available</dt><dd><code>{status.available_release || '—'}</code></dd></div>
 					<div><dt>Channel</dt><dd><code>{status.channel}</code></dd></div>
 					<div><dt>State</dt><dd><code>{status.state}</code></dd></div>

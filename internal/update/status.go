@@ -7,16 +7,37 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type Status struct {
 	State            string `json:"state"`
 	InstalledRelease string `json:"installed_release"`
+	RunningRelease   string `json:"running_release,omitempty"`
 	AvailableRelease string `json:"available_release,omitempty"`
 	LastCheckedAt    string `json:"last_checked_at,omitempty"`
 	Error            string `json:"error,omitempty"`
 	Automatic        bool   `json:"automatic"`
 	Channel          string `json:"channel"`
+}
+
+func StampInstalledRelease(path, version string) error {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return fmt.Errorf("release version required")
+	}
+	status := Status{State: "idle", Automatic: true, Channel: "stable"}
+	if raw, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(raw, &status)
+	}
+	status.InstalledRelease = version
+	if status.AvailableRelease == version {
+		status.AvailableRelease = ""
+	}
+	if status.State == "available" && status.AvailableRelease == "" {
+		status.State = "idle"
+	}
+	return WriteStatus(path, status)
 }
 
 func WriteStatus(path string, status Status) error {

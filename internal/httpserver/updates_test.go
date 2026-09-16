@@ -16,6 +16,7 @@ import (
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/rbac"
+	"github.com/hosting-panel/panel/internal/releaseversion"
 	"github.com/hosting-panel/panel/internal/store"
 	"github.com/hosting-panel/panel/internal/update"
 )
@@ -31,8 +32,11 @@ func TestUpdateStatusRequiresServerRead(t *testing.T) {
 	}
 
 	code, body := requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates", server.auditor, nil, nil)
-	if code != http.StatusOK || body["installed_release"] != "1.0.0" || body["available_release"] != "1.1.0" {
+	if code != http.StatusOK || body["installed_release"] != releaseversion.Current() || body["available_release"] != "1.1.0" {
 		t.Fatalf("authorized status: %d %v", code, body)
+	}
+	if body["running_release"] != releaseversion.Current() {
+		t.Fatalf("running release: %v", body)
 	}
 	code, body = requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates", server.customer, nil, nil)
 	assertAPIErrorCode(t, code, body, http.StatusForbidden, "FORBIDDEN")

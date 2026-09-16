@@ -164,6 +164,7 @@ if [[ -z "$EXTRACT" || ! -x "$EXTRACT/install.sh" ]]; then
 	exit 1
 fi
 
+echo "get-kelmor: extracted $(basename "$EXTRACT") — this replaces the running panel"
 echo "get-kelmor: starting host install — SSH will stay up; apt output follows"
 trap - EXIT
 exec "$EXTRACT/install.sh" "${ARGS[@]+"${ARGS[@]}"}"

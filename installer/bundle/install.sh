@@ -54,6 +54,21 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
+installer_version() {
+	if [[ -f "$HERE/VERSION" ]]; then
+		tr -d '[:space:]' <"$HERE/VERSION"
+		return
+	fi
+	local base
+	base="$(basename "$HERE")"
+	if [[ "$base" == kelmor-installer_* ]]; then
+		base="${base#kelmor-installer_}"
+		printf '%s\n' "${base%_linux_*}"
+		return
+	fi
+	printf 'unknown\n'
+}
+
 if [[ ! -x "$HERE/bin/panel-install" ]]; then
 	echo "kelmor-install: missing $HERE/bin/panel-install" >&2
 	exit 1
@@ -128,8 +143,13 @@ install_tree() {
 	if [[ -e "$dest_bin/panel-cli" ]]; then
 		ln -sfn "$dest_bin/panel-cli" "$dest_local/panel-cli"
 	fi
+	if [[ "$VERSION" != "unknown" && -n "$VERSION" ]]; then
+		printf '%s\n' "$VERSION" >"${ROOT}/usr/local/panel/current-release"
+	fi
 }
 
+VERSION="$(installer_version)"
+echo "kelmor-install: installing Kelmor ${VERSION}"
 echo "kelmor-install: staging binaries and portals"
 install_tree
 
