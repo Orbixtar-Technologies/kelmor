@@ -128,8 +128,14 @@ func TestProvisionWritesHostArtifacts(t *testing.T) {
 		Payload: map[string]any{"account_id": acc.ID}, State: "queued",
 	})
 	w.Drain(context.Background())
-	if got := st.GetAccount(acc.ID); got.Status != "terminated" {
-		t.Fatalf("terminate status %s", got.Status)
+	if got := st.GetAccount(acc.ID); got != nil {
+		t.Fatalf("terminated account still in panel: %+v", got)
+	}
+	if st.AccountByUsername("acme42") != nil || st.UserByUsername("acme42") != nil {
+		t.Fatal("terminated username still reserved")
+	}
+	if st.DomainTaken("acme.test") {
+		t.Fatal("terminated domain still reserved")
 	}
 	if _, err := os.Stat(home); !os.IsNotExist(err) {
 		t.Fatalf("home remains after terminate: %v", err)

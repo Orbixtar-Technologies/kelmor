@@ -23,8 +23,10 @@ export function AccountSummaryPage () {
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
 	const [terminateError, setTerminateError] = useState('')
+	const [removeError, setRemoveError] = useState('')
 	const [passwordOpen, setPasswordOpen] = useState(false)
 	const [terminateOpen, setTerminateOpen] = useState(false)
+	const [removeOpen, setRemoveOpen] = useState(false)
 	const [editingAssignment, setEditingAssignment] = useState(false)
 	const [confirmation, setConfirmation] = useState('')
 	const [pendingLifecycle, setPendingLifecycle] = useState<LifecycleAction | null>(null)
@@ -46,6 +48,16 @@ export function AccountSummaryPage () {
 		setConfirmation('')
 		setTerminateError('')
 		setTerminateOpen(true)
+	}
+	function closeRemove () {
+		setRemoveOpen(false)
+		setConfirmation('')
+		setRemoveError('')
+	}
+	function openRemove () {
+		setConfirmation('')
+		setRemoveError('')
+		setRemoveOpen(true)
 	}
 
 	const load = useCallback(() => {
@@ -77,12 +89,13 @@ export function AccountSummaryPage () {
 	useEffect(() => {
 		if (account?.id !== id) return
 		if (task === 'password' && canModify) setPasswordOpen(true)
-		if (task === 'terminate' && canTerminate) openTerminate()
+		if (task === 'terminate' && canTerminate && account.status !== 'terminated') openTerminate()
+		if ((task === 'remove' || (task === 'terminate' && account.status === 'terminated')) && canTerminate) openRemove()
 		if (['package', 'modify'].includes(task)) {
 			setEditingAssignment(true)
 			assignmentRef.current?.scrollIntoView({ block: 'center' })
 		}
-	}, [account?.id, canModify, canTerminate, id, task])
+	}, [account?.id, account?.status, canModify, canTerminate, id, task])
 
 	async function postAction (action: string): Promise<boolean> {
 		try {
@@ -95,6 +108,7 @@ export function AccountSummaryPage () {
 			const nextMessage = messageFrom(requestError)
 			setMessage(nextMessage)
 			if (action === 'terminate') setTerminateError(nextMessage)
+			if (action === 'remove') setRemoveError(nextMessage)
 			return false
 		}
 	}
@@ -169,7 +183,15 @@ export function AccountSummaryPage () {
 					<Link to={`/sql?account=${id}`}>Databases</Link>
 					<Link to={`/ssl?account=${id}`}>SSL</Link>
 				</div></section>
-				<section className="panel danger-panel"><h2>Terminate account</h2><p>Permanently removes hosted services, prefixed databases, DNS zones, and the Linux identity.</p><div className="button-row">{canTerminate ? <button type="button" className="danger" onClick={openTerminate}>Terminate account</button> : <p className="subtle">Termination is unavailable to your role.</p>}</div></section>
+				<section className="panel danger-panel">{account.status === 'terminated' ? <>
+					<h2>Remove account</h2>
+					<p>This account is terminated. Hosted services are already gone. Remove it from the panel to reuse the username and domain.</p>
+					<div className="button-row">{canTerminate ? <button type="button" className="danger" onClick={openRemove}>Remove account</button> : <p className="subtle">Removal is unavailable to your role.</p>}</div>
+				</> : <>
+					<h2>Terminate account</h2>
+					<p>Permanently removes hosted services, prefixed databases, DNS zones, and the Linux identity. After that finishes, the account is removed so the username and domain can be reused.</p>
+					<div className="button-row">{canTerminate ? <button type="button" className="danger" onClick={openTerminate}>Terminate account</button> : <p className="subtle">Termination is unavailable to your role.</p>}</div>
+				</>}</section>
 			</div>
 			<section className="panel"><h2>Recent operations</h2><div className="table-wrap"><table><thead><tr><th scope="col">Operation</th><th scope="col">When</th><th scope="col">State</th><th scope="col">Next step</th></tr></thead><tbody>{jobs.slice(0, 8).map((job) => {
 				const failure = describeJobFailure(job)
@@ -211,6 +233,15 @@ export function AccountSummaryPage () {
 				<ul>{lifecycleImpact('terminate').map((line) => <li key={line}>{line}</li>)}</ul>
 				<p>Enter <strong>{account.username}</strong> to continue.</p>
 				{terminateError ? <p className="feedback" role="alert">{terminateError}</p> : null}
+				<label>Username confirmation<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoFocus /></label>
+			</Dialog>
+			<Dialog open={removeOpen} title={`Remove ${account.username}`} onClose={closeRemove} actions={<>
+				<button type="button" className="secondary" onClick={closeRemove}>Cancel</button>
+				<button type="button" className="danger" disabled={confirmation !== account.username} onClick={async () => { if (await postAction('remove')) { closeRemove(); navigate('/accounts') } }}>Remove from panel</button>
+			</>}>
+				<ul>{lifecycleImpact('remove').map((line) => <li key={line}>{line}</li>)}</ul>
+				<p>Enter <strong>{account.username}</strong> to continue.</p>
+				{removeError ? <p className="feedback" role="alert">{removeError}</p> : null}
 				<label>Username confirmation<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoFocus /></label>
 			</Dialog>
 		</>

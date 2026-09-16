@@ -334,6 +334,9 @@ func TestResellerCannotSeeForeignAccounts(t *testing.T) {
 	if code := statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+directID+"/terminate", rsTok, map[string]string{}); code != 403 {
 		t.Fatalf("foreign terminate %d", code)
 	}
+	if code := statusOf(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+directID+"/remove", rsTok, map[string]string{}); code != 403 {
+		t.Fatalf("foreign remove %d", code)
+	}
 	if code := statusOf(t, http.MethodGet, srv.URL+"/api/v1/accounts/"+directID+"/export", rsTok, nil); code != 403 {
 		t.Fatalf("foreign export %d", code)
 	}
@@ -2294,6 +2297,71 @@ func TestCompletePasswordChangeRejectsUserWithoutOwnedAccount(t *testing.T) {
 	if stored == nil || stored.PasswordHash != passwordHash || !stored.MustChangePassword {
 		t.Fatalf("unowned password change mutated user: %+v", stored)
 	}
+}
+
+func TestRemoveTerminatedAccountFreesUsernameAndDomain(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	pkg := st.ListPackages()[0].ID
+	created := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "reuse42", "primary_domain": "reuse.test", "package_id": pkg,
+		"owner_email": "ops@reuse.test", "owner_password": "TenantPass!2026",
+	})
+	accountID := created["resource_id"].(string)
+	if code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+accountID+"/remove", admin, map[string]any{}, nil); code != http.StatusConflict {
+		t.Fatalf("remove active: %d %v", code, body)
+	}
+	acc := st.GetAccount(accountID)
+	acc.Status = "terminated"
+	st.PutAccount(acc)
+	removed := post(t, srv.URL+"/api/v1/accounts/"+accountID+"/remove", admin, map[string]any{})
+	if removed["removed"] != true || removed["username"] != "reuse42" {
+		t.Fatalf("remove: %v", removed)
+	}
+	if st.GetAccount(accountID) != nil || st.AccountByUsername("reuse42") != nil || st.DomainTaken("reuse.test") {
+		t.Fatal("terminated identity still reserved")
+	}
+	recreated := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "reuse42", "primary_domain": "reuse.test", "package_id": pkg,
+		"owner_email": "ops@reuse.test", "owner_password": "TenantPass!2026",
+	})
+	if recreated["resource_id"] == "" || recreated["resource_id"] == accountID {
+		t.Fatalf("recreate: %v", recreated)
+	}
+}
+
+func TestCreateAccountExplainsTerminatedConflict(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	st.PutAccount(&store.Account{
+		ID: id.New(), Username: "leftover", PrimaryDomain: "leftover.test",
+		PackageID: st.ListPackages()[0].ID, Status: "terminated", HomePath: "/home/leftover",
+	})
+	st.PutDomain(&store.Domain{
+		ID: id.New(), AccountID: st.AccountByUsername("leftover").ID,
+		FQDN: "leftover.test", ASCII: "leftover.test", Type: "primary", Status: "terminated",
+	})
+	code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "leftover", "primary_domain": "leftover.test", "package_id": st.ListPackages()[0].ID,
+		"owner_email": "ops@leftover.test", "owner_password": "TenantPass!2026",
+	}, nil)
+	assertAPIErrorCode(t, code, body, http.StatusConflict, "TERMINATED_ACCOUNT_EXISTS")
 }
 
 func assertAPIErrorCode(t *testing.T, status int, body map[string]any, wantStatus int, wantCode string) {

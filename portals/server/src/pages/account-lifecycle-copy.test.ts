@@ -40,6 +40,7 @@ describe('account lifecycle copy', () => {
 	test('lists unequal lifecycle impact', () => {
 		expect(lifecycleImpact('suspend').join(' ')).toMatch(/503/)
 		expect(lifecycleImpact('terminate').join(' ')).toMatch(/cannot be undone/)
+		expect(lifecycleImpact('remove').join(' ')).toMatch(/username/)
 		expect(bandwidthEnforcementCopy()).toMatch(/509/)
 		expect(quotaEnforcementCopy()).toMatch(/setquota/)
 	})

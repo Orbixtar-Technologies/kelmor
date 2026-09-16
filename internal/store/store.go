@@ -70,6 +70,7 @@ type Store interface {
 	ImportAccountWithJobAndAudit(imported *AccountImport, job *Job, audit AuditEvent) (*Job, error)
 	GetAccount(string) *Account
 	AccountByUsername(string) *Account
+	PurgeAccount(accountID string) error
 	ListAccounts(q, status string) []Account
 	ListAccountsPage(q, status, cursor string, limit int) AccountPage
 	AddMember(accountID, userID string)

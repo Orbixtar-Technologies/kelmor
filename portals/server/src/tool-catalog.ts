@@ -29,7 +29,7 @@ export function accountTaskTarget (task: string, accountId: string): string {
 	}
 	const service = serviceByTask[task]
 	if (service) return canonicalAccountToolPath(service, accountId) || `/accounts/${accountId}`
-	if (['password', 'terminate', 'package', 'modify', 'suspension', 'summary', 'login'].includes(task)) {
+	if (['password', 'terminate', 'remove', 'package', 'modify', 'suspension', 'summary', 'login'].includes(task)) {
 		return `/accounts/${accountId}?task=${task}`
 	}
 	return `/accounts/${accountId}`

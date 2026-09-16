@@ -5,6 +5,7 @@ const ACTION_LABELS: Record<string, string> = {
 	'account.modify': 'Modify account',
 	'account.suspend': 'Suspend account',
 	'account.terminate': 'Terminate account',
+	'account.remove': 'Remove terminated account',
 	'server.reboot': 'Reboot host',
 	'server.firewall.apply': 'Apply firewall',
 	'server.service.reload': 'Reload service',

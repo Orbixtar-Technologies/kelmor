@@ -431,6 +431,11 @@ async function applyFeature ({
 		await api(`/api/v1/accounts/${accountId}/terminate`, { method: 'POST', body: '{}' })
 		return 'Account terminate queued.'
 	}
+	if (feature.accountAction === 'remove') {
+		if (!accountId) throw new Error('Choose an account first.')
+		await api(`/api/v1/accounts/${accountId}/remove`, { method: 'POST', body: '{}' })
+		return 'Terminated account removed. The username and domain can be reused.'
+	}
 	if (feature.accountAction === 'password') {
 		if (!accountId) throw new Error('Choose an account first.')
 		await api(`/api/v1/accounts/${accountId}/password`, { method: 'POST', body: JSON.stringify({ password: values.password || values.new_password }) })
@@ -520,6 +525,7 @@ function serviceName (feature: WhmFeature) {
 function confirmLabel (feature: WhmFeature) {
 	if (feature.layout === 'confirm' || feature.layout === 'restart') return 'Confirm'
 	if (feature.accountAction === 'terminate') return 'Terminate account'
+	if (feature.accountAction === 'remove') return 'Remove account'
 	if (feature.accountAction === 'suspend') return 'Suspend account'
 	if (feature.layout === 'settings' || feature.settingKey) return 'Save settings'
 	return 'Apply'

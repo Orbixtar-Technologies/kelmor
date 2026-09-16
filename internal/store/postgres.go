@@ -549,6 +549,66 @@ func (p *PG) AccountByUsername(name string) *Account {
 	return p.scanAccount(p.pool.QueryRow(p.ctx(), `SELECT id, reseller_id::text, owner_user_id, username, primary_domain, linux_uid, linux_gid, package_id, status, home_path, ip_address::text, shell_class, login_disabled, desired_revision, observed_revision FROM accounts WHERE username=$1`, name))
 }
 
+func (p *PG) PurgeAccount(accountID string) error {
+	acc := p.GetAccount(accountID)
+	if acc == nil {
+		return nil
+	}
+	ctx := p.ctx()
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin account purge: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	stmts := []string{
+		`UPDATE api_tokens SET account_id=NULL WHERE account_id=$1`,
+		`DELETE FROM restore_journals WHERE account_id=$1::text`,
+		`DELETE FROM resource_usage WHERE account_id=$1`,
+		`DELETE FROM ftp_accounts WHERE account_id=$1`,
+		`DELETE FROM ssh_keys WHERE account_id=$1`,
+		`DELETE FROM cron_jobs WHERE account_id=$1`,
+		`DELETE FROM certificates WHERE account_id=$1`,
+		`DELETE FROM backup_runs WHERE account_id=$1`,
+		`DELETE FROM backup_policies WHERE account_id=$1`,
+		`DELETE FROM wordpress_installations WHERE account_id=$1 OR website_id IN (SELECT id FROM websites WHERE account_id=$1)`,
+		`DELETE FROM application_env WHERE application_id IN (SELECT id FROM applications WHERE account_id=$1)`,
+		`DELETE FROM applications WHERE account_id=$1`,
+		`DELETE FROM websites WHERE account_id=$1`,
+		`DELETE FROM mail_aliases WHERE account_id=$1`,
+		`DELETE FROM mailboxes WHERE account_id=$1`,
+		`DELETE FROM mail_domains WHERE account_id=$1`,
+		`DELETE FROM dns_zones WHERE account_id=$1`,
+		`DELETE FROM hosted_databases WHERE account_id=$1`,
+		`DELETE FROM database_users WHERE account_id=$1`,
+		`DELETE FROM domains WHERE account_id=$1`,
+		`DELETE FROM account_members WHERE account_id=$1`,
+		`DELETE FROM accounts WHERE id=$1`,
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(ctx, stmt, accountID); err != nil {
+			return fmt.Errorf("purge account: %w", err)
+		}
+	}
+	if acc.OwnerUserID != "" {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM users u
+			WHERE u.id=$1
+			  AND NOT EXISTS (SELECT 1 FROM accounts WHERE owner_user_id=u.id)
+			  AND NOT EXISTS (SELECT 1 FROM resellers WHERE user_id=u.id)
+			  AND NOT EXISTS (
+				SELECT 1 FROM user_roles ur
+				JOIN roles r ON r.id=ur.role_id
+				WHERE ur.user_id=u.id AND r.name <> 'customer_owner'
+			  )`, acc.OwnerUserID); err != nil {
+			return fmt.Errorf("purge account owner: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit account purge: %w", err)
+	}
+	return nil
+}
+
 func (p *PG) ListAccounts(q, status string) []Account {
 	q = strings.ToLower(q)
 	rows, err := p.pool.Query(p.ctx(), `SELECT id, reseller_id::text, owner_user_id, username, primary_domain, linux_uid, linux_gid, package_id, status, home_path, ip_address::text, shell_class, login_disabled, desired_revision, observed_revision

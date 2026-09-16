@@ -22,6 +22,7 @@ describe('tool discovery', () => {
 			'Upgrade/Downgrade an Account',
 			'Manage Account Suspension',
 			'Terminate Accounts',
+			'Remove Terminated Accounts',
 			'Force Password Change',
 			'Database Manager',
 			'Email Management',
@@ -52,6 +53,7 @@ describe('tool discovery', () => {
 		['change-package', ['accounts.read', 'accounts.modify']],
 		['suspend-account', ['accounts.read', 'accounts.suspend']],
 		['terminate-account', ['accounts.read', 'accounts.terminate']],
+		['remove-terminated-account', ['accounts.read', 'accounts.terminate']],
 		['force-password', ['accounts.read', 'accounts.modify']],
 		['usage', ['billing.usage.read', 'accounts.read', 'packages.read']],
 		['transfers', ['accounts.read']],
@@ -76,7 +78,7 @@ describe('tool discovery', () => {
 		expect(accountTaskTarget('login', 'account-1')).toBe('/accounts/account-1?task=login')
 	})
 
-	test.each(['password', 'terminate', 'package', 'modify', 'suspension', 'summary'])('preserves the %s lifecycle task after account selection', (task) => {
+	test.each(['password', 'terminate', 'remove', 'package', 'modify', 'suspension', 'summary'])('preserves the %s lifecycle task after account selection', (task) => {
 		expect(accountTaskTarget(task, 'account-1')).toBe(`/accounts/account-1?task=${task}`)
 	})
 })

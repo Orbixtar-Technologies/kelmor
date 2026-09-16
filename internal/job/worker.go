@@ -515,6 +515,9 @@ func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
 	w.Store.PutAccount(acc)
 	_ = w.applyMailStack(acc.ID)
 	_ = w.syncFTPUsers()
+	if err := w.Store.PurgeAccount(acc.ID); err != nil {
+		return fmt.Errorf("remove terminated account from panel: %w", err)
+	}
 	j.Progress = 90
 	_ = w.Store.UpdateJob(j)
 	return nil

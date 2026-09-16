@@ -1,4 +1,4 @@
-export type AccountLifecycleAction = 'create' | 'modify' | 'suspend' | 'unsuspend' | 'terminate'
+export type AccountLifecycleAction = 'create' | 'modify' | 'suspend' | 'unsuspend' | 'terminate' | 'remove'
 
 export function accountHomePath (username: string): string {
 	return `/home/${username}`
@@ -67,7 +67,14 @@ export function lifecycleImpact (action: AccountLifecycleAction): string[] {
 			return [
 				'Drops prefixed databases, DNS zones, vhosts, PHP pools, mail trees, and certificates.',
 				'Removes the home directory and the Linux user.',
+				'After host cleanup finishes, Kelmor removes the account from the panel so the username and domain can be reused.',
 				'This cannot be undone from Director.',
+			]
+		case 'remove':
+			return [
+				'Deletes the terminated account record from Director.',
+				'Frees the username, owner login, and primary domain for a new account.',
+				'Host files were already removed during terminate.',
 			]
 		default: {
 			const exhaustive: never = action

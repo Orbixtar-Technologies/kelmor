@@ -120,6 +120,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/accounts/{accountID}/suspend", a.suspendAccount)
 			r.Post("/accounts/{accountID}/unsuspend", a.unsuspendAccount)
 			r.Post("/accounts/{accountID}/terminate", a.terminateAccount)
+			r.Post("/accounts/{accountID}/remove", a.removeAccount)
 			r.Post("/accounts/{accountID}/migrate", a.migrateAccount)
 			r.Post("/accounts/{accountID}/impersonate", a.impersonate)
 			r.Get("/accounts/{accountID}/usage", a.accountUsage)
@@ -1825,11 +1826,23 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
 		return
 	}
-	if a.Store.AccountByUsername(in.Username) != nil {
+	if existing := a.Store.AccountByUsername(in.Username); existing != nil {
+		if existing.Status == "terminated" || existing.Status == "terminating" {
+			a.fail(w, r, 409, "TERMINATED_ACCOUNT_EXISTS", "A terminated account still holds this username. Remove it from the panel first.", false)
+			return
+		}
+		a.fail(w, r, 409, "USERNAME_TAKEN", "Username already exists", false)
+		return
+	}
+	if u := a.Store.UserByUsername(in.Username); u != nil {
 		a.fail(w, r, 409, "USERNAME_TAKEN", "Username already exists", false)
 		return
 	}
 	if a.Store.DomainTaken(ascii) {
+		if holder := accountHoldingDomain(a.Store, ascii); holder != nil && (holder.Status == "terminated" || holder.Status == "terminating") {
+			a.fail(w, r, 409, "TERMINATED_ACCOUNT_EXISTS", "A terminated account still holds this domain. Remove it from the panel first.", false)
+			return
+		}
 		a.fail(w, r, 409, "DOMAIN_ALREADY_EXISTS", "Domain is already assigned.", false)
 		return
 	}
@@ -2065,6 +2078,50 @@ func (a *API) terminateAccount(w http.ResponseWriter, r *http.Request) {
 	a.setAccountStatus(w, r, "terminating", "account.terminate", rbac.AccountsTerminate)
 }
 
+func (a *API) removeAccount(w http.ResponseWriter, r *http.Request) {
+	accID := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, accID, rbac.AccountsTerminate) {
+		return
+	}
+	acc := a.Store.GetAccount(accID)
+	if acc == nil {
+		a.fail(w, r, 404, "NOT_FOUND", "Account not found", false)
+		return
+	}
+	if acc.Status != "terminated" {
+		a.fail(w, r, 409, "ACCOUNT_NOT_TERMINATED", "Terminate the account first, then remove it to free the username and domain.", false)
+		return
+	}
+	username := acc.Username
+	domain := acc.PrimaryDomain
+	if err := a.Store.PurgeAccount(acc.ID); err != nil {
+		a.fail(w, r, 500, "ACCOUNT_REMOVE_ERROR", "Could not remove the terminated account", false)
+		return
+	}
+	a.audit(r, "account.remove", "account", accID, true,
+		map[string]any{"status": "terminated", "username": username, "primary_domain": domain},
+		map[string]any{"removed": true})
+	writeJSON(w, 200, map[string]any{
+		"removed": true, "username": username, "primary_domain": domain,
+	})
+}
+
+func accountHoldingDomain(st store.Store, ascii string) *store.Account {
+	for _, account := range st.ListAccounts("", "") {
+		if account.PrimaryDomain == ascii {
+			cp := account
+			return &cp
+		}
+		for _, domain := range st.ListDomains(account.ID) {
+			if domain.ASCII == ascii {
+				cp := account
+				return &cp
+			}
+		}
+	}
+	return nil
+}
+
 func (a *API) setAccountStatus(w http.ResponseWriter, r *http.Request, status, action, cap string) {
 	accID := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, accID, cap) {
@@ -2223,6 +2280,10 @@ func (a *API) createDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Store.DomainTaken(ascii) {
+		if holder := accountHoldingDomain(a.Store, ascii); holder != nil && (holder.Status == "terminated" || holder.Status == "terminating") {
+			a.fail(w, r, 409, "TERMINATED_ACCOUNT_EXISTS", "A terminated account still holds this domain. Remove it from the panel first.", false)
+			return
+		}
 		a.fail(w, r, 409, "DOMAIN_ALREADY_EXISTS", "Domain is already assigned.", false)
 		return
 	}

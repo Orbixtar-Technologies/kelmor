@@ -8,6 +8,7 @@ const JOB_LABELS: Record<string, string> = {
 	'account.suspend': 'Suspend account',
 	'account.unsuspend': 'Unsuspend account',
 	'account.terminate': 'Terminate account',
+	'account.remove': 'Remove terminated account',
 	'website.provision': 'Create website',
 	'website.update': 'Update website',
 	'database.create': 'Create database',

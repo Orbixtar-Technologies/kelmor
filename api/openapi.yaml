@@ -613,6 +613,16 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: retire queued }
+  /accounts/{accountID}/remove:
+    post:
+      operationId: removeAccount
+      x-capability: accounts.terminate
+      x-audit-action: account.remove
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: terminated account removed }
+        "409": { description: account is not terminated }
   /accounts/{accountID}/domains:
     get:
       operationId: listDomains

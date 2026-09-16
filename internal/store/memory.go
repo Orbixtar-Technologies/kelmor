@@ -401,6 +401,100 @@ func (m *Memory) AccountByUsername(name string) *Account {
 	}
 	return nil
 }
+
+func (m *Memory) PurgeAccount(accountID string) error {
+	acc := m.GetAccount(accountID)
+	if acc == nil {
+		return nil
+	}
+	for _, domain := range m.ListDomains(accountID) {
+		m.DeleteDomain(domain.ID)
+	}
+	for _, site := range m.ListWebsites(accountID) {
+		m.DeleteWebsite(site.ID)
+	}
+	for _, app := range m.ListApps(accountID) {
+		m.DeleteApp(app.ID)
+	}
+	for _, database := range m.ListDBs(accountID) {
+		m.DeleteDB(database.ID)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, user := range m.DBUsers {
+		if user != nil && user.AccountID == accountID {
+			delete(m.DBUsers, id)
+		}
+	}
+	for id, cert := range m.Certs {
+		if cert != nil && cert.AccountID == accountID {
+			delete(m.Certs, id)
+		}
+	}
+	for id, backup := range m.Backups {
+		if backup != nil && backup.AccountID == accountID {
+			delete(m.Backups, id)
+		}
+	}
+	for id, restore := range m.Restores {
+		if restore != nil && restore.AccountID == accountID {
+			delete(m.Restores, id)
+		}
+	}
+	for id, cron := range m.Crons {
+		if cron != nil && cron.AccountID == accountID {
+			delete(m.Crons, id)
+		}
+	}
+	for id, key := range m.SSHKeys {
+		if key != nil && key.AccountID == accountID {
+			delete(m.SSHKeys, id)
+		}
+	}
+	for id, ftp := range m.FTPs {
+		if ftp != nil && ftp.AccountID == accountID {
+			delete(m.FTPs, id)
+		}
+	}
+	delete(m.Usage, accountID)
+	delete(m.Members, accountID)
+	delete(m.Accounts, accountID)
+	if acc.OwnerUserID != "" && !memoryOwnerStillReferenced(m, acc.OwnerUserID) {
+		for id, session := range m.Sessions {
+			if session != nil && session.UserID == acc.OwnerUserID {
+				delete(m.Sessions, id)
+			}
+		}
+		for id, token := range m.Tokens {
+			if token != nil && token.UserID == acc.OwnerUserID {
+				delete(m.Tokens, id)
+			}
+		}
+		delete(m.Users, acc.OwnerUserID)
+	}
+	return nil
+}
+
+func memoryOwnerStillReferenced(m *Memory, userID string) bool {
+	for _, account := range m.Accounts {
+		if account != nil && account.OwnerUserID == userID {
+			return true
+		}
+	}
+	for _, reseller := range m.Resellers {
+		if reseller != nil && reseller.UserID == userID {
+			return true
+		}
+	}
+	if user := m.Users[userID]; user != nil {
+		for _, role := range user.Roles {
+			if role != "" && role != "customer_owner" {
+				return true
+			}
+		}
+	}
+	return false
+}
 func (m *Memory) ListAccounts(q string, status string) []Account {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
