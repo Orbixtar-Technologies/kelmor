@@ -77,23 +77,7 @@ func CatchallLocal(policy string) string {
 }
 
 func MailDomainNames(st store.Store) []string {
-	seen := map[string]bool{}
-	var names []string
-	for _, acc := range st.ListAccounts("", "") {
-		if acc.Status == "terminated" || acc.Status == "terminating" {
-			continue
-		}
-		for _, md := range st.ListMailDomains(acc.ID) {
-			d := st.GetDomain(md.DomainID)
-			if d == nil || d.ASCII == "" || seen[d.ASCII] {
-				continue
-			}
-			seen[d.ASCII] = true
-			names = append(names, d.ASCII)
-		}
-	}
-	sort.Strings(names)
-	return names
+	return SnapshotHost(st).DomainNames
 }
 
 func VDomains(st store.Store) string {
@@ -105,82 +89,17 @@ func VDomains(st store.Store) string {
 }
 
 func CatchallVirtual(st store.Store) string {
-	var lines []string
-	for _, acc := range st.ListAccounts("", "") {
-		if acc.Status == "terminated" || acc.Status == "terminating" {
-			continue
-		}
-		for _, md := range st.ListMailDomains(acc.ID) {
-			local := CatchallLocal(md.CatchallPolicy)
-			if local == "" {
-				continue
-			}
-			d := st.GetDomain(md.DomainID)
-			if d == nil || d.ASCII == "" {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("@%s %s/%s/Maildir/\n", d.ASCII, d.ASCII, local))
-		}
-	}
-	sort.Strings(lines)
-	return strings.Join(lines, "")
+	return SnapshotHost(st).CatchallVirtual
 }
 
 // RecipientsForHost builds the global virtual/passwd maps. ApplyMailMaps
 // replaces the files on disk, so one account must not erase the others.
 func RecipientsForHost(st store.Store) []Recipient {
-	var out []Recipient
-	seen := map[string]bool{}
-	for _, acc := range st.ListAccounts("", "") {
-		if acc.Status == "terminated" || acc.Status == "terminating" {
-			continue
-		}
-		for _, r := range Recipients(st, acc.ID) {
-			if seen[r.Address] {
-				continue
-			}
-			seen[r.Address] = true
-			out = append(out, r)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
-	return out
+	return SnapshotHost(st).Recipients
 }
 
 func AliasMap(st store.Store) string {
-	var lines []string
-	for _, acc := range st.ListAccounts("", "") {
-		if acc.Status == "terminated" || acc.Status == "terminating" {
-			continue
-		}
-		for _, al := range st.ListMailAliases(acc.ID) {
-			md := mailDomain(st, al.DomainID)
-			if md == nil {
-				continue
-			}
-			d := st.GetDomain(md.DomainID)
-			if d == nil || d.ASCII == "" || al.Address == "" || al.Destination == "" {
-				continue
-			}
-			var dests []string
-			for _, part := range strings.Split(al.Destination, ",") {
-				dest := strings.TrimSpace(part)
-				if dest == "" {
-					continue
-				}
-				if !strings.Contains(dest, "@") {
-					dest = dest + "@" + d.ASCII
-				}
-				dests = append(dests, dest)
-			}
-			if len(dests) == 0 {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("%s@%s %s\n", al.Address, d.ASCII, strings.Join(dests, ",")))
-		}
-	}
-	sort.Strings(lines)
-	return "# panel virtual alias map — generated, do not edit\n" + strings.Join(lines, "")
+	return SnapshotHost(st).AliasMap
 }
 
 func Virtual(recs []Recipient) string {
@@ -307,4 +226,150 @@ func mailDomain(st store.Store, id string) *store.MailDomain {
 		}
 	}
 	return nil
+}
+
+type HostSnapshot struct {
+	Recipients      []Recipient
+	DomainNames     []string
+	CatchallVirtual string
+	AliasMap        string
+	SenderLogin     string
+}
+
+func SnapshotHost(st store.Store) HostSnapshot {
+	accounts := map[string]store.Account{}
+	for _, acc := range st.ListAccounts("", "") {
+		accounts[acc.ID] = acc
+	}
+	packages := map[string]store.Package{}
+	for _, pkg := range st.ListPackages() {
+		packages[pkg.ID] = pkg
+	}
+	domains := map[string]store.Domain{}
+	for _, domain := range st.ListDomains("") {
+		domains[domain.ID] = domain
+	}
+	mailDomains := map[string]store.MailDomain{}
+	for _, md := range st.ListMailDomains("") {
+		mailDomains[md.ID] = md
+	}
+	var recs []Recipient
+	seenAddr := map[string]bool{}
+	for _, mb := range st.ListMailboxes("") {
+		acc, ok := accounts[mb.AccountID]
+		if !ok || acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		md := mailDomains[mb.DomainID]
+		d := domains[md.DomainID]
+		if md.ID == "" || d.ID == "" || d.ASCII == "" {
+			continue
+		}
+		hash := mb.PasswordHash
+		if hash == "" {
+			hash = "!"
+		}
+		daily := 0
+		if pkg, ok := packages[acc.PackageID]; ok {
+			daily = pkg.EmailDailyLimit
+		}
+		rec := Recipient{
+			Address: mb.LocalPart + "@" + d.ASCII, Domain: d.ASCII, LocalPart: mb.LocalPart,
+			Home: "/var/vmail/" + d.ASCII + "/" + mb.LocalPart, UID: acc.LinuxUID, GID: acc.LinuxGID,
+			Quota: mb.QuotaBytes, Hash: hash, Account: acc.Username, DailyLimit: daily,
+		}
+		if seenAddr[rec.Address] {
+			continue
+		}
+		seenAddr[rec.Address] = true
+		recs = append(recs, rec)
+	}
+	sort.Slice(recs, func(i, j int) bool { return recs[i].Address < recs[j].Address })
+	seenDomain := map[string]bool{}
+	var names []string
+	var catchalls []string
+	for _, md := range mailDomains {
+		acc, ok := accounts[md.AccountID]
+		if !ok || acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		d := domains[md.DomainID]
+		if d.ASCII == "" {
+			continue
+		}
+		if !seenDomain[d.ASCII] {
+			seenDomain[d.ASCII] = true
+			names = append(names, d.ASCII)
+		}
+		if local := CatchallLocal(md.CatchallPolicy); local != "" {
+			catchalls = append(catchalls, fmt.Sprintf("@%s %s/%s/Maildir/\n", d.ASCII, d.ASCII, local))
+		}
+	}
+	sort.Strings(names)
+	sort.Strings(catchalls)
+	var aliasLines []string
+	senderLines := []string{}
+	senderSeen := map[string]bool{}
+	addSender := func(addr, login string) {
+		if addr == "" || login == "" {
+			return
+		}
+		key := addr + " " + login
+		if senderSeen[key] {
+			return
+		}
+		senderSeen[key] = true
+		senderLines = append(senderLines, addr+" "+login+"\n")
+	}
+	for _, rec := range recs {
+		addSender(rec.Address, rec.Address)
+	}
+	for _, alias := range st.ListMailAliases("") {
+		acc, ok := accounts[alias.AccountID]
+		if !ok || acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		md := mailDomains[alias.DomainID]
+		d := domains[md.DomainID]
+		if md.ID == "" || d.ASCII == "" || alias.Address == "" || alias.Destination == "" {
+			continue
+		}
+		var dests []string
+		for _, part := range strings.Split(alias.Destination, ",") {
+			dest := strings.TrimSpace(part)
+			if dest == "" {
+				continue
+			}
+			if !strings.Contains(dest, "@") {
+				dest = dest + "@" + d.ASCII
+			}
+			dests = append(dests, dest)
+			addSender(alias.Address+"@"+d.ASCII, dest)
+		}
+		if len(dests) == 0 {
+			continue
+		}
+		aliasLines = append(aliasLines, fmt.Sprintf("%s@%s %s\n", alias.Address, d.ASCII, strings.Join(dests, ",")))
+	}
+	sort.Strings(aliasLines)
+	sort.Strings(senderLines)
+	return HostSnapshot{
+		Recipients:      recs,
+		DomainNames:     names,
+		CatchallVirtual: strings.Join(catchalls, ""),
+		AliasMap:        "# panel virtual alias map — generated, do not edit\n" + strings.Join(aliasLines, ""),
+		SenderLogin:     "# panel sender-login map — generated, do not edit\n" + strings.Join(senderLines, ""),
+	}
+}
+
+func (s HostSnapshot) Virtual() string {
+	return Virtual(s.Recipients) + s.CatchallVirtual
+}
+
+func (s HostSnapshot) VDomains() string {
+	var b strings.Builder
+	for _, n := range s.DomainNames {
+		fmt.Fprintf(&b, "%s OK\n", n)
+	}
+	return b.String()
 }

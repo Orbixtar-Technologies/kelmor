@@ -34,6 +34,7 @@ type AuditFilter struct {
 	Until        *time.Time
 	Limit        int
 	Offset       int
+	Cursor       string
 }
 
 type Store interface {
@@ -70,6 +71,7 @@ type Store interface {
 	GetAccount(string) *Account
 	AccountByUsername(string) *Account
 	ListAccounts(q, status string) []Account
+	ListAccountsPage(q, status, cursor string, limit int) AccountPage
 	AddMember(accountID, userID string)
 	AccountsForUser(userID string) []string
 	DriftedAccounts() []Account
@@ -107,6 +109,7 @@ type Store interface {
 	GetZone(string) *DNSZone
 	ZoneByDomain(domainID string) *DNSZone
 	ListZones(accountID string) []DNSZone
+	ListZonesPage(accountID, cursor string, limit int) ZonePage
 	PutRecord(*DNSRecord)
 	UpsertZoneWithJob(zone *DNSZone, job *Job, audit AuditEvent) (*Job, error)
 	CreateRecordWithJob(record *DNSRecord, accountID string, job *Job, audit AuditEvent) (*Job, error)
@@ -136,6 +139,7 @@ type Store interface {
 	UpsertCertificateWithJob(certificate *Certificate, job *Job, audit AuditEvent) (*Job, error)
 	GetCert(string) *Certificate
 	ListCerts(accountID string) []Certificate
+	ListDueCertificates(cutoff time.Time, limit int) []Certificate
 
 	EnqueueJob(*Job) (*Job, error)
 	EnqueueJobWithAudit(job *Job, audit AuditEvent) (*Job, error)
@@ -152,7 +156,7 @@ type Store interface {
 
 	AppendAudit(AuditEvent)
 	ListAudit(limit int) []AuditEvent
-	QueryAudit(AuditFilter) ([]AuditEvent, int)
+	QueryAudit(AuditFilter) AuditPage
 
 	PutToken(*APIToken)
 	GetToken(id string) *APIToken
@@ -164,6 +168,7 @@ type Store interface {
 	CreateBackupWithJob(backup *BackupRun, job *Job, audit AuditEvent) (*Job, error)
 	GetBackup(string) *BackupRun
 	ListBackups(accountID string) []BackupRun
+	ListBackupsPage(accountID string, limit int) []BackupRun
 	BumpResourceFence(resourceKey string) int64
 	BeginRestore(*RestoreJournal) (*RestoreJournal, error)
 	CreateRestoreWithJob(journal *RestoreJournal, job *Job, audit AuditEvent) (*Job, error)

@@ -47,7 +47,7 @@ func TestSumNginxBandwidthFiltersMonth(t *testing.T) {
 	if len(ids) != 1 || ids[0] != id {
 		t.Fatalf("ids=%v", ids)
 	}
-	got := h.sumNginxBandwidth(ids, now)
+	got := h.sumNginxBandwidth("bwuser", ids, now)
 	if got != 150 {
 		t.Fatalf("sum=%d", got)
 	}

@@ -153,6 +153,7 @@ type DNSZone struct {
 	Provider         string `json:"provider"`
 	DesiredRevision  int64  `json:"desired_revision"`
 	ObservedRevision int64  `json:"observed_revision"`
+	RecordCount      int    `json:"record_count,omitempty"`
 }
 
 type DNSRecord struct {
@@ -340,12 +341,16 @@ type FTPAccount struct {
 }
 
 type Usage struct {
-	AccountID      string    `json:"account_id"`
-	CollectedAt    time.Time `json:"collected_at"`
-	DiskBytes      int64     `json:"disk_bytes"`
-	InodeCount     int64     `json:"inode_count"`
-	BandwidthBytes int64     `json:"bandwidth_bytes"`
-	CPUPercent     float64   `json:"cpu_percent"`
-	MemoryBytes    int64     `json:"memory_bytes"`
-	ProcessCount   int       `json:"process_count"`
+	AccountID      string     `json:"account_id"`
+	CollectedAt    time.Time  `json:"collected_at"`
+	DiskBytes      int64      `json:"disk_bytes"`
+	InodeCount     int64      `json:"inode_count"`
+	BandwidthBytes int64      `json:"bandwidth_bytes"`
+	CPUPercent     float64    `json:"cpu_percent"`
+	MemoryBytes    int64      `json:"memory_bytes"`
+	ProcessCount   int        `json:"process_count"`
+	DiskLimited    bool       `json:"disk_limited"`
+	BandwidthHold  bool       `json:"bandwidth_hold"`
+	EnforcedAt     *time.Time `json:"enforced_at,omitempty"`
+	StaleSeconds   int        `json:"stale_seconds,omitempty"`
 }

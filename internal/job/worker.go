@@ -31,6 +31,8 @@ type Worker struct {
 	Name           string
 	heartbeatEvery time.Duration
 	stop           chan struct{}
+	usageCursor    string
+	lastCertScan   time.Time
 }
 
 func New(st store.Store, agent *operations.Host, log *logging.Logger, box *secret.Box, name string) *Worker {
@@ -72,7 +74,8 @@ func (w *Worker) reap() {
 }
 
 func (w *Worker) scanDrift(ctx context.Context) {
-	w.scanCertRenewals()
+	w.maybeScanCertRenewals()
+	w.collectUsageBatch()
 	for _, acc := range w.Store.DriftedAccounts() {
 		_, _ = w.Store.EnqueueJob(&store.Job{
 			Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
@@ -84,9 +87,17 @@ func (w *Worker) scanDrift(ctx context.Context) {
 	}
 }
 
+func (w *Worker) maybeScanCertRenewals() {
+	if !w.lastCertScan.IsZero() && time.Since(w.lastCertScan) < store.CertScanInterval {
+		return
+	}
+	w.scanCertRenewals()
+}
+
 func (w *Worker) scanCertRenewals() {
+	w.lastCertScan = time.Now()
 	cutoff := time.Now().Add(30 * 24 * time.Hour)
-	for _, c := range w.Store.ListCerts("") {
+	for _, c := range w.Store.ListDueCertificates(cutoff, store.CertRenewalBatch) {
 		if c.Status != "active" || c.NotAfter == nil || !c.NotAfter.Before(cutoff) {
 			continue
 		}
@@ -1058,9 +1069,12 @@ func (w *Worker) ensureCatchallHomes() error {
 
 func (w *Worker) applyMailStack(accountID string) error {
 	acc := w.Store.GetAccount(accountID)
+	snap := mail.SnapshotHost(w.Store)
 	if acc == nil || (acc.Status != "terminating" && acc.Status != "terminated") {
-		local := mail.Recipients(w.Store, accountID)
-		for _, r := range local {
+		for _, r := range snap.Recipients {
+			if accountID != "" && acc != nil && r.Account != acc.Username {
+				continue
+			}
 			uid, gid := 20000, 20000
 			if acc != nil {
 				uid, gid = acc.LinuxUID, acc.LinuxGID
@@ -1076,24 +1090,23 @@ func (w *Worker) applyMailStack(accountID string) error {
 	if err := w.ensureCatchallHomes(); err != nil {
 		return err
 	}
-	recs := mail.RecipientsForHost(w.Store)
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "ApplyMailMaps",
 		Params: mustJSON(map[string]any{
-			"virtual":      mail.Virtual(recs) + mail.CatchallVirtual(w.Store),
-			"domains":      mail.VDomains(w.Store),
-			"passwd":       mail.PasswdFile(recs),
-			"uids":         mail.UIDMap(recs),
-			"gids":         mail.GIDMap(recs),
-			"send_limits":  mail.SendLimits(recs),
-			"aliases":      mail.AliasMap(w.Store),
-			"sender_login": mail.SenderLogin(w.Store, recs),
+			"virtual":      snap.Virtual(),
+			"domains":      snap.VDomains(),
+			"passwd":       mail.PasswdFile(snap.Recipients),
+			"uids":         mail.UIDMap(snap.Recipients),
+			"gids":         mail.GIDMap(snap.Recipients),
+			"send_limits":  mail.SendLimits(snap.Recipients),
+			"aliases":      snap.AliasMap,
+			"sender_login": snap.SenderLogin,
 		}),
 	})
 	if err != nil {
 		return err
 	}
-	return w.ensureDKIM(recs)
+	return w.ensureDKIM(snap.Recipients)
 }
 
 func (w *Worker) ensureDKIM(recs []mail.Recipient) error {
@@ -2109,6 +2122,22 @@ func (w *Worker) reapplyAccountWebsites(acc *store.Account) {
 	}
 }
 
+func (w *Worker) collectUsageBatch() {
+	page := w.Store.ListAccountsPage("", "", w.usageCursor, store.UsageBatchSize)
+	for i := range page.Items {
+		acc := page.Items[i]
+		if acc.Status == "terminated" || acc.Status == "terminating" {
+			continue
+		}
+		w.recordUsage(&acc)
+	}
+	if page.HasMore {
+		w.usageCursor = page.NextCursor
+	} else {
+		w.usageCursor = ""
+	}
+}
+
 func (w *Worker) recordUsage(acc *store.Account) {
 	if acc == nil {
 		return
@@ -2130,7 +2159,7 @@ func (w *Worker) recordUsage(acc *store.Account) {
 				u.ProcessCount = int(got.ProcessCount)
 				u.MemoryBytes = got.MemoryBytes
 				u.BandwidthBytes = got.BandwidthBytes
-				w.Store.PutUsage(u)
+				w.persistUsageEnforcement(acc, u, now)
 				_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
 					Method: "EnforceAccountDisk",
 					Params: mustJSON(map[string]any{"username": acc.Username, "home": acc.HomePath}),
@@ -2159,8 +2188,22 @@ func (w *Worker) recordUsage(acc *store.Account) {
 		if info.Mode().IsRegular() {
 			u.DiskBytes += info.Size()
 		}
+		if u.InodeCount >= store.MaxWalkInodes {
+			return filepath.SkipAll
+		}
 		return nil
 	})
+	w.persistUsageEnforcement(acc, u, now)
+}
+
+func (w *Worker) persistUsageEnforcement(acc *store.Account, u *store.Usage, now time.Time) {
+	pkg := w.Store.GetPackage(acc.PackageID)
+	if pkg != nil {
+		u.DiskLimited = pkg.DiskBytes > 0 && u.DiskBytes >= pkg.DiskBytes
+		u.BandwidthHold = pkg.BandwidthBytesMonthly > 0 && u.BandwidthBytes >= pkg.BandwidthBytesMonthly
+	}
+	enforced := now
+	u.EnforcedAt = &enforced
 	w.Store.PutUsage(u)
 }
 

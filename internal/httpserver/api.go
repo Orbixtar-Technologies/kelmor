@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -664,34 +663,7 @@ func (a *API) serverMonitor(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.ServerRead) {
 		return
 	}
-	root := ""
-	if a.Agent != nil && a.Agent.Sock == "" {
-		root = a.Agent.Root
-	}
-	writeJSON(w, 200, monitoring.CollectMeasured(a.Store, root, func(acc store.Account) *store.Usage {
-		if a.Agent == nil {
-			return nil
-		}
-		params, _ := json.Marshal(map[string]any{"username": acc.Username, "home": acc.HomePath})
-		raw, err := a.Agent.Dispatch(r.Context(), operations.Request{
-			Method: "MeasureAccountUsage",
-			Params: params,
-		})
-		if err != nil {
-			return nil
-		}
-		b, _ := json.Marshal(raw)
-		var got operations.AccountUsage
-		if json.Unmarshal(b, &got) != nil {
-			return nil
-		}
-		return &store.Usage{
-			AccountID: acc.ID, CollectedAt: time.Now().UTC(),
-			DiskBytes: got.DiskBytes, InodeCount: got.InodeCount,
-			MemoryBytes: got.MemoryBytes, ProcessCount: int(got.ProcessCount),
-			BandwidthBytes: got.BandwidthBytes,
-		}
-	}))
+	writeJSON(w, 200, monitoring.CollectLatest(a.Store, time.Now().UTC()))
 }
 
 func (a *API) serverServices(w http.ResponseWriter, r *http.Request) {
@@ -1089,9 +1061,10 @@ func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
 		return
 	}
-	items, total := a.Store.QueryAudit(filter)
+	page := a.Store.QueryAudit(filter)
 	writeJSON(w, 200, map[string]any{
-		"items": items, "total": total, "limit": filter.Limit, "offset": filter.Offset,
+		"items": page.Items, "has_more": page.HasMore, "next_cursor": page.NextCursor,
+		"limit": filter.Limit, "offset": filter.Offset, "total": len(page.Items),
 	})
 }
 
@@ -1162,6 +1135,7 @@ func auditFilter(r *http.Request) (store.AuditFilter, error) {
 			return store.AuditFilter{}, fmt.Errorf("offset must be a non-negative integer")
 		}
 	}
+	filter.Cursor = strings.TrimSpace(query.Get("cursor"))
 	return filter, nil
 }
 
@@ -1170,11 +1144,13 @@ func (a *API) listAllZones(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accounts := map[string]store.Account{}
-	for _, account := range a.Store.ListAccounts("", "") {
+	for _, account := range a.Store.ListAccountsPage("", "", "", store.MaxInventoryLimit).Items {
 		accounts[account.ID] = account
 	}
-	items := make([]map[string]any, 0)
-	for _, zone := range a.Store.ListZones("") {
+	query := r.URL.Query()
+	page := a.Store.ListZonesPage("", query.Get("cursor"), store.ParseLimit(query.Get("limit"), store.DefaultInventoryLimit))
+	items := make([]map[string]any, 0, len(page.Items))
+	for _, zone := range page.Items {
 		account, ok := accounts[zone.AccountID]
 		if !ok {
 			continue
@@ -1183,13 +1159,12 @@ func (a *API) listAllZones(w http.ResponseWriter, r *http.Request) {
 			"id": zone.ID, "account_id": zone.AccountID, "domain_id": zone.DomainID,
 			"name": zone.Name, "dnssec_enabled": zone.DNSSECEnabled, "provider": zone.Provider,
 			"desired_revision": zone.DesiredRevision, "observed_revision": zone.ObservedRevision,
-			"account_username": account.Username, "records": len(a.Store.ListRecords(zone.ID)),
+			"account_username": account.Username, "records": zone.RecordCount,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return fmt.Sprint(items[i]["name"]) < fmt.Sprint(items[j]["name"])
+	writeJSON(w, 200, map[string]any{
+		"items": items, "has_more": page.HasMore, "next_cursor": page.NextCursor,
 	})
-	writeJSON(w, 200, map[string]any{"items": items})
 }
 
 func (a *API) listFeatureSets(w http.ResponseWriter, r *http.Request) {
@@ -1599,10 +1574,10 @@ func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 	for _, pkg := range a.Store.ListPackages() {
 		packages[pkg.ID] = pkg
 	}
-	items := a.Store.ListAccounts(query.Get("q"), query.Get("status"))
-	visible := make([]store.Account, 0, len(items))
-	usage := map[string]*store.Usage{}
-	for _, account := range items {
+	page := a.Store.ListAccountsPage(query.Get("q"), query.Get("status"), query.Get("cursor"), store.ParseLimit(query.Get("limit"), store.DefaultInventoryLimit))
+	visible := make([]store.Account, 0, len(page.Items))
+	usage := map[string]store.Usage{}
+	for _, account := range page.Items {
 		if !ac.IsServerScope && !ac.CanAccount(account.ID) {
 			continue
 		}
@@ -1612,18 +1587,28 @@ func (a *API) listAccounts(w http.ResponseWriter, r *http.Request) {
 		if resellerID != "" && account.ResellerID != resellerID {
 			continue
 		}
-		accountUsage := a.Store.GetUsage(account.ID)
-		if overQuota && !accountOverQuota(account, packages, accountUsage) {
+		accountUsage := page.Usage[account.ID]
+		usageCopy := accountUsage
+		if overQuota && !accountOverQuota(account, packages, usagePointer(usageCopy)) {
 			continue
 		}
-		if accountUsage != nil {
+		if accountUsage.AccountID != "" {
 			usage[account.ID] = accountUsage
 		}
 		visible = append(visible, account)
 	}
 	writeJSON(w, 200, map[string]any{
-		"items": visible, "total": len(visible), "usage": usage,
+		"items": visible, "has_more": page.HasMore, "next_cursor": page.NextCursor,
+		"total": len(visible), "usage": usage,
 	})
+}
+
+func usagePointer(usage store.Usage) *store.Usage {
+	if usage.AccountID == "" && usage.CollectedAt.IsZero() {
+		return nil
+	}
+	cp := usage
+	return &cp
 }
 
 func accountOverQuota(account store.Account, packages map[string]store.Package, usage *store.Usage) bool {
@@ -2154,7 +2139,13 @@ func (a *API) accountUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	u := a.Store.GetUsage(id)
 	if u == nil {
-		u = &store.Usage{AccountID: id, CollectedAt: time.Now().UTC()}
+		u = &store.Usage{AccountID: id}
+	} else {
+		cp := *u
+		u = &cp
+		if !u.CollectedAt.IsZero() {
+			u.StaleSeconds = int(time.Since(u.CollectedAt).Seconds())
+		}
 	}
 	writeJSON(w, 200, u)
 }
@@ -2318,6 +2309,15 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 	if in.Runtime == "" {
 		in.Runtime = "php"
 	}
+	if in.Runtime == "php" {
+		if in.RuntimeVersion == "" {
+			in.RuntimeVersion = "8.3"
+		}
+		if !supportedPHPVersion(in.RuntimeVersion) {
+			a.fail(w, r, 400, "VALIDATION", "unsupported PHP version", false)
+			return
+		}
+	}
 	acc := a.Store.GetAccount(aid)
 	if in.DocumentRoot == "" && acc != nil {
 		in.DocumentRoot = acc.HomePath + "/public_html"
@@ -2338,6 +2338,9 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 			}
 			if in.Runtime != "" {
 				existing.Runtime = in.Runtime
+			}
+			if in.RuntimeVersion != "" {
+				existing.RuntimeVersion = in.RuntimeVersion
 			}
 			if in.DocumentRoot != "" {
 				existing.DocumentRoot = in.DocumentRoot
@@ -2683,9 +2686,11 @@ func (a *API) listZones(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.DNSRead) {
 		return
 	}
-	items := a.Store.ListZones(aid)
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	writeJSON(w, 200, map[string]any{"items": items})
+	query := r.URL.Query()
+	page := a.Store.ListZonesPage(aid, query.Get("cursor"), store.ParseLimit(query.Get("limit"), store.DefaultInventoryLimit))
+	writeJSON(w, 200, map[string]any{
+		"items": page.Items, "has_more": page.HasMore, "next_cursor": page.NextCursor,
+	})
 }
 
 func (a *API) listRecords(w http.ResponseWriter, r *http.Request) {
@@ -3226,7 +3231,7 @@ func (a *API) listBackups(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAccount(w, r, aid, rbac.BackupsRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListBackups(aid)})
+	writeJSON(w, 200, map[string]any{"items": a.Store.ListBackupsPage(aid, store.MaxBackupList)})
 }
 
 func (a *API) createBackup(w http.ResponseWriter, r *http.Request) {
@@ -3335,7 +3340,12 @@ func (a *API) listFiles(w http.ResponseWriter, r *http.Request) {
 	if listing.Items == nil {
 		listing.Items = []map[string]any{}
 	}
-	writeJSON(w, 200, map[string]any{"path": rel, "items": listing.Items})
+	truncated := false
+	if len(listing.Items) > store.MaxDirectoryEntries {
+		listing.Items = listing.Items[:store.MaxDirectoryEntries]
+		truncated = true
+	}
+	writeJSON(w, 200, map[string]any{"path": rel, "items": listing.Items, "truncated": truncated})
 }
 
 func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {

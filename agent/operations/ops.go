@@ -846,7 +846,12 @@ func (h *Host) listDirectory(path string) (any, error) {
 		return map[string]any{"path": path, "items": []any{}}, nil
 	}
 	items := []map[string]any{}
+	truncated := false
 	for _, e := range entries {
+		if len(items) >= 500 {
+			truncated = true
+			break
+		}
 		info, _ := e.Info()
 		sz := int64(0)
 		if info != nil {
@@ -854,7 +859,7 @@ func (h *Host) listDirectory(path string) (any, error) {
 		}
 		items = append(items, map[string]any{"name": e.Name(), "dir": e.IsDir(), "size": sz})
 	}
-	return map[string]any{"path": path, "items": items}, nil
+	return map[string]any{"path": path, "items": items, "truncated": truncated}, nil
 }
 
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {

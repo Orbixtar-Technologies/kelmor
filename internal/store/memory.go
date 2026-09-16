@@ -419,6 +419,30 @@ func (m *Memory) ListAccounts(q string, status string) []Account {
 	return out
 }
 
+func (m *Memory) ListAccountsPage(q, status, cursor string, limit int) AccountPage {
+	limit = ClampPageLimit(limit, DefaultInventoryLimit)
+	items := m.ListAccounts(q, status)
+	page := AccountPage{Usage: map[string]Usage{}}
+	for _, account := range items {
+		if !AfterUsername(cursor, account.Username) {
+			continue
+		}
+		if len(page.Items) == limit {
+			page.HasMore = true
+			page.NextCursor = page.Items[len(page.Items)-1].Username
+			break
+		}
+		page.Items = append(page.Items, account)
+		if usage := m.GetUsage(account.ID); usage != nil {
+			page.Usage[account.ID] = *usage
+		}
+	}
+	if !page.HasMore && len(page.Items) > 0 {
+		page.NextCursor = page.Items[len(page.Items)-1].Username
+	}
+	return page
+}
+
 func (m *Memory) DomainTaken(ascii string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -626,13 +650,41 @@ func (m *Memory) ZoneByDomain(domainID string) *DNSZone {
 func (m *Memory) ListZones(accountID string) []DNSZone {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	counts := map[string]int{}
+	for _, record := range m.Records {
+		counts[record.ZoneID]++
+	}
 	out := []DNSZone{}
 	for _, z := range m.Zones {
 		if accountID == "" || z.AccountID == accountID {
-			out = append(out, *z)
+			cp := *z
+			cp.RecordCount = counts[z.ID]
+			out = append(out, cp)
 		}
 	}
 	return out
+}
+
+func (m *Memory) ListZonesPage(accountID, cursor string, limit int) ZonePage {
+	limit = ClampPageLimit(limit, DefaultInventoryLimit)
+	items := m.ListZones(accountID)
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	page := ZonePage{}
+	for _, zone := range items {
+		if !AfterName(cursor, zone.Name) {
+			continue
+		}
+		if len(page.Items) == limit {
+			page.HasMore = true
+			page.NextCursor = page.Items[len(page.Items)-1].Name
+			break
+		}
+		page.Items = append(page.Items, ZonePageItem{DNSZone: zone, RecordCount: zone.RecordCount})
+	}
+	if !page.HasMore && len(page.Items) > 0 {
+		page.NextCursor = page.Items[len(page.Items)-1].Name
+	}
+	return page
 }
 func (m *Memory) PutRecord(r *DNSRecord) { m.mu.Lock(); m.Records[r.ID] = r; m.mu.Unlock() }
 func (m *Memory) ListRecords(zoneID string) []DNSRecord {
@@ -761,6 +813,24 @@ func (m *Memory) ListCerts(accountID string) []Certificate {
 		if accountID == "" || c.AccountID == accountID || (accountID == "" && c.AccountID == "") {
 			out = append(out, *c)
 		}
+	}
+	return out
+}
+
+func (m *Memory) ListDueCertificates(cutoff time.Time, limit int) []Certificate {
+	if limit <= 0 {
+		limit = CertRenewalBatch
+	}
+	out := []Certificate{}
+	for _, cert := range m.ListCerts("") {
+		if cert.Status != "active" || cert.NotAfter == nil || !cert.NotAfter.Before(cutoff) {
+			continue
+		}
+		out = append(out, cert)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NotAfter.Before(*out[j].NotAfter) })
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out
 }
@@ -1053,7 +1123,7 @@ func (m *Memory) ListAudit(limit int) []AuditEvent {
 	return out
 }
 
-func (m *Memory) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
+func (m *Memory) QueryAudit(filter AuditFilter) AuditPage {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	query := strings.ToLower(filter.Query)
@@ -1092,25 +1162,46 @@ func (m *Memory) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
 		filtered = append(filtered, *event)
 	}
 	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].OccurredAt.Equal(filtered[j].OccurredAt) {
+			return filtered[i].ID > filtered[j].ID
+		}
 		return filtered[i].OccurredAt.After(filtered[j].OccurredAt)
 	})
-	total := len(filtered)
-	start := filter.Offset
-	if start < 0 {
-		start = 0
-	}
-	if start > total {
-		start = total
+	cursorTime, cursorID, hasCursor := DecodeAuditCursor(filter.Cursor)
+	if hasCursor {
+		trimmed := filtered[:0]
+		for _, event := range filtered {
+			if event.OccurredAt.After(cursorTime) {
+				continue
+			}
+			if event.OccurredAt.Equal(cursorTime) && event.ID >= cursorID {
+				continue
+			}
+			trimmed = append(trimmed, event)
+		}
+		filtered = trimmed
+	} else if filter.Offset > 0 {
+		if filter.Offset >= len(filtered) {
+			filtered = nil
+		} else {
+			filtered = filtered[filter.Offset:]
+		}
 	}
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = total
+		limit = 200
 	}
-	end := start + limit
-	if end > total {
-		end = total
+	page := AuditPage{}
+	if len(filtered) > limit {
+		page.HasMore = true
+		page.Items = filtered[:limit]
+	} else {
+		page.Items = filtered
 	}
-	return filtered[start:end], total
+	if len(page.Items) > 0 {
+		page.NextCursor = EncodeAuditCursor(page.Items[len(page.Items)-1])
+	}
+	return page
 }
 
 func (m *Memory) PutToken(t *APIToken) { m.mu.Lock(); m.Tokens[t.ID] = t; m.mu.Unlock() }
@@ -1175,6 +1266,17 @@ func (m *Memory) ListBackups(accountID string) []BackupRun {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out
+}
+
+func (m *Memory) ListBackupsPage(accountID string, limit int) []BackupRun {
+	items := m.ListBackups(accountID)
+	if limit <= 0 || limit > MaxBackupList {
+		limit = MaxBackupList
+	}
+	if len(items) > limit {
+		return items[:limit]
+	}
+	return items
 }
 
 func restoreIsActive(state string) bool {

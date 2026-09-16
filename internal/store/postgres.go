@@ -569,6 +569,91 @@ func (p *PG) ListAccounts(q, status string) []Account {
 	return out
 }
 
+func (p *PG) ListAccountsPage(q, status, cursor string, limit int) AccountPage {
+	limit = ClampPageLimit(limit, DefaultInventoryLimit)
+	q = strings.ToLower(q)
+	page := AccountPage{Usage: map[string]Usage{}}
+	rows, err := p.pool.Query(p.ctx(), `
+		SELECT a.id, a.reseller_id::text, a.owner_user_id, a.username, a.primary_domain, a.linux_uid, a.linux_gid,
+		       a.package_id, a.status, a.home_path, a.ip_address::text, a.shell_class, a.login_disabled,
+		       a.desired_revision, a.observed_revision,
+		       u.collected_at, u.disk_bytes, u.inode_count, u.bandwidth_bytes, u.cpu_percent, u.memory_bytes,
+		       u.process_count, COALESCE(u.disk_limited, false), COALESCE(u.bandwidth_hold, false), u.enforced_at
+		FROM accounts a
+		LEFT JOIN LATERAL (
+			SELECT collected_at, disk_bytes, inode_count, bandwidth_bytes, cpu_percent, memory_bytes, process_count,
+			       disk_limited, bandwidth_hold, enforced_at
+			FROM resource_usage WHERE account_id=a.id ORDER BY collected_at DESC LIMIT 1
+		) u ON true
+		WHERE ($1='' OR a.status=$1)
+		  AND ($2='' OR a.username ILIKE '%'||$2||'%' OR a.primary_domain ILIKE '%'||$2||'%')
+		  AND ($3='' OR a.username > $3)
+		ORDER BY a.username
+		LIMIT $4`, status, q, cursor, limit+1)
+	if err != nil {
+		return page
+	}
+	defer rows.Close()
+	for rows.Next() {
+		account := Account{}
+		var reseller, ip *string
+		var collected *time.Time
+		var disk, inodes, bandwidth, memory *int64
+		var cpu *float64
+		var processes *int
+		var diskLimited, bandwidthHold bool
+		var enforced *time.Time
+		if err := rows.Scan(
+			&account.ID, &reseller, &account.OwnerUserID, &account.Username, &account.PrimaryDomain,
+			&account.LinuxUID, &account.LinuxGID, &account.PackageID, &account.Status, &account.HomePath,
+			&ip, &account.ShellClass, &account.LoginDisabled, &account.DesiredRevision, &account.ObservedRevision,
+			&collected, &disk, &inodes, &bandwidth, &cpu, &memory, &processes, &diskLimited, &bandwidthHold, &enforced,
+		); err != nil {
+			continue
+		}
+		if reseller != nil {
+			account.ResellerID = *reseller
+		}
+		if ip != nil {
+			account.IPAddress = *ip
+		}
+		page.Items = append(page.Items, account)
+		if collected != nil {
+			usage := Usage{
+				AccountID: account.ID, CollectedAt: *collected,
+				DiskLimited: diskLimited, BandwidthHold: bandwidthHold, EnforcedAt: enforced,
+			}
+			if disk != nil {
+				usage.DiskBytes = *disk
+			}
+			if inodes != nil {
+				usage.InodeCount = *inodes
+			}
+			if bandwidth != nil {
+				usage.BandwidthBytes = *bandwidth
+			}
+			if cpu != nil {
+				usage.CPUPercent = *cpu
+			}
+			if memory != nil {
+				usage.MemoryBytes = *memory
+			}
+			if processes != nil {
+				usage.ProcessCount = *processes
+			}
+			page.Usage[account.ID] = usage
+		}
+	}
+	if len(page.Items) > limit {
+		page.HasMore = true
+		page.Items = page.Items[:limit]
+	}
+	if len(page.Items) > 0 {
+		page.NextCursor = page.Items[len(page.Items)-1].Username
+	}
+	return page
+}
+
 func (p *PG) AddMember(accountID, userID string) {
 	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO account_members (account_id, user_id, role) VALUES ($1,$2,'customer_owner') ON CONFLICT DO NOTHING`, accountID, userID)
 }
@@ -828,7 +913,13 @@ func (p *PG) ZoneByDomain(domainID string) *DNSZone {
 }
 
 func (p *PG) ListZones(accountID string) []DNSZone {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, domain_id, name, dnssec_enabled, provider, desired_revision, observed_revision FROM dns_zones WHERE $1='' OR account_id::text=$1`, accountID)
+	rows, err := p.pool.Query(p.ctx(), `
+		SELECT z.id, z.account_id, z.domain_id, z.name, z.dnssec_enabled, z.provider, z.desired_revision, z.observed_revision,
+		       COALESCE(rc.n, 0)
+		FROM dns_zones z
+		LEFT JOIN (SELECT zone_id, COUNT(*) AS n FROM dns_records GROUP BY zone_id) rc ON rc.zone_id=z.id
+		WHERE $1='' OR z.account_id::text=$1
+		ORDER BY z.name`, accountID)
 	if err != nil {
 		return nil
 	}
@@ -836,10 +927,43 @@ func (p *PG) ListZones(accountID string) []DNSZone {
 	var out []DNSZone
 	for rows.Next() {
 		var z DNSZone
-		_ = rows.Scan(&z.ID, &z.AccountID, &z.DomainID, &z.Name, &z.DNSSECEnabled, &z.Provider, &z.DesiredRevision, &z.ObservedRevision)
+		_ = rows.Scan(&z.ID, &z.AccountID, &z.DomainID, &z.Name, &z.DNSSECEnabled, &z.Provider, &z.DesiredRevision, &z.ObservedRevision, &z.RecordCount)
 		out = append(out, z)
 	}
 	return out
+}
+
+func (p *PG) ListZonesPage(accountID, cursor string, limit int) ZonePage {
+	limit = ClampPageLimit(limit, DefaultInventoryLimit)
+	page := ZonePage{}
+	rows, err := p.pool.Query(p.ctx(), `
+		SELECT z.id, z.account_id, z.domain_id, z.name, z.dnssec_enabled, z.provider, z.desired_revision, z.observed_revision,
+		       COALESCE(rc.n, 0)
+		FROM dns_zones z
+		LEFT JOIN (SELECT zone_id, COUNT(*) AS n FROM dns_records GROUP BY zone_id) rc ON rc.zone_id=z.id
+		WHERE ($1='' OR z.account_id::text=$1)
+		  AND ($2='' OR z.name > $2)
+		ORDER BY z.name
+		LIMIT $3`, accountID, cursor, limit+1)
+	if err != nil {
+		return page
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var z DNSZone
+		if err := rows.Scan(&z.ID, &z.AccountID, &z.DomainID, &z.Name, &z.DNSSECEnabled, &z.Provider, &z.DesiredRevision, &z.ObservedRevision, &z.RecordCount); err != nil {
+			continue
+		}
+		page.Items = append(page.Items, ZonePageItem{DNSZone: z, RecordCount: z.RecordCount})
+	}
+	if len(page.Items) > limit {
+		page.HasMore = true
+		page.Items = page.Items[:limit]
+	}
+	if len(page.Items) > 0 {
+		page.NextCursor = page.Items[len(page.Items)-1].Name
+	}
+	return page
 }
 
 func (p *PG) PutRecord(r *DNSRecord) {
@@ -1009,6 +1133,33 @@ func (p *PG) GetCert(cid string) *Certificate {
 
 func (p *PG) ListCerts(accountID string) []Certificate {
 	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id::text, hostname, kind, status, not_after, COALESCE(issuer,'') FROM certificates WHERE $1='' OR account_id::text=$1`, accountID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []Certificate
+	for rows.Next() {
+		var c Certificate
+		var acc *string
+		_ = rows.Scan(&c.ID, &acc, &c.Hostname, &c.Kind, &c.Status, &c.NotAfter, &c.Issuer)
+		if acc != nil {
+			c.AccountID = *acc
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func (p *PG) ListDueCertificates(cutoff time.Time, limit int) []Certificate {
+	if limit <= 0 {
+		limit = CertRenewalBatch
+	}
+	rows, err := p.pool.Query(p.ctx(), `
+		SELECT id, account_id::text, hostname, kind, status, not_after, COALESCE(issuer,'')
+		FROM certificates
+		WHERE status='active' AND not_after IS NOT NULL AND not_after < $1
+		ORDER BY not_after ASC
+		LIMIT $2`, cutoff, limit)
 	if err != nil {
 		return nil
 	}
@@ -1351,18 +1502,24 @@ func scanAuditRows(rows pgx.Rows) []AuditEvent {
 	return out
 }
 
-func (p *PG) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
+func (p *PG) QueryAudit(filter AuditFilter) AuditPage {
 	const where = `
 		FROM audit_events
-		WHERE ($1='' OR concat_ws(' ', action, resource_type, resource_id::text, account_id::text,
-				actor_id::text, source_ip::text, request_id::text) ILIKE '%'||$1||'%')
+		WHERE ($1='' OR action ILIKE '%'||$1||'%' OR resource_type ILIKE '%'||$1||'%'
+				OR resource_id::text ILIKE '%'||$1||'%' OR account_id::text ILIKE '%'||$1||'%'
+				OR actor_id::text ILIKE '%'||$1||'%' OR request_id::text ILIKE '%'||$1||'%')
 		  AND ($2='' OR strpos(action, $2) > 0)
 		  AND ($3='' OR resource_type=$3)
 		  AND ($4='' OR account_id::text=$4)
 		  AND ($5='' OR actor_id::text=$5)
 		  AND ($6::boolean IS NULL OR success=$6)
 		  AND ($7::timestamptz IS NULL OR occurred_at >= $7)
-		  AND ($8::timestamptz IS NULL OR occurred_at <= $8)`
+		  AND ($8::timestamptz IS NULL OR occurred_at <= $8)
+		  AND (
+			$9::timestamptz IS NULL
+			OR occurred_at < $9
+			OR (occurred_at = $9 AND id::text < $10)
+		  )`
 	var success, since, until any
 	if filter.Success != nil {
 		success = *filter.Success
@@ -1373,21 +1530,41 @@ func (p *PG) QueryAudit(filter AuditFilter) ([]AuditEvent, int) {
 	if filter.Until != nil {
 		until = *filter.Until
 	}
+	cursorTime, cursorID, hasCursor := DecodeAuditCursor(filter.Cursor)
+	var cursorStamp any
+	if hasCursor {
+		cursorStamp = cursorTime
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	offset := 0
+	if !hasCursor {
+		offset = filter.Offset
+	}
 	args := []any{
 		filter.Query, filter.Action, filter.ResourceType, filter.AccountID, filter.ActorID,
-		success, since, until,
-	}
-	var total int
-	if err := p.pool.QueryRow(p.ctx(), `SELECT count(*)`+where, args...).Scan(&total); err != nil {
-		return nil, 0
+		success, since, until, cursorStamp, cursorID, limit + 1, offset,
 	}
 	rows, err := p.pool.Query(p.ctx(), `SELECT `+auditColumns+where+`
-		ORDER BY occurred_at DESC LIMIT $9 OFFSET $10`, append(args, filter.Limit, filter.Offset)...)
+		ORDER BY occurred_at DESC, id DESC LIMIT $11 OFFSET $12`, args...)
 	if err != nil {
-		return nil, 0
+		return AuditPage{}
 	}
 	defer rows.Close()
-	return scanAuditRows(rows), total
+	items := scanAuditRows(rows)
+	page := AuditPage{}
+	if len(items) > limit {
+		page.HasMore = true
+		page.Items = items[:limit]
+	} else {
+		page.Items = items
+	}
+	if len(page.Items) > 0 {
+		page.NextCursor = EncodeAuditCursor(page.Items[len(page.Items)-1])
+	}
+	return page
 }
 
 func (p *PG) PutToken(t *APIToken) {
@@ -1464,6 +1641,24 @@ func (p *PG) GetBackup(bid string) *BackupRun {
 
 func (p *PG) ListBackups(accountID string) []BackupRun {
 	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, kind, state, destination, COALESCE(checksum,''), COALESCE(size_bytes,0), created_at, finished_at FROM backup_runs WHERE $1='' OR account_id::text=$1 ORDER BY created_at DESC`, accountID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []BackupRun
+	for rows.Next() {
+		var b BackupRun
+		_ = rows.Scan(&b.ID, &b.AccountID, &b.Kind, &b.State, &b.Destination, &b.Checksum, &b.SizeBytes, &b.CreatedAt, &b.FinishedAt)
+		out = append(out, b)
+	}
+	return out
+}
+
+func (p *PG) ListBackupsPage(accountID string, limit int) []BackupRun {
+	if limit <= 0 || limit > MaxBackupList {
+		limit = MaxBackupList
+	}
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, account_id, kind, state, destination, COALESCE(checksum,''), COALESCE(size_bytes,0), created_at, finished_at FROM backup_runs WHERE $1='' OR account_id::text=$1 ORDER BY created_at DESC LIMIT $2`, accountID, limit)
 	if err != nil {
 		return nil
 	}
@@ -1598,14 +1793,14 @@ func (p *PG) DeleteFTP(id string) {
 }
 
 func (p *PG) PutUsage(u *Usage) {
-	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO resource_usage (id, account_id, collected_at, disk_bytes, inode_count, bandwidth_bytes, cpu_percent, memory_bytes, process_count)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id.New(), u.AccountID, u.CollectedAt, u.DiskBytes, u.InodeCount, u.BandwidthBytes, u.CPUPercent, u.MemoryBytes, u.ProcessCount)
+	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO resource_usage (id, account_id, collected_at, disk_bytes, inode_count, bandwidth_bytes, cpu_percent, memory_bytes, process_count, disk_limited, bandwidth_hold, enforced_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, id.New(), u.AccountID, u.CollectedAt, u.DiskBytes, u.InodeCount, u.BandwidthBytes, u.CPUPercent, u.MemoryBytes, u.ProcessCount, u.DiskLimited, u.BandwidthHold, u.EnforcedAt)
 }
 
 func (p *PG) GetUsage(accountID string) *Usage {
 	u := &Usage{AccountID: accountID}
-	if err := p.pool.QueryRow(p.ctx(), `SELECT collected_at, disk_bytes, inode_count, bandwidth_bytes, cpu_percent, memory_bytes, process_count FROM resource_usage WHERE account_id=$1 ORDER BY collected_at DESC LIMIT 1`, accountID).
-		Scan(&u.CollectedAt, &u.DiskBytes, &u.InodeCount, &u.BandwidthBytes, &u.CPUPercent, &u.MemoryBytes, &u.ProcessCount); err != nil {
+	if err := p.pool.QueryRow(p.ctx(), `SELECT collected_at, disk_bytes, inode_count, bandwidth_bytes, cpu_percent, memory_bytes, process_count, COALESCE(disk_limited,false), COALESCE(bandwidth_hold,false), enforced_at FROM resource_usage WHERE account_id=$1 ORDER BY collected_at DESC LIMIT 1`, accountID).
+		Scan(&u.CollectedAt, &u.DiskBytes, &u.InodeCount, &u.BandwidthBytes, &u.CPUPercent, &u.MemoryBytes, &u.ProcessCount, &u.DiskLimited, &u.BandwidthHold, &u.EnforcedAt); err != nil {
 		return nil
 	}
 	return u

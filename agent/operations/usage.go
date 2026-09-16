@@ -40,14 +40,47 @@ func (h *Host) measureAccountUsage(username, home string) (AccountUsage, error) 
 		if info.Mode().IsRegular() {
 			u.DiskBytes += info.Size()
 		}
+		if u.InodeCount >= 10000 {
+			return filepath.SkipAll
+		}
 		return nil
 	})
+	_ = h.persistUsedBytes(username, u.DiskBytes)
 	if h.live() {
 		u.ProcessCount, u.MemoryBytes = processUsageFor(username)
 	}
-	u.BandwidthBytes = h.sumNginxBandwidth(h.websiteIDsForAccount(username), time.Now().UTC())
-	h.persistBandwidthTotal(username, time.Now().UTC(), u.BandwidthBytes)
+	now := time.Now().UTC()
+	u.BandwidthBytes = h.sumNginxBandwidth(username, h.websiteIDsForAccount(username), now)
+	h.persistBandwidthTotal(username, now, u.BandwidthBytes)
 	return u, nil
+}
+
+func (h *Host) persistUsedBytes(username string, bytes int64) error {
+	if err := validate.Username(username); err != nil {
+		return err
+	}
+	body := []byte(strconv.FormatInt(bytes, 10) + "\n")
+	_, err := h.ApplyFile("/var/lib/panel/quotas/"+username+".used", body, 0o644)
+	return err
+}
+
+func (h *Host) readUsedBytes(username string) (int64, bool) {
+	if validate.Username(username) != nil {
+		return 0, false
+	}
+	p, err := h.resolve("/var/lib/panel/quotas/" + username + ".used")
+	if err != nil {
+		return 0, false
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func processUsageFor(username string) (procs, rss int64) {

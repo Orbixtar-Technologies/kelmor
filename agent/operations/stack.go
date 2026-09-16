@@ -16,41 +16,53 @@ import (
 )
 
 func (h *Host) applyMailMaps(virtual, domains, passwd, uids, gids, sendLimits, aliases, senderLogin string) (Result, error) {
-	if _, err := h.ApplyFile("/var/lib/panel/mail/virtual", []byte(virtual), 0o640); err != nil {
-		return Result{}, err
-	}
-	if _, err := h.ApplyFile("/var/lib/panel/mail/vdomains", []byte(domains), 0o640); err != nil {
-		return Result{}, err
-	}
-	if _, err := h.ApplyFile("/var/lib/panel/mail/passwd", []byte(passwd), 0o640); err != nil {
-		return Result{}, err
-	}
-	if uids != "" {
-		if _, err := h.ApplyFile("/var/lib/panel/mail/uids", []byte(uids), 0o640); err != nil {
-			return Result{}, err
-		}
-	}
-	if gids != "" {
-		if _, err := h.ApplyFile("/var/lib/panel/mail/gids", []byte(gids), 0o640); err != nil {
-			return Result{}, err
-		}
-	}
-	if sendLimits != "" {
-		if _, err := h.ApplyFile("/var/lib/panel/mail/send-limits", []byte(sendLimits), 0o644); err != nil {
-			return Result{}, err
-		}
-	}
 	if aliases == "" {
 		aliases = "# panel virtual alias map — generated, do not edit\n"
-	}
-	if _, err := h.ApplyFile("/var/lib/panel/mail/aliases", []byte(aliases), 0o640); err != nil {
-		return Result{}, err
 	}
 	if senderLogin == "" {
 		senderLogin = "# panel sender-login map — generated, do not edit\n"
 	}
-	if _, err := h.ApplyFile("/var/lib/panel/mail/sender-login", []byte(senderLogin), 0o640); err != nil {
-		return Result{}, err
+	planned := []struct {
+		dest string
+		body string
+		mode uint32
+	}{
+		{"/var/lib/panel/mail/virtual", virtual, 0o640},
+		{"/var/lib/panel/mail/vdomains", domains, 0o640},
+		{"/var/lib/panel/mail/passwd", passwd, 0o640},
+		{"/var/lib/panel/mail/uids", uids, 0o640},
+		{"/var/lib/panel/mail/gids", gids, 0o640},
+		{"/var/lib/panel/mail/send-limits", sendLimits, 0o644},
+		{"/var/lib/panel/mail/aliases", aliases, 0o640},
+		{"/var/lib/panel/mail/sender-login", senderLogin, 0o640},
+	}
+	type staged struct{ dest, stage string }
+	var stagedFiles []staged
+	for _, file := range planned {
+		if file.body == "" && (file.dest == "/var/lib/panel/mail/uids" || file.dest == "/var/lib/panel/mail/gids" || file.dest == "/var/lib/panel/mail/send-limits") {
+			continue
+		}
+		stage := file.dest + ".next"
+		if _, err := h.ApplyFile(stage, []byte(file.body), file.mode); err != nil {
+			for _, item := range stagedFiles {
+				h.removeManaged(item.stage)
+			}
+			return Result{}, err
+		}
+		stagedFiles = append(stagedFiles, staged{file.dest, stage})
+	}
+	for _, item := range stagedFiles {
+		from, err := h.resolve(item.stage)
+		if err != nil {
+			return Result{}, err
+		}
+		to, err := h.resolve(item.dest)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := os.Rename(from, to); err != nil {
+			return Result{}, err
+		}
 	}
 	if h.live() {
 		_ = os.MkdirAll("/var/lib/panel/mail", 0o755)

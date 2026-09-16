@@ -95,9 +95,15 @@ func (h *Host) rejectHomeWrite(path string, incoming int64) error {
 	if err != nil || limit <= 0 {
 		return nil
 	}
-	used, err := h.measureAccountUsage(username, "/home/"+username)
-	if err != nil {
-		return limits.Check{Kind: "disk_bytes", Limit: limit, Used: limit}
+	var usedDisk int64
+	if cached, ok := h.readUsedBytes(username); ok {
+		usedDisk = cached
+	} else {
+		used, err := h.measureAccountUsage(username, "/home/"+username)
+		if err != nil {
+			return limits.Check{Kind: "disk_bytes", Limit: limit, Used: limit}
+		}
+		usedDisk = used.DiskBytes
 	}
 	var destSize, stagingSize int64
 	if rp, err := h.resolve(path); err == nil {
@@ -109,7 +115,7 @@ func (h *Host) rejectHomeWrite(path string, incoming int64) error {
 			stagingSize = st.Size()
 		}
 	}
-	adjusted := used.DiskBytes - destSize - stagingSize
+	adjusted := usedDisk - destSize - stagingSize
 	if adjusted < 0 {
 		adjusted = 0
 	}

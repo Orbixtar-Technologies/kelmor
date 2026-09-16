@@ -2,14 +2,26 @@ package operations
 
 import (
 	"bufio"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/hosting-panel/panel/internal/pkg/validate"
 )
+
+type bandwidthCheckpoint struct {
+	Path   string `json:"path"`
+	Inode  uint64 `json:"inode"`
+	Size   int64  `json:"size"`
+	Offset int64  `json:"offset"`
+	Month  string `json:"month"`
+	Bytes  int64  `json:"bytes"`
+}
 
 func parseNginxBodyBytes(line string) (when time.Time, n int64, ok bool) {
 	line = strings.TrimSpace(line)
@@ -119,34 +131,114 @@ func (h *Host) websiteIDsForAccount(username string) []string {
 	return ids
 }
 
-func (h *Host) sumNginxBandwidth(websiteIDs []string, now time.Time) int64 {
-	var total int64
+func (h *Host) sumNginxBandwidth(username string, websiteIDs []string, now time.Time) int64 {
+	month := now.UTC().Format("200601")
+	total := h.readPersistedMonthly(username, now)
 	for _, id := range websiteIDs {
 		if id == "" || strings.ContainsAny(id, "/\\") {
 			continue
 		}
-		for _, suffix := range []string{".access.log", ".access.log.1"} {
-			p, err := h.resolve("/var/log/nginx/" + id + suffix)
-			if err != nil {
-				continue
-			}
-			f, err := os.Open(p)
-			if err != nil {
-				continue
-			}
-			sc := bufio.NewScanner(f)
-			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-			for sc.Scan() {
-				when, n, ok := parseNginxBodyBytes(sc.Text())
-				if !ok || !sameCalendarMonth(when, now) {
-					continue
-				}
-				total += n
-			}
-			_ = f.Close()
-		}
+		total += h.readBandwidthDelta(username, "/var/log/nginx/"+id+".access.log", month, now)
 	}
 	return total
+}
+
+func (h *Host) readPersistedMonthly(username string, month time.Time) int64 {
+	if validate.Username(username) != nil {
+		return 0
+	}
+	p, err := h.resolve("/var/lib/panel/bandwidth/" + username + "/" + month.UTC().Format("200601"))
+	if err != nil {
+		return 0
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+func (h *Host) readBandwidthDelta(username, rel, month string, now time.Time) int64 {
+	p, err := h.resolve(rel)
+	if err != nil {
+		return 0
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		return 0
+	}
+	var inode uint64
+	if sys, ok := info.Sys().(*syscall.Stat_t); ok {
+		inode = sys.Ino
+	}
+	cp := h.loadBandwidthCheckpoint(username, rel)
+	start := int64(0)
+	already := int64(0)
+	if cp != nil && cp.Inode == inode && cp.Month == month && info.Size() >= cp.Offset {
+		start = cp.Offset
+		already = cp.Bytes
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	if start > 0 {
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			return 0
+		}
+	}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var delta int64
+	for sc.Scan() {
+		when, n, ok := parseNginxBodyBytes(sc.Text())
+		if !ok || !sameCalendarMonth(when, now) {
+			continue
+		}
+		delta += n
+	}
+	offset, _ := f.Seek(0, io.SeekCurrent)
+	if offset == 0 {
+		offset = info.Size()
+	}
+	h.saveBandwidthCheckpoint(username, bandwidthCheckpoint{
+		Path: rel, Inode: inode, Size: info.Size(), Offset: offset, Month: month, Bytes: already + delta,
+	})
+	return delta
+}
+
+func (h *Host) checkpointPath(username, rel string) string {
+	name := strings.ReplaceAll(strings.Trim(rel, "/"), "/", "_")
+	return "/var/lib/panel/bandwidth/" + username + "/cp-" + name
+}
+
+func (h *Host) loadBandwidthCheckpoint(username, rel string) *bandwidthCheckpoint {
+	p, err := h.resolve(h.checkpointPath(username, rel))
+	if err != nil {
+		return nil
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	var cp bandwidthCheckpoint
+	if json.Unmarshal(b, &cp) != nil {
+		return nil
+	}
+	return &cp
+}
+
+func (h *Host) saveBandwidthCheckpoint(username string, cp bandwidthCheckpoint) {
+	body, err := json.Marshal(cp)
+	if err != nil {
+		return
+	}
+	_, _ = h.ApplyFile(h.checkpointPath(username, cp.Path), append(body, '\n'), 0o644)
 }
 
 func (h *Host) persistBandwidthTotal(username string, month time.Time, n int64) {
