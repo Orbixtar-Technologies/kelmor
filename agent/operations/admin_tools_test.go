@@ -86,6 +86,33 @@ func TestApplyAdminToolsBindsTLSWhenCertExists(t *testing.T) {
 	}
 }
 
+func TestApplyAdminToolsKeepsExistingRoundcubeConfig(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Root: root}
+	main := filepath.Join(root, "etc/roundcube/config.inc.php")
+	if err := os.MkdirAll(filepath.Dir(main), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := "<?php\ninclude(\"/etc/roundcube/debian-db-roundcube.php\");\n$config['skin'] = 'elastic';\n"
+	if err := os.WriteFile(main, []byte(original), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.applyAdminTools("keep.test", []string{"roundcube"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(got)
+	if !strings.Contains(body, "debian-db-roundcube.php") {
+		t.Fatalf("lost package db include: %s", body)
+	}
+	if !strings.Contains(body, "/etc/roundcube/config.panel.inc.php") {
+		t.Fatalf("missing panel include: %s", body)
+	}
+}
+
 func TestSystemPathRejectsUnmanagedRoots(t *testing.T) {
 	h := &Host{Root: t.TempDir()}
 	if _, err := h.systemPath("/etc/passwd"); err == nil {

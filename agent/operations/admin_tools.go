@@ -128,15 +128,36 @@ func (h *Host) ensureRoundcubeInclude() error {
 		if !os.IsNotExist(err) {
 			return err
 		}
-		_, err = h.ApplyFile(roundcubeMainConfigPath, []byte("<?php\n"+needle+"\n"), 0o640)
-		return err
+		return h.writeRoundcubeMain("<?php\n" + needle + "\n")
 	}
 	if strings.Contains(string(prev), roundcubeOverlayPath) {
+		h.restrictRoundcubeConfig()
 		return nil
 	}
 	next := strings.TrimRight(string(prev), "\n") + "\n" + needle + "\n"
-	_, err = h.ApplyFile(roundcubeMainConfigPath, []byte(next), 0o640)
-	return err
+	return h.writeRoundcubeMain(next)
+}
+
+func (h *Host) writeRoundcubeMain(body string) error {
+	if _, err := h.ApplyFile(roundcubeMainConfigPath, []byte(body), 0o640); err != nil {
+		return err
+	}
+	h.restrictRoundcubeConfig()
+	return nil
+}
+
+func (h *Host) restrictRoundcubeConfig() {
+	abs, err := h.resolve(roundcubeMainConfigPath)
+	if err != nil {
+		return
+	}
+	_ = os.Chmod(abs, 0o640)
+	if !h.live() {
+		return
+	}
+	if gid := webServerGID(); gid > 0 {
+		_ = os.Chown(abs, 0, gid)
+	}
 }
 
 func (h *Host) retireToolSites(ascii string) {
