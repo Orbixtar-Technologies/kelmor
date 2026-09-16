@@ -225,6 +225,9 @@ func applyControlDB(c Config) error {
 }
 
 func applyControlPlane(c Config) error {
+	if _, err := ensureInstallSecrets(c); err != nil {
+		return err
+	}
 	for _, d := range []string{"bin", "run", "jobs", "backups", "releases", "secrets"} {
 		if err := os.MkdirAll(root(c, "var/lib/panel/"+d), 0o750); err != nil {
 			return err

@@ -1,18 +1,42 @@
 package store
 
 import (
+	"errors"
 	"time"
 
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
 )
 
+var ErrAdminMissing = errors.New("administrator user not created yet")
+
 func SeedDev(st Store, adminUser, adminPass, adminEmail string) error {
 	return SeedAdmin(st, adminUser, adminPass, adminEmail, false)
 }
 
+func ResetAdminPassword(st Store, username, password string) error {
+	user := st.UserByUsername(username)
+	if user == nil {
+		return ErrAdminMissing
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	user.PasswordHash = hash
+	user.MustChangePassword = false
+	st.PutUser(user)
+	st.RevokeSessionsForUser(user.ID)
+	return nil
+}
+
 func SeedAdmin(st Store, adminUser, adminPass, adminEmail string, mustChange bool) error {
 	if existing := st.UserByUsername(adminUser); existing != nil {
+		if existing.MustChangePassword {
+			if err := ResetAdminPassword(st, adminUser, adminPass); err != nil {
+				return err
+			}
+		}
 		if len(st.ListPackages()) == 0 {
 			return seedCatalog(st)
 		}

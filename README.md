@@ -67,7 +67,7 @@ Optional hostname, email, and Director admin password (min 12 characters):
 curl -fsSL https://github.com/Orbixtar-Technologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash -s -- --hostname panel.example.net --admin-email ops@example.net --admin-password 'your-password'
 ```
 
-If you omit `--admin-password`, the installer generates one and prints it at the end. Change it later with `sudo panel-install --set-admin-password 'your-password'` (full path: `/usr/local/panel/bin/panel-install`). The username is **admin**. Do not use `ChangeMeOnce!2026`.
+If you omit `--admin-password`, the installer generates one and prints it at the end. Change it later with `sudo /usr/local/panel/bin/panel-install --set-admin-password 'your-password'`. That command updates the live Director `admin` user in PostgreSQL, not only `/var/lib/panel/secrets/admin-bootstrap`. Do not use `ChangeMeOnce!2026`.
 
 Local artifact path (no GitHub, no VM publish):
 

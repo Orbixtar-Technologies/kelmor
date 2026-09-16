@@ -891,8 +891,8 @@ func SetAdministratorPassword(c Config, password string) error {
 	if err != nil {
 		return err
 	}
-	if err := updateLiveAdminPassword(secrets.AdminPassword); err != nil {
-		fmt.Fprintf(os.Stdout, "kelmor-install: control database not updated yet (%v); bootstrap secret written\n", err)
+	if err := applyLiveAdminPassword(c, secrets.AdminPassword); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1154,9 +1154,12 @@ func applyAdministrator(c Config) error {
 	if secrets.AdminPassword == credentials.KnownAdminPassword {
 		return fmt.Errorf("administrator password cannot be the development default ChangeMeOnce!2026; pass --admin-password with a different password (12+ characters)")
 	}
-	body := fmt.Sprintf("admin_email=%s hostname=%s channel=%s\nAdministrator bootstrap credential installed for first login rotation.\n",
+	body := fmt.Sprintf("admin_email=%s hostname=%s channel=%s\nAdministrator bootstrap credential installed for Director user admin.\n",
 		c.AdminEmail, c.Hostname, c.Channel)
-	return os.WriteFile(root(c, "var/lib/panel/administrator.txt"), []byte(body), 0o640)
+	if err := os.WriteFile(root(c, "var/lib/panel/administrator.txt"), []byte(body), 0o640); err != nil {
+		return err
+	}
+	return applyLiveAdminPassword(c, secrets.AdminPassword)
 }
 
 func applyReport(c Config) error {

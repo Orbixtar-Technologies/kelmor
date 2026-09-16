@@ -61,7 +61,7 @@ func Boot(ctx context.Context, service string) (*Runtime, error) {
 		if secrets.AdminPassword == credentials.KnownAdminPassword && os.Getenv("PANEL_DEV") != "1" {
 			return nil, fmt.Errorf("refusing repository-known administrator password")
 		}
-		if err := store.SeedAdmin(pg, admin, secrets.AdminPassword, email, true); err != nil {
+		if err := store.SeedAdmin(pg, admin, secrets.AdminPassword, email, false); err != nil {
 			return nil, err
 		}
 	}
