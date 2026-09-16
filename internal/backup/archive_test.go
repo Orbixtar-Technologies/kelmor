@@ -33,7 +33,7 @@ func TestBuildRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if man.Checksums["files.tar.gz"] == "" || obj == "" {
+	if man.Checksums["object"] == "" || obj == "" {
 		t.Fatal(man)
 	}
 	dest := filepath.Join(root, "restore")
@@ -51,7 +51,7 @@ func TestBuildRestoreRoundTrip(t *testing.T) {
 	if string(body) != "hello-site" {
 		t.Fatalf("got %q", body)
 	}
-	if man.FormatVersion != 2 {
+	if man.FormatVersion != FormatHPM3 {
 		t.Fatalf("format %d", man.FormatVersion)
 	}
 }

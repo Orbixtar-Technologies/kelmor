@@ -99,13 +99,21 @@ func (h *Host) rejectHomeWrite(path string, incoming int64) error {
 	if err != nil {
 		return limits.Check{Kind: "disk_bytes", Limit: limit, Used: limit}
 	}
-	var old int64
+	var destSize, stagingSize int64
 	if rp, err := h.resolve(path); err == nil {
 		if st, err := os.Stat(rp); err == nil {
-			old = st.Size()
+			destSize = st.Size()
+		}
+		staging := filepath.Join(filepath.Dir(rp), "."+filepath.Base(rp)+".staging")
+		if st, err := os.Stat(staging); err == nil {
+			stagingSize = st.Size()
 		}
 	}
-	return limits.DiskWouldExceed(used.DiskBytes-old, incoming, limit)
+	adjusted := used.DiskBytes - destSize - stagingSize
+	if adjusted < 0 {
+		adjusted = 0
+	}
+	return limits.DiskWouldExceed(adjusted, incoming, limit)
 }
 
 func (h *Host) enforceAccountDisk(username, home string) (Result, error) {

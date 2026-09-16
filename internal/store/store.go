@@ -6,10 +6,19 @@ import (
 )
 
 var (
-	ErrStaleAccount     = errors.New("stale account revision")
-	ErrStaleFence       = errors.New("stale job fence")
-	ErrJobNotFound      = errors.New("job not found")
-	ErrJobStateConflict = errors.New("job state does not allow cancellation")
+	ErrStaleAccount      = errors.New("stale account revision")
+	ErrStaleFence        = errors.New("stale job fence")
+	ErrJobNotFound       = errors.New("job not found")
+	ErrJobStateConflict  = errors.New("job state does not allow cancellation")
+	ErrRestoreInProgress = errors.New("restore already in progress")
+)
+
+const (
+	StateRestoreRequested   = "restore_requested"
+	StateMaintenance        = "maintenance"
+	StateManualIntervention = "manual_intervention"
+	StateRestoreComplete    = "complete"
+	StateRestoreFailed      = "failed"
 )
 
 const JobLeaseTTL = 2 * time.Minute
@@ -155,6 +164,14 @@ type Store interface {
 	CreateBackupWithJob(backup *BackupRun, job *Job, audit AuditEvent) (*Job, error)
 	GetBackup(string) *BackupRun
 	ListBackups(accountID string) []BackupRun
+	BumpResourceFence(resourceKey string) int64
+	BeginRestore(*RestoreJournal) (*RestoreJournal, error)
+	CreateRestoreWithJob(journal *RestoreJournal, job *Job, audit AuditEvent) (*Job, error)
+	GetRestore(id string) *RestoreJournal
+	GetActiveRestore(accountID string) *RestoreJournal
+	CheckpointRestore(id, state string, extra map[string]any) error
+	FailRestore(id, state string, manual bool) error
+	FinishRestore(id string) error
 
 	PutCron(*CronJob)
 	UpsertCronWithJob(cron *CronJob, job *Job, audit AuditEvent) (*Job, error)

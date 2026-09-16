@@ -276,6 +276,25 @@ type BackupRun struct {
 	Manifest    map[string]any `json:"manifest,omitempty"`
 }
 
+type RestoreJournal struct {
+	ID                 string         `json:"id"`
+	AccountID          string         `json:"account_id"`
+	BackupID           string         `json:"backup_id"`
+	ActorID            string         `json:"actor_id"`
+	ObjectKey          string         `json:"object_key"`
+	ManifestHash       string         `json:"manifest_hash,omitempty"`
+	FormatVersion      int            `json:"format_version"`
+	KeyIdentity        string         `json:"key_identity,omitempty"`
+	KeyVersion         uint32         `json:"key_version,omitempty"`
+	Fence              int64          `json:"fence"`
+	State              string         `json:"state"`
+	ManualIntervention bool           `json:"manual_intervention"`
+	Checkpoints        []string       `json:"checkpoints,omitempty"`
+	Extra              map[string]any `json:"extra,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+}
+
 type AccountImport struct {
 	Account       Account
 	Domains       []Domain

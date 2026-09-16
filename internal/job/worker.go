@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1579,6 +1580,16 @@ func (w *Worker) createBackup(j *store.Job) error {
 		home = filepath.Join(w.Agent.Root, strings.TrimPrefix(acc.HomePath, "/"))
 		localRoot = filepath.Join(w.Agent.Root, "var/lib/panel/backups")
 	}
+	expected, err := w.expectedBackupComponents(acc)
+	if err != nil {
+		return err
+	}
+	created := time.Now().UTC().Format(time.RFC3339)
+	key := backup.ObjectKey(acc, created)
+	if err := backup.PersistObjectKey(b, key); err != nil {
+		return err
+	}
+	w.Store.PutBackup(b)
 	homeTar, dumps, mailTrees, err := w.collectBackupParts(acc, b.ID, home)
 	if err != nil {
 		return err
@@ -1587,18 +1598,28 @@ func (w *Worker) createBackup(j *store.Job) error {
 	if err != nil {
 		return err
 	}
-	man, key, err := backup.BuildFull(context.Background(), w.Box, repo, acc, w.Store.ListDBs(acc.ID), w.Store.ListMailboxes(acc.ID), homeTar, dumps, mailTrees)
+	parts, got, err := backup.ComponentsFromCollected(homeTar, dumps, mailTrees)
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
-	b.State = "succeeded"
-	b.FinishedAt = &now
-	b.Checksum = man.Checksums["files.tar.gz"]
-	b.Manifest = map[string]any{
-		"format_version": man.FormatVersion, "key": key, "account_id": man.AccountID,
-		"checksums": man.Checksums, "databases": man.Databases, "mailboxes": man.Mailboxes,
+	if err := backup.MatchExpected(got, expected); err != nil {
+		return err
 	}
+	fence := w.Store.BumpResourceFence("backup:" + acc.ID)
+	anchor := backup.ConsistencyAnchor{
+		Fence: fence, Level: "account",
+		Quiesced:   []string{"files", "databases", "mail", "cron", "ftp"},
+		SnapshotAt: created,
+	}
+	man, _, err := backup.SealHPM3ToKey(context.Background(), w.Box, repo, acc, key, parts, expected, anchor)
+	if err != nil {
+		return err
+	}
+	if err := backup.ReconcileUploaded(context.Background(), repo, b, man); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	b.FinishedAt = &now
 	w.Store.PutBackup(b)
 	return nil
 }
@@ -1611,6 +1632,9 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 	acc := w.Store.GetAccount(str(j.Payload["account_id"]))
 	if acc == nil || w.Box == nil {
 		return fmt.Errorf("restore prerequisites missing")
+	}
+	if b.AccountID != acc.ID {
+		return fmt.Errorf("restore account mismatch")
 	}
 	key, _ := b.Manifest["key"].(string)
 	if key == "" {
@@ -1630,34 +1654,170 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 	if err != nil {
 		return err
 	}
-	man, raw, err := backup.OpenArchive(context.Background(), w.Box, repo, key)
+	opened, err := backup.OpenAny(context.Background(), w.Box, repo, key)
 	if err != nil {
 		return err
 	}
+	defer opened.Close()
+	man := opened.Manifest
 	if err := backup.Preflight(man, acc); err != nil {
 		return err
 	}
-	homeTar := raw
-	var dumps []backup.DBDump
-	var mailTrees []backup.MailDump
-	if man.FormatVersion == 2 {
-		homeTar, dumps, mailTrees, err = backup.SplitV2(raw)
+	manifestHash := man.Checksums["object"]
+	if manifestHash == "" {
+		manifestHash = man.Checksums["files.tar.gz"]
+	}
+	stored, err := w.Store.BeginRestore(&store.RestoreJournal{
+		AccountID: acc.ID, BackupID: b.ID, ActorID: j.ActorID, ObjectKey: key,
+		ManifestHash: manifestHash, FormatVersion: man.FormatVersion,
+		KeyIdentity: man.KeyIdentity, KeyVersion: man.KeyVersion,
+		State: store.StateRestoreRequested,
+	})
+	if err != nil {
+		return err
+	}
+	pin := backup.RestorePin{
+		ActorID: stored.ActorID, AccountID: stored.AccountID, BackupID: stored.BackupID,
+		ObjectKey: stored.ObjectKey, ManifestHash: stored.ManifestHash,
+		FormatVersion: stored.FormatVersion, KeyIdentity: stored.KeyIdentity,
+		KeyVersion: stored.KeyVersion, Fence: stored.Fence,
+	}
+	journalDir := w.restoreJournalDir(acc.ID)
+	fileJournal, err := backup.OpenJournal(journalDir)
+	if err != nil {
+		fileJournal, err = backup.CreateJournal(journalDir, pin)
 		if err != nil {
 			return err
 		}
-	}
-	if err := w.restoreHomeTar(acc, b.ID, home, homeTar); err != nil {
+	} else if err := fileJournal.PinsMatch(pin); err != nil && !fileJournal.HasCheckpoint(backup.StateStaged) {
 		return err
 	}
-	if err := w.restoreDatabaseDumps(acc, b.ID, dumps); err != nil {
+	if !fileJournal.HasCheckpoint(backup.StateMaintenance) {
+		if err := fileJournal.Checkpoint(backup.StateMaintenance); err != nil {
+			return err
+		}
+		_ = w.Store.CheckpointRestore(stored.ID, store.StateMaintenance, nil)
+	}
+	if man.FormatVersion == 1 || man.FormatVersion == 2 {
+		homeTar := opened.LegacyPayload()
+		var dumps []backup.DBDump
+		var mailTrees []backup.MailDump
+		if man.FormatVersion == 2 {
+			homeTar, dumps, mailTrees, err = backup.SplitV2(homeTar)
+			if err != nil {
+				return err
+			}
+		}
+		if !fileJournal.HasCheckpoint("commit:" + backup.ComponentHome) {
+			if err := w.restoreHomeTar(acc, b.ID, home, homeTar); err != nil {
+				_ = fileJournal.FailRollback(err)
+				_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
+				return err
+			}
+			if err := fileJournal.Checkpoint("commit:" + backup.ComponentHome); err != nil {
+				return err
+			}
+		}
+		if err := w.restoreDatabaseDumps(acc, b.ID, dumps); err != nil {
+			_ = fileJournal.FailRollback(err)
+			_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
+			return err
+		}
+		if err := w.restoreMailboxTrees(acc, b.ID, mailTrees); err != nil {
+			_ = fileJournal.FailRollback(err)
+			_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
+			return err
+		}
+	} else if err := w.restoreHPM3(acc, b.ID, home, opened, fileJournal, stored.ID); err != nil {
 		return err
 	}
-	if err := w.restoreMailboxTrees(acc, b.ID, mailTrees); err != nil {
-		return err
+	if !fileJournal.HasCheckpoint(backup.StateRestoreVerifying) {
+		if err := fileJournal.Checkpoint(backup.StateRestoreVerifying); err != nil {
+			return err
+		}
 	}
 	_ = w.applyMailStack(acc.ID)
 	w.syncWordPressDatabase(acc)
-	return nil
+	if err := fileJournal.Complete(); err != nil {
+		return err
+	}
+	return w.Store.FinishRestore(stored.ID)
+}
+
+func (w *Worker) restoreHPM3(acc *store.Account, backupID, destHome string, opened *backup.ArchiveReader, journal *backup.Journal, restoreID string) error {
+	if journal.HasCheckpoint(backup.StateStaged) && journal.HasCheckpoint("commit:"+backup.ComponentHome) {
+		return nil
+	}
+	if err := journal.Checkpoint(backup.StateStaged); err != nil {
+		return err
+	}
+	return opened.Each(func(name string, r io.Reader) error {
+		body, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		step := "commit:" + name
+		if journal.HasCheckpoint(step) {
+			return nil
+		}
+		switch {
+		case name == backup.ComponentHome:
+			if err := w.restoreHomeTar(acc, backupID, destHome, body); err != nil {
+				_ = journal.FailRollback(err)
+				_ = w.Store.FailRestore(restoreID, store.StateManualIntervention, true)
+				return err
+			}
+		case strings.HasPrefix(name, "databases/"):
+			engine, file, ok := strings.Cut(strings.TrimPrefix(name, "databases/"), "/")
+			if !ok {
+				return fmt.Errorf("invalid database component")
+			}
+			if err := w.restoreDatabaseDumps(acc, backupID, []backup.DBDump{{Engine: engine, Name: file, SQL: body}}); err != nil {
+				_ = journal.FailRollback(err)
+				_ = w.Store.FailRestore(restoreID, store.StateManualIntervention, true)
+				return err
+			}
+		case strings.HasPrefix(name, "mail/"):
+			domain, local, ok := strings.Cut(strings.TrimPrefix(name, "mail/"), "/")
+			if !ok {
+				return fmt.Errorf("invalid mailbox component")
+			}
+			if err := w.restoreMailboxTrees(acc, backupID, []backup.MailDump{{Domain: domain, Local: local, TarGz: body}}); err != nil {
+				_ = journal.FailRollback(err)
+				_ = w.Store.FailRestore(restoreID, store.StateManualIntervention, true)
+				return err
+			}
+		}
+		return journal.Checkpoint(step)
+	})
+}
+
+func (w *Worker) restoreJournalDir(accountID string) string {
+	return w.hostPath("/var/lib/panel/restore/" + accountID)
+}
+
+func (w *Worker) expectedBackupComponents(acc *store.Account) ([]string, error) {
+	expected := []string{backup.ComponentHome}
+	for _, d := range w.Store.ListDBs(acc.ID) {
+		if d.Name == "" {
+			continue
+		}
+		expected = append(expected, "databases/"+d.Engine+"/"+d.Name)
+	}
+	for _, mb := range w.Store.ListMailboxes(acc.ID) {
+		found := false
+		for _, rec := range mail.Recipients(w.Store, acc.ID) {
+			if rec.LocalPart == mb.LocalPart {
+				expected = append(expected, "mail/"+rec.Domain+"/"+rec.LocalPart)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("mailbox %s missing from mail inventory", mb.LocalPart)
+		}
+	}
+	return expected, nil
 }
 
 func (w *Worker) hostPath(p string) string {
@@ -1720,11 +1880,11 @@ func (w *Worker) collectBackupParts(acc *store.Account, backupID, home string) (
 			Method: "PackDirectory",
 			Params: mustJSON(map[string]any{"source": rec.Home, "dest": dest}),
 		}); err != nil {
-			continue
+			return nil, nil, nil, fmt.Errorf("mailbox %s@%s unreadable: %w", rec.LocalPart, rec.Domain, err)
 		}
 		raw, err := os.ReadFile(w.hostPath(dest))
 		if err != nil {
-			continue
+			return nil, nil, nil, fmt.Errorf("mailbox %s@%s missing: %w", rec.LocalPart, rec.Domain, err)
 		}
 		mailTrees = append(mailTrees, backup.MailDump{Domain: rec.Domain, Local: rec.LocalPart, TarGz: raw})
 	}

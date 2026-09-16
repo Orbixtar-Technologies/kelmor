@@ -3,6 +3,7 @@ package secret
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -108,6 +109,20 @@ func (b *Box) Fingerprint() string {
 	defer b.mu.RUnlock()
 	sum := sha256.Sum256(b.key)
 	return fmt.Sprintf("%x", sum[:8])
+}
+
+func (b *Box) Version() uint32 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.version
+}
+
+func (b *Box) Derive(purpose string) []byte {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	mac := hmac.New(sha256.New, b.key)
+	_, _ = mac.Write([]byte(purpose))
+	return mac.Sum(nil)
 }
 
 func versionAAD(v uint32) []byte {

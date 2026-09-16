@@ -1635,5 +1635,135 @@ func (p *PG) SeedDatabaseServers() {
 	_, _ = p.pool.Exec(p.ctx(), `INSERT INTO database_servers (id, engine, name, host, port) VALUES ($1,'postgres','local-postgres','127.0.0.1',5432) ON CONFLICT (name) DO NOTHING`, id.New())
 }
 
+func (p *PG) BumpResourceFence(resourceKey string) int64 {
+	var fence int64
+	err := p.pool.QueryRow(p.ctx(), `
+		INSERT INTO resource_fences(resource_key, fence)
+		VALUES ($1, 1)
+		ON CONFLICT (resource_key) DO UPDATE
+		SET fence = resource_fences.fence + 1
+		RETURNING fence`, resourceKey).Scan(&fence)
+	if err != nil {
+		return 0
+	}
+	return fence
+}
+
+func (p *PG) BeginRestore(journal *RestoreJournal) (*RestoreJournal, error) {
+	if journal == nil {
+		return nil, fmt.Errorf("restore journal is required")
+	}
+	if existing := p.GetActiveRestore(journal.AccountID); existing != nil {
+		if existing.BackupID == journal.BackupID && existing.ObjectKey == journal.ObjectKey {
+			return existing, nil
+		}
+		return nil, ErrRestoreInProgress
+	}
+	normalizeRestore(journal)
+	if err := p.insertRestore(journal); err != nil {
+		return nil, err
+	}
+	return p.GetRestore(journal.ID), nil
+}
+
+func (p *PG) CreateRestoreWithJob(journal *RestoreJournal, job *Job, audit AuditEvent) (*Job, error) {
+	if journal == nil {
+		return nil, fmt.Errorf("restore journal is required")
+	}
+	normalizeRestore(journal)
+	return p.commitResourceMutation(job, audit, func(ctx context.Context, tx pgx.Tx) error {
+		var existing string
+		err := tx.QueryRow(ctx, `
+			SELECT id FROM restore_journals
+			WHERE account_id=$1 AND state NOT IN ('complete','failed')
+			LIMIT 1`, journal.AccountID).Scan(&existing)
+		if err == nil {
+			return ErrRestoreInProgress
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		checkpoints, _ := json.Marshal(journal.Checkpoints)
+		extra, _ := json.Marshal(journal.Extra)
+		_, err = tx.Exec(ctx, restoreJournalInsert, journal.ID, journal.AccountID, journal.BackupID, journal.ActorID,
+			journal.ObjectKey, journal.ManifestHash, journal.FormatVersion, journal.KeyIdentity, journal.KeyVersion,
+			journal.Fence, journal.State, journal.ManualIntervention, checkpoints, extra, journal.CreatedAt, journal.UpdatedAt)
+		return err
+	})
+}
+
+const restoreJournalInsert = `
+		INSERT INTO restore_journals (
+			id, account_id, backup_id, actor_id, object_key, manifest_hash, format_version,
+			key_identity, key_version, fence, state, manual_intervention, checkpoints, extra, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
+
+func (p *PG) insertRestore(j *RestoreJournal) error {
+	checkpoints, _ := json.Marshal(j.Checkpoints)
+	extra, _ := json.Marshal(j.Extra)
+	_, err := p.pool.Exec(p.ctx(), restoreJournalInsert, j.ID, j.AccountID, j.BackupID, j.ActorID, j.ObjectKey,
+		j.ManifestHash, j.FormatVersion, j.KeyIdentity, j.KeyVersion, j.Fence, j.State, j.ManualIntervention,
+		checkpoints, extra, j.CreatedAt, j.UpdatedAt)
+	return err
+}
+
+func (p *PG) GetRestore(id string) *RestoreJournal {
+	j := &RestoreJournal{}
+	var checkpoints []byte
+	var extra []byte
+	if err := p.pool.QueryRow(p.ctx(), `
+		SELECT id, account_id, backup_id, actor_id, object_key, COALESCE(manifest_hash,''), format_version,
+			COALESCE(key_identity,''), key_version, fence, state, manual_intervention, checkpoints, COALESCE(extra, '{}'::jsonb), created_at, updated_at
+		FROM restore_journals WHERE id=$1`, id).
+		Scan(&j.ID, &j.AccountID, &j.BackupID, &j.ActorID, &j.ObjectKey, &j.ManifestHash, &j.FormatVersion,
+			&j.KeyIdentity, &j.KeyVersion, &j.Fence, &j.State, &j.ManualIntervention, &checkpoints, &extra, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		return nil
+	}
+	_ = json.Unmarshal(checkpoints, &j.Checkpoints)
+	_ = json.Unmarshal(extra, &j.Extra)
+	return j
+}
+
+func (p *PG) GetActiveRestore(accountID string) *RestoreJournal {
+	j := &RestoreJournal{}
+	var checkpoints []byte
+	var extra []byte
+	if err := p.pool.QueryRow(p.ctx(), `
+		SELECT id, account_id, backup_id, actor_id, object_key, COALESCE(manifest_hash,''), format_version,
+			COALESCE(key_identity,''), key_version, fence, state, manual_intervention, checkpoints, COALESCE(extra, '{}'::jsonb), created_at, updated_at
+		FROM restore_journals
+		WHERE account_id=$1 AND state NOT IN ('complete','failed')
+		ORDER BY created_at DESC LIMIT 1`, accountID).
+		Scan(&j.ID, &j.AccountID, &j.BackupID, &j.ActorID, &j.ObjectKey, &j.ManifestHash, &j.FormatVersion,
+			&j.KeyIdentity, &j.KeyVersion, &j.Fence, &j.State, &j.ManualIntervention, &checkpoints, &extra, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		return nil
+	}
+	_ = json.Unmarshal(checkpoints, &j.Checkpoints)
+	_ = json.Unmarshal(extra, &j.Extra)
+	return j
+}
+
+func (p *PG) CheckpointRestore(id, state string, extra map[string]any) error {
+	raw, _ := json.Marshal(extra)
+	_, err := p.pool.Exec(p.ctx(), `
+		UPDATE restore_journals
+		SET state=$2, extra=$3, updated_at=now(),
+			checkpoints = COALESCE(checkpoints, '[]'::jsonb) || to_jsonb($2::text)
+		WHERE id=$1`, id, state, raw)
+	return err
+}
+
+func (p *PG) FailRestore(id, state string, manual bool) error {
+	_, err := p.pool.Exec(p.ctx(), `
+		UPDATE restore_journals SET state=$2, manual_intervention=$3, updated_at=now() WHERE id=$1`,
+		id, state, manual)
+	return err
+}
+
+func (p *PG) FinishRestore(id string) error {
+	_, err := p.pool.Exec(p.ctx(), `UPDATE restore_journals SET state='complete', updated_at=now() WHERE id=$1`, id)
+	return err
+}
+
 var _ = fmt.Sprintf
 var _ Store = (*PG)(nil)

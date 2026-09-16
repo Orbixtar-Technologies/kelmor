@@ -14,6 +14,10 @@ import (
 )
 
 func SignAWS4(req *http.Request, payload []byte, access, secret, region string) {
+	SignAWS4Digest(req, sha256Hex(payload), access, secret, region)
+}
+
+func SignAWS4Digest(req *http.Request, payloadHash, access, secret, region string) {
 	if access == "" {
 		return
 	}
@@ -28,7 +32,6 @@ func SignAWS4(req *http.Request, payload []byte, access, secret, region string) 
 	}
 	amzDate := now.Format("20060102T150405Z")
 	date := now.Format("20060102")
-	payloadHash := sha256Hex(payload)
 	req.Header.Set("X-Amz-Date", amzDate)
 	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
 	scope := date + "/" + region + "/s3/aws4_request"
@@ -37,6 +40,10 @@ func SignAWS4(req *http.Request, payload []byte, access, secret, region string) 
 }
 
 func VerifyAWS4(req *http.Request, payload []byte, access, secret, region string) error {
+	return VerifyAWS4Digest(req, sha256Hex(payload), access, secret, region)
+}
+
+func VerifyAWS4Digest(req *http.Request, payloadHash, access, secret, region string) error {
 	if access == "" {
 		return nil
 	}
@@ -66,7 +73,9 @@ func VerifyAWS4(req *http.Request, payload []byte, access, secret, region string
 	if amzDate == "" {
 		return fmt.Errorf("missing x-amz-date")
 	}
-	payloadHash := sha256Hex(payload)
+	if declared := req.Header.Get("X-Amz-Content-Sha256"); declared != "" && declared != payloadHash {
+		return fmt.Errorf("payload hash mismatch")
+	}
 	want := aws4Signature(req, payloadHash, amzDate, secret, scope)
 	got := parts["Signature"]
 	if subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {

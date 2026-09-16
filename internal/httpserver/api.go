@@ -3217,13 +3217,27 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		Mode     string `json:"mode"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
-	job, err := a.Store.EnqueueJobWithAudit(&store.Job{
+	b := a.Store.GetBackup(in.BackupID)
+	if b == nil || b.AccountID != aid {
+		a.fail(w, r, 404, "BACKUP_NOT_FOUND", "Backup was not found for this account", false)
+		return
+	}
+	key, _ := b.Manifest["key"].(string)
+	journal := &store.RestoreJournal{
+		AccountID: aid, BackupID: in.BackupID, ActorID: actor(r).UserID,
+		ObjectKey: key, State: store.StateRestoreRequested,
+	}
+	job, err := a.Store.CreateRestoreWithJob(journal, &store.Job{
 		Type: "backup.restore", ResourceType: "backup", ResourceID: in.BackupID,
 		Payload: map[string]any{"backup_id": in.BackupID, "account_id": aid, "mode": in.Mode},
 		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	}, a.auditEvent(r, aid, "backup.restore", "backup", in.BackupID, nil, map[string]any{"mode": in.Mode}))
 	if err != nil {
+		if errors.Is(err, store.ErrRestoreInProgress) {
+			a.fail(w, r, 409, "RESTORE_IN_PROGRESS", "An account restore is already in progress", false)
+			return
+		}
 		a.fail(w, r, 500, "BACKUP_RESTORE_ERROR", "Could not persist backup restore request", true)
 		return
 	}

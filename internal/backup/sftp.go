@@ -58,7 +58,7 @@ func (s *SFTP) remote() bool {
 
 func (s *SFTP) Put(ctx context.Context, key string, data []byte) error {
 	if !s.remote() {
-		return writeAtomic(s.Root, key, data)
+		return writeAtomicStream(s.Root, key, strings.NewReader(string(data)))
 	}
 	return s.withClient(ctx, func(c *sftp.Client) error {
 		p := s.RemotePath(key)
@@ -156,10 +156,43 @@ func (s *SFTP) Verify(ctx context.Context, key, checksum string) error {
 	if err != nil {
 		return err
 	}
-	if checksum != "" && len(b) == 0 {
-		return fmt.Errorf("empty sftp object")
+	return verifyObject(b, checksum)
+}
+
+func (s *SFTP) PutStream(ctx context.Context, key string, r io.Reader) error {
+	if !s.remote() {
+		return writeAtomicStream(s.Root, key, r)
 	}
-	return nil
+	return s.withClient(ctx, func(c *sftp.Client) error {
+		p := s.RemotePath(key)
+		if err := c.MkdirAll(path.Dir(p)); err != nil {
+			return err
+		}
+		f, err := c.OpenFile(p+".staging", os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(f, r); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		_ = c.Remove(p)
+		return c.Rename(p+".staging", p)
+	})
+}
+
+func (s *SFTP) GetStream(ctx context.Context, key string) (io.ReadCloser, error) {
+	if !s.remote() {
+		return openPath(s.Root, key)
+	}
+	body, err := s.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(strings.NewReader(string(body))), nil
 }
 
 func (s *SFTP) RemotePath(key string) string {
@@ -269,4 +302,4 @@ func normalizeFP(s string) string {
 	return strings.TrimRight(s, "=")
 }
 
-var _ Repository = (*SFTP)(nil)
+var _ StreamRepository = (*SFTP)(nil)

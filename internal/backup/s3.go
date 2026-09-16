@@ -3,6 +3,8 @@ package backup
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -49,22 +51,7 @@ func (s *S3) url(key string) string {
 }
 
 func (s *S3) Put(ctx context.Context, key string, data []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, s.url(key), bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	SignAWS4(req, data, s.AccessKey, s.SecretKey, s.Region)
-	res, err := s.client().Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode >= 300 {
-		b, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("s3 put: %s %s", res.Status, string(b))
-	}
-	return nil
+	return s.PutStream(ctx, key, bytes.NewReader(data))
 }
 
 func (s *S3) Get(ctx context.Context, key string) ([]byte, error) {
@@ -165,10 +152,79 @@ func (s *S3) Verify(ctx context.Context, key, checksum string) error {
 	if err != nil {
 		return err
 	}
-	if checksum != "" && len(b) == 0 {
-		return fmt.Errorf("empty s3 object")
+	return verifyObject(b, checksum)
+}
+
+func (s *S3) PutStream(ctx context.Context, key string, r io.Reader) error {
+	tmp, err := os.CreateTemp("", "kelmor-s3-*.part")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := io.Copy(tmp, r); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Seek(0, 0); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	sum := sha256.New()
+	if _, err := io.Copy(sum, tmp); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Seek(0, 0); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	st, err := tmp.Stat()
+	if err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, s.url(key), tmp)
+	if err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	req.ContentLength = st.Size()
+	req.Header.Set("Content-Type", "application/octet-stream")
+	SignAWS4Digest(req, hex.EncodeToString(sum.Sum(nil)), s.AccessKey, s.SecretKey, s.Region)
+	res, err := s.client().Do(req)
+	if err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	defer res.Body.Close()
+	_ = tmp.Close()
+	if res.StatusCode >= 300 {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("s3 put: %s %s", res.Status, string(b))
 	}
 	return nil
+}
+
+func (s *S3) GetStream(ctx context.Context, key string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url(key), nil)
+	if err != nil {
+		return nil, err
+	}
+	SignAWS4(req, nil, s.AccessKey, s.SecretKey, s.Region)
+	res, err := s.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		_ = res.Body.Close()
+		return nil, fmt.Errorf("s3 get: %s", res.Status)
+	}
+	return res.Body, nil
 }
 
 func (s *S3) client() *http.Client {
@@ -185,4 +241,4 @@ func envDefault(k, d string) string {
 	return d
 }
 
-var _ Repository = (*S3)(nil)
+var _ StreamRepository = (*S3)(nil)

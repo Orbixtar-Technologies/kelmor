@@ -30,6 +30,10 @@ type Manifest struct {
 	Databases     []string          `json:"databases"`
 	Mailboxes     []string          `json:"mailboxes"`
 	Checksums     map[string]string `json:"checksums"`
+	KeyIdentity   string            `json:"key_identity,omitempty"`
+	KeyVersion    uint32            `json:"key_version,omitempty"`
+	Consistency   ConsistencyAnchor `json:"consistency,omitempty"`
+	Expected      []string          `json:"expected,omitempty"`
 }
 
 func Build(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, home string) (Manifest, string, error) {
@@ -45,11 +49,53 @@ func BuildArchive(ctx context.Context, box *secret.Box, repo Repository, acc *st
 }
 
 func BuildFull(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, homeTar []byte, dumps []DBDump, mailTrees []MailDump) (Manifest, string, error) {
-	payload, err := PackV2(homeTar, dumps, mailTrees)
+	parts, expected, err := componentsFromParts(homeTar, dumps, mailTrees)
 	if err != nil {
 		return Manifest{}, "", err
 	}
-	return sealArchive(ctx, box, repo, acc, dbs, mail, payload, 2)
+	anchor := ConsistencyAnchor{Fence: 1, Level: "account", Quiesced: []string{"files"}, SnapshotAt: time.Now().UTC().Format(time.RFC3339)}
+	return SealHPM3(ctx, box, repo, acc, parts, expected, anchor)
+}
+
+func ComponentsFromCollected(homeTar []byte, dumps []DBDump, mailTrees []MailDump) ([]Component, []string, error) {
+	return componentsFromParts(homeTar, dumps, mailTrees)
+}
+
+func MatchExpected(got, expected []string) error {
+	return validateInventory(componentsNamed(got), expected)
+}
+
+func componentsNamed(names []string) []Component {
+	out := make([]Component, len(names))
+	for i, name := range names {
+		out[i] = Component{Name: name}
+	}
+	return out
+}
+
+func componentsFromParts(homeTar []byte, dumps []DBDump, mailTrees []MailDump) ([]Component, []string, error) {
+	if len(homeTar) == 0 {
+		return nil, nil, fmt.Errorf("empty home component")
+	}
+	parts := []Component{{Name: ComponentHome, Data: homeTar}}
+	expected := []string{ComponentHome}
+	for _, d := range dumps {
+		if d.Engine == "" || d.Name == "" {
+			return nil, nil, fmt.Errorf("missing database identity")
+		}
+		name := "databases/" + d.Engine + "/" + d.Name
+		parts = append(parts, Component{Name: name, Data: d.SQL})
+		expected = append(expected, name)
+	}
+	for _, m := range mailTrees {
+		if m.Domain == "" || m.Local == "" {
+			return nil, nil, fmt.Errorf("missing mailbox identity")
+		}
+		name := "mail/" + m.Domain + "/" + m.Local
+		parts = append(parts, Component{Name: name, Data: m.TarGz})
+		expected = append(expected, name)
+	}
+	return parts, expected, nil
 }
 
 func sealArchive(ctx context.Context, box *secret.Box, repo Repository, acc *store.Account, dbs []store.HostedDatabase, mail []store.Mailbox, raw []byte, version int) (Manifest, string, error) {
@@ -123,19 +169,37 @@ func OpenArchive(ctx context.Context, box *secret.Box, repo Repository, key stri
 }
 
 func Restore(ctx context.Context, box *secret.Box, repo Repository, key, destHome string) (Manifest, error) {
-	man, raw, err := OpenArchive(ctx, box, repo, key)
+	opened, err := OpenAny(ctx, box, repo, key)
 	if err != nil {
 		return Manifest{}, err
 	}
-	home := raw
-	if man.FormatVersion == 2 {
-		split, _, _, err := SplitV2(raw)
-		if err != nil {
+	defer opened.Close()
+	man := opened.Manifest
+	if man.FormatVersion == 1 || man.FormatVersion == 2 {
+		home := opened.legacy
+		if man.FormatVersion == 2 {
+			split, _, _, err := SplitV2(home)
+			if err != nil {
+				return man, err
+			}
+			home = split
+		}
+		if err := unpackHome(home, destHome); err != nil {
 			return man, err
 		}
-		home = split
+		return man, nil
 	}
-	if err := unpackHome(home, destHome); err != nil {
+	if err := opened.Each(func(name string, r io.Reader) error {
+		if name != ComponentHome {
+			_, err := io.Copy(io.Discard, r)
+			return err
+		}
+		body, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		return unpackHome(body, destHome)
+	}); err != nil {
 		return man, err
 	}
 	return man, nil

@@ -1,6 +1,8 @@
 package objectstore
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,30 +10,31 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hosting-panel/panel/internal/backup"
 )
 
-// Server is a path-style S3-compatible store for HPM1 backup objects.
+const defaultMaxObjectBytes = 8 << 30
+
+// Server is a path-style S3-compatible store for backup objects.
 type Server struct {
 	Root      string
 	AccessKey string
 	SecretKey string
 	Region    string
+	MaxBytes  int64
 	mu        sync.Mutex
 }
 
+func (s *Server) maxBytes() int64 {
+	if s.MaxBytes > 0 {
+		return s.MaxBytes
+	}
+	return defaultMaxObjectBytes
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "read body", http.StatusBadRequest)
-		return
-	}
-	_ = r.Body.Close()
-	if err := backup.VerifyAWS4(r, body, s.AccessKey, s.SecretKey, s.Region); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
-	}
 	bucket, key := splitPath(r.URL.Path)
 	if bucket == "" {
 		http.Error(w, "bucket required", http.StatusBadRequest)
@@ -40,6 +43,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
 		if key == "" {
+			if err := backup.VerifyAWS4(r, nil, s.AccessKey, s.SecretKey, s.Region); err != nil {
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			}
 			if err := s.ensureBucket(bucket); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -47,29 +54,37 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if err := s.put(bucket, key, body); err != nil {
+		if err := s.putStream(r, bucket, key); err != nil {
+			if strings.Contains(err.Error(), "aws4") || strings.Contains(err.Error(), "authorization") || strings.Contains(err.Error(), "access key") {
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			}
+			if strings.Contains(err.Error(), "too large") {
+				http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
 	case http.MethodGet, http.MethodHead:
+		if err := backup.VerifyAWS4(r, nil, s.AccessKey, s.SecretKey, s.Region); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 		if r.URL.Query().Get("list-type") != "" || key == "" {
 			s.list(w, bucket, r.URL.Query().Get("prefix"))
 			return
 		}
-		data, err := s.get(bucket, key)
-		if err != nil {
+		if err := s.serveObject(w, r, bucket, key); err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
-			w.WriteHeader(http.StatusOK)
+	case http.MethodDelete:
+		if err := backup.VerifyAWS4(r, nil, s.AccessKey, s.SecretKey, s.Region); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write(data)
-	case http.MethodDelete:
 		if err := s.delete(bucket, key); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -88,7 +103,7 @@ func (s *Server) ensureBucket(bucket string) error {
 	return os.MkdirAll(dir, 0o750)
 }
 
-func (s *Server) put(bucket, key string, data []byte) error {
+func (s *Server) putStream(r *http.Request, bucket, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := s.safe(bucket, key)
@@ -98,21 +113,66 @@ func (s *Server) put(bucket, key string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o640); err != nil {
+	_ = os.Remove(path + ".tmp")
+	tmp, err := os.OpenFile(path+".tmp", os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	hasher := sha256.New()
+	limited := io.LimitReader(r.Body, s.maxBytes()+1)
+	n, copyErr := io.Copy(io.MultiWriter(tmp, hasher), limited)
+	_ = r.Body.Close()
+	if copyErr != nil {
+		_ = tmp.Close()
+		_ = os.Remove(path + ".tmp")
+		return copyErr
+	}
+	if n > s.maxBytes() {
+		_ = tmp.Close()
+		_ = os.Remove(path + ".tmp")
+		return fmt.Errorf("object too large")
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(path + ".tmp")
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(path + ".tmp")
+		return err
+	}
+	digest := hex.EncodeToString(hasher.Sum(nil))
+	if err := backup.VerifyAWS4Digest(r, digest, s.AccessKey, s.SecretKey, s.Region); err != nil {
+		_ = os.Remove(path + ".tmp")
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }
 
-func (s *Server) get(bucket, key string) ([]byte, error) {
+func (s *Server) serveObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path, err := s.safe(bucket, key)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", st.Size()))
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return nil
+	}
+	_, err = io.Copy(w, f)
+	return err
 }
 
 func (s *Server) delete(bucket, key string) error {
@@ -122,6 +182,7 @@ func (s *Server) delete(bucket, key string) error {
 	if err != nil {
 		return err
 	}
+	_ = os.Remove(path + ".tmp")
 	err = os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -142,6 +203,13 @@ func (s *Server) list(w http.ResponseWriter, bucket, prefix string) {
 	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
+		}
+		if strings.HasSuffix(path, ".tmp") && time.Since(info.ModTime()) > 24*time.Hour {
+			_ = os.Remove(path)
+			return nil
+		}
+		if strings.HasSuffix(path, ".tmp") {
+			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {

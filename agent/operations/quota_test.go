@@ -81,3 +81,63 @@ func TestEnforceAccountDiskLocksHomeAndSSHD(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestChunkedReplacementQuotaUsesProjectedFinalSize(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Root: root}
+	home := filepath.Join(root, "home", "acme42", "public_html")
+	if err := os.MkdirAll(home, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	existing := bytesOf('a', 100)
+	if err := os.WriteFile(filepath.Join(home, "index.html"), existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.persistQuota("acme42", 250); err != nil {
+		t.Fatal(err)
+	}
+	first := bytesOf('b', 100)
+	if _, err := h.applyFileChunk("/home/acme42/public_html/index.html", first, 0o640, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	second := bytesOf('c', 100)
+	if _, err := h.applyFileChunk("/home/acme42/public_html/index.html", second, 0o640, 100, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(home, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 200 {
+		t.Fatalf("len %d", len(got))
+	}
+}
+
+func TestChunkedReplacementQuotaRejectsWhenProjectedExceeds(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Root: root}
+	home := filepath.Join(root, "home", "acme42", "public_html")
+	if err := os.MkdirAll(home, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "index.html"), bytesOf('a', 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.persistQuota("acme42", 150); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.applyFileChunk("/home/acme42/public_html/index.html", bytesOf('b', 100), 0o640, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.applyFileChunk("/home/acme42/public_html/index.html", bytesOf('c', 100), 0o640, 100, true); err == nil {
+		t.Fatal("projected 200-byte file must exceed 150-byte quota")
+	}
+}
+
+func bytesOf(b byte, n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = b
+	}
+	return out
+}

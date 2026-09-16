@@ -1,6 +1,8 @@
 package backup
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,10 @@ func safe(root, key string) (string, error) {
 }
 
 func writeAtomic(root, key string, data []byte) error {
+	return writeAtomicStream(root, key, bytes.NewReader(data))
+}
+
+func writeAtomicStream(root, key string, r io.Reader) error {
 	p, err := safe(root, key)
 	if err != nil {
 		return err
@@ -24,10 +30,33 @@ func writeAtomic(root, key string, data []byte) error {
 		return err
 	}
 	tmp := p + ".staging"
-	if err := os.WriteFile(tmp, data, 0o640); err != nil {
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(f, r); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, p)
+}
+
+func openPath(root, key string) (*os.File, error) {
+	p, err := safe(root, key)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(p)
 }
 
 func readPath(root, key string) ([]byte, error) {

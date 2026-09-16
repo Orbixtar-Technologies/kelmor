@@ -35,6 +35,7 @@ type Memory struct {
 	Audit          []*AuditEvent
 	Tokens         map[string]*APIToken
 	Backups        map[string]*BackupRun
+	Restores       map[string]*RestoreJournal
 	Crons          map[string]*CronJob
 	SSHKeys        map[string]*SSHKey
 	FTPs           map[string]*FTPAccount
@@ -56,7 +57,8 @@ func NewMemory() *Memory {
 		Aliases: map[string]*MailAlias{},
 		Certs:   map[string]*Certificate{}, Jobs: map[string]*Job{},
 		Tokens: map[string]*APIToken{}, Backups: map[string]*BackupRun{},
-		Crons: map[string]*CronJob{}, SSHKeys: map[string]*SSHKey{},
+		Restores: map[string]*RestoreJournal{},
+		Crons:    map[string]*CronJob{}, SSHKeys: map[string]*SSHKey{},
 		FTPs: map[string]*FTPAccount{}, Usage: map[string]*Usage{},
 		resourceFences: map[string]int64{},
 		NextUID:        20000,
@@ -1173,6 +1175,156 @@ func (m *Memory) ListBackups(accountID string) []BackupRun {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out
+}
+
+func restoreIsActive(state string) bool {
+	switch state {
+	case StateRestoreComplete, StateRestoreFailed:
+		return false
+	default:
+		return state != ""
+	}
+}
+
+func (m *Memory) BumpResourceFence(resourceKey string) int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.resourceFences[resourceKey]++
+	return m.resourceFences[resourceKey]
+}
+
+func (m *Memory) activeRestoreLocked(accountID string) *RestoreJournal {
+	for _, item := range m.Restores {
+		if item.AccountID == accountID && restoreIsActive(item.State) {
+			cp := *item
+			return &cp
+		}
+	}
+	return nil
+}
+
+func (m *Memory) BeginRestore(journal *RestoreJournal) (*RestoreJournal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if journal == nil {
+		return nil, fmt.Errorf("restore journal is required")
+	}
+	if existing := m.activeRestoreLocked(journal.AccountID); existing != nil {
+		if existing.BackupID == journal.BackupID && existing.ObjectKey == journal.ObjectKey {
+			return existing, nil
+		}
+		return nil, ErrRestoreInProgress
+	}
+	normalizeRestore(journal)
+	if journal.Fence == 0 {
+		m.resourceFences["restore:"+journal.AccountID]++
+		journal.Fence = m.resourceFences["restore:"+journal.AccountID]
+	}
+	cp := *journal
+	m.Restores[cp.ID] = &cp
+	out := cp
+	return &out, nil
+}
+
+func (m *Memory) CreateRestoreWithJob(journal *RestoreJournal, job *Job, audit AuditEvent) (*Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if journal == nil || job == nil {
+		return nil, fmt.Errorf("restore journal and job are required")
+	}
+	if replay := m.jobReplayLocked(job); replay != nil {
+		return replay, nil
+	}
+	if existing := m.activeRestoreLocked(journal.AccountID); existing != nil {
+		return nil, ErrRestoreInProgress
+	}
+	normalizeJob(job)
+	if err := m.validateNewJobLocked(job); err != nil {
+		return nil, err
+	}
+	normalizeAudit(&audit, job)
+	normalizeRestore(journal)
+	if journal.Fence == 0 {
+		m.resourceFences["restore:"+journal.AccountID]++
+		journal.Fence = m.resourceFences["restore:"+journal.AccountID]
+	}
+	jCopy := *journal
+	jobCopy := *job
+	auditCopy := audit
+	m.Restores[jCopy.ID] = &jCopy
+	m.Jobs[jobCopy.ID] = &jobCopy
+	m.Audit = append(m.Audit, &auditCopy)
+	return &jobCopy, nil
+}
+
+func (m *Memory) GetRestore(id string) *RestoreJournal {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if item := m.Restores[id]; item != nil {
+		cp := *item
+		return &cp
+	}
+	return nil
+}
+
+func (m *Memory) GetActiveRestore(accountID string) *RestoreJournal {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.activeRestoreLocked(accountID)
+}
+
+func (m *Memory) CheckpointRestore(id, state string, extra map[string]any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item := m.Restores[id]
+	if item == nil {
+		return fmt.Errorf("restore journal missing")
+	}
+	item.State = state
+	item.Checkpoints = append(item.Checkpoints, state)
+	item.UpdatedAt = time.Now().UTC()
+	if extra != nil {
+		item.Extra = extra
+	}
+	return nil
+}
+
+func (m *Memory) FailRestore(id, state string, manual bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item := m.Restores[id]
+	if item == nil {
+		return fmt.Errorf("restore journal missing")
+	}
+	item.State = state
+	item.ManualIntervention = manual
+	item.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (m *Memory) FinishRestore(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item := m.Restores[id]
+	if item == nil {
+		return fmt.Errorf("restore journal missing")
+	}
+	item.State = StateRestoreComplete
+	item.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func normalizeRestore(j *RestoreJournal) {
+	if j.ID == "" {
+		j.ID = id.New()
+	}
+	if j.State == "" {
+		j.State = StateRestoreRequested
+	}
+	if j.CreatedAt.IsZero() {
+		j.CreatedAt = time.Now().UTC()
+	}
+	j.UpdatedAt = time.Now().UTC()
 }
 
 func (m *Memory) PutCron(c *CronJob) { m.mu.Lock(); m.Crons[c.ID] = c; m.mu.Unlock() }
