@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { CapProvider } from '../rbac'
+import { toolCatalog } from '../tool-catalog'
 import { DirectorShell } from './director-shell'
 import { Sidebar } from './sidebar'
 import type { Me, ToolDefinition } from '../types'
@@ -62,7 +63,7 @@ afterEach(() => {
 })
 
 describe('Sidebar interactions', () => {
-	test('filters hubs and supports group expand/collapse', async () => {
+	test('filters tools and supports per-hub expand/collapse', async () => {
 		const user = userEvent.setup()
 		render(
 			<MemoryRouter>
@@ -72,18 +73,35 @@ describe('Sidebar interactions', () => {
 
 		await user.type(screen.getByRole('textbox', { name: 'Filter features' }), 'account')
 		expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
-		expect(screen.queryByRole('link', { name: 'Server Configuration' })).not.toBeInTheDocument()
-		const category = screen.getByRole('button', { name: /Account services/ })
-		expect(screen.getByRole('link', { name: 'Accounts' })).toBeVisible()
-		expect(screen.queryByRole('link', { name: /List Accounts/ })).not.toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: /Server Configuration/ })).not.toBeInTheDocument()
+		const category = screen.getByRole('button', { name: /Accounts/ })
+		expect(screen.getByRole('link', { name: /List Accounts/ })).toBeVisible()
 
 		await user.click(category)
 		expect(category).toHaveAttribute('aria-expanded', 'false')
-		expect(screen.queryByRole('link', { name: 'Accounts' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: /List Accounts/ })).not.toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Expand' }))
-		expect(screen.getByRole('link', { name: 'Accounts' })).toBeVisible()
+		expect(screen.getByRole('link', { name: /List Accounts/ })).toBeVisible()
 		await user.click(screen.getByRole('button', { name: 'Collapse' }))
-		expect(screen.queryByRole('link', { name: 'Accounts' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: /List Accounts/ })).not.toBeInTheDocument()
+	})
+
+	test('lists every catalog tool from Home All tools', async () => {
+		const user = userEvent.setup()
+		render(
+			<MemoryRouter>
+				<Sidebar tools={toolCatalog} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
+			</MemoryRouter>,
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Expand' }))
+		const expected = toolCatalog.filter((tool) => tool.id !== 'home')
+		for (const tool of expected) {
+			expect(screen.getByRole('link', { name: tool.label })).toBeInTheDocument()
+		}
+		expect(screen.getByRole('link', { name: 'Tweak Settings' })).toHaveAttribute('href', '/section/server?tool=tweak-settings')
+		expect(screen.getByRole('link', { name: 'Change Hostname' })).toHaveAttribute('href', '/section/server?tool=change-hostname')
+		expect(screen.getByRole('link', { name: 'List Accounts' })).toHaveAttribute('href', '/accounts')
 	})
 
 	test('focuses the mobile sidebar and restores menu focus after Escape', async () => {
@@ -116,43 +134,31 @@ describe('Sidebar interactions', () => {
 		expect(sidebar).toHaveAttribute('inert')
 	})
 
-	test('marks the Accounts hub current on an account detail page', () => {
-		render(
-			<MemoryRouter initialEntries={['/accounts/acc-1']}>
-				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
-			</MemoryRouter>,
-		)
-
-		expect(screen.getByRole('link', { name: 'Accounts' })).toHaveAttribute('aria-current', 'page')
-		expect(screen.queryByRole('link', { name: /Account Summary/ })).not.toBeInTheDocument()
-		expect(screen.queryByRole('link', { name: /Modify an Account/ })).not.toBeInTheDocument()
-	})
-
-	test('keeps hub groups other than the current section collapsed by default', () => {
-		render(
-			<MemoryRouter initialEntries={['/accounts/acc-1']}>
-				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
-			</MemoryRouter>,
-		)
-
-		expect(screen.getByRole('button', { name: /Account services/ })).toHaveAttribute('aria-expanded', 'true')
-		expect(screen.getByRole('button', { name: /Host operations/ })).toHaveAttribute('aria-expanded', 'false')
-		expect(screen.queryByRole('link', { name: 'Server Configuration' })).not.toBeInTheDocument()
-	})
-
-	test('combines configuration features under one Server Configuration link', async () => {
+	test('marks only the current destination active on an account hub', async () => {
 		const user = userEvent.setup()
 		render(
-			<MemoryRouter initialEntries={['/section/server?tool=tweak-settings']}>
+			<MemoryRouter initialEntries={['/accounts/acc-1']}>
 				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
 			</MemoryRouter>,
 		)
 
+		expect(screen.getByRole('link', { name: /Account Summary/ })).toHaveAttribute('aria-current', 'page')
+		expect(screen.getByRole('link', { name: /List Accounts/ })).not.toHaveAttribute('aria-current')
 		await user.click(screen.getByRole('button', { name: 'Expand' }))
-		expect(screen.getByRole('link', { name: 'Server Configuration' })).toHaveAttribute('aria-current', 'page')
-		expect(screen.getByRole('link', { name: 'Server Configuration' })).toHaveAttribute('href', '/section/server')
+		expect(screen.getByRole('link', { name: /Modify an Account/ })).not.toHaveAttribute('aria-current')
+		expect(screen.getByRole('link', { name: /Terminate an Account/ })).not.toHaveAttribute('aria-current')
+	})
+
+	test('keeps hubs other than the current tool collapsed by default', () => {
+		render(
+			<MemoryRouter initialEntries={['/accounts/acc-1']}>
+				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
+			</MemoryRouter>,
+		)
+
+		expect(screen.getByRole('button', { name: /Accounts/ })).toHaveAttribute('aria-expanded', 'true')
+		expect(screen.getByRole('button', { name: /Server Configuration/ })).toHaveAttribute('aria-expanded', 'false')
 		expect(screen.queryByRole('link', { name: 'Tweak Settings' })).not.toBeInTheDocument()
-		expect(screen.queryByRole('link', { name: 'Change Hostname' })).not.toBeInTheDocument()
 	})
 
 	test('does not render Account or Host badges on sidebar categories', () => {

@@ -8,6 +8,7 @@ import {
 	hrefForFeature,
 	isDirectorHubActive,
 	navHubs,
+	sidebarToolGroups,
 	visibleHubs,
 } from './nav-hubs'
 import { toolCatalog } from './tool-catalog'
@@ -28,13 +29,23 @@ describe('nav hubs', () => {
 		}
 	})
 
-	test('exposes one sidebar entry for Server Configuration instead of per-feature paths', () => {
+	test('keeps Server Configuration tools on one combined page', () => {
 		const server = hubById('server')
 		expect(server?.label).toBe('Server Configuration')
 		expect(hubEntryPath(server!)).toBe('/section/server')
 		expect(hrefForFeature(featureById('tweak-settings')!)).toBe('/section/server?tool=tweak-settings')
 		expect(hrefForFeature(featureById('change-hostname')!)).toBe('/section/server?tool=change-hostname')
 		expect(hrefForFeature(featureById('basic-setup')!)).toBe('/section/server?tool=basic-setup')
+	})
+
+	test('lists every catalog tool in the same groups as Home All tools', () => {
+		const grouped = sidebarToolGroups(toolCatalog)
+		const listed = grouped.flatMap((group) => group.tools.map((tool) => tool.id))
+		const expected = toolCatalog.filter((tool) => tool.id !== 'home').map((tool) => tool.id)
+		expect(listed.sort()).toEqual([...expected].sort())
+		expect(grouped.find((group) => group.hub.id === 'server')?.tools.map((tool) => tool.id)).toEqual(
+			expect.arrayContaining(['tweak-settings', 'change-hostname', 'basic-setup', 'contact-manager']),
+		)
 	})
 
 	test('keeps dedicated managers as the hub entry when they already have a page', () => {
