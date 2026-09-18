@@ -257,6 +257,10 @@ td small { display: block; color: var(--muted); }
 .tabs { border-bottom: 1px solid #aebdca; margin: -4px 0 16px; }
 .tabs a { padding: 8px 12px; border: 1px solid #bdc8d2; border-bottom: 0; border-radius: 3px 3px 0 0; background: #f2f5f7; text-decoration: none; font-size: 13px; }
 .tabs a.active { background: #e3f1fb; border-color: #246b9f; color: #0b568d; font-weight: 700; }
+.hub-chrome { display: grid; gap: 10px; margin-bottom: 18px; }
+.hub-tool-group { min-width: 0; }
+.hub-group-label { margin: 0 0 6px; color: #3d5568; font-size: 12px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+.hub-tabs { margin: 0; }
 .service-tabs { margin-bottom: 12px; }
 .service-tabs button { display: flex; gap: 7px; border-color: #aab8c5; background: #f4f6f8; color: #344c60; font-size: 12px; }
 .service-tabs button[aria-selected="true"] { border-color: #246b9f; background: #e3f1fb; color: #0b568d; }

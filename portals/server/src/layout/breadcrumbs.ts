@@ -1,3 +1,5 @@
+import { hubById } from '../nav-hubs'
+
 export interface BreadcrumbItem {
 	label: string
 	to?: string
@@ -12,6 +14,12 @@ export function directorBreadcrumbs (
 	const parts = pathname.split('/').filter(Boolean)
 	const crumbs: BreadcrumbItem[] = [{ label: 'Home', to: '/' }]
 	if (!parts.length) return crumbs
+
+	if (parts[0] === 'section') {
+		const hub = hubById(parts[1] || '')
+		crumbs.push({ label: hub?.label || labels[parts[1]] || parts[1] })
+		return crumbs
+	}
 
 	if (parts[0] === 'accounts') {
 		crumbs.push({ label: 'Accounts', to: '/accounts' })

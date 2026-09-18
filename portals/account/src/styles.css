@@ -15,6 +15,9 @@ button { background: #0f6a4d; color: white; border: 0; cursor: pointer; }
 nav { background: #fffaf2; padding: 16px; display: grid; align-content: start; gap: 8px; border-right: 1px solid #e6dccb; }
 nav a { color: #345; text-decoration: none; padding: 6px 8px; border-radius: 6px; }
 nav a.active { background: #e6f4ee; color: #0f6a4d; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+.tabs a { padding: 8px 12px; border: 1px solid #e6dccb; border-radius: 8px; background: #fffaf2; color: #345; }
+.tabs a.active { background: #e6f4ee; border-color: #0f6a4d; color: #0f6a4d; font-weight: 700; }
 main { padding: 24px; }
 table { width: 100%; border-collapse: collapse; }
 td, th { text-align: left; padding: 6px; border-bottom: 1px solid #e6dccb; }

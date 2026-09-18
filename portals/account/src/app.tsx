@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { api, APIClientError, asList, clearToken, consumeImpersonationSession, getToken, setToken } from './client'
+import { ControlHubPage } from './control-hub-page'
+import { canSeeControlHub, controlHubEntryPath, controlHubs } from './control-hubs'
 import { BackupsPage } from './pages/backups-page'
 import { DNSPage } from './pages/dns-page'
 import { FilesPage } from './pages/files-page'
@@ -10,6 +12,10 @@ import { createPendingGuard } from './pending-submit'
 import { RequestSequence } from './request-sequence'
 import { Can, CapProvider } from './rbac'
 import { RequireCap } from './require-cap'
+
+const websitesHub = controlHubs.find((hub) => hub.id === 'websites')
+const domainsHub = controlHubs.find((hub) => hub.id === 'domains')
+const backupsHub = controlHubs.find((hub) => hub.id === 'backups')
 
 interface Me {
 	user: { username: string; roles: string[] }
@@ -118,30 +124,25 @@ export function App () {
 			</header>
 			<div className="body">
 				<nav>
-					<NavLink to="/" end>Dashboard</NavLink>
-					{caps['websites.read'] ? <NavLink to="/websites">Websites</NavLink> : null}
-					{caps['domains.read'] ? <NavLink to="/domains">Domains</NavLink> : null}
-					{caps['dns.read'] ? <NavLink to="/dns">DNS</NavLink> : null}
-					{caps['mail.read'] ? <NavLink to="/email">Email</NavLink> : null}
-					{caps['databases.read'] ? <NavLink to="/databases">Databases</NavLink> : null}
-					{caps['files.read'] ? <NavLink to="/files">Files</NavLink> : null}
-					{caps['websites.read'] ? <NavLink to="/ssl">SSL/TLS</NavLink> : null}
-					{caps['backups.read'] ? <NavLink to="/backups">Backups</NavLink> : null}
-					{caps['cron.read'] ? <NavLink to="/cron">Cron</NavLink> : null}
+					{controlHubs.filter((hub) => canSeeControlHub(hub, caps)).map((hub) => (
+						<NavLink key={hub.id} to={controlHubEntryPath(hub, caps)} end={hub.path === '/'}>
+							{hub.label}
+						</NavLink>
+					))}
 				</nav>
 				<main>
 					{!accountId ? <p>No hosting account is attached to this login yet. Ask the administrator to provision one, then sign in as that username.</p> : (
 						<Routes>
 							<Route path="/" element={<Dash accountId={accountId} />} />
-							<Route path="/websites" element={<RequireCap cap="websites.read"><WebsitesPage accountId={accountId} /></RequireCap>} />
-							<Route path="/domains" element={<RequireCap cap="domains.read"><Domains accountId={accountId} /></RequireCap>} />
-							<Route path="/dns" element={<RequireCap cap="dns.read"><DNSPage accountId={accountId} /></RequireCap>} />
+							<Route path="/websites" element={<RequireCap cap="websites.read">{websitesHub ? <ControlHubPage hub={websitesHub} capabilities={caps} pages={{ sites: <WebsitesPage accountId={accountId} />, ssl: <Certificates accountId={accountId} /> }} /> : null}</RequireCap>} />
+							<Route path="/domains" element={domainsHub && (caps['domains.read'] || caps['dns.read']) ? <ControlHubPage hub={domainsHub} capabilities={caps} pages={{ domains: <RequireCap cap="domains.read"><Domains accountId={accountId} /></RequireCap>, dns: <RequireCap cap="dns.read"><DNSPage accountId={accountId} /></RequireCap> }} /> : <RequireCap cap="domains.read"><Domains accountId={accountId} /></RequireCap>} />
 							<Route path="/email" element={<RequireCap cap="mail.read"><Email accountId={accountId} /></RequireCap>} />
 							<Route path="/databases" element={<RequireCap cap="databases.read"><Databases accountId={accountId} /></RequireCap>} />
 							<Route path="/files" element={<RequireCap cap="files.read"><FilesPage accountId={accountId} /></RequireCap>} />
-							<Route path="/ssl" element={<RequireCap cap="websites.read"><Certificates accountId={accountId} /></RequireCap>} />
-							<Route path="/backups" element={<RequireCap cap="backups.read"><BackupsPage accountId={accountId} /></RequireCap>} />
-							<Route path="/cron" element={<RequireCap cap="cron.read"><Cron accountId={accountId} /></RequireCap>} />
+							<Route path="/backups" element={backupsHub && (caps['backups.read'] || caps['cron.read']) ? <ControlHubPage hub={backupsHub} capabilities={caps} pages={{ backups: <RequireCap cap="backups.read"><BackupsPage accountId={accountId} /></RequireCap>, cron: <RequireCap cap="cron.read"><Cron accountId={accountId} /></RequireCap> }} /> : <RequireCap cap="backups.read"><BackupsPage accountId={accountId} /></RequireCap>} />
+							<Route path="/ssl" element={<Navigate to="/websites?tab=ssl" replace />} />
+							<Route path="/dns" element={<Navigate to="/domains?tab=dns" replace />} />
+							<Route path="/cron" element={<Navigate to="/backups?tab=cron" replace />} />
 						</Routes>
 					)}
 				</main>
