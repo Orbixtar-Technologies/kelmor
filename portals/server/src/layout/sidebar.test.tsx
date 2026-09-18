@@ -34,11 +34,13 @@ vi.mock('../client', () => ({
 
 const tools: ToolDefinition[] = [
 	{ id: 'home', label: 'Home', description: 'Overview', category: 'Kelmor Director', path: '/', icon: 'home', capabilities: ['server.read'] },
-	{ id: 'accounts', label: 'List Accounts', description: 'Accounts', category: 'Account Information', path: '/accounts', icon: 'users', capabilities: ['accounts.read'] },
+	{ id: 'list-accounts', label: 'List Accounts', description: 'Accounts', category: 'Account Information', path: '/accounts', icon: 'users', capabilities: ['accounts.read'] },
 	{ id: 'account-summary', label: 'Account Summary', description: 'Account hub', category: 'Account Information', path: '/accounts?task=summary', icon: 'account', capabilities: ['accounts.read'] },
 	{ id: 'suspended', label: 'Suspended Accounts', description: 'Suspended', category: 'Account Information', path: '/accounts?view=suspended', icon: 'pause', capabilities: ['accounts.read'] },
 	{ id: 'modify-account', label: 'Modify an Account', description: 'Modify', category: 'Account Functions', path: '/accounts?task=modify', icon: 'edit', capabilities: ['accounts.read'] },
 	{ id: 'terminate-account', label: 'Terminate an Account', description: 'Terminate', category: 'Account Functions', path: '/accounts?task=terminate', icon: 'trash', capabilities: ['accounts.read'] },
+	{ id: 'tweak-settings', label: 'Tweak Settings', description: 'Host defaults', category: 'Server Configuration', path: '/tools/tweak-settings', icon: 'edit', capabilities: ['server.settings.write'] },
+	{ id: 'change-hostname', label: 'Change Hostname', description: 'Hostname', category: 'Networking Setup', path: '/tools/change-hostname', icon: 'globe', capabilities: ['server.settings.write'] },
 ]
 
 const me: Me = {
@@ -60,7 +62,7 @@ afterEach(() => {
 })
 
 describe('Sidebar interactions', () => {
-	test('filters categories and supports per-category and global expand/collapse', async () => {
+	test('filters hubs and supports group expand/collapse', async () => {
 		const user = userEvent.setup()
 		render(
 			<MemoryRouter>
@@ -69,17 +71,19 @@ describe('Sidebar interactions', () => {
 		)
 
 		await user.type(screen.getByRole('textbox', { name: 'Filter features' }), 'account')
-		expect(screen.queryByRole('button', { name: /Kelmor Director/ })).not.toBeInTheDocument()
-		const category = screen.getByRole('button', { name: /Account Information/ })
-		expect(screen.getByRole('link', { name: /List Accounts/ })).toBeVisible()
+		expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: 'Server Configuration' })).not.toBeInTheDocument()
+		const category = screen.getByRole('button', { name: /Account services/ })
+		expect(screen.getByRole('link', { name: 'Accounts' })).toBeVisible()
+		expect(screen.queryByRole('link', { name: /List Accounts/ })).not.toBeInTheDocument()
 
 		await user.click(category)
 		expect(category).toHaveAttribute('aria-expanded', 'false')
-		expect(screen.queryByRole('link', { name: /List Accounts/ })).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: 'Accounts' })).not.toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Expand' }))
-		expect(screen.getByRole('link', { name: /List Accounts/ })).toBeVisible()
+		expect(screen.getByRole('link', { name: 'Accounts' })).toBeVisible()
 		await user.click(screen.getByRole('button', { name: 'Collapse' }))
-		expect(screen.queryByRole('link', { name: /List Accounts/ })).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: 'Accounts' })).not.toBeInTheDocument()
 	})
 
 	test('focuses the mobile sidebar and restores menu focus after Escape', async () => {
@@ -112,31 +116,43 @@ describe('Sidebar interactions', () => {
 		expect(sidebar).toHaveAttribute('inert')
 	})
 
-	test('marks only the current destination active on an account hub', async () => {
-		const user = userEvent.setup()
+	test('marks the Accounts hub current on an account detail page', () => {
 		render(
 			<MemoryRouter initialEntries={['/accounts/acc-1']}>
 				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
 			</MemoryRouter>,
 		)
 
-		expect(screen.getByRole('link', { name: /Account Summary/ })).toHaveAttribute('aria-current', 'page')
-		expect(screen.getByRole('link', { name: /List Accounts/ })).not.toHaveAttribute('aria-current')
-		await user.click(screen.getByRole('button', { name: 'Expand' }))
-		expect(screen.getByRole('link', { name: /Modify an Account/ })).not.toHaveAttribute('aria-current')
-		expect(screen.getByRole('link', { name: /Terminate an Account/ })).not.toHaveAttribute('aria-current')
+		expect(screen.getByRole('link', { name: 'Accounts' })).toHaveAttribute('aria-current', 'page')
+		expect(screen.queryByRole('link', { name: /Account Summary/ })).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: /Modify an Account/ })).not.toBeInTheDocument()
 	})
 
-	test('keeps categories other than the current tool collapsed by default', () => {
+	test('keeps hub groups other than the current section collapsed by default', () => {
 		render(
 			<MemoryRouter initialEntries={['/accounts/acc-1']}>
 				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
 			</MemoryRouter>,
 		)
 
-		expect(screen.getByRole('button', { name: /Account Information/ })).toHaveAttribute('aria-expanded', 'true')
-		expect(screen.getByRole('button', { name: /Account Functions/ })).toHaveAttribute('aria-expanded', 'false')
-		expect(screen.queryByRole('link', { name: /Modify an Account/ })).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /Account services/ })).toHaveAttribute('aria-expanded', 'true')
+		expect(screen.getByRole('button', { name: /Host operations/ })).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByRole('link', { name: 'Server Configuration' })).not.toBeInTheDocument()
+	})
+
+	test('combines configuration features under one Server Configuration link', async () => {
+		const user = userEvent.setup()
+		render(
+			<MemoryRouter initialEntries={['/section/server?tool=tweak-settings']}>
+				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
+			</MemoryRouter>,
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Expand' }))
+		expect(screen.getByRole('link', { name: 'Server Configuration' })).toHaveAttribute('aria-current', 'page')
+		expect(screen.getByRole('link', { name: 'Server Configuration' })).toHaveAttribute('href', '/section/server')
+		expect(screen.queryByRole('link', { name: 'Tweak Settings' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: 'Change Hostname' })).not.toBeInTheDocument()
 	})
 
 	test('does not render Account or Host badges on sidebar categories', () => {

@@ -35,4 +35,11 @@ describe('directorBreadcrumbs', () => {
 			{ label: 'Tweak Settings' },
 		])
 	})
+
+	test('labels combined hub pages from the hub map', () => {
+		expect(directorBreadcrumbs('/section/server', { section: 'Section', server: 'server' })).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'Server Configuration' },
+		])
+	})
 })

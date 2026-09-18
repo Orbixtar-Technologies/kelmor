@@ -52,6 +52,10 @@ export function isDirectorToolActive (tool: ToolDefinition, pathname: string, se
 		return currentTask === 'inventory'
 	}
 
+	if (pathname.startsWith('/section/')) {
+		return params.get('tool') === tool.id
+	}
+
 	if (target.pathname.startsWith('/tools/')) {
 		return pathname === target.pathname
 	}

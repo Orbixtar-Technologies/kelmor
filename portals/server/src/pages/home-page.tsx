@@ -4,7 +4,9 @@ import { api, asList } from '../client'
 import { WidgetCard } from '../components/widget-card'
 import { ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
 import { messageFrom } from '../helpers'
-import { discoverTools, groupTools, toolCatalog } from '../tool-catalog'
+import { hrefForFeature, visibleHubs } from '../nav-hubs'
+import { discoverTools, toolCatalog } from '../tool-catalog'
+import { featureById } from '../whm-catalog'
 import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, ServerOverview } from '../types'
 
@@ -24,7 +26,7 @@ export function HomePage () {
 	const tools = discoverTools(toolCatalog, capabilities)
 	const toolById = new Map(tools.map((tool) => [tool.id, tool]))
 	const featured = featuredToolIds.map((id) => toolById.get(id)).filter(Boolean)
-	const grouped = groupTools(tools.filter((tool) => tool.path !== '/'))
+	const groupedHubs = visibleHubs(tools).filter((hub) => hub.id !== 'home')
 
 	function load () {
 		setLoading(true)
@@ -66,24 +68,43 @@ export function HomePage () {
 			</nav>
 			<SectionHeading title="Administration" detail="Shortcuts to common server and account tools. Every WHM-mapped surface is listed below — nothing is hidden for missing privileges." />
 			<div className="widget-grid">
-				{featured.map((tool, index) => (
-					<WidgetCard
-						key={tool!.id}
-						id={tool!.id}
-						label={tool!.label}
-						description={tool!.description}
-						path={tool!.path}
-						icon={tool!.icon}
-						toneIndex={index}
-						value={widgetMetrics[tool!.id]?.value}
-						detail={widgetMetrics[tool!.id]?.detail}
-					/>
-				))}
+				{featured.map((tool, index) => {
+					const feature = featureById(tool!.id)
+					return (
+						<WidgetCard
+							key={tool!.id}
+							id={tool!.id}
+							label={tool!.label}
+							description={tool!.description}
+							path={feature ? hrefForFeature(feature) : tool!.path}
+							icon={tool!.icon}
+							toneIndex={index}
+							value={widgetMetrics[tool!.id]?.value}
+							detail={widgetMetrics[tool!.id]?.detail}
+						/>
+					)
+				})}
 			</div>
-			{grouped.size ? <>
-				<SectionHeading title="All tools" detail="Every Director tool grouped the way WHM groups its panel, including journeys that write through settings, jobs, or the typed agent." />
+			{groupedHubs.length ? <>
+				<SectionHeading title="All tools" detail="Every Director tool on a combined hub page — one sidebar entry per area, with the related menus on that page." />
 				<div className="tool-groups">
-					{[...grouped.entries()].map(([category, entries]) => <section className="panel tool-group" key={category}><h3>{category}</h3>{entries.map((tool) => <Link key={tool.id} to={tool.path}><strong>{tool.label}</strong><span>{tool.description}</span></Link>)}</section>)}
+					{groupedHubs.map((hub) => {
+						const entries = tools.filter((tool) => hub.categories.includes(tool.category) && tool.id !== 'home')
+						return (
+							<section className="panel tool-group" key={hub.id}>
+								<h3>{hub.label}</h3>
+								{entries.map((tool) => {
+									const feature = featureById(tool.id)
+									return (
+										<Link key={tool.id} to={feature ? hrefForFeature(feature) : tool.path}>
+											<strong>{tool.label}</strong>
+											<span>{tool.description}</span>
+										</Link>
+									)
+								})}
+							</section>
+						)
+					})}
 				</div>
 			</> : null}
 		</>

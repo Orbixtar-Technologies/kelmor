@@ -104,4 +104,11 @@ describe('generic tool paths', () => {
 		expect(isDirectorToolActive(tweak, '/tools/tweak-settings')).toBe(true)
 		expect(isDirectorToolActive(hostname, '/tools/tweak-settings')).toBe(false)
 	})
+
+	test('highlights only the selected tool on a combined hub page', () => {
+		const tweak = tool('tweak-settings', '/tools/tweak-settings', 'Server Configuration')
+		const hostname = tool('change-hostname', '/tools/change-hostname', 'Networking Setup')
+		expect(isDirectorToolActive(tweak, '/section/server', '?tool=tweak-settings')).toBe(true)
+		expect(isDirectorToolActive(hostname, '/section/server', '?tool=tweak-settings')).toBe(false)
+	})
 })

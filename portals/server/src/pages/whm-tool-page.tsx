@@ -8,6 +8,7 @@ import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, Package } from '../types'
 import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
+import { hrefForFeature } from '../nav-hubs'
 import { featureById, type WhmFeature, type WhmField } from '../whm-catalog'
 
 interface ServerSettings {
@@ -35,7 +36,7 @@ export function WhmToolPage () {
 	return <WhmToolBody feature={feature} />
 }
 
-function WhmToolBody ({ feature }: { feature: WhmFeature }) {
+export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 	const capabilities = useCapabilities()
 	const [step, setStep] = useState(0)
 	const [accountId, setAccountId] = useState('')
@@ -201,7 +202,7 @@ function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 						{feature.related.map((id) => {
 							const related = featureById(id)
 							if (!related) return null
-							return <li key={id}><Link to={related.path}>{related.label}</Link></li>
+							return <li key={id}><Link to={hrefForFeature(related)}>{related.label}</Link></li>
 						})}
 					</ul>
 				</aside>
