@@ -208,6 +208,11 @@ export function hrefForFeature (feature: WhmFeature): string {
 	return hub ? hubToolHref(hub, feature) : feature.path
 }
 
+export function hrefForTool (tool: ToolDefinition): string {
+	const feature = featureById(tool.id)
+	return feature ? hrefForFeature(feature) : tool.path
+}
+
 export function toolsForHub (hub: NavHub, tools: ToolDefinition[]): ToolDefinition[] {
 	const categories = new Set(hub.categories)
 	return tools.filter((tool) => categories.has(tool.category) && tool.id !== 'home')
@@ -216,6 +221,27 @@ export function toolsForHub (hub: NavHub, tools: ToolDefinition[]): ToolDefiniti
 export function visibleHubs (tools: ToolDefinition[]): NavHub[] {
 	const categories = new Set(tools.map((tool) => tool.category))
 	return navHubs.filter((hub) => hub.categories.some((category) => categories.has(category)))
+}
+
+export interface SidebarToolGroup {
+	hub: NavHub
+	tools: ToolDefinition[]
+}
+
+export function sidebarToolGroups (tools: ToolDefinition[]): SidebarToolGroup[] {
+	return visibleHubs(tools).flatMap((hub) => {
+		if (hub.id === 'home') return []
+		const entries = toolsForHub(hub, tools)
+		return entries.length ? [{ hub, tools: entries }] : []
+	})
+}
+
+export function isSidebarToolActive (tool: ToolDefinition, pathname: string, search = ''): boolean {
+	if (isDirectorToolActive(tool, pathname, search)) return true
+	const hub = hubForCategory(tool.category)
+	if (!hub || !pathname.startsWith(`/section/${hub.id}`)) return false
+	const params = new URLSearchParams(search.startsWith('?') ? search : search ? `?${search}` : '')
+	return !params.get('tool') && tool.id === hub.defaultToolId
 }
 
 export function featureMatchScore (feature: WhmFeature, pathname: string, search = ''): number {

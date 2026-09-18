@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { hubEntryPath, isDirectorHubActive, visibleHubs, type NavHub } from '../nav-hubs'
+import { hrefForTool, isDirectorHubActive, isSidebarToolActive, sidebarToolGroups } from '../nav-hubs'
 import type { ToolDefinition } from '../types'
 
 const icons: Record<string, string> = {
@@ -10,11 +10,6 @@ const icons: Record<string, string> = {
 	trash: '×', key: '⌘', database: '▰', mail: '✉', lock: '▧',
 	files: '▤', webmail: '✉', code: '{ }',
 }
-
-const HUB_GROUPS: Array<{ id: string; label: string; scope: NavHub['scope'] }> = [
-	{ id: 'account', label: 'Account services', scope: 'account' },
-	{ id: 'host', label: 'Host operations', scope: 'host' },
-]
 
 interface SidebarProps {
 	tools: ToolDefinition[]
@@ -32,33 +27,19 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	const sidebarRef = useRef<HTMLElement>(null)
 	const location = useLocation()
 	const query = filter.toLocaleLowerCase()
-	const hubs = useMemo(() => {
-		return visibleHubs(tools).filter((hub) => {
-			if (!query) return true
-			if (`${hub.label} ${hub.description}`.toLocaleLowerCase().includes(query)) return true
-			return tools.some((tool) => {
-				if (hub.categories.includes(tool.category) && `${tool.label} ${tool.category}`.toLocaleLowerCase().includes(query)) return true
-				return false
-			})
-		})
+	const homeTool = useMemo(() => tools.find((tool) => tool.id === 'home'), [tools])
+	const groups = useMemo(() => {
+		return sidebarToolGroups(tools)
+			.map((group) => ({
+				...group,
+				tools: group.tools.filter((tool) => {
+					if (!query) return true
+					return `${tool.label} ${tool.category} ${group.hub.label}`.toLocaleLowerCase().includes(query)
+				}),
+			}))
+			.filter((group) => group.tools.length)
 	}, [tools, query])
-	const homeHub = hubs.find((hub) => hub.id === 'home')
-	const groupedHubs = useMemo(() => {
-		return HUB_GROUPS.map((group) => ({
-			...group,
-			hubs: hubs.filter((hub) => hub.id !== 'home' && hub.scope === group.scope),
-		})).filter((group) => group.hubs.length)
-	}, [hubs])
-	const currentGroupId = useMemo(() => {
-		for (const group of groupedHubs) {
-			if (group.hubs.some((hub) => isDirectorHubActive(hub, location.pathname, location.search))) return group.id
-		}
-		return ''
-	}, [groupedHubs, location.pathname, location.search])
-	const closedGroups = useMemo(() => {
-		if (closedOverride) return closedOverride
-		return new Set(groupedHubs.map((group) => group.id).filter((id) => id !== currentGroupId))
-	}, [closedOverride, groupedHubs, currentGroupId])
+	const closedHubs = closedOverride ?? new Set<string>()
 
 	useEffect(() => {
 		const media = window.matchMedia?.('(max-width: 780px)')
@@ -77,8 +58,10 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	}, [isMobile, mobileOpen])
 
 	function setAll (closed: boolean) {
-		setClosedOverride(closed ? new Set(groupedHubs.map((group) => group.id)) : new Set())
+		setClosedOverride(closed ? new Set(groups.map((group) => group.hub.id)) : new Set())
 	}
+
+	const showHome = Boolean(homeTool && (!query || `${homeTool.label} home`.toLocaleLowerCase().includes(query)))
 
 	return (
 		<aside
@@ -101,20 +84,22 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 				<div><button type="button" onClick={() => setAll(false)}>Expand</button><button type="button" onClick={() => setAll(true)}>Collapse</button></div>
 			</div>
 			<nav className="feature-nav" aria-label="Director tools">
-				{homeHub ? <HubLink hub={homeHub} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} /> : null}
-				{groupedHubs.map((group) => {
-					const closed = query && !closedOverride ? false : closedGroups.has(group.id)
-					const containsCurrent = group.hubs.some((hub) => isDirectorHubActive(hub, location.pathname, location.search))
+				{showHome && homeTool ? (
+					<ToolLink tool={homeTool} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} />
+				) : null}
+				{groups.map((group) => {
+					const closed = query && !closedOverride ? false : closedHubs.has(group.hub.id)
+					const containsCurrent = isDirectorHubActive(group.hub, location.pathname, location.search)
 					return (
-						<section key={group.id} data-scope={group.scope}>
+						<section key={group.hub.id} data-scope={group.hub.scope}>
 							<button type="button" className={`category-heading ${containsCurrent ? 'category-current' : ''}`} aria-expanded={!closed} onClick={() => {
-								const next = new Set(closedGroups)
-								if (closed) next.delete(group.id)
-								else next.add(group.id)
+								const next = new Set(closedHubs)
+								if (closed) next.delete(group.hub.id)
+								else next.add(group.hub.id)
 								setClosedOverride(next)
-							}}><span>{group.label}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
-							{closed ? null : group.hubs.map((hub) => (
-								<HubLink key={hub.id} hub={hub} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} />
+							}}><span>{group.hub.label}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
+							{closed ? null : group.tools.map((tool) => (
+								<ToolLink key={tool.id} tool={tool} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} />
 							))}
 						</section>
 					)
@@ -125,17 +110,17 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	)
 }
 
-function HubLink ({ hub, collapsed, pathname, search, onNavigate }: {
-	hub: NavHub
+function ToolLink ({ tool, collapsed, pathname, search, onNavigate }: {
+	tool: ToolDefinition
 	collapsed: boolean
 	pathname: string
 	search: string
 	onNavigate: () => void
 }) {
-	const isCurrent = isDirectorHubActive(hub, pathname, search)
+	const isCurrent = isSidebarToolActive(tool, pathname, search)
 	return (
-		<Link to={hubEntryPath(hub)} className={isCurrent ? 'active' : undefined} aria-current={isCurrent ? 'page' : undefined} title={collapsed ? hub.label : undefined} onClick={onNavigate}>
-			<span className="nav-icon" aria-hidden="true">{icons[hub.icon] ?? '•'}</span><span>{hub.label}</span>
+		<Link to={hrefForTool(tool)} className={isCurrent ? 'active' : undefined} aria-current={isCurrent ? 'page' : undefined} title={collapsed ? tool.label : undefined} onClick={onNavigate}>
+			<span className="nav-icon" aria-hidden="true">{icons[tool.icon] ?? '•'}</span><span>{tool.label}</span>
 		</Link>
 	)
 }
