@@ -39,16 +39,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 			}))
 			.filter((group) => group.tools.length)
 	}, [tools, query])
-	const currentHubId = useMemo(() => {
-		for (const group of groups) {
-			if (isDirectorHubActive(group.hub, location.pathname, location.search)) return group.hub.id
-		}
-		return ''
-	}, [groups, location.pathname, location.search])
-	const closedHubs = useMemo(() => {
-		if (closedOverride) return closedOverride
-		return new Set(groups.map((group) => group.hub.id).filter((id) => id !== currentHubId))
-	}, [closedOverride, groups, currentHubId])
+	const closedHubs = closedOverride ?? new Set<string>()
 
 	useEffect(() => {
 		const media = window.matchMedia?.('(max-width: 780px)')

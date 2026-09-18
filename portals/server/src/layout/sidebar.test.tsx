@@ -86,15 +86,14 @@ describe('Sidebar interactions', () => {
 		expect(screen.queryByRole('link', { name: /List Accounts/ })).not.toBeInTheDocument()
 	})
 
-	test('lists every catalog tool from Home All tools', async () => {
-		const user = userEvent.setup()
+	test('lists every catalog tool from Home All tools', () => {
 		render(
 			<MemoryRouter>
 				<Sidebar tools={toolCatalog} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
 			</MemoryRouter>,
 		)
 
-		await user.click(screen.getByRole('button', { name: 'Expand' }))
+		expect(screen.getByRole('link', { name: 'Home' })).toBeVisible()
 		const expected = toolCatalog.filter((tool) => tool.id !== 'home')
 		for (const tool of expected) {
 			expect(screen.getByRole('link', { name: tool.label })).toBeInTheDocument()
@@ -134,8 +133,7 @@ describe('Sidebar interactions', () => {
 		expect(sidebar).toHaveAttribute('inert')
 	})
 
-	test('marks only the current destination active on an account hub', async () => {
-		const user = userEvent.setup()
+	test('marks only the current destination active on an account hub', () => {
 		render(
 			<MemoryRouter initialEntries={['/accounts/acc-1']}>
 				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
@@ -144,21 +142,24 @@ describe('Sidebar interactions', () => {
 
 		expect(screen.getByRole('link', { name: /Account Summary/ })).toHaveAttribute('aria-current', 'page')
 		expect(screen.getByRole('link', { name: /List Accounts/ })).not.toHaveAttribute('aria-current')
-		await user.click(screen.getByRole('button', { name: 'Expand' }))
 		expect(screen.getByRole('link', { name: /Modify an Account/ })).not.toHaveAttribute('aria-current')
 		expect(screen.getByRole('link', { name: /Terminate an Account/ })).not.toHaveAttribute('aria-current')
 	})
 
-	test('keeps hubs other than the current tool collapsed by default', () => {
+	test('keeps every hub expanded so Home is not the only visible menu', () => {
 		render(
-			<MemoryRouter initialEntries={['/accounts/acc-1']}>
+			<MemoryRouter initialEntries={['/']}>
 				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
 			</MemoryRouter>,
 		)
 
+		expect(screen.getByRole('link', { name: 'Home' })).toBeVisible()
 		expect(screen.getByRole('button', { name: /Accounts/ })).toHaveAttribute('aria-expanded', 'true')
-		expect(screen.getByRole('button', { name: /Server Configuration/ })).toHaveAttribute('aria-expanded', 'false')
-		expect(screen.queryByRole('link', { name: 'Tweak Settings' })).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /Server Configuration/ })).toHaveAttribute('aria-expanded', 'true')
+		expect(screen.getByRole('link', { name: /List Accounts/ })).toBeVisible()
+		expect(screen.getByRole('link', { name: /Account Summary/ })).toBeVisible()
+		expect(screen.getByRole('link', { name: 'Tweak Settings' })).toBeVisible()
+		expect(screen.getByRole('link', { name: 'Change Hostname' })).toBeVisible()
 	})
 
 	test('does not render Account or Host badges on sidebar categories', () => {
