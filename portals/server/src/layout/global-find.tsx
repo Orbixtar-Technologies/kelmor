@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, asList } from '../client'
+import { hrefForTool } from '../nav-hubs'
 import { useCapabilities } from '../rbac'
 import type { Account, FindResult, ResourceItem, ToolDefinition } from '../types'
 
@@ -71,7 +72,7 @@ export function rankFindResults (query: string, tools: ToolDefinition[], account
 		id: tool.id,
 		label: tool.label,
 		description: `${tool.description} · ${tool.category}`,
-		path: tool.path,
+		path: hrefForTool(tool),
 		kind: 'tool' as const,
 		score: matchScore(needle, tool.label, `${tool.description} ${tool.category}`),
 	}))
@@ -161,7 +162,7 @@ export function GlobalFind ({ tools, accounts }: GlobalFindProps) {
 				id="global-find"
 				ref={inputRef}
 				value={query}
-				placeholder="Search tools and accounts"
+				placeholder="Find tools, usernames, and domains"
 				autoComplete="off"
 				role="combobox"
 				aria-autocomplete="list"

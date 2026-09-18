@@ -15,8 +15,10 @@ For the route-by-route WHM pattern mapping, see
   administrator menu.
 - Global Find searches capability-available tools, usernames, and domains.
   Press `/` to focus it, use arrow keys to select, and press Enter to navigate.
-- The left rail groups tools by operator task. Categories can be expanded,
-  collapsed, and filtered, and the rail can be collapsed on desktop.
+- The left rail groups tools in WHM-style categories (Account Functions,
+  Packages, DNS, Service / Server Status, Jobs & Audit, and the rest of the
+  Kelmor catalog). Categories can be expanded, collapsed, and filtered, and
+  the rail can be collapsed on desktop.
 - Mobile navigation is inert while closed, moves focus into the drawer when
   opened, closes with Escape, and restores focus to its trigger.
 - Breadcrumbs preserve location context throughout the application.
@@ -29,14 +31,14 @@ the API remains the security boundary. Generic tools live at `/tools/:id`.
 
 Home combines:
 
-- Favorite high-frequency tools.
-- Load, memory, disk, account, and job statistics.
-- Service status and recent jobs.
-- Recent privileged activity when the role can read audit data.
-- All available tools grouped by category.
+- Measured load, memory, disk, account, service, and failed-job vitals. Missing
+  probes render as Not reported — Director does not invent metrics.
+- Primary shortcuts: Create account, List accounts, Failed jobs, and Service
+  health.
+- Frequent account/job/service tools.
+- Every catalog tool grouped in the same WHM-style categories as the sidebar.
 
-Firewall and reboot are intentionally secondary controls under Security & Host
-Configuration.
+Firewall and reboot are intentionally secondary controls under Security.
 
 ## Operator journeys
 

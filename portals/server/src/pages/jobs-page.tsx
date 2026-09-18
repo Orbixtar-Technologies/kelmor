@@ -11,10 +11,10 @@ import { describeJobFailure, describeJobTimeline, formatJobType, jobMatchesAccou
 
 export function JobsPage () {
 	const capabilities = useCapabilities()
-	const [params] = useSearchParams()
+	const [params, setParams] = useSearchParams()
 	const [items, setItems] = useState<Job[]>([])
-	const [query, setQuery] = useState('')
-	const [state, setState] = useState('')
+	const query = params.get('q') || ''
+	const state = params.get('state') || ''
 	const [page, setPage] = useState(1)
 	const [selected, setSelected] = useState<Job | null>(null)
 	const [loading, setLoading] = useState(true)
@@ -41,6 +41,19 @@ export function JobsPage () {
 	const visible = useMemo(() => filterRows(scoped, query, ['id', 'type', 'state', 'resource_type', 'resource_id', 'last_error']), [scoped, query])
 	const counts = summarizeJobCounts(scoped)
 	const paged = paginateRows(sortRows(visible, 'created_at', 'desc'), page, 20)
+	function updateFilters (next: { q?: string; state?: string }) {
+		const updated = new URLSearchParams(params)
+		if (next.q !== undefined) {
+			if (next.q) updated.set('q', next.q)
+			else updated.delete('q')
+		}
+		if (next.state !== undefined) {
+			if (next.state) updated.set('state', next.state)
+			else updated.delete('state')
+		}
+		setPage(1)
+		setParams(updated, { replace: true })
+	}
 	async function retry (job: Job) {
 		try {
 			const result = await api<{ operation_id?: string; id?: string }>(`/api/v1/jobs/${job.id}/retry`, { method: 'POST', body: '{}' })
@@ -60,7 +73,7 @@ export function JobsPage () {
 			</div>
 		) : null}
 		<section className="metric-grid compact-metrics" aria-label={accountId ? 'Account job totals' : 'Job totals'}><Metric label="Queued" value={counts.queued} /><Metric label="Running" value={counts.running} /><Metric label="Succeeded" value={counts.succeeded} /><Metric label="Failed" value={counts.failed} /></section>
-		<div className="filter-bar"><label>Search jobs<input type="search" value={query} placeholder="Type, resource, error, or ID" onChange={(event) => { setQuery(event.target.value); setPage(1) }} /></label><label>State<select value={state} onChange={(event) => { setState(event.target.value); setPage(1) }}><option value="">All states</option><option>queued</option><option>running</option><option>succeeded</option><option>failed</option></select></label></div>
+		<div className="filter-bar"><label>Search jobs<input type="search" value={query} placeholder="Type, resource, error, or ID" onChange={(event) => updateFilters({ q: event.target.value })} /></label><label>State<select value={state} onChange={(event) => updateFilters({ state: event.target.value })}><option value="">All states</option><option>queued</option><option>running</option><option>succeeded</option><option>failed</option></select></label></div>
 		{message ? <p className="feedback">{message}</p> : null}{error ? <ErrorState error={error} onRetry={load} /> : null}{loading ? <LoadingState label="Loading jobs…" /> : null}
 		{!loading && <ul className="job-cards">{paged.items.map((job) => {
 			const failure = describeJobFailure(job)

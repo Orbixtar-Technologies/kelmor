@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { hrefForTool, isDirectorHubActive, isSidebarToolActive, sidebarToolGroups } from '../nav-hubs'
+import { hrefForTool, isSidebarToolActive } from '../nav-hubs'
+import { isOperatorGroupActive, operatorNavGroups } from '../operator-nav'
 import type { ToolDefinition } from '../types'
 
 const icons: Record<string, string> = {
@@ -29,17 +30,17 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	const query = filter.toLocaleLowerCase()
 	const homeTool = useMemo(() => tools.find((tool) => tool.id === 'home'), [tools])
 	const groups = useMemo(() => {
-		return sidebarToolGroups(tools)
+		return operatorNavGroups(tools)
 			.map((group) => ({
 				...group,
 				tools: group.tools.filter((tool) => {
 					if (!query) return true
-					return `${tool.label} ${tool.category} ${group.hub.label}`.toLocaleLowerCase().includes(query)
+					return `${tool.label} ${tool.category} ${group.label}`.toLocaleLowerCase().includes(query)
 				}),
 			}))
 			.filter((group) => group.tools.length)
 	}, [tools, query])
-	const closedHubs = closedOverride ?? new Set<string>()
+	const closedGroups = closedOverride ?? new Set<string>()
 
 	useEffect(() => {
 		const media = window.matchMedia?.('(max-width: 780px)')
@@ -58,7 +59,7 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	}, [isMobile, mobileOpen])
 
 	function setAll (closed: boolean) {
-		setClosedOverride(closed ? new Set(groups.map((group) => group.hub.id)) : new Set())
+		setClosedOverride(closed ? new Set(groups.map((group) => group.id)) : new Set())
 	}
 
 	const showHome = Boolean(homeTool && (!query || `${homeTool.label} home`.toLocaleLowerCase().includes(query)))
@@ -88,16 +89,16 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 					<ToolLink tool={homeTool} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} />
 				) : null}
 				{groups.map((group) => {
-					const closed = query && !closedOverride ? false : closedHubs.has(group.hub.id)
-					const containsCurrent = isDirectorHubActive(group.hub, location.pathname, location.search)
+					const closed = query && !closedOverride ? false : closedGroups.has(group.id)
+					const containsCurrent = isOperatorGroupActive(group, location.pathname, location.search)
 					return (
-						<section key={group.hub.id} data-scope={group.hub.scope}>
+						<section key={group.id}>
 							<button type="button" className={`category-heading ${containsCurrent ? 'category-current' : ''}`} aria-expanded={!closed} onClick={() => {
-								const next = new Set(closedHubs)
-								if (closed) next.delete(group.hub.id)
-								else next.add(group.hub.id)
+								const next = new Set(closedGroups)
+								if (closed) next.delete(group.id)
+								else next.add(group.id)
 								setClosedOverride(next)
-							}}><span>{group.hub.label}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
+							}}><span>{group.label}</span><span aria-hidden="true">{closed ? '›' : '⌄'}</span></button>
 							{closed ? null : group.tools.map((tool) => (
 								<ToolLink key={tool.id} tool={tool} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} />
 							))}

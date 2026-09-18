@@ -135,6 +135,32 @@ export function AccountSummaryPage () {
 			<PageHeader title={account.username} description={`${account.primary_domain} · POSIX tenant ${account.status}`} actions={<>{canSuspend ? <button type="button" className={account.status === 'suspended' ? 'secondary' : 'danger'} onClick={() => setPendingLifecycle(account.status === 'suspended' ? 'unsuspend' : 'suspend')}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : null}<LoginToControl accountId={id} username={account.username} variant="button" autoOpen={shouldOpenControl} /><Link className="button-link" to={`/ssl?account=${id}`}>SSL / TLS</Link></>} />
 			<AccountTabs id={id} />
 			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<section className="action-groups" aria-label="Account operations">
+				<article>
+					<h2>Modify</h2>
+					<p>Package, domain, IP, reseller, and login access.</p>
+					<div className="button-row">
+						{canModify ? <button type="button" className="secondary" onClick={() => { setEditingAssignment(true); assignmentRef.current?.scrollIntoView({ block: 'center' }) }}>Edit assignment</button> : <span className="subtle">Modify is unavailable to your role.</span>}
+						<Link className="secondary-link" to={`/accounts/${id}?task=package`}>Change package</Link>
+					</div>
+				</article>
+				<article>
+					<h2>Access</h2>
+					<p>Owner password and Kelmor Control login.</p>
+					<div className="button-row">
+						{canModify ? <button type="button" className="secondary" onClick={() => setPasswordOpen(true)}>Rotate password</button> : <span className="subtle">Password rotation is unavailable.</span>}
+						<LoginToControl accountId={id} username={account.username} variant="button" />
+					</div>
+				</article>
+				<article>
+					<h2>State</h2>
+					<p>Suspend services or permanently remove the tenant.</p>
+					<div className="button-row">
+						{canSuspend ? <button type="button" className={account.status === 'suspended' ? 'secondary' : 'danger'} onClick={() => setPendingLifecycle(account.status === 'suspended' ? 'unsuspend' : 'suspend')}>{account.status === 'suspended' ? 'Unsuspend' : 'Suspend'}</button> : <span className="subtle">Suspend is unavailable to your role.</span>}
+						{canTerminate ? <button type="button" className="danger" onClick={account.status === 'terminated' ? openRemove : openTerminate}>{account.status === 'terminated' ? 'Remove account' : 'Terminate'}</button> : <span className="subtle">Terminate is unavailable to your role.</span>}
+					</div>
+				</article>
+			</section>
 			<div className="summary-grid">
 				<section className="panel"><h2>Account health</h2><dl className="detail-list">
 					<div><dt>Status</dt><dd><StatusBadge value={account.status} /></dd></div>

@@ -63,7 +63,7 @@ afterEach(() => {
 })
 
 describe('Sidebar interactions', () => {
-	test('filters tools and supports per-hub expand/collapse', async () => {
+	test('filters tools and supports per-category expand/collapse', async () => {
 		const user = userEvent.setup()
 		render(
 			<MemoryRouter>
@@ -74,8 +74,9 @@ describe('Sidebar interactions', () => {
 		await user.type(screen.getByRole('textbox', { name: 'Filter features' }), 'account')
 		expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: /Server Configuration/ })).not.toBeInTheDocument()
-		const category = screen.getByRole('button', { name: /Accounts/ })
+		const category = screen.getByRole('button', { name: /Account Information/ })
 		expect(screen.getByRole('link', { name: /List Accounts/ })).toBeVisible()
+		expect(screen.getByRole('button', { name: /Account Functions/ })).toBeVisible()
 
 		await user.click(category)
 		expect(category).toHaveAttribute('aria-expanded', 'false')
@@ -101,6 +102,10 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: 'Tweak Settings' })).toHaveAttribute('href', '/section/server?tool=tweak-settings')
 		expect(screen.getByRole('link', { name: 'Change Hostname' })).toHaveAttribute('href', '/section/server?tool=change-hostname')
 		expect(screen.getByRole('link', { name: 'List Accounts' })).toHaveAttribute('href', '/accounts')
+		expect(screen.getByRole('button', { name: 'Account Functions' })).toBeVisible()
+		expect(screen.getByRole('button', { name: 'Jobs & Audit' })).toBeVisible()
+		expect(screen.getByRole('button', { name: 'Service / Server Status' })).toBeVisible()
+		expect(screen.queryByRole('button', { name: 'cPanel' })).not.toBeInTheDocument()
 	})
 
 	test('focuses the mobile sidebar and restores menu focus after Escape', async () => {
@@ -146,7 +151,7 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: /Terminate an Account/ })).not.toHaveAttribute('aria-current')
 	})
 
-	test('keeps every hub expanded so Home is not the only visible menu', () => {
+	test('keeps every WHM-style category expanded so Home is not the only visible menu', () => {
 		render(
 			<MemoryRouter initialEntries={['/']}>
 				<Sidebar tools={tools} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
@@ -154,10 +159,13 @@ describe('Sidebar interactions', () => {
 		)
 
 		expect(screen.getByRole('link', { name: 'Home' })).toBeVisible()
-		expect(screen.getByRole('button', { name: /Accounts/ })).toHaveAttribute('aria-expanded', 'true')
+		expect(screen.getByRole('button', { name: /Account Functions/ })).toHaveAttribute('aria-expanded', 'true')
+		expect(screen.getByRole('button', { name: /Account Information/ })).toHaveAttribute('aria-expanded', 'true')
 		expect(screen.getByRole('button', { name: /Server Configuration/ })).toHaveAttribute('aria-expanded', 'true')
+		expect(screen.getByRole('button', { name: /Networking Setup/ })).toHaveAttribute('aria-expanded', 'true')
 		expect(screen.getByRole('link', { name: /List Accounts/ })).toBeVisible()
 		expect(screen.getByRole('link', { name: /Account Summary/ })).toBeVisible()
+		expect(screen.getByRole('link', { name: /Modify an Account/ })).toBeVisible()
 		expect(screen.getByRole('link', { name: 'Tweak Settings' })).toBeVisible()
 		expect(screen.getByRole('link', { name: 'Change Hostname' })).toBeVisible()
 	})

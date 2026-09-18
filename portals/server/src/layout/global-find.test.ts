@@ -45,6 +45,8 @@ describe('global find ranking', () => {
 	test('matches feature labels and descriptions', () => {
 		expect(rankFindResults('zones', tools, []).map((result) => result.label)).toEqual(['DNS Management'])
 		expect(rankFindResults('list accounts', tools, [])[0]?.label).toBe('List Accounts')
+		expect(rankFindResults('list accounts', tools, [])[0]?.path).toBe('/accounts')
+		expect(rankFindResults('zones', tools, [])[0]?.kind).toBe('tool')
 	})
 
 	test('matches account usernames and domains and ranks exact prefixes first', () => {

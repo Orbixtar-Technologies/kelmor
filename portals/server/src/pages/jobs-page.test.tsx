@@ -74,6 +74,30 @@ describe('JobsPage account scope', () => {
 		expect(screen.getByLabelText('Account job totals')).toHaveTextContent('Failed1')
 	})
 
+	it('opens failed-job filters from the Home deep link', async () => {
+		vi.mocked(api).mockResolvedValue({
+			items: [
+				{ ...failedJob, id: 'job-fail', last_error: 'provision timed out' },
+			],
+		})
+
+		render(
+			<MemoryRouter initialEntries={['/jobs?state=failed']}>
+				<CapProvider caps={{ 'websites.write': true }}>
+					<Routes>
+						<Route path="/jobs" element={<JobsPage />} />
+					</Routes>
+				</CapProvider>
+			</MemoryRouter>,
+		)
+
+		await waitFor(() => {
+			expect(screen.getByLabelText('State')).toHaveValue('failed')
+		})
+		expect(vi.mocked(api)).toHaveBeenCalledWith('/api/v1/jobs?state=failed')
+		expect(screen.getAllByText('provision timed out').length).toBeGreaterThan(0)
+	})
+
 	it('keeps recovery actions visible and summarizes earlier log failures', async () => {
 		vi.mocked(api).mockResolvedValue({
 			items: [{

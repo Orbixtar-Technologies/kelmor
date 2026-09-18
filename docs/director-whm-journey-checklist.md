@@ -4,14 +4,27 @@ This checklist maps familiar WHM operator patterns to Kelmor Director without
 copying WHM branding, proprietary assets, or implementation details. Kelmor's
 API capability checks and typed privileged-agent boundary remain authoritative.
 
+## Director P0 checklist
+
+| P0 item | Status | Where |
+| --- | --- | --- |
+| Light professional hosting-panel shell | Done | Navy sidebar, light workspace, Kelmor chrome only (`director-shell.tsx`, `styles.css`) |
+| Global Find for tools + accounts | Done | Top-bar Find matches tools, usernames, and domains; `/` focuses it |
+| Categorized hub nav | Done | Collapsible WHM-style categories: Account Functions, Account Information, Packages, DNS, Service / Server Status, Jobs & Audit, and the rest of the Kelmor catalog (`operator-nav.ts`) |
+| List Accounts | Done | Searchable/sortable dense table, row actions, Create CTA (`/accounts`) |
+| Create Account wizard | Done | Identity → package/ownership → review → `POST /api/v1/accounts` (`/accounts/create`) |
+| Account ops hub | Done | Summary, modify/package/suspend/terminate/password groups, recent jobs (`/accounts/:id`) |
+| Jobs queue | Done | History, URL filters, status, drill-down, retry (`/jobs`, `/jobs?state=failed`) |
+| Home vitals + operator shortcuts | Done | Load/memory/disk/accounts/services/failed jobs; Create, List Accounts, Failed Jobs, Service health. Firewall/reboot stay under Security |
+
 ## Chrome and Home
 
 | Operator pattern | Kelmor route | Implementation |
 | --- | --- | --- |
 | Global feature and account search | All routes | Top-bar Find searches tools, usernames, and domains; `/` focuses it. |
-| Categorized feature navigation | All routes | Collapsible, filterable sidebar generated from the full WHM-mapped catalog (`whm-catalog.ts`). Categories other than the current tool start collapsed. Writes remain API-enforced. |
+| Categorized feature navigation | All routes | Collapsible, filterable sidebar grouped by WHM-style operator categories (`operator-nav.ts`) from the Kelmor catalog. Writes remain API-enforced. |
 | Host identity and administrator controls | All routes | Live hostname, notifications, Kelmor Director identity, administrator menu, and sign out. |
-| Home favorites and server status | `/` | Favorites, host stats, and every WHM category — not a capability-filtered subset. |
+| Home favorites and server status | `/` | Measured vitals, P0 shortcuts, and every category — missing probes render as Not reported. |
 
 ## Account Information and Account Functions
 
