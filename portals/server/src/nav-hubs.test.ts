@@ -51,7 +51,7 @@ describe('nav hubs', () => {
 		expect(hubForLocation('/section/server', '?tool=tweak-settings')?.id).toBe('server')
 		expect(hubForLocation('/tools/tweak-settings')?.id).toBe('server')
 		expect(hubForLocation('/ssl', '?task=request')?.id).toBe('ssl')
-		expect(hubForLocation('/jobs')?.id).toBe('status')
+		expect(hubForLocation('/jobs')?.id).toBe('system')
 		expect(hubForLocation('/jobs', '?q=mail')?.id).toBe('email')
 	})
 

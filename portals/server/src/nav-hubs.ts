@@ -223,6 +223,7 @@ export function featureMatchScore (feature: WhmFeature, pathname: string, search
 	const target = new URL(feature.path, 'https://director.local')
 	const current = new URLSearchParams(search.startsWith('?') ? search : search ? `?${search}` : '')
 	let score = target.pathname.length
+	if (hubForCategory(feature.category)?.defaultToolId === feature.id) score += 25
 	for (const [key, value] of target.searchParams) {
 		if (current.get(key) === value) score += 80
 		else score -= 40
