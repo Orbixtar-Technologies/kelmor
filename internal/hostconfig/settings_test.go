@@ -46,3 +46,33 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Fatalf("empty: %+v", f)
 	}
 }
+
+func TestStorePrefersControlAndCoercesLegacyTypes(t *testing.T) {
+	state := t.TempDir()
+	legacy := []byte(`{"values":{"tweak_settings":{"max_emails_hour":250,"allow_parked":true,"default_php":"8.3"}}}`)
+	if err := os.WriteFile(filepath.Join(state, FileName), legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Values["tweak_settings"]["max_emails_hour"] != "250" || loaded.Values["tweak_settings"]["allow_parked"] != "on" {
+		t.Fatalf("coerced legacy: %+v", loaded)
+	}
+	if err := Store(state, File{Values: map[string]map[string]string{
+		"tweak_settings": {"max_emails_hour": "400", "default_php": "8.4"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(state, "control", FileName)); err != nil {
+		t.Fatalf("preferred path: %v", err)
+	}
+	again, err := Load(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Values["tweak_settings"]["max_emails_hour"] != "400" {
+		t.Fatalf("control wins over legacy: %+v", again)
+	}
+}

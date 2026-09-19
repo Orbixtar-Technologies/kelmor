@@ -16,28 +16,100 @@ type File struct {
 	Values map[string]map[string]string `json:"values"`
 }
 
+// PreferredPath is where panel-api (User=panel) can write. The installer
+// chowns /var/lib/panel/control but leaves /var/lib/panel itself root:root
+// 0755, so a file at the state-dir root is not persistable on a live host.
+func PreferredPath(stateDir string) string {
+	return filepath.Join(stateDir, "control", FileName)
+}
+
+func CandidatePaths(stateDir string) []string {
+	return []string{PreferredPath(stateDir), filepath.Join(stateDir, FileName)}
+}
+
 func Load(stateDir string) (File, error) {
 	out := File{Values: map[string]map[string]string{}}
 	if stateDir == "" {
 		return out, nil
 	}
-	raw, err := os.ReadFile(filepath.Join(stateDir, FileName))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return out, nil
+	for _, path := range CandidatePaths(stateDir) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return out, err
 		}
-		return out, err
+		return parseSettings(raw)
 	}
+	return out, nil
+}
+
+func Store(stateDir string, next File) error {
+	if next.Values == nil {
+		next.Values = map[string]map[string]string{}
+	}
+	dir := filepath.Dir(PreferredPath(stateDir))
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := PreferredPath(stateDir) + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, PreferredPath(stateDir))
+}
+
+func parseSettings(raw []byte) (File, error) {
+	out := File{Values: map[string]map[string]string{}}
 	if len(raw) == 0 {
 		return out, nil
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return File{Values: map[string]map[string]string{}}, err
+	var wrap struct {
+		Values map[string]map[string]any `json:"values"`
 	}
-	if out.Values == nil {
-		out.Values = map[string]map[string]string{}
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		return out, err
+	}
+	for key, fields := range wrap.Values {
+		row := map[string]string{}
+		for field, value := range fields {
+			row[field] = stringifySetting(value)
+		}
+		out.Values[key] = row
 	}
 	return out, nil
+}
+
+func stringifySetting(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case bool:
+		if typed {
+			return "on"
+		}
+		return "off"
+	case float64:
+		if typed == float64(int64(typed)) {
+			return strconv.FormatInt(int64(typed), 10)
+		}
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case json.Number:
+		return typed.String()
+	default:
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return ""
+		}
+		return string(raw)
+	}
 }
 
 func Field(f File, key, field, fallback string) string {

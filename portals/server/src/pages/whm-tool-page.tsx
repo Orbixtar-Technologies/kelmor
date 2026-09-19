@@ -601,10 +601,9 @@ async function saveSetting (key: string, values: Record<string, string>) {
 		if (SECRET_FIELD.test(name)) continue
 		safe[name] = value
 	}
-	const current = await api<ServerSettings>('/api/v1/server/settings').catch(() => ({ values: {} }))
 	return api<{ operation_id?: string }>('/api/v1/server/settings', {
 		method: 'PATCH',
-		body: JSON.stringify({ values: { ...(current.values || {}), [key]: safe } }),
+		body: JSON.stringify({ values: { [key]: safe } }),
 	})
 }
 

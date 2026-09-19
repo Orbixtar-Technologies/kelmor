@@ -13,8 +13,6 @@ import (
 	"github.com/hosting-panel/panel/internal/rbac"
 )
 
-const directorSettingsName = "director-settings.json"
-
 var (
 	directorSettingsMu   sync.Mutex
 	directorSettingKeyRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
@@ -36,45 +34,13 @@ func (a *API) panelStateDir() string {
 	return base
 }
 
-func (a *API) directorSettingsPath() string {
-	return filepath.Join(a.panelStateDir(), directorSettingsName)
-}
-
 func (a *API) loadDirectorSettings() (directorSettingsFile, error) {
-	out := directorSettingsFile{Values: map[string]map[string]string{}}
-	raw, err := os.ReadFile(a.directorSettingsPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return out, nil
-		}
-		return out, err
-	}
-	if len(raw) == 0 {
-		return out, nil
-	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return directorSettingsFile{Values: map[string]map[string]string{}}, err
-	}
-	if out.Values == nil {
-		out.Values = map[string]map[string]string{}
-	}
-	return out, nil
+	loaded, err := hostconfig.Load(a.panelStateDir())
+	return directorSettingsFile{Values: loaded.Values}, err
 }
 
 func (a *API) storeDirectorSettings(next directorSettingsFile) error {
-	dir := a.panelStateDir()
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	raw, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := a.directorSettingsPath() + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, a.directorSettingsPath())
+	return hostconfig.Store(a.panelStateDir(), hostconfig.File{Values: next.Values})
 }
 
 func (a *API) getDirectorSettings(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +125,7 @@ func (a *API) patchDirectorSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.storeDirectorSettings(current); err != nil {
 		directorSettingsMu.Unlock()
-		a.fail(w, r, 500, "SETTINGS_WRITE_ERROR", "Could not persist Director settings", false)
+		a.fail(w, r, 500, "SETTINGS_WRITE_ERROR", "Could not persist Director settings: "+err.Error(), false)
 		return
 	}
 	directorSettingsMu.Unlock()
