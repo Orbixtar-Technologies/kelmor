@@ -54,7 +54,7 @@ describe('isDirectorToolActive', () => {
 		expect(activeIds('/accounts', '?view=suspended')).toEqual(['suspended'])
 		expect(activeIds('/accounts/modify')).toEqual(['modify-account'])
 		expect(activeIds('/accounts/terminate')).toEqual(['terminate-account'])
-		expect(activeIds('/accounts', '?task=modify')).toEqual([])
+		expect(activeIds('/accounts', '?task=modify')).toEqual(['accounts'])
 	})
 
 	test('highlights Account Summary for a specific account hub, not List Accounts', () => {
