@@ -149,6 +149,10 @@ func verifyPortalTLS(c Config) error {
 	if !strings.Contains(string(server), "location /updates/") {
 		return fmt.Errorf("kelmor director nginx is missing the signed update feed location")
 	}
+	if !strings.Contains(string(server), "location = /updates/preferences") ||
+		!strings.Contains(string(server), "location = /updates/changelog") {
+		return fmt.Errorf("kelmor director nginx is missing SPA fallback for update tools")
+	}
 	if !strings.Contains(string(account), fmt.Sprintf("listen %d ssl", configuration.ControlHTTPSPort)) || !strings.Contains(string(account), "ssl_certificate") {
 		return fmt.Errorf("kelmor control nginx is not listening TLS on %d", configuration.ControlHTTPSPort)
 	}
@@ -213,6 +217,18 @@ func portalNginxServer(port int, serverName, cert, key, abs string) string {
     ssl_protocols TLSv1.2 TLSv1.3;
     root %s;
     index index.html;
+    location = /updates/preferences {
+        try_files /index.html =404;
+    }
+    location = /updates/changelog {
+        try_files /index.html =404;
+    }
+    location = /updates/preferences/ {
+        try_files /index.html =404;
+    }
+    location = /updates/changelog/ {
+        try_files /index.html =404;
+    }
     location /updates/ {
         alias /usr/local/panel/share/updates/;
         autoindex off;

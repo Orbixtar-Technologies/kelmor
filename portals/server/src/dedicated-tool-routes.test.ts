@@ -84,6 +84,21 @@ describe('dedicated tool routes', () => {
 		expect(dedicatedPath('change-ownership')).toBe(featureById('change-ownership')?.path)
 	})
 
+	test('Update Preferences and Change Log stay exclusive of Software Updates', () => {
+		const updates = toToolDefinition(featureById('updates')!)
+		const preferences = toToolDefinition(featureById('update-preferences')!)
+		const changelog = toToolDefinition(featureById('change-log')!)
+		expect(isDirectorToolActive(updates, '/updates')).toBe(true)
+		expect(isDirectorToolActive(updates, '/updates/preferences')).toBe(false)
+		expect(isDirectorToolActive(updates, '/updates/changelog')).toBe(false)
+		expect(isDirectorToolActive(preferences, '/updates/preferences')).toBe(true)
+		expect(isDirectorToolActive(preferences, '/updates')).toBe(false)
+		expect(isDirectorToolActive(preferences, '/updates/changelog')).toBe(false)
+		expect(isDirectorToolActive(changelog, '/updates/changelog')).toBe(true)
+		expect(isDirectorToolActive(changelog, '/updates')).toBe(false)
+		expect(isDirectorToolActive(changelog, '/updates/preferences')).toBe(false)
+	})
+
 	test('intentionally hub-deferred tools stay list, tab, or already-dedicated views', () => {
 		expect(featureById('list-accounts')?.path).toBe('/accounts')
 		expect(featureById('suspended')?.path).toBe('/accounts?view=suspended')

@@ -212,3 +212,31 @@ func TestPortalAssetRootPrefersTreeBuild(t *testing.T) {
 		t.Fatalf("preferred %q want %q", abs, want)
 	}
 }
+
+func TestPortalNginxServesUpdateSPADeepLinks(t *testing.T) {
+	conf := portalNginxServer(2087, "_", "/tmp/cert.crt", "/tmp/cert.key", "/usr/local/panel/share/portals/server")
+	if !strings.Contains(conf, "location /updates/") || !strings.Contains(conf, "alias /usr/local/panel/share/updates/") {
+		t.Fatalf("signed update feed location missing: %s", conf)
+	}
+	if !strings.Contains(conf, "try_files $uri $uri/ /index.html;") {
+		t.Fatalf("SPA history fallback missing: %s", conf)
+	}
+	for _, path := range []string{"/updates/preferences", "/updates/changelog"} {
+		exact := "location = " + path
+		if !strings.Contains(conf, exact) {
+			t.Fatalf("missing SPA carve-out %q so nginx would 404 the Director deep link:\n%s", exact, conf)
+		}
+	}
+	feedIdx := strings.Index(conf, "location /updates/")
+	prefIdx := strings.Index(conf, "location = /updates/preferences")
+	logIdx := strings.Index(conf, "location = /updates/changelog")
+	if prefIdx < 0 || logIdx < 0 || feedIdx < 0 {
+		t.Fatalf("expected feed and SPA locations: %s", conf)
+	}
+	if prefIdx > feedIdx || logIdx > feedIdx {
+		t.Fatalf("SPA update deep links must be declared before the signed feed prefix:\n%s", conf)
+	}
+	if strings.Contains(conf, "location = /updates/preferences {\n        alias") {
+		t.Fatal("SPA update routes must not use the signed feed alias")
+	}
+}
