@@ -5,43 +5,18 @@ import { NotificationBell } from '../components/notification-bell'
 import { ResourcesSidebar } from '../components/resources-sidebar'
 import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
-import { whmFeatures } from '../whm-catalog'
 import { catalogJourneyForLocation } from '../catalog-journey'
-import { dedicatedToolPaths, legacyDedicatedRedirect } from '../dedicated-tool-routes'
+import { legacyDedicatedRedirect } from '../dedicated-tool-routes'
 import { hubForLocation, shouldShowHubTabs } from '../nav-hubs'
 import { HubTabs } from '../pages/hub-page'
 import { GlobalFind } from './global-find'
-import { directorBreadcrumbs } from './breadcrumbs'
+import { directorBreadcrumbs, directorCrumbLabels } from './breadcrumbs'
 import { Sidebar } from './sidebar'
 import type { Account, Me, ServerOverview } from '../types'
 
 interface DirectorShellProps {
 	me: Me
 	onSignOut: () => void
-}
-
-const crumbLabels: Record<string, string> = {
-	accounts: 'Accounts', create: 'Create Account', services: 'Account Services',
-	packages: 'Packages', resellers: 'Resellers', dns: 'DNS Management',
-	status: 'Service Status', security: 'Security', transfers: 'Transfers & Backups',
-	jobs: 'Jobs', audit: 'Audit Trail', usage: 'Account Usage',
-	files: 'File Manager', sql: 'Database Manager', email: 'Email Management',
-	ssl: 'SSL / TLS', webmail: 'Webmail', updates: 'Software Updates',
-	domains: 'List Domains', websites: 'MultiPHP Manager', features: 'Feature Manager',
-	ftp: 'FTP Accounts', cron: 'Cron Jobs', deliverability: 'Email Deliverability',
-	processes: 'Process Manager',
-	mail: 'Email',
-	'delivery-reports': 'Mail Delivery Reports',
-	'track-delivery': 'Track Delivery',
-	'ip-usage': 'IP Address Usage',
-	section: 'Section',
-	tools: 'Tools',
-	...Object.fromEntries(Object.entries(dedicatedToolPaths).map(([id, path]) => {
-		const segment = path.split('/').pop() || id
-		const feature = whmFeatures.find((entry) => entry.id === id)
-		return [segment, feature?.label || segment]
-	})),
-	...Object.fromEntries(whmFeatures.filter((feature) => feature.path.startsWith('/tools/')).map((feature) => [feature.id, feature.label])),
 }
 
 export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
@@ -121,7 +96,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const accountName = accountId && accountId !== 'create' ? accounts.find((account) => account.id === accountId)?.username : undefined
 	const toolAccountId = new URLSearchParams(location.search).get('account') || ''
 	const toolAccountName = toolAccountId ? accounts.find((account) => account.id === toolAccountId)?.username : undefined
-	const crumbs = directorBreadcrumbs(location.pathname, crumbLabels, accountName, toolAccountName)
+	const crumbs = directorBreadcrumbs(location.pathname, directorCrumbLabels, accountName, toolAccountName)
 	const currentHub = hubForLocation(location.pathname, location.search)
 	const showHubTabs = Boolean(currentHub && shouldShowHubTabs(location.pathname, location.search))
 	function dismissMobileNavigation () {
