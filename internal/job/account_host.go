@@ -11,6 +11,7 @@ import (
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/configuration"
+	"github.com/hosting-panel/panel/internal/dnsinventory"
 	"github.com/hosting-panel/panel/internal/hostconfig"
 	"github.com/hosting-panel/panel/internal/netaddr"
 	"github.com/hosting-panel/panel/internal/store"
@@ -255,47 +256,41 @@ func (w *Worker) scheduleSelectedBackups(settings hostconfig.File) error {
 	return nil
 }
 
-func (w *Worker) synchronizeAllZones() error {
-	for _, acc := range w.Store.ListAccounts("", "") {
-		for _, d := range w.Store.ListDomains(acc.ID) {
-			z := w.Store.ZoneByDomain(d.ID)
-			if z == nil {
-				continue
-			}
-			if err := w.writeZone(z); err != nil {
-				return err
-			}
-			z.ObservedRevision = z.DesiredRevision
-			w.Store.PutZone(z)
+func (w *Worker) synchronizeAllZones(j *store.Job) error {
+	payload := map[string]any{}
+	if j != nil {
+		payload = j.Payload
+	}
+	wanted := dnsinventory.PayloadZoneIDs(payload)
+	for _, item := range dnsinventory.FilterByIDs(dnsinventory.ManagedZones(w.Store), wanted) {
+		z := w.Store.GetZone(item.ID)
+		if z == nil {
+			continue
 		}
+		if err := w.writeZone(z); err != nil {
+			return err
+		}
+		z.ObservedRevision = z.DesiredRevision
+		w.Store.PutZone(z)
 	}
 	return nil
 }
 
-func (w *Worker) cleanupOrphanZones() error {
-	live := map[string]bool{}
-	for _, acc := range w.Store.ListAccounts("", "") {
-		if acc.Status == "terminated" || acc.Status == "terminating" {
+func (w *Worker) cleanupOrphanZones(j *store.Job) error {
+	payload := map[string]any{}
+	if j != nil {
+		payload = j.Payload
+	}
+	wanted := dnsinventory.PayloadZoneIDs(payload)
+	for _, item := range dnsinventory.FilterByIDs(dnsinventory.LeftoverZones(w.Store), wanted) {
+		if item.AccountUsername == "" || item.Domain == "" {
 			continue
 		}
-		for _, d := range w.Store.ListDomains(acc.ID) {
-			if z := w.Store.ZoneByDomain(d.ID); z != nil {
-				live[z.ID] = true
-			}
-		}
-	}
-	for _, acc := range w.Store.ListAccounts("", "terminated") {
-		for _, d := range w.Store.ListDomains(acc.ID) {
-			z := w.Store.ZoneByDomain(d.ID)
-			if z == nil || live[z.ID] {
-				continue
-			}
-			if w.Agent != nil {
-				_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
-					Method: "RetireDomain",
-					Params: mustJSON(map[string]any{"account": acc.Username, "domain": d.ASCII}),
-				})
-			}
+		if w.Agent != nil {
+			_, _ = w.Agent.Dispatch(context.Background(), operations.Request{
+				Method: "RetireDomain",
+				Params: mustJSON(map[string]any{"account": item.AccountUsername, "domain": item.Domain}),
+			})
 		}
 	}
 	return nil

@@ -16,6 +16,8 @@ export const dedicatedToolPaths = {
 	'delete-dns-zone': '/domains/delete',
 	'park-domain': '/domains/park',
 	'edit-dns-zone': '/dns/edit',
+	'dns-cleanup': '/dns/cleanup',
+	'synchronize-dns': '/dns/synchronize',
 	'backup-restoration': '/transfers/restore',
 	'copy-account': '/transfers/copy',
 	'reseller-usage': '/resellers/usage',

@@ -1514,12 +1514,22 @@ paths:
       responses:
         "202": { description: new account provision queued }
   /dns/synchronize:
+    get:
+      operationId: listDNSSynchronize
+      x-capability: dns.read
+      responses:
+        "200": { description: managed zones that can be re-published to PowerDNS }
     post:
       operationId: synchronizeDNS
       x-capability: dns.write
       responses:
         "202": { description: zone republish queued }
   /dns/cleanup:
+    get:
+      operationId: listDNSCleanup
+      x-capability: dns.read
+      responses:
+        "200": { description: leftover and untied zones that cleanup can retire }
     post:
       operationId: cleanupDNS
       x-capability: dns.write

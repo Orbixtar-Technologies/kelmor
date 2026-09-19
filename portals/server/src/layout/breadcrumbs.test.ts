@@ -87,6 +87,25 @@ describe('directorBreadcrumbs', () => {
 		expect(directorBreadcrumbs('/sql/processes', directorCrumbLabels).at(-1)?.label).toBe('Show MySQL Processes')
 	})
 
+	test('DNS cleanup and synchronize crumbs stay exclusive of DNS Zone Manager', () => {
+		expect(directorBreadcrumbs('/dns', directorCrumbLabels)).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'DNS Management' },
+		])
+		expect(directorBreadcrumbs('/dns/cleanup', directorCrumbLabels)).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'DNS Management', to: '/dns' },
+			{ label: 'Perform a DNS Cleanup' },
+		])
+		expect(directorBreadcrumbs('/dns/synchronize', directorCrumbLabels)).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'DNS Management', to: '/dns' },
+			{ label: 'Synchronize DNS Records' },
+		])
+		expect(directorBreadcrumbs('/mail/delivery-reports', directorCrumbLabels).at(-1)?.label).toBe('Mail Delivery Reports')
+		expect(directorBreadcrumbs('/mail/track-delivery', directorCrumbLabels).at(-1)?.label).toBe('Track Delivery')
+	})
+
 	test('update preference and changelog crumbs stay exclusive of Software Updates', () => {
 		expect(directorBreadcrumbs('/updates', directorCrumbLabels)).toEqual([
 			{ label: 'Home', to: '/' },

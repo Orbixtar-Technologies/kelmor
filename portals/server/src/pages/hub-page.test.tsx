@@ -41,6 +41,9 @@ function renderPath (path: string) {
 					<Route path="section/:hubId" element={<HubPage />} />
 					<Route path="tools/:toolId" element={<ToolRedirect />} />
 					<Route path="accounts" element={<p>Account inventory</p>} />
+					<Route path="dns/cleanup" element={<p>DNS cleanup inventory</p>} />
+					<Route path="dns/synchronize" element={<p>DNS synchronize inventory</p>} />
+					<Route path="mail/delivery-reports" element={<p>Mail Delivery Reports page</p>} />
 				</Routes>
 			</CapProvider>
 		</MemoryRouter>,
@@ -57,6 +60,17 @@ describe('HubPage', () => {
 	test('redirects dedicated hub tools to their manager', () => {
 		renderPath('/section/accounts?tool=list-accounts')
 		expect(screen.getByText('Account inventory')).toBeInTheDocument()
+	})
+
+	test('redirects DNS cleanup and synchronize onto dedicated inventory pages', () => {
+		renderPath('/section/dns?tool=dns-cleanup')
+		expect(screen.getByText('DNS cleanup inventory')).toBeInTheDocument()
+		cleanup()
+		renderPath('/tools/synchronize-dns')
+		expect(screen.getByText('DNS synchronize inventory')).toBeInTheDocument()
+		cleanup()
+		renderPath('/section/email?tool=mail-delivery-reports')
+		expect(screen.getByText('Mail Delivery Reports page')).toBeInTheDocument()
 	})
 
 	test('sends legacy /tools/:id links to the combined hub', async () => {

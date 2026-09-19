@@ -73,6 +73,26 @@ describe('dedicated tool routes', () => {
 		expect(hrefForFeature(featureById('track-delivery')!)).toBe('/mail/track-delivery')
 	})
 
+	test('DNS cleanup and synchronize stay exclusive of DNS Zone Manager', () => {
+		const zoneManager = toToolDefinition(featureById('dns')!)
+		const cleanup = toToolDefinition(featureById('dns-cleanup')!)
+		const sync = toToolDefinition(featureById('synchronize-dns')!)
+		expect(featureById('dns-cleanup')?.path).toBe('/dns/cleanup')
+		expect(featureById('synchronize-dns')?.path).toBe('/dns/synchronize')
+		expect(hrefForFeature(featureById('dns-cleanup')!)).toBe('/dns/cleanup')
+		expect(hrefForFeature(featureById('synchronize-dns')!)).toBe('/dns/synchronize')
+		expect(isDirectorToolActive(cleanup, '/dns/cleanup')).toBe(true)
+		expect(isDirectorToolActive(sync, '/dns/synchronize')).toBe(true)
+		expect(isDirectorToolActive(zoneManager, '/dns/cleanup')).toBe(false)
+		expect(isDirectorToolActive(zoneManager, '/dns/synchronize')).toBe(false)
+		expect(isDirectorToolActive(cleanup, '/dns')).toBe(false)
+		expect(isDirectorToolActive(sync, '/dns')).toBe(false)
+		expect(isDirectorToolActive(cleanup, '/dns/synchronize')).toBe(false)
+		expect(isDirectorToolActive(sync, '/dns/cleanup')).toBe(false)
+		expect(isDirectorToolActive(cleanup, '/mail/delivery-reports')).toBe(false)
+		expect(isDirectorToolActive(sync, '/mail/track-delivery')).toBe(false)
+	})
+
 	test('converted dedicated tools keep unique catalog hrefs', () => {
 		const converted = Object.keys(dedicatedToolPaths).map((id) => hrefForFeature(featureById(id)!))
 		expect(new Set(converted).size).toBe(converted.length)

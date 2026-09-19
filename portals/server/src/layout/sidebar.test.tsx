@@ -106,6 +106,8 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: 'Mail Delivery Reports' })).toHaveAttribute('href', '/mail/delivery-reports')
 		expect(screen.getByRole('link', { name: 'Track Delivery' })).toHaveAttribute('href', '/mail/track-delivery')
 		expect(screen.getByRole('link', { name: 'Show IP Address Usage' })).toHaveAttribute('href', '/ip-usage')
+		expect(screen.getByRole('link', { name: 'Perform a DNS Cleanup' })).toHaveAttribute('href', '/dns/cleanup')
+		expect(screen.getByRole('link', { name: 'Synchronize DNS Records' })).toHaveAttribute('href', '/dns/synchronize')
 		expect(screen.getByRole('button', { name: 'Account Functions' })).toBeVisible()
 		expect(screen.getByRole('button', { name: 'Jobs & Audit' })).toBeVisible()
 		expect(screen.getByRole('button', { name: 'Service / Server Status' })).toBeVisible()
@@ -152,6 +154,19 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: 'Mail Delivery Reports' })).toHaveAttribute('aria-current', 'page')
 		expect(screen.getByRole('link', { name: 'Track Delivery' })).not.toHaveAttribute('aria-current')
 		expect(screen.getByRole('link', { name: 'Jobs' })).not.toHaveAttribute('aria-current')
+	})
+
+	test('highlights only DNS Cleanup on its dedicated page', () => {
+		render(
+			<MemoryRouter initialEntries={['/dns/cleanup']}>
+				<Sidebar tools={toolCatalog} collapsed={false} onCollapse={vi.fn()} mobileOpen onNavigate={vi.fn()} onMobileDismiss={vi.fn()} />
+			</MemoryRouter>,
+		)
+
+		expect(screen.getByRole('link', { name: 'Perform a DNS Cleanup' })).toHaveAttribute('aria-current', 'page')
+		expect(screen.getByRole('link', { name: 'Synchronize DNS Records' })).not.toHaveAttribute('aria-current')
+		expect(screen.getByRole('link', { name: 'DNS Zone Manager' })).not.toHaveAttribute('aria-current')
+		expect(screen.getByRole('link', { name: 'Mail Delivery Reports' })).not.toHaveAttribute('aria-current')
 	})
 
 	test('highlights only Track Delivery on its dedicated page', () => {
