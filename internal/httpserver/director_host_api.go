@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hosting-panel/panel/internal/dnsinventory"
 	"github.com/hosting-panel/panel/internal/hostconfig"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
@@ -192,13 +193,31 @@ func (a *API) migrateAccountIPs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"operations": operations})
 }
 
+func (a *API) listDNSSynchronize(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.DNSRead) {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"items": dnsinventory.ManagedZones(a.Store)})
+}
+
+func (a *API) listDNSCleanup(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.DNSRead) {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"items": dnsinventory.LeftoverZones(a.Store)})
+}
+
 func (a *API) synchronizeDNS(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.DNSWrite) {
 		return
 	}
+	payload := map[string]any{"scope": "all", "target": "all"}
+	if ids := readZoneIDs(r); len(ids) > 0 {
+		payload["zone_ids"] = ids
+	}
 	job, err := a.enqueueTypedJob(r, &store.Job{
 		Type: "dns.synchronize", ResourceType: "dns",
-		Payload: map[string]any{"scope": "all", "target": "all"},
+		Payload: payload,
 	}, a.auditEvent(r, "", "dns.synchronize", "dns", "", nil, map[string]any{"target": "all"}))
 	if err != nil {
 		a.fail(w, r, 500, "DNS_SYNC_ERROR", "Could not queue DNS synchronize", false)
@@ -211,15 +230,33 @@ func (a *API) cleanupDNS(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.DNSWrite) {
 		return
 	}
+	payload := map[string]any{"scope": "terminated", "target": "orphans"}
+	if ids := readZoneIDs(r); len(ids) > 0 {
+		payload["zone_ids"] = ids
+	}
 	job, err := a.enqueueTypedJob(r, &store.Job{
 		Type: "dns.cleanup", ResourceType: "dns",
-		Payload: map[string]any{"scope": "terminated", "target": "orphans"},
+		Payload: payload,
 	}, a.auditEvent(r, "", "dns.cleanup", "dns", "", nil, map[string]any{"target": "orphans"}))
 	if err != nil {
 		a.fail(w, r, 500, "DNS_CLEANUP_ERROR", "Could not queue DNS cleanup", false)
 		return
 	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
+}
+
+func readZoneIDs(r *http.Request) []string {
+	var in struct {
+		ZoneIDs []string `json:"zone_ids"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	out := make([]string, 0, len(in.ZoneIDs))
+	for _, id := range in.ZoneIDs {
+		if strings.TrimSpace(id) != "" {
+			out = append(out, strings.TrimSpace(id))
+		}
+	}
+	return out
 }
 
 func (a *API) requireAny(w http.ResponseWriter, r *http.Request, caps ...string) bool {

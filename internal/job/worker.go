@@ -334,9 +334,9 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 	case "host.config.apply":
 		return w.applyHostConfigJob(j)
 	case "dns.synchronize":
-		return w.synchronizeAllZones()
+		return w.synchronizeAllZones(j)
 	case "dns.cleanup":
-		return w.cleanupOrphanZones()
+		return w.cleanupOrphanZones(j)
 	case "mail.notify":
 		return w.notifyMailJob(j)
 	case "bandwidth.reset":

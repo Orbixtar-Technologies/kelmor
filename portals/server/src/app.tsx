@@ -11,6 +11,7 @@ import { CreateAccountPage } from './pages/create-account-page'
 import { CronPage } from './pages/cron-page'
 import { DeliverabilityPage } from './pages/deliverability-page'
 import { DNSPage } from './pages/dns-page'
+import { DnsCleanupPage, DnsSynchronizePage } from './pages/dns-inventory-tools-page'
 import { DomainsPage } from './pages/domains-page'
 import { EmailManagerPage } from './pages/email-manager-page'
 import { IPUsagePage } from './pages/ip-usage-page'
@@ -89,6 +90,8 @@ export function App () {
 					<Route path="websites" element={allowed(['accounts.read', 'websites.read'], <WebsitesPage />)} />
 					<Route path="dns" element={allowed('dns.read', <DNSPage />)} />
 					<Route path="dns/edit" element={allowed('dns.write', <DNSPage />)} />
+					<Route path="dns/cleanup" element={allowed('dns.read', <DnsCleanupPage />)} />
+					<Route path="dns/synchronize" element={allowed('dns.read', <DnsSynchronizePage />)} />
 					<Route path="files" element={allowed(['accounts.read', 'files.read'], <FileManagerPage />)} />
 					<Route path="ftp" element={allowed(['accounts.read', 'files.read'], <FTPPage />)} />
 					<Route path="cron" element={allowed(['accounts.read', 'cron.read'], <CronPage />)} />
