@@ -1,10 +1,14 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { MAILBOX_PASSWORD_STUB } from '../catalog-honesty'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, formatDate, messageFrom, valueOf } from '../helpers'
+import { adminToolUrl } from '../admin-tool-url'
+import { mailboxAddress } from './email-copy'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
@@ -39,7 +43,9 @@ export function EmailManagerPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 	const [updatedAt, setUpdatedAt] = useState('')
+	const [webmailUrl, setWebmailUrl] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('mail.write')
 	const accountId = params.get('account') || ''
@@ -47,6 +53,7 @@ export function EmailManagerPage () {
 	const currentAccountId = useRef(accountId)
 	currentAccountId.current = accountId
 	const account = accounts.find((entry) => entry.id === accountId)
+	const webmailHref = adminToolUrl('webmail', webmailUrl, account?.primary_domain)
 
 	useEffect(() => {
 		const request = requests.begin('accounts')
@@ -71,13 +78,16 @@ export function EmailManagerPage () {
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/aliases`),
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/lists`),
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/domains`),
-		]).then(([domainResult, mailboxResult, aliasResult, listResult, siteDomainResult]) => {
+			api<{ webmail_url?: string }>(`/api/v1/accounts/${requestedAccountId}/admin-tools`),
+		]).then(([domainResult, mailboxResult, aliasResult, listResult, siteDomainResult, toolsResult]) => {
 			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			if (domainResult.status === 'fulfilled') setDomains(asList(domainResult.value))
 			if (mailboxResult.status === 'fulfilled') setMailboxes(asList(mailboxResult.value))
 			if (aliasResult.status === 'fulfilled') setAliases(asList(aliasResult.value))
 			if (listResult.status === 'fulfilled') setLists(asList(listResult.value))
 			if (siteDomainResult.status === 'fulfilled') setAccountDomains(asList(siteDomainResult.value))
+			if (toolsResult.status === 'fulfilled') setWebmailUrl(toolsResult.value.webmail_url || '')
+			else setWebmailUrl('')
 			const failures = [domainResult, mailboxResult, aliasResult, listResult].filter((result) => result.status === 'rejected')
 			if (failures.length === 4) setError(messageFrom((failures[0] as PromiseRejectedResult).reason))
 			else setUpdatedAt(new Date().toISOString())
@@ -93,6 +103,8 @@ export function EmailManagerPage () {
 		setAliases([])
 		setLists([])
 		setMessage('')
+		setJobId('')
+		setWebmailUrl('')
 		if (accountId) loadEmail(accountId)
 		else setLoading(false)
 	}, [accountId, loadEmail, requests])
@@ -127,7 +139,7 @@ export function EmailManagerPage () {
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
 		try {
-			await api(`/api/v1/accounts/${accountId}/mail/mailboxes`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/mail/mailboxes`, {
 				method: 'POST',
 				body: JSON.stringify({
 					domain_id: data.get('domain_id'),
@@ -135,7 +147,8 @@ export function EmailManagerPage () {
 					password: data.get('password'),
 				}),
 			})
-			setMessage('Mailbox creation queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Mailbox creation queued.'))
 			event.currentTarget.reset()
 			loadEmail(accountId)
 		} catch (requestError) {
@@ -148,7 +161,7 @@ export function EmailManagerPage () {
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
 		try {
-			await api(`/api/v1/accounts/${accountId}/mail/aliases`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/mail/aliases`, {
 				method: 'POST',
 				body: JSON.stringify({
 					domain_id: data.get('domain_id'),
@@ -156,7 +169,8 @@ export function EmailManagerPage () {
 					destination: data.get('destination'),
 				}),
 			})
-			setMessage('Alias creation queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Alias creation queued.'))
 			event.currentTarget.reset()
 			loadEmail(accountId)
 		} catch (requestError) {
@@ -170,7 +184,7 @@ export function EmailManagerPage () {
 		const data = new FormData(event.currentTarget)
 		const members = String(data.get('members') || '').split(',').map((part) => part.trim()).filter(Boolean)
 		try {
-			await api(`/api/v1/accounts/${accountId}/mail/lists`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/mail/lists`, {
 				method: 'POST',
 				body: JSON.stringify({
 					domain_id: data.get('domain_id'),
@@ -178,7 +192,8 @@ export function EmailManagerPage () {
 					members,
 				}),
 			})
-			setMessage('Mailing list creation queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Mailing list creation queued.'))
 			event.currentTarget.reset()
 			loadEmail(accountId)
 		} catch (requestError) {
@@ -190,11 +205,12 @@ export function EmailManagerPage () {
 		if (!accountId) return
 		const members = membersRaw.split(',').map((part) => part.trim()).filter(Boolean)
 		try {
-			await api(`/api/v1/accounts/${accountId}/mail/lists/${listId}`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/mail/lists/${listId}`, {
 				method: 'PATCH',
 				body: JSON.stringify({ members }),
 			})
-			setMessage('Mailing list members updated.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Mailing list members updated.'))
 			loadEmail(accountId)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
@@ -206,11 +222,12 @@ export function EmailManagerPage () {
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
 		try {
-			await api(`/api/v1/accounts/${accountId}/mail/domains/${data.get('mail_domain_id')}`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/mail/domains/${data.get('mail_domain_id')}`, {
 				method: 'PATCH',
 				body: JSON.stringify({ catchall_policy: data.get('catchall_policy') }),
 			})
-			setMessage('Catch-all policy update queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Catch-all policy update queued.'))
 			loadEmail(accountId)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
@@ -220,8 +237,9 @@ export function EmailManagerPage () {
 	async function removeItem (endpoint: string, resourceId: string) {
 		if (!accountId || !window.confirm('Delete this mail resource?')) return
 		try {
-			await api(`/api/v1/accounts/${accountId}/${endpoint}/${resourceId}`, { method: 'DELETE' })
-			setMessage('Delete operation queued.')
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/${endpoint}/${resourceId}`, { method: 'DELETE' })
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Delete operation queued.'))
 			loadEmail(accountId)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
@@ -248,7 +266,7 @@ export function EmailManagerPage () {
 					onChange={(next) => setSearchParams({ account: next, tab }, { replace: true })}
 				/>
 			</div>
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<QueuedOpNotice message={message} accountId={accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => loadEmail(accountId)} /> : null}
 			{!accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage email." /> : null}
 			{accountId ? <>
@@ -261,6 +279,7 @@ export function EmailManagerPage () {
 				</div>
 				{canWrite && tab === 'mailboxes' ? <section className="panel">
 					<h2>Create mailbox</h2>
+					<p className="subtle">{MAILBOX_PASSWORD_STUB}</p>
 					<form className="inline-form" onSubmit={createMailbox}>
 						<label>Domain<select name="domain_id" required>{domainOptions.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn') || valueOf(item, 'domain_id')}</option>)}</select></label>
 						<label>Local part<input name="local_part" placeholder="info" required /></label>
@@ -305,7 +324,7 @@ export function EmailManagerPage () {
 					</table></div> : null}
 					{!loading && tab === 'mailboxes' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Quota</th><th>Status</th><th>Actions</th></tr></thead>
-						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{valueOf(item, 'local_part')}@{account?.primary_domain}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions"><Link to={`/webmail?account=${accountId}`}>Open webmail</Link>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
+						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{mailboxAddress(item, domainOptions, account?.primary_domain || '')}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions">{webmailHref ? <a href={webmailHref} target="_blank" rel="noopener noreferrer">Open webmail</a> : null}<span className="subtle" title={MAILBOX_PASSWORD_STUB}>Password/quota: not available</span>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
 					</table></div> : null}
 					{!loading && tab === 'aliases' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Destination</th><th>Actions</th></tr></thead>

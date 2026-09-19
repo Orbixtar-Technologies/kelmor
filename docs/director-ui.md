@@ -25,19 +25,23 @@ For the route-by-route WHM pattern mapping, see
 
 The sidebar and Home list the entire WHM-mapped catalog so operators can learn
 every journey. Dedicated managers (List Accounts, Create Account, Packages,
-Jobs, and the other first-class pages) stay as the tool itself. Sibling
-catalog tabs appear only on `/section/:hub` landings with no selected tool.
-Dedicated tool routes (`?tool=`, account-action, and settings journeys) render
-breadcrumbs plus the tool workflow only. Write buttons stay disabled without
-the matching capability, and the API remains the security boundary. Generic
-tools live at `/tools/:id`.
+Jobs, File Manager, Email, SQL, DNS, SSL, FTP, Cron, and the other first-class
+pages) stay as the tool itself. Sibling catalog tabs appear only on
+`/section/:hub` landings with no selected tool. Dedicated tool routes
+(`?tool=`, account-action, and settings journeys) render breadcrumbs plus the
+tool workflow only. Tools that only write `director-settings.json` are labeled
+**Settings (local)** and **Not applied to host**. Write buttons stay disabled
+without the matching capability, and the API remains the security boundary.
+Generic tools live at `/tools/:id`.
 
 ## Home
 
 Home combines:
 
 - Measured load, memory, disk, account, service, and failed-job vitals. Missing
-  probes render as Not reported — Director does not invent metrics.
+  probes render as Not reported — Director does not invent metrics. A non-zero
+  failed-job count highlights the vital and lists recent failures with a Jobs
+  deep link. Director does not mass-retry.
 - Primary shortcuts: Create account, List accounts, Failed jobs, and Service
   health.
 - Frequent account/job/service tools.
@@ -67,7 +71,10 @@ domains, mailboxes, aliases, certificates, bounded files, backups, cron jobs,
 SSH/SFTP, FTP, and account API tokens. Dedicated WHM-style hubs also exist for
 List Domains, MultiPHP Manager, Cron Jobs, FTP Accounts, Email Deliverability,
 Feature Manager, and Process Manager. DNS Management supplies multi-zone record
-and DNSSEC operations. Login to Kelmor Control uses reasoned impersonation.
+and DNSSEC operations. Login to Kelmor Control uses reasoned impersonation
+and opens the configured Control origin (`PANEL_HOSTNAME` / portal-hostname
+on `:2083`) with `#session=`, not the Director host or a stale IP:8443 URL.
+Webmail and phpMyAdmin launches are HTTPS `target=_blank` links.
 
 Requests are scoped to the selected account. Response sequencing prevents a
 slower request for a previous account or zone from replacing the current view.

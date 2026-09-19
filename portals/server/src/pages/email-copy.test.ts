@@ -1,0 +1,13 @@
+import { describe, expect, test } from 'vitest'
+import { mailboxAddress } from './email-copy'
+
+describe('mailboxAddress', () => {
+	test('uses the mailbox domain instead of the account primary domain', () => {
+		const address = mailboxAddress(
+			{ id: 'mb-1', local_part: 'info', domain_id: 'md-2' },
+			[{ id: 'md-1', ascii_fqdn: 'shop.test' }, { id: 'md-2', ascii_fqdn: 'mail.shop.test' }],
+			'shop.test',
+		)
+		expect(address).toBe('info@mail.shop.test')
+	})
+})

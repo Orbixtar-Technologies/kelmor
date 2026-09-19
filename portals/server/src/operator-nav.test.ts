@@ -72,10 +72,15 @@ describe('home vitals', () => {
 		expect(failedJobDisplay(undefined)).toEqual({
 			value: 'Not reported',
 			detail: 'Open Jobs for history',
+			tone: 'neutral',
+			count: 0,
 		})
 		expect(failedJobDisplay(2)).toEqual({
 			value: '2',
 			detail: '2 failed jobs',
+			tone: 'bad',
+			count: 2,
 		})
+		expect(failedJobDisplay(0).tone).toBe('neutral')
 	})
 })

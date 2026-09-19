@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { CUSTOM_PEM_STUB } from '../catalog-honesty'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
 import { certExpiryLabel, certRenewalState } from './cert-copy'
@@ -19,6 +21,7 @@ export function SSLManagerPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 	const [updatedAt, setUpdatedAt] = useState('')
 	const [viewAll, setViewAll] = useState(false)
 	const requests = useRef(new RequestSequence()).current
@@ -89,6 +92,7 @@ export function SSLManagerPage () {
 
 	useEffect(() => {
 		setMessage('')
+		setJobId('')
 		if (viewAll) {
 			loadAllCertificates()
 			return
@@ -104,11 +108,12 @@ export function SSLManagerPage () {
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
 		try {
-			await api(`/api/v1/accounts/${accountId}/certificates`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/certificates`, {
 				method: 'POST',
 				body: JSON.stringify({ hostname: data.get('hostname') }),
 			})
-			setMessage('Certificate request queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Certificate request queued.'))
 			event.currentTarget.reset()
 			loadCertificates(accountId)
 		} catch (requestError) {
@@ -154,7 +159,7 @@ export function SSLManagerPage () {
 					onChange={(next) => setParams(task === 'inventory' ? { account: next } : { account: next, task }, { replace: true })}
 				/>
 			</div> : null}
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<QueuedOpNotice message={message} accountId={viewAll ? undefined : accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => viewAll ? loadAllCertificates() : loadCertificates(accountId)} /> : null}
 			{!viewAll && !accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage SSL certificates." /> : null}
 			{!viewAll && accountId && canWrite && (task === 'request' || task === 'autossl') ? <section className="panel">
@@ -164,6 +169,9 @@ export function SSLManagerPage () {
 					<button type="submit">Request AutoSSL</button>
 				</form>
 				<p className="subtle">Kelmor issues the certificate through ACME and applies it to the account nginx vhost. There is no separate CSR download or bounce through Account Services.</p>
+				<aside className="settings-local-banner" role="note">
+					<strong>Custom PEM — labeled stub.</strong> {CUSTOM_PEM_STUB}
+				</aside>
 			</section> : null}
 			{task === 'service' ? <section className="panel">
 				<h2>Service certificates</h2>
@@ -183,7 +191,7 @@ export function SSLManagerPage () {
 								<td><StatusBadge value={valueOf(certificate, 'status')} /><small>{certRenewalState(valueOf(certificate, 'status'), certificate.not_after ? String(certificate.not_after) : undefined)}</small></td>
 								<td>{certExpiryLabel(certificate.not_after ? String(certificate.not_after) : undefined)}<small>{certificate.not_after ? formatDate(String(certificate.not_after)) : ''}</small></td>
 								<td>{valueOf(certificate, 'issuer')}</td>
-								<td><div className="row-actions">{valueOf(certificate, 'status').toLocaleLowerCase() === 'failed' && canWrite ? <button type="button" className="link-button" onClick={() => api(`/api/v1/accounts/${certificate.account_id}/certificates`, { method: 'POST', body: JSON.stringify({ hostname: valueOf(certificate, 'hostname') }) }).then(() => setMessage('Certificate retry queued.')).catch((requestError) => setMessage(messageFrom(requestError)))}>Retry request</button> : null}<Link to={`/ssl?account=${certificate.account_id}&task=request`}>Request again</Link><Link to={`/jobs?account=${certificate.account_id}`}>Jobs</Link></div></td>
+								<td><div className="row-actions">{valueOf(certificate, 'status').toLocaleLowerCase() === 'failed' && canWrite ? <button type="button" className="link-button" onClick={() => api<{ operation_id?: string }>(`/api/v1/accounts/${certificate.account_id}/certificates`, { method: 'POST', body: JSON.stringify({ hostname: valueOf(certificate, 'hostname') }) }).then((result) => { setJobId(result.operation_id || ''); setMessage(queuedOpMessage(result, 'Certificate retry queued.')) }).catch((requestError) => setMessage(messageFrom(requestError)))}>Retry request</button> : null}<Link to={`/ssl?account=${certificate.account_id}&task=request`}>Request again</Link><Link to={`/jobs?account=${certificate.account_id}`}>Jobs</Link></div></td>
 							</tr>
 						))}
 					</tbody>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { DATABASE_USER_MODEL } from '../catalog-honesty'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
 import { RequestSequence } from '../request-sequence'
@@ -18,6 +20,7 @@ export function SQLManagerPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 	const [updatedAt, setUpdatedAt] = useState('')
 	const [credentials, setCredentials] = useState<Record<string, string> | null>(null)
 	const [toolUrls, setToolUrls] = useState<{ phpmyadmin_url?: string; webmail_url?: string } | null>(null)
@@ -62,6 +65,7 @@ export function SQLManagerPage () {
 		setCredentials(null)
 		setToolUrls(null)
 		setMessage('')
+		setJobId('')
 		if (accountId) {
 			loadDatabases(accountId)
 			api<{ credentials: Record<string, string> }>(`/api/v1/accounts/${accountId}/databases/credentials?engine=mariadb`).then((result) => setCredentials(result.credentials)).catch(() => setCredentials(null))
@@ -74,11 +78,12 @@ export function SQLManagerPage () {
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
 		try {
-			await api(`/api/v1/accounts/${accountId}/databases`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/databases`, {
 				method: 'POST',
 				body: JSON.stringify({ name: data.get('name'), engine: data.get('engine') }),
 			})
-			setMessage('Database creation queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Database creation queued.'))
 			event.currentTarget.reset()
 			loadDatabases(accountId)
 		} catch (requestError) {
@@ -89,8 +94,9 @@ export function SQLManagerPage () {
 	async function removeDatabase (databaseId: string) {
 		if (!accountId || !window.confirm('Delete this database?')) return
 		try {
-			await api(`/api/v1/accounts/${accountId}/databases/${databaseId}`, { method: 'DELETE' })
-			setMessage('Database deletion queued.')
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/databases/${databaseId}`, { method: 'DELETE' })
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Database deletion queued.'))
 			loadDatabases(accountId)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
@@ -115,7 +121,7 @@ export function SQLManagerPage () {
 					onChange={(next) => setParams({ account: next }, { replace: true })}
 				/>
 			</div>
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<QueuedOpNotice message={message} accountId={accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => loadDatabases(accountId)} /> : null}
 			{!accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage its databases." /> : null}
 			{accountId ? <>
@@ -123,9 +129,11 @@ export function SQLManagerPage () {
 					accountId={accountId}
 					credentials={credentials}
 					phpmyadminUrl={toolUrls?.phpmyadmin_url}
+					domain={account?.primary_domain}
 				/>
 				{canWrite ? <section className="panel">
 					<h2>Create database</h2>
+					<p className="subtle">{DATABASE_USER_MODEL}</p>
 					<form className="inline-form" onSubmit={createDatabase}>
 						<label>Name<input name="name" placeholder="app_db" required /></label>
 						<label>Engine<select name="engine"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option><option value="postgres">PostgreSQL</option></select></label>
@@ -143,7 +151,7 @@ export function SQLManagerPage () {
 									<td><strong>{valueOf(database, 'name')}</strong></td>
 									<td>{valueOf(database, 'engine')}</td>
 									<td><StatusBadge value={valueOf(database, 'status')} /></td>
-									<td>{Array.isArray(database.users) ? database.users.length : '—'}</td>
+									<td>{Array.isArray(database.users) && database.users.length ? database.users.length : '1 auto user / engine'}</td>
 									<td><div className="row-actions">{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeDatabase(database.id)}>Delete</button> : null}<Link to={`/jobs?account=${accountId}`}>Jobs</Link></div></td>
 								</tr>
 							))}

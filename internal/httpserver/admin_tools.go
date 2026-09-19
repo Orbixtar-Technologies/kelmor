@@ -3,7 +3,6 @@ package httpserver
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -76,14 +75,10 @@ func (a *API) accountAdminTools(w http.ResponseWriter, r *http.Request) {
 	if d := a.primaryDomainRecord(aid); d != "" {
 		domain = d
 	}
-	scheme := "https"
-	if r.TLS == nil {
-		scheme = "http"
-	}
 	writeJSON(w, 200, map[string]any{
 		"domain":         domain,
-		"phpmyadmin_url": fmt.Sprintf("%s://phpmyadmin.%s/", scheme, domain),
-		"webmail_url":    fmt.Sprintf("%s://webmail.%s/", scheme, domain),
+		"phpmyadmin_url": adminToolURL("phpmyadmin", domain),
+		"webmail_url":    adminToolURL("webmail", domain),
 	})
 }
 

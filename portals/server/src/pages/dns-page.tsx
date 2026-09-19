@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountScopeBar } from '../components/account-scope-bar'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { Dialog, EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
 import { RequestSequence } from '../request-sequence'
@@ -23,6 +24,7 @@ export function DNSPage () {
 	const [selectedZone, setSelectedZone] = useState('')
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 	const [loading, setLoading] = useState(true)
 	const [updatedAt, setUpdatedAt] = useState('')
 	const [draft, setDraft] = useState<DnsDraft | null>(null)
@@ -80,6 +82,7 @@ export function DNSPage () {
 		setSelectedZone('')
 		setError('')
 		setMessage('')
+		setJobId('')
 		if (accountId) loadZones(accountId)
 		else setLoading(false)
 	}, [accountId, loadZones, requests])
@@ -120,9 +123,10 @@ export function DNSPage () {
 		}
 		try {
 			if (replaceId) await api(`/api/v1/accounts/${requestedAccountId}/dns/zones/${requestedZoneId}/records/${replaceId}`, { method: 'DELETE' })
-			await api(`/api/v1/accounts/${requestedAccountId}/dns/zones/${requestedZoneId}/records`, { method: 'POST', body: JSON.stringify(payload) })
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${requestedAccountId}/dns/zones/${requestedZoneId}/records`, { method: 'POST', body: JSON.stringify(payload) })
 			if (currentAccountId.current !== requestedAccountId || currentZoneId.current !== requestedZoneId) return
-			setMessage(replaceId ? 'DNS record replacement queued. Use Jobs if you need to inspect or retry the change.' : 'DNS record queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, replaceId ? 'DNS record replacement queued.' : 'DNS record queued.'))
 			setDraft(null)
 			setDraftError('')
 			loadRecords(requestedAccountId, requestedZoneId)
@@ -151,9 +155,10 @@ export function DNSPage () {
 		const requestedZoneId = selectedZone
 		const wasEnabled = Boolean(zone.dnssec_enabled)
 		try {
-			await api(`/api/v1/accounts/${requestedAccountId}/dns/zones/${requestedZoneId}/dnssec`, { method: 'POST', body: JSON.stringify({ enabled: !wasEnabled }) })
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${requestedAccountId}/dns/zones/${requestedZoneId}/dnssec`, { method: 'POST', body: JSON.stringify({ enabled: !wasEnabled }) })
 			if (currentAccountId.current !== requestedAccountId || currentZoneId.current !== requestedZoneId) return
-			setMessage(`DNSSEC ${wasEnabled ? 'disable' : 'enable'} queued.`)
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, `DNSSEC ${wasEnabled ? 'disable' : 'enable'} queued.`))
 			loadZones(requestedAccountId, requestedZoneId)
 		} catch (requestError) {
 			if (currentAccountId.current === requestedAccountId && currentZoneId.current === requestedZoneId) setMessage(messageFrom(requestError))
@@ -165,8 +170,12 @@ export function DNSPage () {
 		const requestedAccountId = accountId
 		const requestedZoneId = selectedZone
 		try {
-			await api(`/api/v1/accounts/${requestedAccountId}/dns/zones/${requestedZoneId}/records/${recordId}`, { method: 'DELETE' })
-			if (currentAccountId.current === requestedAccountId && currentZoneId.current === requestedZoneId) loadRecords(requestedAccountId, requestedZoneId)
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${requestedAccountId}/dns/zones/${requestedZoneId}/records/${recordId}`, { method: 'DELETE' })
+			if (currentAccountId.current === requestedAccountId && currentZoneId.current === requestedZoneId) {
+				setJobId(result.operation_id || '')
+				setMessage(queuedOpMessage(result, 'DNS record deletion queued.'))
+				loadRecords(requestedAccountId, requestedZoneId)
+			}
 		} catch (requestError) {
 			if (currentAccountId.current === requestedAccountId && currentZoneId.current === requestedZoneId) setMessage(messageFrom(requestError))
 		}
@@ -180,7 +189,7 @@ export function DNSPage () {
 				<label>Zone<select value={selectedZone} onChange={(event) => { requests.invalidate('records'); setRecords([]); setRecordsContext(''); setSelectedZone(event.target.value) }}>{visibleZones.map((entry) => <option key={entry.id} value={entry.id}>{String(entry.name)}</option>)}</select></label>
 			</div>
 			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}. Queued record changes appear in <Link to={`/jobs?account=${accountId}`}>Jobs</Link>.</p> : null}
-			{message ? <p className="feedback">{message}</p> : null}
+			<QueuedOpNotice message={message} accountId={accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => loadZones(accountId, selectedZone)} /> : null}
 			{loading ? <LoadingState label="Loading DNS zones…" /> : null}
 			{zone ? <section className="panel"><div className="section-heading"><div><h2>{String(zone.name)}</h2><p>Provider {String(zone.provider || 'local')} · {zoneSyncLabel(zone)} · revision {String(zone.observed_revision || 0)} / {String(zone.desired_revision || 0)}</p></div><div className="button-row"><StatusBadge value={dnssecStateLabel(zone.dnssec_enabled)} />{canWrite ? <button type="button" className="secondary" onClick={toggleDNSSEC}>{zone.dnssec_enabled ? 'Disable DNSSEC' : 'Enable DNSSEC'}</button> : null}</div></div>

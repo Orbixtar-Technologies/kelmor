@@ -1,3 +1,5 @@
+import { adminToolUrl } from '../admin-tool-url'
+
 export function mailHostFromHostname (hostname: string): string {
 	if (!hostname) return ''
 	const parts = hostname.split('.').filter(Boolean)
@@ -16,7 +18,7 @@ export function mailConnectionSettings (hostname: string) {
 }
 
 export function resolvedWebmailUrl (fetched?: string, domain?: string): { url: string; configured: boolean } {
-	if (fetched && !fetched.includes('<domain>')) return { url: fetched, configured: true }
-	if (domain) return { url: `https://webmail.${domain}/`, configured: false }
-	return { url: '', configured: false }
+	const configured = Boolean(fetched && !fetched.includes('<domain>'))
+	const url = adminToolUrl('webmail', fetched, domain)
+	return { url, configured: configured && Boolean(url) }
 }

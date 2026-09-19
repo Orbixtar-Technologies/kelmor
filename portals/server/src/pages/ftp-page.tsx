@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
 import { RequestSequence } from '../request-sequence'
@@ -17,6 +18,7 @@ export function FTPPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 	const [updatedAt, setUpdatedAt] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('files.write')
@@ -57,6 +59,7 @@ export function FTPPage () {
 		requests.invalidate('ftp')
 		setUsers([])
 		setMessage('')
+		setJobId('')
 		if (accountId) loadFTP(accountId)
 		else setLoading(false)
 	}, [accountId, loadFTP, requests])
@@ -66,7 +69,7 @@ export function FTPPage () {
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
 		try {
-			await api(`/api/v1/accounts/${accountId}/ftp`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/ftp`, {
 				method: 'POST',
 				body: JSON.stringify({
 					username: data.get('username'),
@@ -74,7 +77,8 @@ export function FTPPage () {
 					home_path: data.get('home_path'),
 				}),
 			})
-			setMessage('FTP user queued. The same username updates home path and password.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'FTP user queued. The same username updates home path and password.'))
 			event.currentTarget.reset()
 			loadFTP(accountId)
 		} catch (requestError) {
@@ -85,8 +89,9 @@ export function FTPPage () {
 	async function removeFTP (ftpId: string) {
 		if (!accountId || !window.confirm('Delete this FTP user?')) return
 		try {
-			await api(`/api/v1/accounts/${accountId}/ftp/${ftpId}`, { method: 'DELETE' })
-			setMessage('FTP user deletion queued.')
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/ftp/${ftpId}`, { method: 'DELETE' })
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'FTP user deletion queued.'))
 			loadFTP(accountId)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
@@ -111,7 +116,7 @@ export function FTPPage () {
 					onChange={(next) => setParams({ account: next }, { replace: true })}
 				/>
 			</div>
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<QueuedOpNotice message={message} accountId={accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => loadFTP(accountId)} /> : null}
 			{!accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage FTP users." /> : null}
 			{accountId ? <>

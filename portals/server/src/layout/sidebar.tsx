@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { LOCAL_SETTINGS_LABEL, isLocalSettingsTool, localSettingsBadgeTitle } from '../catalog-honesty'
 import { hrefForTool, isSidebarToolActive } from '../nav-hubs'
 import { isOperatorGroupActive, operatorNavGroups } from '../operator-nav'
 import type { ToolDefinition } from '../types'
@@ -119,9 +120,19 @@ function ToolLink ({ tool, collapsed, pathname, search, onNavigate }: {
 	onNavigate: () => void
 }) {
 	const isCurrent = isSidebarToolActive(tool, pathname, search)
+	const isLocal = isLocalSettingsTool(tool)
 	return (
-		<Link to={hrefForTool(tool)} className={isCurrent ? 'active' : undefined} aria-current={isCurrent ? 'page' : undefined} title={collapsed ? tool.label : undefined} onClick={onNavigate}>
-			<span className="nav-icon" aria-hidden="true">{icons[tool.icon] ?? '•'}</span><span>{tool.label}</span>
+		<Link
+			to={hrefForTool(tool)}
+			className={isCurrent ? 'active' : undefined}
+			aria-current={isCurrent ? 'page' : undefined}
+			aria-label={tool.label}
+			title={collapsed ? (isLocal ? localSettingsBadgeTitle(tool.label) : tool.label) : isLocal ? localSettingsBadgeTitle(tool.label) : undefined}
+			onClick={onNavigate}
+		>
+			<span className="nav-icon" aria-hidden="true">{icons[tool.icon] ?? '•'}</span>
+			<span className="nav-label">{tool.label}</span>
+			{isLocal ? <span className="nav-local-badge" aria-hidden="true">{LOCAL_SETTINGS_LABEL}</span> : null}
 		</Link>
 	)
 }

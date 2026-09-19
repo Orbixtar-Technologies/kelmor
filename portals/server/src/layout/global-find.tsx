@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, asList } from '../client'
+import { LOCAL_SETTINGS_LABEL, isLocalSettingsTool } from '../catalog-honesty'
 import { hrefForTool } from '../nav-hubs'
 import { useCapabilities } from '../rbac'
 import type { Account, FindResult, ResourceItem, ToolDefinition } from '../types'
@@ -71,7 +72,7 @@ export function rankFindResults (query: string, tools: ToolDefinition[], account
 	const toolResults = tools.map((tool) => ({
 		id: tool.id,
 		label: tool.label,
-		description: `${tool.description} · ${tool.category}`,
+		description: `${tool.description} · ${tool.category}${isLocalSettingsTool(tool) ? ` · ${LOCAL_SETTINGS_LABEL}` : ''}`,
 		path: hrefForTool(tool),
 		kind: 'tool' as const,
 		score: matchScore(needle, tool.label, `${tool.description} ${tool.category}`),

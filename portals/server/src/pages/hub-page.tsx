@@ -6,6 +6,7 @@ import {
 	toolsForHub,
 	usesDedicatedManager,
 } from '../nav-hubs'
+import { LOCAL_SETTINGS_LABEL, isLocalSettingsFeature } from '../catalog-honesty'
 import { PageHeader } from '../components/ui'
 import { isDirectorToolActive } from '../layout/nav-active'
 import { groupTools, toolCatalog } from '../tool-catalog'
@@ -44,8 +45,10 @@ export function HubTabs ({ hubId, pathname, search }: HubTabsProps) {
 									to={href}
 									className={isCurrent ? 'active' : undefined}
 									aria-current={isCurrent ? 'page' : undefined}
+									aria-label={tool.label}
 								>
 									{tool.label}
+									{isLocalSettingsFeature(feature) ? <em className="nav-local-badge" aria-hidden="true">{LOCAL_SETTINGS_LABEL}</em> : null}
 								</Link>
 							)
 						})}

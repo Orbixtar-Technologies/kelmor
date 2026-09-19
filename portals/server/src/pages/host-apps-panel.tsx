@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { adminToolUrl } from '../admin-tool-url'
 import { api, asList } from '../client'
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../components/ui'
 import { messageFrom } from '../helpers'
@@ -53,6 +54,9 @@ export function HostAppsPanel ({ kind }: HostAppsPanelProps) {
 	}, [accountId])
 
 	const visible = apps.filter((app) => !kind || app.kind === kind || (kind === 'market' && (app.kind === 'market' || app.kind === 'sql' || app.kind === 'mail')))
+	const selectedAccount = accounts.find((account) => account.id === accountId)
+	const phpmyadminHref = adminToolUrl('phpmyadmin', urls.phpmyadmin_url, selectedAccount?.primary_domain)
+	const webmailHref = adminToolUrl('webmail', urls.webmail_url, selectedAccount?.primary_domain)
 
 	async function enable (app: HostApp) {
 		setMessage('')
@@ -94,8 +98,8 @@ export function HostAppsPanel ({ kind }: HostAppsPanelProps) {
 							<td><StatusBadge value={app.status} /></td>
 							<td><div className="row-actions">
 								{canWrite && (app.id === 'phpmyadmin' || app.id === 'roundcube') ? <button type="button" className="link-button" onClick={() => enable(app)}>Enable / publish</button> : null}
-								{app.id === 'phpmyadmin' && urls.phpmyadmin_url ? <a href={urls.phpmyadmin_url} target="_blank" rel="noreferrer">Open phpMyAdmin</a> : null}
-								{app.id === 'roundcube' && urls.webmail_url ? <a href={urls.webmail_url} target="_blank" rel="noreferrer">Open webmail</a> : null}
+								{app.id === 'phpmyadmin' && phpmyadminHref ? <a href={phpmyadminHref} target="_blank" rel="noopener noreferrer">Open phpMyAdmin</a> : null}
+								{app.id === 'roundcube' && webmailHref ? <a href={webmailHref} target="_blank" rel="noopener noreferrer">Open webmail</a> : null}
 								{app.id === 'wordpress' ? <a href="/tools/wp-toolkit">WP Toolkit</a> : null}
 							</div></td>
 						</tr>

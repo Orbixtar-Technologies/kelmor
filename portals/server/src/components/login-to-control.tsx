@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api } from '../client'
-import { controlImpersonationUrl, controlPortalOrigin } from '../control-url'
+import { assignOpenedWindow, controlImpersonationUrl, controlPortalOrigin } from '../control-url'
 import { messageFrom } from '../helpers'
 import { useCan } from '../rbac'
 import { Dialog } from './ui'
@@ -10,6 +10,11 @@ interface LoginToControlProps {
 	username: string
 	variant?: 'button' | 'link'
 	autoOpen?: boolean
+}
+
+interface ImpersonateResult {
+	token: string
+	control_url?: string
 }
 
 export function LoginToControl ({ accountId, username, variant = 'link', autoOpen = false }: LoginToControlProps) {
@@ -24,15 +29,17 @@ export function LoginToControl ({ accountId, username, variant = 'link', autoOpe
 		event.preventDefault()
 		setBusy(true)
 		setError('')
+		const popup = window.open('about:blank', '_blank')
 		try {
-			const result = await api<{ token: string }>(`/api/v1/accounts/${accountId}/impersonate`, {
+			const result = await api<ImpersonateResult>(`/api/v1/accounts/${accountId}/impersonate`, {
 				method: 'POST',
 				body: JSON.stringify({ reason }),
 			})
-			const url = controlImpersonationUrl(controlPortalOrigin(window.location), result.token)
-			window.open(url, '_blank', 'noopener,noreferrer')
+			const origin = controlPortalOrigin(window.location, { controlUrl: result.control_url })
+			assignOpenedWindow(popup, controlImpersonationUrl(origin, result.token))
 			setOpen(false)
 		} catch (requestError) {
+			popup?.close()
 			setError(messageFrom(requestError))
 		} finally {
 			setBusy(false)
@@ -46,7 +53,7 @@ export function LoginToControl ({ accountId, username, variant = 'link', autoOpe
 				: <button type="button" className="link-button" onClick={() => setOpen(true)}>Login to Control</button>}
 			<Dialog open={open} title={`Login to Kelmor Control as ${username}`} onClose={() => setOpen(false)}>
 				<form onSubmit={submit}>
-					<p>Starts a 30-minute audited Control session for this account owner. The reason is stored on the session and in the audit trail.</p>
+					<p>Starts a 30-minute audited Control session for this account owner. The reason is stored on the session and in the audit trail. Control opens at the configured HTTPS tenant URL, not this Director host.</p>
 					<label>Reason<input value={reason} onChange={(event) => setReason(event.target.value)} required minLength={4} autoFocus /></label>
 					{error ? <p className="field-error" role="alert">{error}</p> : null}
 					<footer className="dialog-form-actions">
