@@ -337,22 +337,6 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 		return <HostPasswordForm title="Change database root password" endpoint="/api/v1/server/database-root-password" includeCurrent />
 	}
 	if (feature.id === 'easyapache') return <PHPRuntimePanel />
-	if (feature.id === 'skeleton-directory') {
-		return (
-			<section className="panel">
-				<p>New account homes receive the host skeleton from <code>/etc/skel</code> during provision. Kelmor does not copy a custom WHM-style /root/cpanel3-skel tree.</p>
-			</section>
-		)
-	}
-	if (feature.id === 'initial-quota' || feature.id === 'reset-bandwidth') {
-		return (
-			<section className="panel">
-				<p>{QUOTA_PACKAGE_COPY}</p>
-				<p>If an account is held for bandwidth, unsuspend it from List Accounts. Usage observations live on Account Usage.</p>
-				<p><Link to="/usage">Open Account Usage</Link> · <Link to="/accounts?view=over-quota">Over-quota accounts</Link> · <Link to="/packages">Edit packages</Link></p>
-			</section>
-		)
-	}
 	if (feature.id === 'api-shell') {
 		return (
 			<section className="panel">

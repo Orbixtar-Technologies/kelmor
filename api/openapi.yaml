@@ -72,6 +72,7 @@ paths:
               properties:
                 username: { type: string }
                 password: { type: string }
+                totp_code: { type: string, description: Authenticator code when operator TOTP is enrolled }
       responses:
         "200": { description: session issued }
         "401": { $ref: "#/components/responses/Error" }
@@ -119,6 +120,49 @@ paths:
         "200": { description: session rotated and predecessor revoked }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
+  /auth/totp/enroll:
+    post:
+      operationId: enrollOperatorTOTP
+      x-capability: server.read
+      x-server-scope: true
+      x-audit-action: auth.totp.enroll
+      responses:
+        "200": { description: pending TOTP secret and otpauth URL }
+        "409": { $ref: "#/components/responses/Error" }
+  /auth/totp/confirm:
+    post:
+      operationId: confirmOperatorTOTP
+      x-capability: server.read
+      x-server-scope: true
+      x-audit-action: auth.totp.confirm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        "200": { description: TOTP enabled for this operator }
+        "400": { $ref: "#/components/responses/Error" }
+  /auth/totp/disable:
+    post:
+      operationId: disableOperatorTOTP
+      x-capability: server.read
+      x-server-scope: true
+      x-audit-action: auth.totp.disable
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code: { type: string }
+      responses:
+        "200": { description: TOTP disabled for this operator }
+        "400": { $ref: "#/components/responses/Error" }
   /me:
     get:
       operationId: getMe
@@ -163,6 +207,88 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /server/skeleton:
+    get:
+      operationId: listSkeletonDirectory
+      x-capability: server.read
+      parameters:
+        - { name: path, in: query, schema: { type: string } }
+      responses:
+        "200": { description: /etc/skel listing }
+  /server/skeleton/file:
+    get:
+      operationId: readSkeletonFile
+      x-capability: server.read
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: skeleton file contents }
+    put:
+      operationId: writeSkeletonFile
+      x-capability: server.settings.write
+      x-audit-action: server.skeleton.write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content]
+              properties:
+                path: { type: string }
+                content: { type: string }
+      responses:
+        "200": { description: skeleton file written }
+    delete:
+      operationId: deleteSkeletonFile
+      x-capability: server.settings.write
+      x-audit-action: server.skeleton.delete
+      parameters:
+        - { name: path, in: query, schema: { type: string } }
+      responses:
+        "200": { description: skeleton file removed }
+  /server/skeleton/mkdir:
+    post:
+      operationId: mkdirSkeleton
+      x-capability: server.settings.write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string }
+      responses:
+        "200": { description: skeleton directory created }
+  /server/quota:
+    get:
+      operationId: getQuotaStatus
+      x-capability: server.read
+      responses:
+        "200": { description: host quota probe and initial-quota policy }
+  /server/quota/setup:
+    post:
+      operationId: setupInitialQuota
+      x-capability: server.settings.write
+      x-audit-action: host.quota.setup
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default_disk_mb: { type: integer }
+                enforce: { type: boolean }
+      responses:
+        "202": { description: host.quota.setup queued }
+  /server/nodes:
+    get:
+      operationId: listLinkedNodes
+      x-capability: server.read
+      responses:
+        "200": { description: linked nodes and configuration-cluster peers }
   /server/updates:
     get:
       operationId: getServerUpdates
@@ -377,6 +503,12 @@ paths:
       x-capability: resellers.create
       responses:
         "201": { description: created }
+  /resellers/usage:
+    get:
+      operationId: listResellerUsage
+      x-capability: resellers.read
+      responses:
+        "200": { description: reseller disk and bandwidth usage meters }
   /resellers/{resellerID}:
     get:
       operationId: getReseller
@@ -414,6 +546,16 @@ paths:
         "200": { description: reseller updated }
         "403": { description: server scope required }
         "404": { description: reseller not found }
+  /resellers/{resellerID}/bandwidth/reset:
+    post:
+      operationId: resetResellerBandwidth
+      x-capability: accounts.modify
+      x-audit-action: bandwidth.reset
+      parameters:
+        - { name: resellerID, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: per-account bandwidth.reset jobs queued }
+        "404": { $ref: "#/components/responses/Error" }
   /accounts:
     post:
       operationId: createAccount
@@ -537,6 +679,16 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "200": { description: latest disk, bandwidth, and process usage }
+  /accounts/{accountID}/bandwidth/reset:
+    post:
+      operationId: resetAccountBandwidth
+      x-capability: accounts.modify
+      x-audit-action: bandwidth.reset
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "202": { description: account bandwidth counter reset queued }
+        "404": { $ref: "#/components/responses/Error" }
   /accounts/{accountID}/impersonate:
     post:
       operationId: impersonateAccount

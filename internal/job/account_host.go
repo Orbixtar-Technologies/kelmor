@@ -101,6 +101,40 @@ func (w *Worker) loadHostSettings() hostconfig.File {
 	return f
 }
 
+func (w *Worker) setupInitialQuotaJob(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent missing")
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "SetupInitialQuota",
+		Params: mustJSON(map[string]any{
+			"bytes":   payloadInt64(j.Payload["bytes"]),
+			"enforce": payloadBool(j.Payload["enforce"], true),
+		}),
+	})
+	return err
+}
+
+func payloadInt64(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	default:
+		return 0
+	}
+}
+
+func payloadBool(v any, fallback bool) bool {
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return fallback
+}
+
 func (w *Worker) applyHostConfigJob(j *store.Job) error {
 	settings := w.loadHostSettings()
 	spec := hostConfigSpec(settings)
@@ -132,7 +166,7 @@ func hostConfigSpec(settings hostconfig.File) operations.HostConfigSpec {
 			}
 		}
 	}
-	return operations.HostConfigSpec{
+	spec := operations.HostConfigSpec{
 		Hostname:          hostconfig.Field(settings, "hostname", "hostname", ""),
 		Resolvers:         hostconfig.Lines(settings, "resolvers", "nameservers"),
 		Timezone:          hostconfig.Field(settings, "server_time", "timezone", ""),
@@ -176,7 +210,27 @@ func hostConfigSpec(settings hostconfig.File) operations.HostConfigSpec {
 		Profile:           hostconfig.Field(settings, "server_profile", "profile", ""),
 		ClusterPeers:      hostconfig.Lines(settings, "configuration_cluster", "peers"),
 		WriteCluster:      settings.Values["configuration_cluster"] != nil,
+		LinkedNodes:       hostconfig.Lines(settings, "linked_nodes", "nodes"),
+		WriteLinkedNodes:  settings.Values["linked_nodes"] != nil,
+		TwoFactorRequired: hostconfig.TwoFactorRequired(settings),
+		WriteTwoFactor:    settings.Values["two_factor"] != nil || settings.Values["security_policies"] != nil,
+		InitialQuotaBytes: hostconfig.InitialQuotaBytes(settings),
+		WriteInitialQuota: settings.Values["initial_quota"] != nil,
+		QuotaEnforce:      hostconfig.BoolField(settings, "initial_quota", "enforce", true),
 	}
+	if settings.Values["external_auth"] != nil {
+		provider := hostconfig.ExternalAuthProvider(settings)
+		spec.ExternalAuth = &operations.ExternalAuthSpec{
+			Provider:        provider,
+			Issuer:          hostconfig.Field(settings, "external_auth", "issuer", ""),
+			ClientID:        hostconfig.Field(settings, "external_auth", "client_id", ""),
+			LDAPURL:         hostconfig.Field(settings, "external_auth", "ldap_url", ""),
+			LDAPUserDN:      hostconfig.Field(settings, "external_auth", "ldap_user_dn", "uid={username},ou=people,dc=example,dc=com"),
+			Enabled:         hostconfig.BoolField(settings, "external_auth", "enabled", provider != "disabled"),
+			RequireExternal: hostconfig.ExternalAuthRequired(settings),
+		}
+	}
+	return spec
 }
 
 func (w *Worker) ensureHostnameA(hostname, address string) error {

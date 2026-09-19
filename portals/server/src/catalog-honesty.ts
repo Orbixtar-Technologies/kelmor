@@ -25,9 +25,6 @@ export const CUSTOM_PEM_STUB = 'Custom PEM install is not available. Kelmor issu
 export const DATABASE_USER_MODEL = 'Kelmor provisions one database user per engine for the account. Extra MySQL users and GRANTs are not supported.'
 
 const DEFERRED_SETTING_KEYS = new Set([
-	'external_auth',
-	'two_factor',
-	'linked_nodes',
 	'remote_access_key',
 	'mariadb_upgrade',
 ])

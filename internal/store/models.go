@@ -10,6 +10,7 @@ type User struct {
 	DisplayName        string    `json:"display_name"`
 	Status             string    `json:"status"`
 	TOTPEnabled        bool      `json:"totp_enabled"`
+	TOTPSecretEnc      []byte    `json:"-"`
 	MustChangePassword bool      `json:"must_change_password"`
 	Roles              []string  `json:"roles"`
 	CreatedAt          time.Time `json:"created_at"`

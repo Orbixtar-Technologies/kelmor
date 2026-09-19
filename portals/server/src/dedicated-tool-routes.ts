@@ -20,7 +20,13 @@ export const dedicatedToolPaths = {
 	'synchronize-dns': '/dns/synchronize',
 	'backup-restoration': '/transfers/restore',
 	'copy-account': '/transfers/copy',
+	'reset-bandwidth': '/accounts/reset-bandwidth',
+	'skeleton-directory': '/accounts/skeleton',
 	'reseller-usage': '/resellers/usage',
+	'external-auth': '/security/external-auth',
+	'two-factor': '/security/two-factor',
+	'link-nodes': '/server/link-nodes',
+	'initial-quota': '/server/initial-quota',
 	'generate-csr': '/ssl/request',
 	'install-ssl': '/ssl/install',
 	'manage-autossl': '/ssl/autossl',
@@ -58,6 +64,8 @@ export const ACCOUNT_TOOL_SEGMENTS = new Set([
 	'login-control',
 	'summary',
 	'tokens',
+	'reset-bandwidth',
+	'skeleton',
 ])
 
 export function dedicatedPath (id: DedicatedToolId): string {

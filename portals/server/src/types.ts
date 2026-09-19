@@ -3,6 +3,7 @@ export interface User {
 	roles: string[]
 	email: string
 	display_name?: string
+	totp_enabled?: boolean
 }
 
 export interface Me {
@@ -152,6 +153,7 @@ export interface Usage {
 	disk_bytes: number
 	inode_count: number
 	bandwidth_bytes: number
+	bandwidth_hold?: boolean
 	cpu_percent: number
 	memory_bytes: number
 	process_count: number

@@ -37,6 +37,15 @@ func TestLoadAndPasswordPolicy(t *testing.T) {
 	}
 }
 
+func TestNeedsHostApplyForFormerDeferredKeys(t *testing.T) {
+	if !NeedsHostApply([]string{"external_auth"}) || !NeedsHostApply([]string{"two_factor"}) || !NeedsHostApply([]string{"linked_nodes"}) || !NeedsHostApply([]string{"initial_quota"}) {
+		t.Fatal("former PARTIAL keys must queue host apply")
+	}
+	if NeedsHostApply([]string{"theme"}) || NeedsHostApply([]string{"mariadb_upgrade"}) {
+		t.Fatal("chrome and remaining deferred keys must stay local")
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	f, err := Load(t.TempDir())
 	if err != nil {

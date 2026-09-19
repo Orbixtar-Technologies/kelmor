@@ -15,11 +15,8 @@ describe('catalog honesty', () => {
 	test('labels only deferred policy records as local settings', () => {
 		const deferred = whmFeatures.filter((feature) => isLocalSettingsFeature(feature))
 		expect(deferred.map((feature) => feature.id).sort()).toEqual([
-			'external-auth',
-			'link-nodes',
 			'mysql-upgrade',
 			'remote-access-key',
-			'two-factor',
 		])
 		for (const feature of deferred) {
 			expect(isLocalSettingsToolId(feature.id)).toBe(true)
@@ -45,6 +42,12 @@ describe('catalog honesty', () => {
 		expect(isLocalSettingsToolId('ruby-gems')).toBe(false)
 		expect(isLocalSettingsToolId('configuration-cluster')).toBe(false)
 		expect(isLocalSettingsToolId('grant-support-access')).toBe(false)
+		expect(isHostSettingsFeature(featureById('external-auth')!)).toBe(true)
+		expect(isHostSettingsFeature(featureById('two-factor')!)).toBe(true)
+		expect(isHostSettingsFeature(featureById('link-nodes')!)).toBe(true)
+		expect(isLocalSettingsToolId('external-auth')).toBe(false)
+		expect(isLocalSettingsToolId('two-factor')).toBe(false)
+		expect(isLocalSettingsToolId('link-nodes')).toBe(false)
 		expect(HOST_SETTINGS_BANNER).toMatch(/host apply job/i)
 	})
 
