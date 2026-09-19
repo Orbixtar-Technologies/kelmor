@@ -6,6 +6,7 @@ import { ResourcesSidebar } from '../components/resources-sidebar'
 import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
 import { whmFeatures } from '../whm-catalog'
+import { catalogJourneyForLocation } from '../catalog-journey'
 import { hubForLocation, shouldShowHubTabs } from '../nav-hubs'
 import { HubTabs } from '../pages/hub-page'
 import { GlobalFind } from './global-find'
@@ -28,6 +29,10 @@ const crumbLabels: Record<string, string> = {
 	domains: 'List Domains', websites: 'MultiPHP Manager', features: 'Feature Manager',
 	ftp: 'FTP Accounts', cron: 'Cron Jobs', deliverability: 'Email Deliverability',
 	processes: 'Process Manager',
+	mail: 'Email',
+	'delivery-reports': 'Mail Delivery Reports',
+	'track-delivery': 'Track Delivery',
+	'ip-usage': 'IP Address Usage',
 	section: 'Section',
 	tools: 'Tools',
 	...Object.fromEntries(whmFeatures.filter((feature) => feature.path.startsWith('/tools/')).map((feature) => [feature.id, feature.label])),
@@ -175,6 +180,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 				<div className={`page-body ${showResources ? 'with-resources' : ''} ${showResources && resourcesCollapsed ? 'resources-collapsed' : ''}`}>
 					<main className="page-content">
 						{showHubTabs && currentHub ? <HubTabs hubId={currentHub.id} pathname={location.pathname} search={location.search} /> : null}
+						<CatalogJourneyBanner pathname={location.pathname} search={location.search} />
 						<Outlet />
 					</main>
 					{showResources ? (
@@ -190,5 +196,16 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 				<footer className="workspace-footer">Kelmor Director · Connected to {hostname} {location.state && typeof location.state === 'object' && 'message' in location.state ? `· ${String(location.state.message)}` : ''}</footer>
 			</div>
 		</div>
+	)
+}
+
+function CatalogJourneyBanner ({ pathname, search }: { pathname: string; search: string }) {
+	const journey = catalogJourneyForLocation(pathname, search)
+	if (!journey) return null
+	return (
+		<section className="task-guidance" aria-label="Selected Director tool">
+			<div><strong>{journey.title}</strong><p>{journey.detail}</p></div>
+			<span>This named tool is selected. Sibling tools that share this manager stay inactive.</span>
+		</section>
 	)
 }

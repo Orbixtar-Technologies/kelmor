@@ -64,7 +64,10 @@ describe('nav hubs', () => {
 		expect(hubForLocation('/tools/tweak-settings')?.id).toBe('server')
 		expect(hubForLocation('/ssl', '?task=request')?.id).toBe('ssl')
 		expect(hubForLocation('/jobs')?.id).toBe('system')
-		expect(hubForLocation('/jobs', '?q=mail')?.id).toBe('email')
+		expect(hubForLocation('/jobs', '?q=mail')?.id).toBe('system')
+		expect(hubForLocation('/mail/delivery-reports')?.id).toBe('email')
+		expect(hubForLocation('/mail/track-delivery')?.id).toBe('email')
+		expect(hubForLocation('/ip-usage')?.id).toBe('server')
 	})
 
 	test('highlights only one sidebar hub at a time', () => {

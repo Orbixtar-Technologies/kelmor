@@ -103,7 +103,9 @@ describe('WHM catalog', () => {
 
 	test('routes newly real host tools to their managers', () => {
 		expect(featureById('mailman')?.path).toBe('/email?tab=lists')
-		expect(featureById('reset-mailman')?.path).toBe('/email?tab=lists')
+		expect(featureById('reset-mailman')?.path).toBe('/email?tab=lists&task=reset')
+		expect(featureById('mail-delivery-reports')?.path).toBe('/mail/delivery-reports')
+		expect(featureById('track-delivery')?.path).toBe('/mail/track-delivery')
 		expect(featureById('phpmyadmin')?.path).toBe('/tools/phpmyadmin')
 		expect(featureById('easyapache')?.path).toBe('/tools/easyapache')
 		expect(featureById('easyapache')?.layout).toBe('status')
@@ -114,7 +116,7 @@ describe('WHM catalog', () => {
 	test('routes SSL family tools to SSL manager tasks instead of Account Services', () => {
 		expect(featureById('ssl')?.path).toBe('/ssl')
 		expect(featureById('generate-csr')?.path).toBe('/ssl?task=request')
-		expect(featureById('install-ssl')?.path).toBe('/ssl?task=request')
+		expect(featureById('install-ssl')?.path).toBe('/ssl?task=install')
 		expect(featureById('manage-autossl')?.path).toBe('/ssl?task=autossl')
 		expect(featureById('ssl-storage')?.path).toBe('/ssl?task=inventory')
 		expect(featureById('ssl-tls-status')?.path).toBe('/ssl?task=status')

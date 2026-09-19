@@ -35,7 +35,11 @@ export function AccountsPage () {
 	const canReadUsage = useCan('billing.usage.read')
 	const view = params.get('view') || 'all'
 	const task = params.get('task') || ''
+	const mode = params.get('mode') || ''
 	const packageFilter = params.get('package') || ''
+	const taskGuide = task === 'password' && mode === 'force'
+		? { title: 'Force Password Change', detail: 'Rotate owner credentials and optionally require another change at next sign-in.' }
+		: accountTaskGuidance[task]
 
 	async function loadAccounts () {
 		const result = await api<{ items: Account[] }>('/api/v1/accounts')
@@ -109,10 +113,10 @@ export function AccountsPage () {
 		<>
 			<PageHeader title="List Accounts" description="Search, compare, and operate POSIX hosting tenants — create, suspend, unsuspend, and open lifecycle management." actions={canCreate ? <Link className="button-link" to="/accounts/create">Create account</Link> : undefined} />
 			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
-			{task && accountTaskGuidance[task] ? (
+			{taskGuide ? (
 				<section className="task-guidance" aria-label="Selected account task">
-					<div><strong>{accountTaskGuidance[task].title}</strong><p>{accountTaskGuidance[task].detail}</p></div>
-					<span>Choose an account below to continue.</span>
+					<div><strong>{taskGuide.title}</strong><p>{taskGuide.detail}</p></div>
+					<span>{task === 'tokens' ? 'Choose an account, then open API tokens.' : 'Choose an account below to continue.'}</span>
 				</section>
 			) : null}
 			<div className="view-tabs" role="group" aria-label="Account views">
@@ -177,7 +181,8 @@ const accountTaskGuidance: Record<string, { title: string; detail: string }> = {
 	suspension: { title: 'Suspend or Unsuspend', detail: 'Lock or restore the Linux login, cgroup, vhosts, cron, and mail for the selected tenant.' },
 	terminate: { title: 'Terminate an Account', detail: 'Open the account summary and complete a typed confirmation that removes the Linux identity.' },
 	remove: { title: 'Remove a Terminated Account', detail: 'Delete a terminated account from the panel so the username and domain can be reused.' },
-	password: { title: 'Force Password Change', detail: 'Rotate owner credentials and optionally require another change at next sign-in.' },
+	password: { title: 'Password Modification', detail: 'Set a new owner password for an account without requiring a second change.' },
+	ownership: { title: 'Change Ownership', detail: 'Move the selected account to another reseller or back to direct (root) ownership.' },
 	login: { title: 'Login to Kelmor Control', detail: 'Open the account and start an audited Control session as the owner.' },
 	databases: { title: 'SQL Services', detail: 'Manage account-scoped databases and their provisioning state.' },
 	email: { title: 'Email Services', detail: 'Manage mail domains, mailboxes, aliases, and routing policy.' },
@@ -186,4 +191,5 @@ const accountTaskGuidance: Record<string, { title: string; detail: string }> = {
 	dns: { title: 'DNS Zone Manager', detail: 'Edit zones and records for the selected account.' },
 	ftp: { title: 'FTP Accounts', detail: 'Create and delete virtual FTP users for the selected account.' },
 	cron: { title: 'Cron Jobs', detail: 'Create and delete scheduled tasks for the selected account.' },
+	tokens: { title: 'Manage API Tokens', detail: 'Open the account and issue account-safe API tokens from Account Services.' },
 }

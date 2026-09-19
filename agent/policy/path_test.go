@@ -21,6 +21,15 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/etc/cron.d/panel-acme42"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := ValidateManagedPath("/var/log/mail.log"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/var/log/mail.log.1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/var/log/auth.log"); err == nil {
+		t.Fatal("expected auth.log to stay outside the mail-log allow list")
+	}
 	if _, err := ValidateManagedPath("/var/log/nginx/abc.access.log"); err != nil {
 		t.Fatal(err)
 	}

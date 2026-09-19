@@ -12,6 +12,8 @@ import { DeliverabilityPage } from './pages/deliverability-page'
 import { DNSPage } from './pages/dns-page'
 import { DomainsPage } from './pages/domains-page'
 import { EmailManagerPage } from './pages/email-manager-page'
+import { IPUsagePage } from './pages/ip-usage-page'
+import { MailDeliveryReportsPage } from './pages/mail-delivery-reports-page'
 import { FeatureManagerPage } from './pages/feature-manager-page'
 import { FileManagerPage } from './pages/file-manager-page'
 import { FTPPage } from './pages/ftp-page'
@@ -25,6 +27,7 @@ import { PackagesPage } from './pages/packages-page'
 import { ResellersPage } from './pages/resellers-page'
 import { SecurityPage } from './pages/security-page'
 import { ServiceStatusPage } from './pages/service-status-page'
+import { TrackDeliveryPage } from './pages/track-delivery-page'
 import { TransfersPage } from './pages/transfers-page'
 import { UpdatesPage } from './pages/updates-page'
 import { UsagePage } from './pages/usage-page'
@@ -68,6 +71,9 @@ export function App () {
 					<Route path="cron" element={allowed(['accounts.read', 'cron.read'], <CronPage />)} />
 					<Route path="sql" element={allowed(['accounts.read', 'databases.read'], <SQLManagerPage />)} />
 					<Route path="email" element={allowed(['accounts.read', 'mail.read'], <EmailManagerPage />)} />
+					<Route path="mail/delivery-reports" element={allowed(['mail.read', 'accounts.read'], <MailDeliveryReportsPage />)} />
+					<Route path="mail/track-delivery" element={allowed('mail.read', <TrackDeliveryPage />)} />
+					<Route path="ip-usage" element={allowed('accounts.read', <IPUsagePage />)} />
 					<Route path="deliverability" element={allowed(['accounts.read', 'mail.read', 'dns.read'], <DeliverabilityPage />)} />
 					<Route path="webmail" element={allowed(['accounts.read', 'mail.read'], <WebmailPage />)} />
 					<Route path="ssl" element={allowed(['accounts.read', 'websites.read'], <SSLManagerPage />)} />

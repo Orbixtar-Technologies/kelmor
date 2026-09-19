@@ -138,7 +138,8 @@ export function SSLManagerPage () {
 			<nav className="ssl-task-nav" aria-label="SSL tasks">
 				{[
 					['inventory', 'Storage'],
-					['request', 'Request / Install'],
+					['request', 'Request'],
+					['install', 'Install'],
 					['status', 'Status'],
 					['autossl', 'AutoSSL'],
 					['service', 'Service certificates'],
@@ -162,8 +163,8 @@ export function SSLManagerPage () {
 			<QueuedOpNotice message={message} accountId={viewAll ? undefined : accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => viewAll ? loadAllCertificates() : loadCertificates(accountId)} /> : null}
 			{!viewAll && !accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage SSL certificates." /> : null}
-			{!viewAll && accountId && canWrite && (task === 'request' || task === 'autossl') ? <section className="panel">
-				<h2>{task === 'autossl' ? 'AutoSSL policy and request' : 'Request / install certificate'}</h2>
+			{!viewAll && accountId && canWrite && (task === 'request' || task === 'install' || task === 'autossl') ? <section className="panel">
+				<h2>{task === 'autossl' ? 'AutoSSL policy and request' : task === 'install' ? 'Install a certificate on a hostname' : 'Request / install certificate'}</h2>
 				<form className="inline-form" onSubmit={requestCertificate}>
 					<label>Hostname<input name="hostname" defaultValue={account?.primary_domain} required /></label>
 					<button type="submit">Request AutoSSL</button>

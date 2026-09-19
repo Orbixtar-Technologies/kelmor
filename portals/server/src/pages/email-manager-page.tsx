@@ -25,6 +25,13 @@ function isEmailTab (value: string | null): value is EmailTab {
 	return value === 'domains' || value === 'mailboxes' || value === 'aliases' || value === 'lists'
 }
 
+function emailSearch (account: string, tab: EmailTab, task: string) {
+	const next: Record<string, string> = { tab }
+	if (account) next.account = account
+	if (task === 'reset' && tab === 'lists') next.task = 'reset'
+	return next
+}
+
 function listMembers (item: ResourceItem) {
 	if (Array.isArray(item.members)) return item.members.map(String).filter(Boolean)
 	return String(item.destination || '').split(',').map((part) => part.trim()).filter(Boolean)
@@ -49,6 +56,7 @@ export function EmailManagerPage () {
 	const canWrite = useCan('mail.write')
 	const accountId = params.get('account') || ''
 	const tab = isEmailTab(params.get('tab')) ? params.get('tab') as EmailTab : 'mailboxes'
+	const task = params.get('task') || ''
 	const currentAccountId = useRef(accountId)
 	currentAccountId.current = accountId
 	const account = accounts.find((entry) => entry.id === accountId)
@@ -60,11 +68,11 @@ export function EmailManagerPage () {
 			if (!requests.isCurrent(request)) return
 			const next = asList(result)
 			setAccounts(next)
-			if (!currentAccountId.current && next[0]) setSearchParams({ account: next[0].id, tab }, { replace: true })
+			if (!currentAccountId.current && next[0]) setSearchParams(emailSearch(next[0].id, tab, task), { replace: true })
 		}).catch((requestError) => {
 			if (requests.isCurrent(request)) setError(messageFrom(requestError))
 		})
-	}, [requests, setSearchParams, tab])
+	}, [requests, setSearchParams, tab, task])
 
 	const loadEmail = useCallback((requestedAccountId: string) => {
 		if (!requestedAccountId) return
@@ -109,7 +117,7 @@ export function EmailManagerPage () {
 	}, [accountId, loadEmail, requests])
 
 	function setTab (nextTab: EmailTab) {
-		setSearchParams({ account: accountId, tab: nextTab }, { replace: true })
+		setSearchParams(emailSearch(accountId, nextTab, task), { replace: true })
 	}
 
 	function tabCount (entry: EmailTab) {
@@ -288,7 +296,7 @@ export function EmailManagerPage () {
 				description="Manage mail domains, mailboxes, aliases, mailing lists, and routing policies across accounts."
 				actions={<Link className="button-link secondary-link" to={accountId ? `/webmail?account=${accountId}` : '/webmail'}>Webmail</Link>}
 			/>
-			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Email" onChange={(next) => setSearchParams({ account: next, tab }, { replace: true })} />
+			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Email" onChange={(next) => setSearchParams(emailSearch(next, tab, task), { replace: true })} />
 			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			<div className="hub-toolbar panel">
 				<AccountPicker
@@ -296,10 +304,18 @@ export function EmailManagerPage () {
 					value={accountId}
 					filter={accountFilter}
 					onFilterChange={setAccountFilter}
-					onChange={(next) => setSearchParams({ account: next, tab }, { replace: true })}
+					onChange={(next) => setSearchParams(emailSearch(next, tab, task), { replace: true })}
 				/>
 			</div>
 			<QueuedOpNotice message={message} accountId={accountId} jobId={jobId} />
+			{task === 'reset' && tab === 'lists' ? (
+				<section className="task-guidance" aria-label="Reset a mailing list password">
+					<div>
+						<strong>Reset a Mailing List Password</strong>
+						<p>Kelmor lists are Postfix aliases, not GNU Mailman, so there is no list admin password to rotate. Edit members below, or open the Mailboxes tab to rotate a mailbox password.</p>
+					</div>
+				</section>
+			) : null}
 			{error ? <ErrorState error={error} onRetry={() => loadEmail(accountId)} /> : null}
 			{!accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage email." /> : null}
 			{accountId ? <>
