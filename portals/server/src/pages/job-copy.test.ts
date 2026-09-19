@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { describeJobFailure, describeJobTimeline, formatJobType, jobMatchesAccount, jobRecoveryGuidance, summarizeJobCounts } from './job-copy'
+import { describeJobFailure, describeJobStatus, describeJobTimeline, formatJobType, jobMatchesAccount, jobRecoveryGuidance, summarizeJobCounts } from './job-copy'
 import type { Job } from '../types'
 
 function job (overrides: Partial<Job> = {}): Job {
@@ -25,6 +25,32 @@ describe('formatJobType', () => {
 		expect(formatJobType('website.provision')).toBe('Create website')
 		expect(formatJobType('account.reconcile')).toBe('Apply account settings')
 		expect(formatJobType('database.create')).toBe('Create database')
+	})
+})
+
+describe('describeJobStatus', () => {
+	test('uses success wording for SUCCEEDED and completed jobs', () => {
+		for (const state of ['succeeded', 'SUCCEEDED', 'completed', 'COMPLETED']) {
+			const described = describeJobStatus(job({
+				type: 'host.config.apply',
+				state,
+				progress: 100,
+				last_error: undefined,
+			}))
+			expect(described.reason.toLocaleLowerCase()).toMatch(/success|completed/)
+			expect(described.reason.toLocaleLowerCase()).not.toMatch(/failed/)
+		}
+	})
+
+	test('uses in-progress wording for queued and running jobs', () => {
+		expect(describeJobStatus(job({ state: 'queued', last_error: undefined })).reason.toLocaleLowerCase()).toMatch(/queued|progress|in progress/)
+		expect(describeJobStatus(job({ state: 'RUNNING', last_error: undefined })).reason.toLocaleLowerCase()).toMatch(/progress|running/)
+		expect(describeJobStatus(job({ state: 'queued', last_error: undefined })).reason.toLocaleLowerCase()).not.toMatch(/failed/)
+	})
+
+	test('keeps failure wording only for failed or error jobs', () => {
+		expect(describeJobStatus(job({ state: 'failed', last_error: '' })).reason).toMatch(/failed/i)
+		expect(describeJobStatus(job({ state: 'ERROR', last_error: 'agent exploded' })).reason).toBe('agent exploded')
 	})
 })
 

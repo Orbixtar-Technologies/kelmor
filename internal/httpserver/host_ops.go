@@ -222,11 +222,11 @@ func (a *API) ensurePHPRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job, err := a.Store.EnqueueJobWithAudit(&store.Job{
-		Type: "php.runtime.ensure", ResourceType: "php", ResourceID: in.Version,
-		Payload: map[string]any{"version": in.Version},
+		Type: "php.runtime.ensure", ResourceType: "php",
+		Payload: map[string]any{"version": in.Version, "target": in.Version},
 		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
-	}, a.auditEvent(r, "", "server.runtime.ensure", "php", in.Version, nil, map[string]any{"version": in.Version}))
+	}, a.auditEvent(r, "", "server.runtime.ensure", "php", "", nil, map[string]any{"version": in.Version, "target": in.Version}))
 	if err != nil {
 		a.fail(w, r, 500, "RUNTIME_ENSURE_ERROR", "Could not persist runtime installation", true)
 		return

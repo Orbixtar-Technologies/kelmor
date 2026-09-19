@@ -171,8 +171,8 @@ func (w *Worker) scanPortalHostnameCert() {
 		}
 	}
 	_, _ = w.Store.EnqueueJob(&store.Job{
-		Type: "certificate.portal", ResourceType: "host", ResourceID: host,
-		Payload: map[string]any{"hostname": host}, State: "queued",
+		Type: "certificate.portal", ResourceType: "host",
+		Payload: map[string]any{"hostname": host, "target": host}, State: "queued",
 		IdempotencyKey: fmt.Sprintf("portal-cert:%s:%s", host, stamp),
 	})
 }

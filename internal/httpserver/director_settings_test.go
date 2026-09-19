@@ -229,6 +229,13 @@ type uuidConstrainedJobStore struct {
 	store.Store
 }
 
+func (s uuidConstrainedJobStore) EnqueueJob(job *store.Job) (*store.Job, error) {
+	if err := requirePostgresUUID(job.ResourceID, "jobs.resource_id"); err != nil {
+		return nil, err
+	}
+	return s.Store.EnqueueJob(job)
+}
+
 func (s uuidConstrainedJobStore) EnqueueJobWithAudit(job *store.Job, audit store.AuditEvent) (*store.Job, error) {
 	if err := requirePostgresUUID(job.ResourceID, "jobs.resource_id"); err != nil {
 		return nil, err
