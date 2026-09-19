@@ -69,9 +69,10 @@ describe('TrackDeliveryPage', () => {
 		expect(screen.getByText('ABC999')).toBeInTheDocument()
 		expect(api).toHaveBeenCalledWith('/api/v1/mail/delivery-track?q=user%40example.com')
 		expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/v1/jobs'))
-		expect(screen.getByRole('link', { name: 'Mail Delivery Reports' })).toHaveAttribute(
-			'href',
-			expect.stringContaining('/mail/delivery-reports'),
-		)
+		const reportLinks = screen.getAllByRole('link', { name: 'Mail Delivery Reports' })
+		expect(reportLinks.length).toBeGreaterThan(0)
+		for (const link of reportLinks) {
+			expect(link).toHaveAttribute('href', expect.stringContaining('/mail/delivery-reports'))
+		}
 	})
 })

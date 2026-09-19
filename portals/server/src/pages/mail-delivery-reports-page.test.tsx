@@ -71,6 +71,10 @@ describe('MailDeliveryReportsPage', () => {
 		expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/v1/jobs'))
 		await user.click(screen.getByRole('button', { name: 'Details' }))
 		expect(screen.getByRole('article', { name: 'Delivery attempt details' })).toHaveTextContent('250 2.0.0 OK')
-		expect(screen.getByRole('link', { name: 'Track Delivery' })).toHaveAttribute('href', '/mail/track-delivery')
+		const trackLinks = screen.getAllByRole('link', { name: 'Track Delivery' })
+		expect(trackLinks.length).toBeGreaterThan(0)
+		for (const link of trackLinks) {
+			expect(link).toHaveAttribute('href', '/mail/track-delivery')
+		}
 	})
 })
