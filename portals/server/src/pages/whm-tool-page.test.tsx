@@ -49,7 +49,19 @@ describe('WhmToolPage', () => {
 		expect(screen.queryByText(/Settings \(local\) — Not applied to host/)).not.toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
 		await user.click(screen.getByRole('button', { name: 'Apply on host' }))
-		expect(api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({
+			method: 'PATCH',
+			body: JSON.stringify({
+				values: {
+					tweak_settings: {
+						max_emails_hour: '500',
+						allow_parked: 'on',
+						notify_disk: '90',
+						default_php: '8.3',
+					},
+				},
+			}),
+		}))
 	})
 
 	test('opens the terminal on audited host recipes, not a freeform root shell', async () => {
