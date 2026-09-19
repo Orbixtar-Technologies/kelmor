@@ -27,10 +27,11 @@ describe('SSLManagerPage', () => {
 			return Promise.resolve({ items: [] })
 		})
 		render(
-			<MemoryRouter initialEntries={['/ssl?account=acc-1&task=request']}>
+			<MemoryRouter initialEntries={['/ssl/request?account=acc-1']}>
 				<CapProvider caps={{ 'websites.read': true, 'websites.write': true }}>
 					<Routes>
 						<Route path="ssl" element={<SSLManagerPage />} />
+						<Route path="ssl/request" element={<SSLManagerPage />} />
 					</Routes>
 				</CapProvider>
 			</MemoryRouter>,

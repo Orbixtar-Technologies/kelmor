@@ -60,6 +60,5 @@ export function canonicalAccountToolPath (serviceId: string, accountId: string):
 }
 
 export function sslToolPath (accountId: string, task: 'inventory' | 'request' | 'status' | 'autossl' | 'service' = 'inventory') {
-	const params = new URLSearchParams({ account: accountId, task })
-	return `/ssl?${params}`
+	return `/ssl/${task}?account=${encodeURIComponent(accountId)}`
 }

@@ -74,9 +74,10 @@ describe('Director nav collisions', () => {
 		expect(isSidebarToolActive(review, '/jobs', '?account=acc-1')).toBe(false)
 	})
 
-	test('shared manager query params keep a named journey banner', () => {
-		const journey = catalogJourneyForLocation('/transfers', '?task=copy')
-		expect(journey?.id).toBe('copy-account')
+	test('dedicated tool pages are self-describing; leftover list views still banner', () => {
+		expect(catalogJourneyForLocation('/transfers/copy')).toBeNull()
+		expect(catalogJourneyForLocation('/accounts/ownership')).toBeNull()
+		expect(catalogJourneyForLocation('/domains', '?view=subdomain')?.id).toBe('list-subdomains')
 		expect(catalogJourneyForLocation('/mail/delivery-reports')).toBeNull()
 	})
 

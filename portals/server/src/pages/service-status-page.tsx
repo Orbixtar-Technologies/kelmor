@@ -24,7 +24,11 @@ interface LastAction {
 
 const serviceActions: ServiceAction[] = ['reload', 'restart', 'start', 'stop']
 
-export function ServiceStatusPage () {
+interface ServiceStatusPageProps {
+	focus?: 'info' | 'services' | 'http'
+}
+
+export function ServiceStatusPage ({ focus }: ServiceStatusPageProps) {
 	const [server, setServer] = useState<ServerOverview | null>(null)
 	const [services, setServices] = useState<Service[]>([])
 	const [processes, setProcesses] = useState<ProcessObservation[]>([])
@@ -66,7 +70,17 @@ export function ServiceStatusPage () {
 
 	const system = server?.system
 	return <>
-		<PageHeader title="Server & Service Status" description="Measured host vitals, managed service state, and service control actions." actions={<button type="button" className="secondary" onClick={load}>Refresh</button>} />
+		<PageHeader
+			title={focus === 'info' ? 'Server Information' : focus === 'services' ? 'Service Manager' : focus === 'http' ? 'HTTP Server Status' : 'Server & Service Status'}
+			description={focus === 'info'
+				? 'Hostname, load, memory, disk, and uptime from the live host probe.'
+				: focus === 'services'
+					? 'Enable monitoring and control for managed services on this host.'
+					: focus === 'http'
+						? 'nginx worker and connection observations from the live host probe.'
+						: 'Measured host vitals, managed service state, and service control actions.'}
+			actions={<button type="button" className="secondary" onClick={load}>Refresh</button>}
+		/>
 		{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 		{message ? <p className="feedback" role="status">{message}</p> : null}
 		{error ? <ErrorState error={error} onRetry={load} /> : null}{loading ? <LoadingState label="Reading host telemetry…" /> : null}

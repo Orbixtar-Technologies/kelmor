@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { managerFocus } from '../dedicated-tool-routes'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
@@ -19,6 +20,7 @@ interface MailboxRow extends ResourceItem {
 
 export function WebmailPage () {
 	const [params, setParams] = useSearchParams()
+	const focus = managerFocus(useLocation().pathname, '/webmail')
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [accountFilter, setAccountFilter] = useState('')
 	const [mailboxes, setMailboxes] = useState<MailboxRow[]>([])
@@ -119,8 +121,12 @@ export function WebmailPage () {
 	return (
 		<>
 			<PageHeader
-				title={scopedAccount ? `Webmail · ${scopedAccount.username}` : 'Webmail'}
-				description="Launch webmail sessions and review IMAP/SMTP connection settings for account mailboxes."
+				title={focus === 'client'
+					? (scopedAccount ? `Configure an Email Client · ${scopedAccount.username}` : 'Configure an Email Client')
+					: (scopedAccount ? `Webmail · ${scopedAccount.username}` : 'Webmail')}
+				description={focus === 'client'
+					? 'IMAP and submission settings for the selected mailbox. This is the client-setup tool, not the generic Webmail launcher.'
+					: 'Launch webmail sessions and review IMAP/SMTP connection settings for account mailboxes.'}
 				actions={<Link className="button-link secondary-link" to={accountId ? `/email?account=${accountId}` : '/email'}>Email management</Link>}
 			/>
 			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Webmail" onChange={(next) => setParams({ account: next }, { replace: true })} /> : null}

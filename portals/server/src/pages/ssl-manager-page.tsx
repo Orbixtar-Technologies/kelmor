@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { CUSTOM_PEM_STUB } from '../catalog-honesty'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '.
 import { formatDate, messageFrom, valueOf } from '../helpers'
 import { certExpiryLabel, certRenewalState } from './cert-copy'
 import { RequestSequence } from '../request-sequence'
+import { managerFocus } from '../dedicated-tool-routes'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
 
@@ -27,11 +28,11 @@ export function SSLManagerPage () {
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('websites.write')
 	const accountId = params.get('account') || ''
-	const task = params.get('task') || 'inventory'
+	const location = useLocation()
+	const pathTask = managerFocus(location.pathname, '/ssl')
+	const task = pathTask || params.get('task') || ''
 	const currentAccountId = useRef(accountId)
-	const currentTask = useRef(task)
 	currentAccountId.current = accountId
-	currentTask.current = task
 	const account = accounts.find((entry) => entry.id === accountId)
 
 	useEffect(() => {
@@ -41,9 +42,7 @@ export function SSLManagerPage () {
 			const next = asList(result)
 			setAccounts(next)
 			if (!currentAccountId.current && next[0]) {
-				const nextParams: Record<string, string> = { account: next[0].id }
-				if (currentTask.current && currentTask.current !== 'inventory') nextParams.task = currentTask.current
-				setParams(nextParams, { replace: true })
+				setParams({ account: next[0].id }, { replace: true })
 			}
 		}).catch((requestError) => {
 			if (requests.isCurrent(request)) setError(messageFrom(requestError))
@@ -131,8 +130,8 @@ export function SSLManagerPage () {
 	return (
 		<>
 			<PageHeader
-				title={account && !viewAll ? `SSL / TLS · ${account.username}` : 'SSL / TLS Management'}
-				description="Inventory, AutoSSL requests, expiry status, and host certificate policy live on this page. Account Services is not part of this journey."
+				title={sslToolTitle(task, account && !viewAll ? account.username : '')}
+				description={sslToolDescription(task)}
 				actions={<button type="button" className="secondary" onClick={() => setViewAll((current) => !current)}>{viewAll ? 'Account view' : 'Server-wide inventory'}</button>}
 			/>
 			<nav className="ssl-task-nav" aria-label="SSL tasks">
@@ -144,12 +143,11 @@ export function SSLManagerPage () {
 					['autossl', 'AutoSSL'],
 					['service', 'Service certificates'],
 				].map(([id, label]) => {
-					const search = viewAll ? `task=${id}` : `account=${accountId}&task=${id}`
-					const href = `/ssl?${search}`
+					const href = viewAll ? `/ssl/${id}` : `/ssl/${id}${accountId ? `?account=${accountId}` : ''}`
 					return task === id ? <strong key={id}>{label}</strong> : <Link key={id} to={href}>{label}</Link>
 				})}
 			</nav>
-			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="SSL" onChange={(next) => setParams(task === 'inventory' ? { account: next } : { account: next, task }, { replace: true })} /> : null}
+			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="SSL" onChange={(next) => setParams({ account: next }, { replace: true })} /> : null}
 			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 			{!viewAll ? <div className="hub-toolbar panel">
 				<AccountPicker
@@ -157,7 +155,7 @@ export function SSLManagerPage () {
 					value={accountId}
 					filter={accountFilter}
 					onFilterChange={setAccountFilter}
-					onChange={(next) => setParams(task === 'inventory' ? { account: next } : { account: next, task }, { replace: true })}
+					onChange={(next) => setParams({ account: next }, { replace: true })}
 				/>
 			</div> : null}
 			<QueuedOpNotice message={message} accountId={viewAll ? undefined : accountId} jobId={jobId} />
@@ -192,7 +190,7 @@ export function SSLManagerPage () {
 								<td><StatusBadge value={valueOf(certificate, 'status')} /><small>{certRenewalState(valueOf(certificate, 'status'), certificate.not_after ? String(certificate.not_after) : undefined)}</small></td>
 								<td>{certExpiryLabel(certificate.not_after ? String(certificate.not_after) : undefined)}<small>{certificate.not_after ? formatDate(String(certificate.not_after)) : ''}</small></td>
 								<td>{valueOf(certificate, 'issuer')}</td>
-								<td><div className="row-actions">{valueOf(certificate, 'status').toLocaleLowerCase() === 'failed' && canWrite ? <button type="button" className="link-button" onClick={() => api<{ operation_id?: string }>(`/api/v1/accounts/${certificate.account_id}/certificates`, { method: 'POST', body: JSON.stringify({ hostname: valueOf(certificate, 'hostname') }) }).then((result) => { setJobId(result.operation_id || ''); setMessage(queuedOpMessage(result, 'Certificate retry queued.')) }).catch((requestError) => setMessage(messageFrom(requestError)))}>Retry request</button> : null}<Link to={`/ssl?account=${certificate.account_id}&task=request`}>Request again</Link><Link to={`/jobs?account=${certificate.account_id}`}>Jobs</Link></div></td>
+								<td><div className="row-actions">{valueOf(certificate, 'status').toLocaleLowerCase() === 'failed' && canWrite ? <button type="button" className="link-button" onClick={() => api<{ operation_id?: string }>(`/api/v1/accounts/${certificate.account_id}/certificates`, { method: 'POST', body: JSON.stringify({ hostname: valueOf(certificate, 'hostname') }) }).then((result) => { setJobId(result.operation_id || ''); setMessage(queuedOpMessage(result, 'Certificate retry queued.')) }).catch((requestError) => setMessage(messageFrom(requestError)))}>Retry request</button> : null}<Link to={`/ssl/request?account=${certificate.account_id}`}>Request again</Link><Link to={`/jobs?account=${certificate.account_id}`}>Jobs</Link></div></td>
 							</tr>
 						))}
 					</tbody>
@@ -201,4 +199,37 @@ export function SSLManagerPage () {
 			</section> : null}
 		</>
 	)
+}
+
+const sslTitles: Record<string, string> = {
+	inventory: 'SSL Storage Manager',
+	request: 'Generate an SSL Certificate and Signing Request',
+	install: 'Install an SSL Certificate on a Domain',
+	autossl: 'Manage AutoSSL',
+	status: 'SSL/TLS Status',
+	service: 'Manage Service SSL Certificates',
+}
+
+function sslToolTitle (task: string, username: string): string {
+	const title = sslTitles[task] || 'SSL / TLS Management'
+	return username ? `${title} · ${username}` : title
+}
+
+function sslToolDescription (task: string): string {
+	switch (task) {
+		case 'request':
+			return 'Request an account certificate for a hostname through AutoSSL. Account picker is on this tool.'
+		case 'install':
+			return 'Request a certificate for a hostname. Kelmor installs through ACME, not a custom PEM upload.'
+		case 'autossl':
+			return 'Request and renew account certificates through ACME on this dedicated AutoSSL tool.'
+		case 'inventory':
+			return 'Certificate inventory already issued for accounts on this host.'
+		case 'status':
+			return 'Which sites currently present a valid certificate.'
+		case 'service':
+			return 'Host and account TLS material. Site certificates are requested with AutoSSL on this family of tools.'
+		default:
+			return 'Inventory, AutoSSL requests, expiry status, and host certificate policy. Account Services is not part of this journey.'
+	}
 }

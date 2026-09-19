@@ -1,3 +1,4 @@
+import { isAccountDetailPath } from '../dedicated-tool-routes'
 import type { ToolDefinition } from '../types'
 import { whmFeatures } from '../whm-catalog'
 
@@ -61,7 +62,8 @@ export function isDirectorToolActive (tool: ToolDefinition, pathname: string, se
 	if (tool.id === 'create-account') return pathname === '/accounts/create'
 
 	if (tool.id === 'account-summary') {
-		return pathname.startsWith('/accounts/') && pathname !== '/accounts/create'
+		if (pathname === '/accounts/summary') return true
+		return isAccountDetailPath(pathname)
 	}
 
 	if (pathname.startsWith('/section/')) {

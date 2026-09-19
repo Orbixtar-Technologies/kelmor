@@ -22,7 +22,11 @@ interface DomainRow extends ResourceItem {
 	account_username?: string
 }
 
-export function DomainsPage () {
+interface DomainsPageProps {
+	focus?: 'add' | 'delete' | 'park'
+}
+
+export function DomainsPage ({ focus }: DomainsPageProps) {
 	const [params, setParams] = useSearchParams()
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [accountFilter, setAccountFilter] = useState('')
@@ -140,8 +144,14 @@ export function DomainsPage () {
 	return (
 		<>
 			<PageHeader
-				title={account ? `List Domains · ${account.username}` : 'List Domains'}
-				description="Inventory addon domains, subdomains, and parked (alias) domains the way a WHM operator expects, using Kelmor account APIs."
+				title={focus === 'add' ? 'Add a DNS Zone' : focus === 'delete' ? 'Delete a DNS Zone' : focus === 'park' ? 'Park a Domain' : account ? `List Domains · ${account.username}` : 'List Domains'}
+				description={focus === 'add'
+					? 'Create a managed DNS zone by adding a domain to an account. The picker lives on this tool.'
+					: focus === 'delete'
+						? 'Remove a non-primary domain and its zone after confirmation.'
+						: focus === 'park'
+							? 'Add an alias/parked domain on an account. This is the Park Domain tool.'
+							: 'Inventory addon domains, subdomains, and parked (alias) domains the way a WHM operator expects, using Kelmor account APIs.'}
 			/>
 			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="Domains" onChange={(next) => {
 				const search = new URLSearchParams(params)
@@ -174,16 +184,16 @@ export function DomainsPage () {
 			</div>
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			{error ? <ErrorState error={error} onRetry={() => loadDomains(accountId, accounts)} /> : null}
-			{canWrite && accountId ? <section className="panel">
-				<h2>Add a domain to {account?.username}</h2>
+			{canWrite && accountId && focus !== 'delete' ? <section className="panel">
+				<h2>{focus === 'park' ? `Park a domain on ${account?.username}` : `Add a domain to ${account?.username}`}</h2>
 				<form className="inline-form" onSubmit={createDomain}>
 					<label>Domain<input name="fqdn" placeholder="shop.example.com" required /></label>
-					<label>Type<select name="type">
+					<label>Type<select name="type" defaultValue={focus === 'park' ? 'alias' : 'addon'}>
 						<option value="addon">Addon</option>
 						<option value="subdomain">Subdomain</option>
 						<option value="alias">Parked / alias</option>
 					</select></label>
-					<button type="submit">Add domain</button>
+					<button type="submit">{focus === 'park' ? 'Park domain' : 'Add domain'}</button>
 				</form>
 			</section> : null}
 			<section className="panel">

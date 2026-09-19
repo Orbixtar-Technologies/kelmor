@@ -1,3 +1,4 @@
+import { isAccountDetailPath } from './dedicated-tool-routes'
 import { isDirectorToolActive } from './layout/nav-active'
 import type { ToolDefinition } from './types'
 import { featureById, toToolDefinition, whmFeatures, type WhmFeature } from './whm-catalog'
@@ -264,7 +265,7 @@ export function hubForLocation (pathname: string, search = ''): NavHub | undefin
 	if (pathname.startsWith('/tools/')) {
 		return hubForToolId(pathname.split('/')[2] || '')
 	}
-	if (pathname.startsWith('/accounts/') && pathname !== '/accounts/create') {
+	if (isAccountDetailPath(pathname)) {
 		return hubById('accounts')
 	}
 
@@ -283,9 +284,7 @@ export function isDirectorHubActive (hub: NavHub, pathname: string, search = '')
 	return hubForLocation(pathname, search)?.id === hub.id
 }
 
-export function isAccountDetailPath (pathname: string): boolean {
-	return /^\/accounts\/(?!create(?:\/|$))[^/]+/.test(pathname)
-}
+export { isAccountDetailPath } from './dedicated-tool-routes'
 
 export function shouldShowHubTabs (pathname: string, search = ''): boolean {
 	if (!pathname.startsWith('/section/')) return false

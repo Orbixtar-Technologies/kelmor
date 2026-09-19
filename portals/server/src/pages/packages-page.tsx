@@ -43,7 +43,11 @@ function packageFromForm (data: FormData, current: Package): Package {
 	return next
 }
 
-export function PackagesPage () {
+interface PackagesPageProps {
+	focus?: 'add' | 'delete'
+}
+
+export function PackagesPage ({ focus }: PackagesPageProps) {
 	const [items, setItems] = useState<Package[]>([])
 	const [featureSets, setFeatureSets] = useState<FeatureSet[]>([])
 	const [accounts, setAccounts] = useState<Account[]>([])
@@ -76,6 +80,9 @@ export function PackagesPage () {
 		}).finally(() => setLoading(false))
 	}
 	useEffect(load, [])
+	useEffect(() => {
+		if (focus === 'add' && canWrite) setEditing({ ...defaults })
+	}, [canWrite, focus])
 	async function save (event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault()
 		const current = editing || defaults
@@ -99,9 +106,16 @@ export function PackagesPage () {
 
 	return (
 		<>
-			<PageHeader title="Packages" description="Define reusable resource, service, and retention limits for accounts." actions={<>
+			<PageHeader
+				title={focus === 'add' ? 'Add a Package' : focus === 'delete' ? 'Delete a Package' : 'Packages'}
+				description={focus === 'add'
+					? 'Define a new reusable account limit set. This is the Add Package tool, not the package inventory.'
+					: focus === 'delete'
+						? 'Remove a package that no account references. Type the package name to confirm.'
+						: 'Define reusable resource, service, and retention limits for accounts.'}
+				actions={<>
 				<Link className="button-link secondary-link" to="/features">Feature Manager</Link>
-				{canWrite ? <button type="button" onClick={() => setEditing({ ...defaults })}>Add package</button> : null}
+				{canWrite && focus !== 'add' ? <Link className="button-link" to="/packages/add">Add package</Link> : null}
 			</>} />
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
@@ -112,9 +126,16 @@ export function PackagesPage () {
 				})}
 			</tbody></table></div>}
 			{!loading && !items.length ? <EmptyState title="No packages" detail="Create a package to define account capacity." /> : null}
-			<Dialog open={Boolean(editing)} title={editing?.id ? `Edit ${editing.name}` : 'Add package'} onClose={() => setEditing(null)}>
-				{editing ? <PackageForm value={editing} featureSets={featureSets} onSubmit={save} onCancel={() => setEditing(null)} /> : null}
-			</Dialog>
+			{focus === 'add' && canWrite && editing && !editing.id ? (
+				<section className="panel">
+					<h2>New package</h2>
+					<PackageForm value={editing} featureSets={featureSets} onSubmit={save} onCancel={() => setEditing(null)} />
+				</section>
+			) : (
+				<Dialog open={Boolean(editing)} title={editing?.id ? `Edit ${editing.name}` : 'Add package'} onClose={() => setEditing(null)}>
+					{editing ? <PackageForm value={editing} featureSets={featureSets} onSubmit={save} onCancel={() => setEditing(null)} /> : null}
+				</Dialog>
+			)}
 			<Dialog open={Boolean(deleting)} title={`Delete ${deleting?.name || 'package'}`} onClose={() => { setDeleting(null); setConfirmation('') }}>
 				{(() => {
 					const assignmentCount = deleting ? accounts.filter((account) => account.package_id === deleting.id).length : 0

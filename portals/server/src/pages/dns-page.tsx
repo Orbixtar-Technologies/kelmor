@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { managerFocus } from '../dedicated-tool-routes'
 import { api, asList } from '../client'
 import { AccountScopeBar } from '../components/account-scope-bar'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
@@ -16,6 +17,7 @@ interface DnsDraft extends ResourceItem {
 
 export function DNSPage () {
 	const [params, setParams] = useSearchParams()
+	const focus = managerFocus(useLocation().pathname, '/dns')
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [zones, setZones] = useState<ResourceItem[]>([])
 	const [zonesAccountId, setZonesAccountId] = useState('')
@@ -183,7 +185,14 @@ export function DNSPage () {
 	const account = accounts.find((entry) => entry.id === accountId)
 	return (
 		<>
-			<PageHeader title={account ? `DNS Management · ${account.username}` : 'DNS Management'} description="Select an account, inspect its zones, and safely manage records and DNSSEC." />
+			<PageHeader
+				title={focus === 'edit'
+					? (account ? `Edit DNS Zone · ${account.username}` : 'Edit DNS Zone')
+					: (account ? `DNS Management · ${account.username}` : 'DNS Management')}
+				description={focus === 'edit'
+					? 'Open and edit zone records for the selected account. This is the Edit DNS Zone tool.'
+					: 'Select an account, inspect its zones, and safely manage records and DNSSEC.'}
+			/>
 			<AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="DNS" onChange={(next) => setParams({ account: next })} />
 			<div className="filter-bar">
 				<label>Zone<select value={selectedZone} onChange={(event) => { requests.invalidate('records'); setRecords([]); setRecordsContext(''); setSelectedZone(event.target.value) }}>{visibleZones.map((entry) => <option key={entry.id} value={entry.id}>{String(entry.name)}</option>)}</select></label>

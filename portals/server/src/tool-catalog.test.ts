@@ -75,11 +75,20 @@ describe('tool discovery', () => {
 		expect(accountTaskTarget('files', 'account-1')).toBe('/files?account=account-1')
 		expect(accountTaskTarget('cron', 'account-1')).toBe('/cron?account=account-1')
 		expect(accountTaskTarget('domains', 'account-1')).toBe('/domains?account=account-1')
-		expect(accountTaskTarget('login', 'account-1')).toBe('/accounts/account-1?task=login')
+		expect(accountTaskTarget('login', 'account-1')).toBe('/accounts/login-control?account=account-1')
 	})
 
-	test.each(['password', 'terminate', 'remove', 'package', 'modify', 'suspension', 'summary'])('preserves the %s lifecycle task after account selection', (task) => {
-		expect(accountTaskTarget(task, 'account-1')).toBe(`/accounts/account-1?task=${task}`)
+	test.each([
+		['password', '/accounts/password?account=account-1'],
+		['terminate', '/accounts/terminate?account=account-1'],
+		['remove', '/accounts/remove?account=account-1'],
+		['package', '/accounts/change-package?account=account-1'],
+		['modify', '/accounts/modify?account=account-1'],
+		['suspension', '/accounts/suspension?account=account-1'],
+		['summary', '/accounts/summary?account=account-1'],
+		['ownership', '/accounts/ownership?account=account-1'],
+	] as const)('sends the %s lifecycle task to its dedicated tool', (task, href) => {
+		expect(accountTaskTarget(task, 'account-1')).toBe(href)
 	})
 })
 
@@ -113,16 +122,17 @@ describe('WHM catalog', () => {
 		expect(featureById('mail-queue')?.layout).toBe('status')
 	})
 
-	test('routes SSL family tools to SSL manager tasks instead of Account Services', () => {
+	test('routes SSL family tools to dedicated SSL pages instead of Account Services', () => {
 		expect(featureById('ssl')?.path).toBe('/ssl')
-		expect(featureById('generate-csr')?.path).toBe('/ssl?task=request')
-		expect(featureById('install-ssl')?.path).toBe('/ssl?task=install')
-		expect(featureById('manage-autossl')?.path).toBe('/ssl?task=autossl')
-		expect(featureById('ssl-storage')?.path).toBe('/ssl?task=inventory')
-		expect(featureById('ssl-tls-status')?.path).toBe('/ssl?task=status')
-		expect(featureById('service-ssl')?.path).toBe('/ssl?task=service')
+		expect(featureById('generate-csr')?.path).toBe('/ssl/request')
+		expect(featureById('install-ssl')?.path).toBe('/ssl/install')
+		expect(featureById('manage-autossl')?.path).toBe('/ssl/autossl')
+		expect(featureById('ssl-storage')?.path).toBe('/ssl/inventory')
+		expect(featureById('ssl-tls-status')?.path).toBe('/ssl/status')
+		expect(featureById('service-ssl')?.path).toBe('/ssl/service')
 		for (const feature of whmFeatures.filter((entry) => entry.category === 'SSL/TLS' || entry.id === 'service-ssl')) {
 			expect(feature.path).not.toContain('/services')
+			expect(feature.path).not.toContain('task=')
 			expect(feature.path).not.toBe('/tools/manage-autossl')
 		}
 	})

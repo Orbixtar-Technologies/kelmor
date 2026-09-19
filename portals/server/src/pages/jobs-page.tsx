@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { managerFocus } from '../dedicated-tool-routes'
 import { api, asList } from '../client'
 import { Dialog, EmptyState, ErrorState, LoadingState, Metric, PageHeader, Pagination, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
@@ -11,7 +12,9 @@ import { describeJobFailure, describeJobStatus, describeJobTimeline, formatJobTy
 
 export function JobsPage () {
 	const capabilities = useCapabilities()
+	const location = useLocation()
 	const [params, setParams] = useSearchParams()
+	const focus = managerFocus(location.pathname, '/jobs')
 	const [items, setItems] = useState<Job[]>([])
 	const query = params.get('q') || ''
 	const state = params.get('state') || ''
@@ -68,7 +71,15 @@ export function JobsPage () {
 	}
 	const selectedStatus = selected ? describeJobStatus(selected) : null
 	return <>
-		<PageHeader title="Jobs" description={accountId ? 'Operations for the selected account.' : 'Search background work, inspect failures, and retry eligible jobs.'} actions={<button type="button" className="secondary" onClick={load}>Refresh</button>} />
+		<PageHeader
+			title={focus === 'queue' ? 'Task Queue Monitor' : 'Jobs'}
+			description={accountId
+				? 'Operations for the selected account.'
+				: focus === 'queue'
+					? 'Background jobs, retries, and cancellation. This is the task queue, not a filtered Jobs search.'
+					: 'Search background work, inspect failures, and retry eligible jobs.'}
+			actions={<button type="button" className="secondary" onClick={load}>Refresh</button>}
+		/>
 		{accountId ? (
 			<div className="context-chip" role="status">
 				<p className="context-chip-copy">Showing jobs for this account.</p>
