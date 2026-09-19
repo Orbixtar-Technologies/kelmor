@@ -23,6 +23,8 @@ const JOB_LABELS: Record<string, string> = {
 	'backup.restore': 'Restore backup',
 	'cron.create': 'Add scheduled task',
 	'ftp.create': 'Create FTP user',
+	'host.module.install': 'Install language module',
+	'host.config.apply': 'Apply host configuration',
 }
 
 export interface JobFailureSummary {

@@ -54,6 +54,9 @@ type HostConfigSpec struct {
 	NS1IP             string            `json:"ns1_ip,omitempty"`
 	NS2IP             string            `json:"ns2_ip,omitempty"`
 	MaxEmailsHour     int               `json:"max_emails_hour,omitempty"`
+	Profile           string            `json:"profile,omitempty"`
+	ClusterPeers      []string          `json:"cluster_peers,omitempty"`
+	WriteCluster      bool              `json:"write_cluster,omitempty"`
 }
 
 func (h *Host) applyHostConfig(spec HostConfigSpec) (Result, error) {
@@ -193,6 +196,18 @@ func (h *Host) applyHostConfig(spec HostConfigSpec) (Result, error) {
 	}
 	if spec.MaxEmailsHour > 0 && h.live() {
 		_, _ = runFixed("/usr/sbin/postconf", "-e", fmt.Sprintf("default_destination_rate_delay=%ds", 3600/spec.MaxEmailsHour))
+	}
+	if spec.Profile != "" {
+		if err := h.applyServerProfile(spec.Profile); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "server-profile")
+	}
+	if spec.WriteCluster {
+		if err := h.writeClusterMembership(spec.ClusterPeers); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "cluster")
 	}
 	if h.live() {
 		_ = reloadNamedService("nginx")

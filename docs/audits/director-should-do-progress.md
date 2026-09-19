@@ -23,6 +23,11 @@ branch implements as host-applied work (API → job → Agent) instead of
 | `multi-modify` / `multi-ip` / ownership / `ip-migration` | D | Done | `POST /accounts/bulk/modify` and `/accounts/ip-migration` |
 | `convert-addon` | D | Done | `POST /accounts/convert-addon` provisions a new account |
 | `theme-manager` / `locales` / `customization` | D | Done | Director chrome (`data-density`, `lang`) — no Agent job |
+| `module-installers` / `perl-modules` / `php-pear` / `php-pecl` / `ruby-gems` | Software | Done | `GET/POST /server/modules` → `host.module.install` → Agent apt/pecl/pear/cpan/gem |
+| `server-profile` | C | Done | `PATCH` settings → `host.config.apply` writes `/etc/panel/server-profile` and toggles tenant units |
+| `configuration-cluster` | Clusters | Done | Peer URLs on host + `POST /server/cluster/publish` snapshot. No live multi-node orchestration |
+| `grant-support-access` | Support | Done | Time-limited `server_operator` session for `kelmor-support` |
+| `diagnostics-log` | Support | Done | Authenticated `GET /server/diagnostics` tar.gz download |
 
 Rows that stay honest status (cannot be a real host product yet) are noted in
 the audit file under **Deferred / omitted**.

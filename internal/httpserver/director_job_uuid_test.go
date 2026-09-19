@@ -32,6 +32,10 @@ func TestServerJobsEnqueueOnUUIDConstrainedStore(t *testing.T) {
 			body: map[string]any{"version": "8.4"}, jobType: "php.runtime.ensure", target: "8.4",
 		},
 		{
+			name: "host.module.install", path: "/api/v1/server/modules",
+			body: map[string]any{"kind": "pecl", "name": "redis"}, jobType: "host.module.install", target: "pecl:redis",
+		},
+		{
 			name: "mail.notify", path: "/api/v1/mail/notify",
 			body: map[string]any{
 				"from": "ops@example.test", "subject": "Notice",
