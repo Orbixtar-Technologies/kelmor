@@ -10,7 +10,7 @@ export const LOCAL_SETTINGS_SAVED = 'Saved a Director preference. This is not ap
 
 export const QUOTA_PACKAGE_COPY = 'Disk and monthly bandwidth caps come from the account package. The Agent enforces those package limits. There is no separate per-account override.'
 
-export const MAILBOX_PASSWORD_STUB = 'Mailbox password and quota changes have no API yet. Create and delete work. Rotate the password from the host only after a mailbox PATCH exists.'
+export const MAILBOX_PASSWORD_STUB = 'Mailbox password and quota changes queue a mailbox reconcile. Maps apply the new hash and Dovecot quota.'
 
 export const CUSTOM_PEM_STUB = 'Custom PEM install is not available. Kelmor issues certificates through AutoSSL. There is no certificate upload API.'
 

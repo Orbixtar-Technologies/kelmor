@@ -67,6 +67,31 @@ func TestApplyACMEChallengeRetargetsStaleVhosts(t *testing.T) {
 	}
 }
 
+func TestApplyACMEChallengeInjectsMissingChallengeLocation(t *testing.T) {
+	h := &Host{Root: t.TempDir()}
+	dir := filepath.Join(h.Root, "etc/nginx/panel-sites")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := "server {\n    listen 80;\n    server_name orbixtar.dpdns.org;\n    location / { return 404;\n}\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "site-missing.conf"), []byte(missing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.applyACMEChallenge("tok-3", "challenge-body"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "site-missing.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), configuration.NginxACMEChallengeLocation) {
+		t.Fatalf("missing HTTP-01 location not injected: %s", body)
+	}
+	if !strings.Contains(string(body), "root "+configuration.ACMEHTTP01Root+";") {
+		t.Fatalf("injected location must use panel-acme: %s", body)
+	}
+}
+
 func TestApplyACMEChallengeRejectsTokenPath(t *testing.T) {
 	h := &Host{Root: t.TempDir()}
 	if _, err := h.applyACMEChallenge("../x", "x"); err == nil {

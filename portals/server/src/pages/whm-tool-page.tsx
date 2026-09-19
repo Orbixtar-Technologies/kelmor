@@ -399,10 +399,28 @@ async function applyFeature ({
 	}
 
 	if (feature.id === 'unsuspend-bandwidth') {
-		const ids = accounts.filter((account) => account.status === 'suspended').map((account) => account.id)
-		if (!ids.length) return 'No suspended accounts to unsuspend.'
-		await api('/api/v1/accounts/bulk/unsuspend', { method: 'POST', body: JSON.stringify({ ids }) })
-		return `Queued unsuspend for ${ids.length} account(s).`
+		const result = await api<{ operations?: string[] }>('/api/v1/accounts/bulk/unsuspend-bandwidth', {
+			method: 'POST',
+			body: '{}',
+		})
+		const count = result.operations?.length || 0
+		if (!count) return 'No accounts are held for bandwidth.'
+		return `Queued bandwidth hold release for ${count} account(s).`
+	}
+
+	if (feature.id === 'file-dir-restore') {
+		if (!accountId) throw new Error('Choose an account first.')
+		const path = values.path || 'public_html'
+		const backups = await api<{ items?: Array<{ id: string; state?: string }> }>(`/api/v1/accounts/${accountId}/backups`)
+		const backup = (backups.items || []).find((item) => item.state === 'succeeded')
+		if (!backup) throw new Error('No successful backup to restore from.')
+		const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/restores`, {
+			method: 'POST',
+			body: JSON.stringify({ backup_id: backup.id, path, mode: 'in_place' }),
+		})
+		return result.operation_id
+			? `Path restore queued. Open Jobs to follow ${result.operation_id}.`
+			: 'Path restore queued.'
 	}
 
 	if (feature.id === 'wp-toolkit') {

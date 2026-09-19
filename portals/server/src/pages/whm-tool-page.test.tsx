@@ -91,6 +91,58 @@ describe('WhmToolPage', () => {
 		expect(api).not.toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
 	})
 
+	test('unsuspend bandwidth releases holds instead of unsuspending accounts', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [
+					{ id: 'acc-held', username: 'held', status: 'active' },
+					{ id: 'acc-susp', username: 'susp', status: 'suspended' },
+				] })
+			}
+			if (String(path) === '/api/v1/accounts/bulk/unsuspend-bandwidth' && options?.method === 'POST') {
+				return Promise.resolve({ operations: ['bw-1'] })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/unsuspend-bandwidth', { 'accounts.suspend': true, 'accounts.read': true })
+		expect(await screen.findByRole('heading', { name: 'Unsuspend Bandwidth Exceeders' })).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Confirm' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/bulk/unsuspend-bandwidth', expect.objectContaining({
+			method: 'POST',
+			body: '{}',
+		}))
+		expect(api).not.toHaveBeenCalledWith('/api/v1/accounts/bulk/unsuspend', expect.anything())
+		expect(await screen.findByText(/Queued bandwidth hold release for 1 account/)).toBeInTheDocument()
+	})
+
+	test('file directory restore queues a path restore from the latest backup', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1/backups') {
+				return Promise.resolve({ items: [{ id: 'bak-1', state: 'succeeded' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1/restores' && options?.method === 'POST') {
+				return Promise.resolve({ operation_id: 'rst-1' })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/file-dir-restore', { 'backups.restore': true, 'accounts.read': true })
+		expect(await screen.findByRole('heading', { name: 'File and Directory Restoration' })).toBeInTheDocument()
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Apply' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-1/restores', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({ backup_id: 'bak-1', path: 'public_html', mode: 'in_place' }),
+		}))
+	})
+
 	test('mail queue only mounts Postfix recipes', async () => {
 		api.mockResolvedValue({ items: [
 			{ id: 'nginx-test', label: 'Test nginx configuration', description: 'Run nginx -t without reloading.' },

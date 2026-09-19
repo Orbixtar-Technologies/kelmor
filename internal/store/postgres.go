@@ -293,7 +293,8 @@ func (p *PG) PutAccount(a *Account) {
 		VALUES ($1, NULLIF($2,'')::uuid, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11,'')::inet, $12, $13, $14, $15)
 		ON CONFLICT (id) DO UPDATE SET
 			reseller_id=EXCLUDED.reseller_id, package_id=EXCLUDED.package_id, status=EXCLUDED.status,
-			primary_domain=EXCLUDED.primary_domain, ip_address=EXCLUDED.ip_address, login_disabled=EXCLUDED.login_disabled,
+			primary_domain=EXCLUDED.primary_domain, ip_address=EXCLUDED.ip_address, shell_class=EXCLUDED.shell_class,
+			login_disabled=EXCLUDED.login_disabled,
 			desired_revision=EXCLUDED.desired_revision, observed_revision=EXCLUDED.observed_revision, updated_at=now()`,
 		a.ID, a.ResellerID, a.OwnerUserID, a.Username, a.PrimaryDomain, a.LinuxUID, a.LinuxGID, a.PackageID, a.Status, a.HomePath, a.IPAddress, a.ShellClass, a.LoginDisabled, a.DesiredRevision, a.ObservedRevision)
 }

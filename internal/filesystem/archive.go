@@ -16,6 +16,17 @@ const (
 type ArchiveLimits struct {
 	MaxFiles int
 	MaxBytes int64
+	Prefix   string
+}
+
+func archivePrefix(raw string) string {
+	prefix := path.Clean(strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/"))
+	prefix = strings.TrimPrefix(prefix, "./")
+	prefix = strings.Trim(prefix, "/")
+	if prefix == "." || prefix == "" || strings.Contains(prefix, "..") {
+		return ""
+	}
+	return prefix
 }
 
 func (root *Root) ExtractTar(reader io.Reader, dest string, limits ArchiveLimits) error {
@@ -43,6 +54,9 @@ func (root *Root) ExtractTar(reader io.Reader, dest string, limits ArchiveLimits
 		name := path.Clean(strings.ReplaceAll(hdr.Name, "\\", "/"))
 		name = strings.TrimPrefix(name, "./")
 		if name == "." || name == "" {
+			continue
+		}
+		if prefix := archivePrefix(limits.Prefix); prefix != "" && name != prefix && !strings.HasPrefix(name, prefix+"/") {
 			continue
 		}
 		if path.IsAbs(name) || strings.HasPrefix(name, "../") || strings.Contains(name, ":") {

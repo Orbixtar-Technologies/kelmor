@@ -203,6 +203,23 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.setLinuxPassword(p.Username, p.Password)
+	case "SetLinuxShell":
+		var p struct {
+			Username string `json:"username"`
+			Shell    string `json:"shell"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.setLinuxShell(p.Username, p.Shell)
+	case "ResetAccountBandwidth":
+		var p struct {
+			Username string `json:"username"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.resetAccountBandwidth(p.Username)
 	case "CreateDirectoryTree":
 		var p struct {
 			Path string `json:"path"`
@@ -256,6 +273,8 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			BandwidthHold         *bool    `json:"bandwidth_hold"`
 			ConcurrentWebRequests int      `json:"concurrent_web_requests"`
 			Aliases               []string `json:"aliases"`
+			ListenIPv4            string   `json:"listen_ipv4"`
+			ListenIPv6            string   `json:"listen_ipv6"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		enabled := true
@@ -266,7 +285,7 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 		if p.BandwidthHold != nil {
 			hold = *p.BandwidthHold
 		}
-		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, p.PHPVersion, "", p.HTTPSRedirect, enabled, hold, p.ConcurrentWebRequests, p.Aliases)
+		return h.applyWebsite(p.WebsiteID, p.Account, p.Domain, p.DocumentRoot, p.Runtime, p.PHPVersion, "", p.HTTPSRedirect, enabled, hold, p.ConcurrentWebRequests, p.Aliases, p.ListenIPv4, p.ListenIPv6)
 	case "RetireWebsite":
 		var p struct {
 			WebsiteID string `json:"website_id"`
@@ -418,9 +437,10 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 		var p struct {
 			Archive string `json:"archive"`
 			Dest    string `json:"dest"`
+			Prefix  string `json:"prefix"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.unpackDirectory(p.Archive, p.Dest)
+		return h.unpackDirectoryPrefix(p.Archive, p.Dest, p.Prefix)
 	case "CopyHomedir":
 		var p struct {
 			Username string `json:"username"`
@@ -863,7 +883,7 @@ func (h *Host) listDirectory(path string) (any, error) {
 }
 
 func (h *Host) ApplyWebsite(websiteID, domain, docroot, runtime string) (Result, error) {
-	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true, true, false, 0, nil)
+	return h.applyWebsite(websiteID, "", domain, docroot, runtime, "", "", true, true, false, 0, nil, "", "")
 }
 
 type diskStat struct{ total, used, itotal, iused uint64 }

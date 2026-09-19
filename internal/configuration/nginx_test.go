@@ -197,6 +197,25 @@ func TestPHPPool(t *testing.T) {
 	}
 }
 
+func TestNginxDedicatedListenBindsAssignedAddresses(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{
+		WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html",
+		Runtime: "php", Enabled: true, ListenIPv4: "198.51.100.20", ListenIPv6: "2001:db8::20",
+	})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"listen 80;",
+		"listen 198.51.100.20:80;",
+		"listen [2001:db8::20]:80;",
+	} {
+		if !contains(conf, want) {
+			t.Fatalf("missing %q in %s", want, conf)
+		}
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {

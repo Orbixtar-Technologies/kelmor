@@ -271,6 +271,34 @@ func (h *Host) enforceAccountBandwidth(username string, hold bool) (Result, erro
 	return Result{OK: true, Message: "bandwidth hold updated", ObservedState: state}, nil
 }
 
+func (h *Host) resetAccountBandwidth(username string) (Result, error) {
+	if err := validate.Username(username); err != nil {
+		return Result{}, err
+	}
+	now := time.Now().UTC()
+	month := now.Format("200601")
+	for _, websiteID := range h.websiteIDsForAccount(username) {
+		rel := "/var/log/nginx/" + websiteID + ".access.log"
+		p, err := h.resolve(rel)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		var inode uint64
+		if sys, ok := info.Sys().(*syscall.Stat_t); ok {
+			inode = sys.Ino
+		}
+		h.saveBandwidthCheckpoint(username, bandwidthCheckpoint{
+			Path: rel, Inode: inode, Size: info.Size(), Offset: info.Size(), Month: month, Bytes: 0,
+		})
+	}
+	h.persistBandwidthTotal(username, now, 0)
+	return h.enforceAccountBandwidth(username, false)
+}
+
 func (h *Host) clearBandwidthFiles(username string) {
 	if validate.Username(username) != nil {
 		return

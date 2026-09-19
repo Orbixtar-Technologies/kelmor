@@ -762,6 +762,28 @@ paths:
         "202": { description: queued }
         "403": { description: package mailbox limit exceeded }
   /accounts/{accountID}/mail/mailboxes/{mailboxID}:
+    patch:
+      operationId: patchMailbox
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: mailboxID
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string }
+                quota_bytes: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "202": { description: mailbox password or quota queued }
+        "400": { description: missing or invalid password/quota }
+        "404": { description: mailbox missing }
     delete:
       operationId: deleteMailbox
       x-capability: mail.write
@@ -1105,10 +1127,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [backup_id]
               properties:
                 backup_id: { type: string }
                 mode: { type: string, enum: [in_place] }
+                path: { type: string, description: optional home-relative prefix for a file/directory restore }
       responses:
         "202": { description: restore queued }
   /accounts/{accountID}/dns/zones:
@@ -1403,6 +1425,21 @@ paths:
       x-capability: accounts.suspend
       responses:
         "202": { description: unsuspend jobs queued }
+  /accounts/bulk/unsuspend-bandwidth:
+    post:
+      operationId: bulkUnsuspendBandwidth
+      x-capability: accounts.suspend
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "202": { description: bandwidth hold release jobs queued }
   /accounts/export:
     get:
       operationId: exportAccounts

@@ -12,7 +12,7 @@ func TestRetireAccountRemovesHostArtifacts(t *testing.T) {
 	if _, err := h.CreateLinuxUser("gone42", 20020, 20020, "/home/gone42", "/usr/sbin/nologin"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.applyWebsite("site-1", "gone42", "gone.test", "/home/gone42/public_html", "php", "", "", false, true, false, 0, nil); err != nil {
+	if _, err := h.applyWebsite("site-1", "gone42", "gone.test", "/home/gone42/public_html", "php", "", "", false, true, false, 0, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.applyAdminTools("gone.test", nil); err != nil {
@@ -71,7 +71,7 @@ func TestRetireWebsiteKeepsHomeAndPool(t *testing.T) {
 	if _, err := h.CreateLinuxUser("keep42", 20021, 20021, "/home/keep42", "/usr/sbin/nologin"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.applyWebsite("site-addon", "keep42", "blog.keep.test", "/home/keep42/blog.keep.test", "php", "", "", false, true, false, 0, nil); err != nil {
+	if _, err := h.applyWebsite("site-addon", "keep42", "blog.keep.test", "/home/keep42/blog.keep.test", "php", "", "", false, true, false, 0, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.applyPHPPool("keep42", "8.3", 4); err != nil {
@@ -103,7 +103,7 @@ func TestRetireDomainRemovesZoneKeepsHome(t *testing.T) {
 	if _, err := h.CreateLinuxUser("keep43", 20022, 20022, "/home/keep43", "/usr/sbin/nologin"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.applyWebsite("site-gone", "keep43", "gone.keep.test", "/home/keep43/gone.keep.test", "php", "", "", false, true, false, 0, nil); err != nil {
+	if _, err := h.applyWebsite("site-gone", "keep43", "gone.keep.test", "/home/keep43/gone.keep.test", "php", "", "", false, true, false, 0, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.applyDNSZone("gone.keep.test", "$TTL 60\n@ IN SOA ns1.gone.keep.test. hostmaster.gone.keep.test. (1 3600 3600 3600 60)\n"); err != nil {

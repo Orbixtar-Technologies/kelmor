@@ -56,7 +56,7 @@ func TestSumNginxBandwidthFiltersMonth(t *testing.T) {
 func TestApplyWebsiteBandwidthHold509(t *testing.T) {
 	root := t.TempDir()
 	h := &Host{Root: root}
-	if _, err := h.applyWebsite("hold1", "acme42", "hold.test", "/home/acme42/public_html", "php", "", "", false, true, true, 0, nil); err != nil {
+	if _, err := h.applyWebsite("hold1", "acme42", "hold.test", "/home/acme42/public_html", "php", "", "", false, true, true, 0, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites/hold1.conf"))
@@ -75,7 +75,7 @@ func TestApplyWebsiteBandwidthHold509(t *testing.T) {
 func TestApplyWebsiteAliasesOnServerName(t *testing.T) {
 	root := t.TempDir()
 	h := &Host{Root: root}
-	if _, err := h.applyWebsite("a1", "acme42", "acme.test", "/home/acme42/public_html", "php", "", "", false, true, false, 0, []string{"www.acme.test"}); err != nil {
+	if _, err := h.applyWebsite("a1", "acme42", "acme.test", "/home/acme42/public_html", "php", "", "", false, true, false, 0, []string{"www.acme.test"}, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites/a1.conf"))
@@ -97,7 +97,7 @@ func TestApplyWebsiteAliasesOnServerName(t *testing.T) {
 func TestApplyWebsiteWritesConnLimit(t *testing.T) {
 	root := t.TempDir()
 	h := &Host{Root: root}
-	if _, err := h.applyWebsite("c1", "acme42", "c.test", "/home/acme42/public_html", "php", "", "", false, true, false, 7, nil); err != nil {
+	if _, err := h.applyWebsite("c1", "acme42", "c.test", "/home/acme42/public_html", "php", "", "", false, true, false, 7, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	zone, err := os.ReadFile(filepath.Join(root, "etc/nginx/conf.d/panel-conn-limit.conf"))
@@ -119,7 +119,7 @@ func TestApplyWebsiteWritesConnLimit(t *testing.T) {
 func TestApplyWebsiteSuspendWinsOverHold(t *testing.T) {
 	root := t.TempDir()
 	h := &Host{Root: root}
-	if _, err := h.applyWebsite("sus1", "acme42", "sus.test", "/home/acme42/public_html", "php", "", "", false, false, true, 0, nil); err != nil {
+	if _, err := h.applyWebsite("sus1", "acme42", "sus.test", "/home/acme42/public_html", "php", "", "", false, false, true, 0, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(filepath.Join(root, "etc/nginx/panel-sites/sus1.conf"))

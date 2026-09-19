@@ -126,18 +126,16 @@ func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell str
 	if uid < 20000 || uid > 199999 || gid < 20000 || gid > 199999 {
 		return Result{}, fmt.Errorf("UID/GID outside panel allocation")
 	}
-	switch shell {
-	case "/usr/sbin/nologin", "/bin/bash", "/usr/sbin/rssh", "":
-	default:
-		return Result{}, fmt.Errorf("shell not permitted")
-	}
-	if shell == "" {
-		shell = "/usr/sbin/nologin"
+	if err := permitUnixShell(&shell); err != nil {
+		return Result{}, err
 	}
 	if !h.live() {
 		return h.CreateLinuxUser(username, uid, gid, home, shell)
 	}
 	if _, err := user.Lookup(username); err == nil {
+		if _, err := h.setLinuxShell(username, shell); err != nil {
+			return Result{}, err
+		}
 		_, _ = runFixed("/usr/sbin/usermod", "-aG", "panel-sftp", username)
 		_ = h.placeHomeOnQuotaVolume(username, home)
 		_ = hardenSFTPHome(home, uid, gid)
@@ -332,6 +330,68 @@ func (h *Host) unlockUnixUser(username string) (Result, error) {
 		return Result{}, fmt.Errorf("usermod: %s", strings.TrimSpace(string(out)))
 	}
 	return Result{OK: true, ObservedState: "unlocked"}, nil
+}
+
+func permitUnixShell(shell *string) error {
+	if shell == nil {
+		return fmt.Errorf("shell not permitted")
+	}
+	switch strings.TrimSpace(*shell) {
+	case "/usr/sbin/nologin", "/bin/bash", "/usr/sbin/rssh":
+		*shell = strings.TrimSpace(*shell)
+		return nil
+	case "":
+		*shell = "/usr/sbin/nologin"
+		return nil
+	default:
+		return fmt.Errorf("shell not permitted")
+	}
+}
+
+func (h *Host) setLinuxShell(username, shell string) (Result, error) {
+	if err := validate.Username(username); err != nil {
+		return Result{}, err
+	}
+	if err := permitUnixShell(&shell); err != nil {
+		return Result{}, err
+	}
+	if !h.live() {
+		home, err := h.resolve("/home/" + username)
+		if err != nil {
+			return Result{}, err
+		}
+		metaPath := filepath.Join(home, ".panel-identity")
+		body, err := os.ReadFile(metaPath)
+		if err != nil {
+			body = []byte(fmt.Sprintf("username=%s shell=%s\n", username, shell))
+		} else {
+			updated := false
+			var lines []string
+			for _, line := range strings.Split(strings.TrimRight(string(body), "\n"), "\n") {
+				if strings.HasPrefix(line, "shell=") {
+					lines = append(lines, "shell="+shell)
+					updated = true
+					continue
+				}
+				lines = append(lines, line)
+			}
+			if !updated {
+				lines = append(lines, "shell="+shell)
+			}
+			body = []byte(strings.Join(lines, "\n") + "\n")
+		}
+		if err := os.MkdirAll(home, 0o750); err != nil {
+			return Result{}, err
+		}
+		if err := os.WriteFile(metaPath, body, 0o640); err != nil {
+			return Result{}, err
+		}
+		return Result{OK: true, Message: "shell staged", ObservedState: shell}, nil
+	}
+	if out, err := runFixed("/usr/sbin/usermod", "-s", shell, username); err != nil {
+		return Result{}, commandFailure("usermod", out, err)
+	}
+	return Result{OK: true, Message: "linux shell set", ObservedState: shell}, nil
 }
 
 func (h *Host) setLinuxPassword(username, password string) (Result, error) {

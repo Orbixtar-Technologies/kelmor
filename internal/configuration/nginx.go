@@ -2,6 +2,7 @@ package configuration
 
 import (
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -21,6 +22,8 @@ type WebsiteSpec struct {
 	BandwidthHold         bool
 	ConcurrentWebRequests int
 	Aliases               []string
+	ListenIPv4            string
+	ListenIPv6            string
 }
 
 func NginxSiteChecked(s WebsiteSpec) (string, error) {
@@ -100,8 +103,7 @@ func NginxSite(s WebsiteSpec) string {
 		return b.String()
 	}
 	b.WriteString("server {\n")
-	b.WriteString("    listen 80;\n")
-	b.WriteString("    listen [::]:80;\n")
+	b.WriteString(listenLines("80", s, false))
 	fmt.Fprintf(&b, "    server_name %s;\n", serverNames(s))
 	fmt.Fprintf(&b, "    root %s;\n", s.DocumentRoot)
 	b.WriteString("    index index.php index.html;\n")
@@ -117,8 +119,7 @@ func NginxSite(s WebsiteSpec) string {
 	b.WriteString("}\n")
 	if s.TLSCert != "" && s.TLSKey != "" {
 		b.WriteString("server {\n")
-		b.WriteString("    listen 443 ssl;\n")
-		b.WriteString("    listen [::]:443 ssl;\n")
+		b.WriteString(listenLines("443", s, true))
 		fmt.Fprintf(&b, "    server_name %s;\n", serverNames(s))
 		fmt.Fprintf(&b, "    root %s;\n", s.DocumentRoot)
 		b.WriteString("    index index.php index.html;\n")
@@ -177,6 +178,39 @@ func writeRuntimeLocations(b *strings.Builder, s WebsiteSpec) {
 	}
 }
 
+func parseListenIPv4(s string) string {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	if ip == nil || ip.To4() == nil {
+		return ""
+	}
+	return ip.To4().String()
+}
+
+func parseListenIPv6(s string) string {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	if ip == nil || ip.To4() != nil {
+		return ""
+	}
+	return ip.String()
+}
+
+func listenLines(port string, s WebsiteSpec, ssl bool) string {
+	suffix := ""
+	if ssl {
+		suffix = " ssl"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "    listen %s%s;\n", port, suffix)
+	fmt.Fprintf(&b, "    listen [::]:%s%s;\n", port, suffix)
+	if ip := parseListenIPv4(s.ListenIPv4); ip != "" {
+		fmt.Fprintf(&b, "    listen %s:%s%s;\n", ip, port, suffix)
+	}
+	if ip := parseListenIPv6(s.ListenIPv6); ip != "" {
+		fmt.Fprintf(&b, "    listen [%s]:%s%s;\n", ip, port, suffix)
+	}
+	return b.String()
+}
+
 func serverNames(s WebsiteSpec) string {
 	names := []string{s.Domain}
 	seen := map[string]bool{s.Domain: true}
@@ -216,11 +250,10 @@ func NginxConnZone(hosts map[string]string) string {
 func limitedServer(listen string, s WebsiteSpec, status int, body string) string {
 	var b strings.Builder
 	b.WriteString("server {\n")
-	fmt.Fprintf(&b, "    listen %s;\n", listen)
 	if strings.HasPrefix(listen, "80") {
-		b.WriteString("    listen [::]:80;\n")
+		b.WriteString(listenLines("80", s, false))
 	} else {
-		b.WriteString("    listen [::]:443 ssl;\n")
+		b.WriteString(listenLines("443", s, true))
 	}
 	fmt.Fprintf(&b, "    server_name %s;\n", serverNames(s))
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/%s.access.log;\n", s.WebsiteID)
