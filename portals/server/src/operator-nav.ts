@@ -123,12 +123,14 @@ export function measuredVital (available: boolean, formatted: string): string {
 	return available ? formatted : 'Not reported'
 }
 
-export function failedJobDisplay (failedJobs: number | undefined): { value: string; detail: string } {
+export function failedJobDisplay (failedJobs: number | undefined): { value: string; detail: string; tone: 'bad' | 'neutral'; count: number } {
 	if (typeof failedJobs !== 'number') {
-		return { value: 'Not reported', detail: 'Open Jobs for history' }
+		return { value: 'Not reported', detail: 'Open Jobs for history', tone: 'neutral', count: 0 }
 	}
 	return {
 		value: String(failedJobs),
 		detail: failedJobs === 1 ? '1 failed job' : `${failedJobs} failed jobs`,
+		tone: failedJobs > 0 ? 'bad' : 'neutral',
+		count: failedJobs,
 	}
 }

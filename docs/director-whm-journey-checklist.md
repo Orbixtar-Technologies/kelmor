@@ -15,7 +15,7 @@ API capability checks and typed privileged-agent boundary remain authoritative.
 | Create Account wizard | Done | Identity → package/ownership → review → `POST /api/v1/accounts` (`/accounts/create`) |
 | Account ops hub | Done | Summary, modify/package/suspend/terminate/password groups, recent jobs (`/accounts/:id`) |
 | Jobs queue | Done | History, URL filters, status, drill-down, retry (`/jobs`, `/jobs?state=failed`) |
-| Home vitals + operator shortcuts | Done | Load/memory/disk/accounts/services/failed jobs; Create, List Accounts, Failed Jobs, Service health. Firewall/reboot stay under Security |
+| Home vitals + operator shortcuts | Done | Load/memory/disk/accounts/services/failed jobs; recent failures listed on Home without mass-retry; Create, List Accounts, Failed Jobs, Service health. Firewall/reboot stay under Security |
 
 ## Chrome and Home
 
@@ -35,7 +35,7 @@ API capability checks and typed privileged-agent boundary remain authoritative.
 | Over-quota accounts | `/accounts?view=over-quota` | Account inventory joined with package limits and measured usage |
 | List addon, parked, and subdomains | `/domains` | Per-account `GET /api/v1/accounts/:id/domains` |
 | Account summary | `/accounts/:id` | Account, package, reseller, usage, and related-job APIs |
-| Login to Kelmor Control | Account list and summary | Reasoned `POST /api/v1/accounts/:id/impersonate` |
+| Login to Kelmor Control | Account list and summary | Reasoned `POST /api/v1/accounts/:id/impersonate` returns `control_url` (`https://<portal-hostname>:2083/`). Director opens that origin with `#session=`, never the Director host or `:8443`. |
 | Create account | `/accounts/create` | Reviewed three-step wizard → `POST /api/v1/accounts` |
 | Modify account and change package | `/accounts/:id` | `PATCH /api/v1/accounts/:id` |
 | Suspend or unsuspend | Account list and summary | `POST /suspend` or `POST /unsuspend` |
@@ -63,8 +63,8 @@ tool entries. Account operations remain scoped to `/accounts/:id/services`.
 | --- | --- |
 | Domains and websites | Domain, website, application, and WordPress operations. Dedicated `/domains` and `/websites` (MultiPHP) hubs. |
 | DNS | Zones, records, DNSSEC, and DS record reads |
-| SQL | MariaDB/MySQL/PostgreSQL database operations |
-| Email | Mail domains, catch-all routing, mailboxes, aliases, and `/deliverability` SPF/DKIM/DMARC checks |
+| SQL | MariaDB/MySQL/PostgreSQL database operations plus HTTPS phpMyAdmin launch |
+| Email | Mail domains, catch-all routing, mailboxes, aliases, HTTPS webmail launch, and `/deliverability` SPF/DKIM/DMARC checks |
 | Cron and FTP | Dedicated `/cron` and `/ftp` hubs using existing account APIs |
 | SSL/TLS | Account-owned certificate list and request |
 | Files and access | Bounded files, SSH keys, SFTP password, FTP users, and API tokens |

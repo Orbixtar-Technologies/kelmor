@@ -40,6 +40,17 @@ describe('HomePage', () => {
 					],
 				}
 			}
+			if (path === '/api/v1/jobs?state=failed') {
+				return {
+					items: [{
+						id: 'job-fail',
+						type: 'certificate.provision',
+						payload: { hostname: 'mail.shop.test' },
+						state: 'failed',
+						last_error: 'account missing',
+					}],
+				}
+			}
 			return { items: [] }
 		})
 
@@ -63,5 +74,11 @@ describe('HomePage', () => {
 		expect(shortcuts.textContent).not.toMatch(/Firewall|Reboot/)
 		expect(screen.getByRole('heading', { name: 'Jobs & Audit' })).toBeInTheDocument()
 		expect(screen.getByRole('heading', { name: 'Account Functions' })).toBeInTheDocument()
+		const failed = screen.getByLabelText('Failed job details')
+		expect(failed).toHaveTextContent('2 failed jobs')
+		expect(failed).toHaveTextContent('account missing')
+		expect(failed).toHaveTextContent('does not mass-retry')
+		expect(failed.querySelector('a[href="/jobs?state=failed"]')).toBeTruthy()
+		expect(failed.querySelector('button')).toBeNull()
 	})
 })

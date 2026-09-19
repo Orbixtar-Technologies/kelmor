@@ -179,6 +179,10 @@ pre { max-height: 280px; overflow: auto; border: 1px solid var(--soft-border); b
 .home-status-strip span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .home-status-strip strong { display: block; color: #173f5f; font-size: 22px; line-height: 1.1; margin: 4px 0; }
 .home-status-strip small { color: #68798a; font-size: 11px; }
+.home-status-strip article.home-vital-alert { border-color: #c4554d; background: linear-gradient(180deg, #fff7f6, #fdecea); }
+.home-status-strip article.home-vital-alert strong { color: #8a221c; }
+.home-failed-jobs { margin-bottom: 18px; }
+.home-failed-jobs p { margin: 0 0 10px; }
 .widget-grid { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .widget-card { min-height: 108px; display: flex; gap: 12px; align-items: flex-start; border: 1px solid var(--border); border-radius: 6px; background: #fff; padding: 14px; text-decoration: none; box-shadow: 0 1px 2px rgba(16, 42, 67, .06); transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
 .widget-card:hover { transform: translateY(-1px); border-color: #6faad4; box-shadow: 0 8px 18px rgba(18, 97, 166, .12); }

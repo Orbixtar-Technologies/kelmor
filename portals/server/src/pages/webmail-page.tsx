@@ -5,6 +5,7 @@ import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
 import { CopyableValue, EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
+import { adminToolUrl } from '../admin-tool-url'
 import { mailConnectionSettings, resolvedWebmailUrl } from './mail-connection'
 import { RequestSequence } from '../request-sequence'
 import type { Account, ResourceItem } from '../types'
@@ -106,9 +107,13 @@ export function WebmailPage () {
 		if (accountId) void ensureToolUrls(accountId)
 	}, [accountId, ensureToolUrls])
 
-	async function openWebmail (mailbox: MailboxRow) {
-		const tools = await ensureToolUrls(mailbox.account_id)
-		window.open(tools.webmail_url || `https://webmail.${mailbox.domain_name}/`, '_blank', 'noopener,noreferrer')
+	useEffect(() => {
+		const ids = [...new Set(mailboxes.map((mailbox) => mailbox.account_id))]
+		ids.forEach((id) => { void ensureToolUrls(id) })
+	}, [ensureToolUrls, mailboxes])
+
+	function webmailHref (mailbox: MailboxRow) {
+		return adminToolUrl('webmail', toolUrls[mailbox.account_id]?.webmail_url, mailbox.domain_name)
 	}
 
 	return (
@@ -152,7 +157,7 @@ export function WebmailPage () {
 								<td><Link to={`/email?account=${mailbox.account_id}`}>{mailbox.account_name}</Link></td>
 								<td><StatusBadge value={valueOf(mailbox, 'status')} /></td>
 								<td className="row-actions">
-									<button type="button" className="link-button" onClick={() => openWebmail(mailbox)}>Open webmail</button>
+									<a className="link-button" href={webmailHref(mailbox)} target="_blank" rel="noopener noreferrer">Open webmail</a>
 									<Link className="link-button" to={`/email?account=${mailbox.account_id}&tab=mailboxes`}>Email Management</Link>
 								</td>
 							</tr>

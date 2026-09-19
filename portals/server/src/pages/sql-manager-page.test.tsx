@@ -43,6 +43,9 @@ describe('SQLManagerPage', () => {
 			</MemoryRouter>,
 		)
 		expect(await screen.findByText(/one database user per engine/i)).toBeInTheDocument()
+		const phpmyadmin = screen.getByRole('link', { name: 'Open phpMyAdmin' })
+		expect(phpmyadmin).toHaveAttribute('href', 'https://pma.shop.test/')
+		expect(phpmyadmin).toHaveAttribute('target', '_blank')
 		await user.type(screen.getByPlaceholderText('app_db'), 'app_db')
 		await user.click(screen.getByRole('button', { name: 'Create database' }))
 		expect(await screen.findByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '/jobs?account=acc-1&selected=db-job')

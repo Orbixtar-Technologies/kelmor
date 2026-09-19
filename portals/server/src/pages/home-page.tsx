@@ -10,7 +10,8 @@ import { failedJobDisplay, measuredVital, operatorNavGroups } from '../operator-
 import { discoverTools, toolCatalog } from '../tool-catalog'
 import { featureById } from '../whm-catalog'
 import { hasCapabilities, useCapabilities } from '../rbac'
-import type { Account, ServerOverview } from '../types'
+import { describeJobFailure, formatJobType } from './job-copy'
+import type { Account, Job, ServerOverview } from '../types'
 
 const featuredToolIds = [
 	'list-accounts', 'create-account', 'jobs', 'services',
@@ -23,6 +24,7 @@ export function HomePage () {
 	const canListAccounts = Boolean(capabilities['accounts.read'])
 	const [server, setServer] = useState<ServerOverview | null>(null)
 	const [accounts, setAccounts] = useState<Account[]>([])
+	const [failedJobItems, setFailedJobItems] = useState<Job[]>([])
 	const [error, setError] = useState('')
 	const [loading, setLoading] = useState(true)
 	const tools = discoverTools(toolCatalog, capabilities)
@@ -43,6 +45,9 @@ export function HomePage () {
 		}
 		if (capabilities['accounts.read']) {
 			requests.push(api<{ items: Account[] }>('/api/v1/accounts').then((result) => setAccounts(asList(result))).catch((reason) => setError(messageFrom(reason))))
+		}
+		if (capabilities['server.read'] || capabilities['accounts.read']) {
+			requests.push(api<{ items: Job[] }>('/api/v1/jobs?state=failed').then((result) => setFailedJobItems(asList(result))).catch(() => setFailedJobItems([])))
 		}
 		Promise.allSettled(requests).finally(() => setLoading(false))
 	}
@@ -92,12 +97,33 @@ export function HomePage () {
 					<strong>{measuredVital(Boolean(server), server && runningServices !== undefined ? `${runningServices}/${server.services.length}` : '')}</strong>
 					<small>agent-observed health</small>
 				</article>
-				<article>
+				<article className={failedJobs.tone === 'bad' ? 'home-vital-alert' : undefined}>
 					<span>Failed jobs</span>
 					<strong>{failedJobs.value}</strong>
 					<small>{failedJobs.detail}</small>
 				</article>
 			</section>
+			{failedJobs.count > 0 || failedJobItems.length ? <section className="panel home-failed-jobs" aria-label="Failed job details">
+				<h2>Failed jobs</h2>
+				<p>This host has {failedJobs.detail}. Review the queue and retry individual operations when you are ready — Director does not mass-retry.</p>
+				{failedJobItems.length ? <div className="table-wrap"><table className="dense-table">
+					<thead><tr><th>Operation</th><th>Resource</th><th>Reason</th><th /></tr></thead>
+					<tbody>
+						{failedJobItems.slice(0, 8).map((job) => {
+							const failure = describeJobFailure(job)
+							return (
+								<tr key={job.id}>
+									<td><strong>{formatJobType(job.type)}</strong></td>
+									<td>{failure.resource}</td>
+									<td className="truncate">{failure.reason}</td>
+									<td><Link className="link-button" to={`/jobs?state=failed&selected=${job.id}`}>Details</Link></td>
+								</tr>
+							)
+						})}
+					</tbody>
+				</table></div> : null}
+				<p><Link to="/jobs?state=failed">Open failed jobs</Link>{failedJobItems.length > 8 ? ` · showing 8 of ${failedJobItems.length}` : ''}</p>
+			</section> : null}
 			<nav className="home-quick-links" aria-label="Operations shortcuts">
 				{canCreate ? <Link to="/accounts/create"><strong>Create account</strong><span>Identity, package, review, then queue provision</span></Link> : null}
 				{canListAccounts ? <Link to="/accounts"><strong>List accounts</strong><span>Search, sort, and operate tenants</span></Link> : null}

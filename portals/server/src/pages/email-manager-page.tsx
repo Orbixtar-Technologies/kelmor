@@ -7,6 +7,7 @@ import { AccountScopeBar } from '../components/account-scope-bar'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, formatDate, messageFrom, valueOf } from '../helpers'
+import { adminToolUrl } from '../admin-tool-url'
 import { mailboxAddress } from './email-copy'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
@@ -44,6 +45,7 @@ export function EmailManagerPage () {
 	const [message, setMessage] = useState('')
 	const [jobId, setJobId] = useState('')
 	const [updatedAt, setUpdatedAt] = useState('')
+	const [webmailUrl, setWebmailUrl] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('mail.write')
 	const accountId = params.get('account') || ''
@@ -51,6 +53,7 @@ export function EmailManagerPage () {
 	const currentAccountId = useRef(accountId)
 	currentAccountId.current = accountId
 	const account = accounts.find((entry) => entry.id === accountId)
+	const webmailHref = adminToolUrl('webmail', webmailUrl, account?.primary_domain)
 
 	useEffect(() => {
 		const request = requests.begin('accounts')
@@ -75,13 +78,16 @@ export function EmailManagerPage () {
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/aliases`),
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/mail/lists`),
 			api<{ items: ResourceItem[] }>(`/api/v1/accounts/${requestedAccountId}/domains`),
-		]).then(([domainResult, mailboxResult, aliasResult, listResult, siteDomainResult]) => {
+			api<{ webmail_url?: string }>(`/api/v1/accounts/${requestedAccountId}/admin-tools`),
+		]).then(([domainResult, mailboxResult, aliasResult, listResult, siteDomainResult, toolsResult]) => {
 			if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 			if (domainResult.status === 'fulfilled') setDomains(asList(domainResult.value))
 			if (mailboxResult.status === 'fulfilled') setMailboxes(asList(mailboxResult.value))
 			if (aliasResult.status === 'fulfilled') setAliases(asList(aliasResult.value))
 			if (listResult.status === 'fulfilled') setLists(asList(listResult.value))
 			if (siteDomainResult.status === 'fulfilled') setAccountDomains(asList(siteDomainResult.value))
+			if (toolsResult.status === 'fulfilled') setWebmailUrl(toolsResult.value.webmail_url || '')
+			else setWebmailUrl('')
 			const failures = [domainResult, mailboxResult, aliasResult, listResult].filter((result) => result.status === 'rejected')
 			if (failures.length === 4) setError(messageFrom((failures[0] as PromiseRejectedResult).reason))
 			else setUpdatedAt(new Date().toISOString())
@@ -98,6 +104,7 @@ export function EmailManagerPage () {
 		setLists([])
 		setMessage('')
 		setJobId('')
+		setWebmailUrl('')
 		if (accountId) loadEmail(accountId)
 		else setLoading(false)
 	}, [accountId, loadEmail, requests])
@@ -317,7 +324,7 @@ export function EmailManagerPage () {
 					</table></div> : null}
 					{!loading && tab === 'mailboxes' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Quota</th><th>Status</th><th>Actions</th></tr></thead>
-						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{mailboxAddress(item, domainOptions, account?.primary_domain || '')}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions"><Link to={`/webmail?account=${accountId}`}>Open webmail</Link><span className="subtle" title={MAILBOX_PASSWORD_STUB}>Password/quota: not available</span>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
+						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{mailboxAddress(item, domainOptions, account?.primary_domain || '')}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions">{webmailHref ? <a href={webmailHref} target="_blank" rel="noopener noreferrer">Open webmail</a> : null}<span className="subtle" title={MAILBOX_PASSWORD_STUB}>Password/quota: not available</span>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
 					</table></div> : null}
 					{!loading && tab === 'aliases' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Destination</th><th>Actions</th></tr></thead>

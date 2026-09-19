@@ -14,4 +14,11 @@ describe('mail connection', () => {
 		})
 		expect(resolvedWebmailUrl(undefined, 'shop.example.com').configured).toBe(false)
 	})
+
+	test('upgrades HTTP admin-tool URLs to HTTPS', () => {
+		expect(resolvedWebmailUrl('http://webmail.shop.example.com/', 'shop.example.com')).toEqual({
+			url: 'https://webmail.shop.example.com/',
+			configured: true,
+		})
+	})
 })

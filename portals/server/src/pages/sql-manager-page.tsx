@@ -129,6 +129,7 @@ export function SQLManagerPage () {
 					accountId={accountId}
 					credentials={credentials}
 					phpmyadminUrl={toolUrls?.phpmyadmin_url}
+					domain={account?.primary_domain}
 				/>
 				{canWrite ? <section className="panel">
 					<h2>Create database</h2>

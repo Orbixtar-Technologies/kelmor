@@ -2180,7 +2180,11 @@ func (a *API) impersonate(w http.ResponseWriter, r *http.Request) {
 	}
 	a.Store.PutSession(sess)
 	a.audit(r, "account.impersonate", "account", acc.ID, true, nil, map[string]any{"reason": in.Reason, "effective_actor": acc.OwnerUserID})
-	writeJSON(w, 200, map[string]any{"token": plain, "account_id": acc.ID, "expires_at": sess.ExpiresAt})
+	payload := map[string]any{"token": plain, "account_id": acc.ID, "expires_at": sess.ExpiresAt}
+	if controlURL := controlPortalURL(r); controlURL != "" {
+		payload["control_url"] = controlURL
+	}
+	writeJSON(w, 200, payload)
 }
 
 func (a *API) accountUsage(w http.ResponseWriter, r *http.Request) {

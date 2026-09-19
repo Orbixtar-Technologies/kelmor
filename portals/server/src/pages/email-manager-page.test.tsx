@@ -92,5 +92,8 @@ describe('EmailManagerPage mailboxes', () => {
 		expect(screen.queryByText('info@shop.test')).not.toBeInTheDocument()
 		expect(screen.getByText(/Mailbox password and quota changes have no API yet/)).toBeInTheDocument()
 		expect(screen.getByText(/Password\/quota: not available/)).toBeInTheDocument()
+		const webmail = await screen.findByRole('link', { name: 'Open webmail' })
+		expect(webmail).toHaveAttribute('href', 'https://webmail.shop.test/')
+		expect(webmail).toHaveAttribute('target', '_blank')
 	})
 })

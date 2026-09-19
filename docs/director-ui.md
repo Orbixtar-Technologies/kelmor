@@ -37,7 +37,9 @@ capability, and the API remains the security boundary. Generic tools live at
 Home combines:
 
 - Measured load, memory, disk, account, service, and failed-job vitals. Missing
-  probes render as Not reported — Director does not invent metrics.
+  probes render as Not reported — Director does not invent metrics. A non-zero
+  failed-job count highlights the vital and lists recent failures with a Jobs
+  deep link. Director does not mass-retry.
 - Primary shortcuts: Create account, List accounts, Failed jobs, and Service
   health.
 - Frequent account/job/service tools.
@@ -67,7 +69,10 @@ domains, mailboxes, aliases, certificates, bounded files, backups, cron jobs,
 SSH/SFTP, FTP, and account API tokens. Dedicated WHM-style hubs also exist for
 List Domains, MultiPHP Manager, Cron Jobs, FTP Accounts, Email Deliverability,
 Feature Manager, and Process Manager. DNS Management supplies multi-zone record
-and DNSSEC operations. Login to Kelmor Control uses reasoned impersonation.
+and DNSSEC operations. Login to Kelmor Control uses reasoned impersonation
+and opens the configured Control origin (`PANEL_HOSTNAME` / portal-hostname
+on `:2083`) with `#session=`, not the Director host or a stale IP:8443 URL.
+Webmail and phpMyAdmin launches are HTTPS `target=_blank` links.
 
 Requests are scoped to the selected account. Response sequencing prevents a
 slower request for a previous account or zone from replacing the current view.
