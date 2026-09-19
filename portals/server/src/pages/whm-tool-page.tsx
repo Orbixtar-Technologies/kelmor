@@ -7,6 +7,7 @@ import { messageFrom } from '../helpers'
 import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, Package } from '../types'
 import { ClusterPanel } from './cluster-panel'
+import { RemoteAccessPanel } from './remote-access-panel'
 import { DiagnosticsPanel } from './diagnostics-panel'
 import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
 import { HostModulesPanel, moduleKindForFeature } from './host-modules-panel'
@@ -356,6 +357,7 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 	if (feature.id === 'diagnostics-log') return <DiagnosticsPanel />
 	if (feature.id === 'grant-support-access') return <SupportAccessPanel />
 	if (feature.id === 'configuration-cluster') return <ClusterPanel />
+	if (feature.id === 'remote-access-key') return <RemoteAccessPanel />
 	if (feature.id === 'module-installers' || feature.id === 'perl-modules' || feature.id === 'php-pear' || feature.id === 'php-pecl' || feature.id === 'ruby-gems') {
 		return <HostModulesPanel kind={moduleKindForFeature(feature.id)} />
 	}

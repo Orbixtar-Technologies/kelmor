@@ -43,6 +43,14 @@ func TestServerJobsEnqueueOnUUIDConstrainedStore(t *testing.T) {
 			},
 			jobType: "mail.notify", target: "owners",
 		},
+		{
+			name: "cluster.snapshot.publish", path: "/api/v1/server/cluster/publish",
+			body: map[string]any{}, jobType: "cluster.snapshot.publish", target: "snapshot",
+		},
+		{
+			name: "host.remote_access.apply", path: "/api/v1/server/remote-access-key",
+			body: map[string]any{}, jobType: "host.remote_access.apply", target: "remote-access-key",
+		},
 	}
 
 	for _, tc := range cases {

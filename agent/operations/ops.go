@@ -746,6 +746,22 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return payload, nil
+	case "ProbeClusterPeers":
+		var p struct {
+			URLs []string `json:"urls"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.probeClusterPeers(p.URLs)
+	case "WriteRemoteAccessKey":
+		var rec RemoteAccessRecord
+		if err := json.Unmarshal(req.Params, &rec); err != nil {
+			return nil, err
+		}
+		return h.writeRemoteAccessKey(rec)
+	case "ReadRemoteAccessKey":
+		return h.readRemoteAccessKey()
 	case "ProbeQuotaStatus":
 		return h.probeQuotaStatus()
 	case "SetupInitialQuota":

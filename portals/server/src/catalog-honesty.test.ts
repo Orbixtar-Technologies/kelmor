@@ -16,7 +16,6 @@ describe('catalog honesty', () => {
 		const deferred = whmFeatures.filter((feature) => isLocalSettingsFeature(feature))
 		expect(deferred.map((feature) => feature.id).sort()).toEqual([
 			'mysql-upgrade',
-			'remote-access-key',
 		])
 		for (const feature of deferred) {
 			expect(isLocalSettingsToolId(feature.id)).toBe(true)
@@ -41,6 +40,7 @@ describe('catalog honesty', () => {
 		expect(isLocalSettingsToolId('php-pecl')).toBe(false)
 		expect(isLocalSettingsToolId('ruby-gems')).toBe(false)
 		expect(isLocalSettingsToolId('configuration-cluster')).toBe(false)
+		expect(isLocalSettingsToolId('remote-access-key')).toBe(false)
 		expect(isLocalSettingsToolId('grant-support-access')).toBe(false)
 		expect(isHostSettingsFeature(featureById('external-auth')!)).toBe(true)
 		expect(isHostSettingsFeature(featureById('two-factor')!)).toBe(true)

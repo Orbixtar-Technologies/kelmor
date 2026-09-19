@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +56,47 @@ func TestClusterSnapshotRoundTrip(t *testing.T) {
 	got, err := h.readClusterSnapshot()
 	if err != nil || !strings.Contains(string(got), "basic") {
 		t.Fatalf("snapshot: %s %v", got, err)
+	}
+}
+
+func TestProbeClusterPeersHitsHealthz(t *testing.T) {
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(peer.Close)
+	h := &Host{Root: t.TempDir()}
+	raw, err := h.probeClusterPeers([]string{peer.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := raw.(map[string]any)
+	items, _ := got["items"].([]map[string]any)
+	if len(items) != 1 || items[0]["ok"] != true {
+		t.Fatalf("probe: %#v", raw)
+	}
+	if _, err := h.probeClusterPeers([]string{"https://evil.test;rm"}); err == nil {
+		t.Fatal("expected hostile URL rejection")
+	}
+}
+
+func TestWriteRemoteAccessKeyPersistsHostFile(t *testing.T) {
+	h := &Host{Root: t.TempDir()}
+	if _, err := h.writeRemoteAccessKey(RemoteAccessRecord{Prefix: "nope", Hash: strings.Repeat("a", 64)}); err == nil {
+		t.Fatal("expected prefix rejection")
+	}
+	res, err := h.writeRemoteAccessKey(RemoteAccessRecord{
+		Prefix: "hp_remote_ab", Hash: strings.Repeat("ab", 32), CreatedAt: "2099-01-01T00:00:00Z",
+	})
+	if err != nil || !res.OK {
+		t.Fatalf("write: %v %v", res, err)
+	}
+	got, err := os.ReadFile(filepath.Join(h.Root, "etc/panel/remote-access-key"))
+	if err != nil || !strings.Contains(string(got), "hp_remote_ab") {
+		t.Fatalf("file: %s %v", got, err)
 	}
 }
 

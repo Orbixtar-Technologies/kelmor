@@ -343,6 +343,12 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.resetAccountBandwidth(j)
 	case "host.quota.setup":
 		return w.setupInitialQuotaJob(j)
+	case "cluster.snapshot.publish", "cluster.snapshot.import":
+		return w.writeClusterSnapshotJob(j)
+	case "cluster.peer.probe":
+		return w.probeClusterPeersJob(j)
+	case "host.remote_access.apply":
+		return w.applyRemoteAccessKeyJob(j)
 	case "cron.apply":
 		return w.applyCron(j)
 	case "ftp.apply":

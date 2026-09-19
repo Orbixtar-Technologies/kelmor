@@ -69,14 +69,30 @@ describe('EmailManagerPage lists', () => {
 	})
 
 	test('shows Reset a Mailing List Password honesty on the lists tab', async () => {
-		api.mockImplementation((path: string) => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
 			if (String(path) === '/api/v1/accounts') {
 				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
 			}
+			if (String(path).endsWith('/mail/lists') && !options?.method) {
+				return Promise.resolve({ items: [{ id: 'list-1', local_part: 'staff', members: ['owner@shop.test', 'ops@shop.test'], owner_local_part: 'staff-owner' }] })
+			}
+			if (String(path).endsWith('/mail/lists/list-1/reset-password') && options?.method === 'POST') {
+				return Promise.resolve({ operation_id: 'job-list-pw' })
+			}
+			if (String(path).includes('/mail/')) return Promise.resolve({ items: [] })
 			return Promise.resolve({ items: [] })
 		})
 		renderEmail('/email?account=acc-1&tab=lists&task=reset')
 		expect(await screen.findByRole('region', { name: 'Reset a mailing list password' })).toHaveTextContent('not GNU Mailman')
+		expect(screen.getByText('staff-owner')).toBeInTheDocument()
+		await user.type(screen.getByLabelText('New owner password for staff'), 'ListOwnerPass!2026')
+		await user.click(screen.getByRole('button', { name: 'Reset owner password' }))
+		expect(await screen.findByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '/jobs?account=acc-1&selected=job-list-pw')
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-1/mail/lists/list-1/reset-password', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({ password: 'ListOwnerPass!2026' }),
+		}))
 		expect(screen.queryByRole('heading', { name: 'Jobs' })).not.toBeInTheDocument()
 	})
 })
