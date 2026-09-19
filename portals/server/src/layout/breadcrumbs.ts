@@ -1,3 +1,4 @@
+import { ACCOUNT_TOOL_SEGMENTS } from '../dedicated-tool-routes'
 import { hubById } from '../nav-hubs'
 
 export interface BreadcrumbItem {
@@ -23,8 +24,8 @@ export function directorBreadcrumbs (
 
 	if (parts[0] === 'accounts') {
 		crumbs.push({ label: 'Accounts', to: '/accounts' })
-		if (parts[1] === 'create') {
-			crumbs.push({ label: 'Create Account' })
+		if (parts[1] && ACCOUNT_TOOL_SEGMENTS.has(parts[1])) {
+			crumbs.push({ label: labels[parts[1]] || parts[1] })
 			return crumbs
 		}
 		if (parts[1]) {

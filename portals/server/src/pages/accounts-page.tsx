@@ -153,7 +153,7 @@ export function AccountsPage () {
 							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'} · GID {account.linux_gid}</small></td>
 							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td><code>{account.home_path}</code></td><td>{pkg?.name || account.package_id}</td>
 							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)} / {formatBytes(pkg?.disk_bytes)}</small></> : '—'}</td>
-							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{account.status === 'terminated' ? null : <LoginToControl accountId={account.id} username={account.username} />}{!task ? <><Link to={`/files?account=${account.id}`}>Files</Link><Link to={`/email?account=${account.id}`}>Email</Link><Link to={`/sql?account=${account.id}`}>SQL</Link><Link to={`/dns?account=${account.id}`}>DNS</Link><Link to={`/ssl?account=${account.id}`}>SSL</Link></> : null}<Link to={`/domains?account=${account.id}`}>Domains</Link>{canTerminate && account.status === 'terminated' ? <Link className="danger-text" to={`/accounts/${account.id}?task=remove`}>Remove</Link> : null}{canSuspend && account.status !== 'terminated' ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={() => setPending({
+							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{account.status === 'terminated' ? null : <LoginToControl accountId={account.id} username={account.username} />}{!task ? <><Link to={`/files?account=${account.id}`}>Files</Link><Link to={`/email?account=${account.id}`}>Email</Link><Link to={`/sql?account=${account.id}`}>SQL</Link><Link to={`/dns?account=${account.id}`}>DNS</Link><Link to={`/ssl?account=${account.id}`}>SSL</Link></> : null}<Link to={`/domains?account=${account.id}`}>Domains</Link>{canTerminate && account.status === 'terminated' ? <Link className="danger-text" to={`/accounts/remove?account=${account.id}`}>Remove</Link> : null}{canSuspend && account.status !== 'terminated' ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={() => setPending({
 								action: account.status === 'suspended' ? 'unsuspend' : 'suspend',
 								ids: [account.id],
 								label: account.username,
@@ -175,15 +175,6 @@ export function AccountsPage () {
 }
 
 const accountTaskGuidance: Record<string, { title: string; detail: string }> = {
-	summary: { title: 'Account Summary', detail: 'Open POSIX identity, isolation, usage, and lifecycle controls for one tenant.' },
-	modify: { title: 'Modify an Account', detail: 'Change the package, primary domain, IP address, reseller ownership, and login access, then queue reconcile.' },
-	package: { title: 'Change Account Package', detail: 'Review the current assignment and select a different package with enforced limits.' },
-	suspension: { title: 'Suspend or Unsuspend', detail: 'Lock or restore the Linux login, cgroup, vhosts, cron, and mail for the selected tenant.' },
-	terminate: { title: 'Terminate an Account', detail: 'Open the account summary and complete a typed confirmation that removes the Linux identity.' },
-	remove: { title: 'Remove a Terminated Account', detail: 'Delete a terminated account from the panel so the username and domain can be reused.' },
-	password: { title: 'Password Modification', detail: 'Set a new owner password for an account without requiring a second change.' },
-	ownership: { title: 'Change Ownership', detail: 'Move the selected account to another reseller or back to direct (root) ownership.' },
-	login: { title: 'Login to Kelmor Control', detail: 'Open the account and start an audited Control session as the owner.' },
 	databases: { title: 'SQL Services', detail: 'Manage account-scoped databases and their provisioning state.' },
 	email: { title: 'Email Services', detail: 'Manage mail domains, mailboxes, aliases, and routing policy.' },
 	certificates: { title: 'SSL Certificates', detail: 'Inspect issued certificates and request account-owned hostnames.' },
@@ -191,5 +182,4 @@ const accountTaskGuidance: Record<string, { title: string; detail: string }> = {
 	dns: { title: 'DNS Zone Manager', detail: 'Edit zones and records for the selected account.' },
 	ftp: { title: 'FTP Accounts', detail: 'Create and delete virtual FTP users for the selected account.' },
 	cron: { title: 'Cron Jobs', detail: 'Create and delete scheduled tasks for the selected account.' },
-	tokens: { title: 'Manage API Tokens', detail: 'Open the account and issue account-safe API tokens from Account Services.' },
 }

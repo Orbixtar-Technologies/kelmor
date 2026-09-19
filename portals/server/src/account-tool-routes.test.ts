@@ -29,8 +29,8 @@ describe('canonical account tools', () => {
 		expect(isHubAccountService('backups')).toBe(false)
 	})
 
-	test('keeps SSL family tasks on the SSL manager', () => {
-		expect(sslToolPath('acc-1', 'request')).toBe('/ssl?account=acc-1&task=request')
-		expect(sslToolPath('acc-1', 'status')).toBe('/ssl?account=acc-1&task=status')
+	test('keeps SSL family tasks on dedicated SSL pages', () => {
+		expect(sslToolPath('acc-1', 'request')).toBe('/ssl/request?account=acc-1')
+		expect(sslToolPath('acc-1', 'status')).toBe('/ssl/status?account=acc-1')
 	})
 })

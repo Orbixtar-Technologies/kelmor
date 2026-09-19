@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { api, asList } from '../client'
 import { NotificationBell } from '../components/notification-bell'
 import { ResourcesSidebar } from '../components/resources-sidebar'
@@ -7,6 +7,7 @@ import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
 import { whmFeatures } from '../whm-catalog'
 import { catalogJourneyForLocation } from '../catalog-journey'
+import { dedicatedToolPaths, legacyDedicatedRedirect } from '../dedicated-tool-routes'
 import { hubForLocation, shouldShowHubTabs } from '../nav-hubs'
 import { HubTabs } from '../pages/hub-page'
 import { GlobalFind } from './global-find'
@@ -35,6 +36,11 @@ const crumbLabels: Record<string, string> = {
 	'ip-usage': 'IP Address Usage',
 	section: 'Section',
 	tools: 'Tools',
+	...Object.fromEntries(Object.entries(dedicatedToolPaths).map(([id, path]) => {
+		const segment = path.split('/').pop() || id
+		const feature = whmFeatures.find((entry) => entry.id === id)
+		return [segment, feature?.label || segment]
+	})),
 	...Object.fromEntries(whmFeatures.filter((feature) => feature.path.startsWith('/tools/')).map((feature) => [feature.id, feature.label])),
 }
 
@@ -180,6 +186,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 				<div className={`page-body ${showResources ? 'with-resources' : ''} ${showResources && resourcesCollapsed ? 'resources-collapsed' : ''}`}>
 					<main className="page-content">
 						{showHubTabs && currentHub ? <HubTabs hubId={currentHub.id} pathname={location.pathname} search={location.search} /> : null}
+						<LegacyDedicatedRedirect />
 						<CatalogJourneyBanner pathname={location.pathname} search={location.search} />
 						<Outlet />
 					</main>
@@ -197,6 +204,13 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 			</div>
 		</div>
 	)
+}
+
+function LegacyDedicatedRedirect () {
+	const location = useLocation()
+	const next = legacyDedicatedRedirect(location.pathname, location.search)
+	if (!next) return null
+	return <Navigate to={next} replace />
 }
 
 function CatalogJourneyBanner ({ pathname, search }: { pathname: string; search: string }) {

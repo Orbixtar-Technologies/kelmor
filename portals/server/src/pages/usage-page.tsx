@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
+import { managerFocus } from '../dedicated-tool-routes'
 import { api, asList } from '../client'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, formatDate, messageFrom, percent } from '../helpers'
@@ -8,6 +9,7 @@ import type { Account, Package, Usage } from '../types'
 interface MonitorResponse { accounts?: Usage[]; failed_jobs?: number; certs_expiring?: number }
 
 export function UsagePage () {
+	const focus = managerFocus(useLocation().pathname, '/usage')
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [packages, setPackages] = useState<Package[]>([])
 	const [usage, setUsage] = useState<Usage[]>([])
@@ -45,7 +47,13 @@ export function UsagePage () {
 	const usageByAccountId = useMemo(() => new Map(usage.map((entry) => [entry.account_id, entry])), [usage])
 	const rows = useMemo(() => accounts.map((account) => ({ account, pkg: packagesById.get(account.package_id), usage: usageByAccountId.get(account.id) })).filter((row) => `${row.account.username} ${row.account.primary_domain}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())), [accounts, packagesById, usageByAccountId, query])
 	return <>
-		<PageHeader title="Account Usage" description="Compare measured account consumption with package capacity." actions={<button type="button" className="secondary" onClick={load}>Refresh</button>} />
+		<PageHeader
+			title={focus === 'disk' ? 'Show Current Disk Usage' : 'Account Usage'}
+			description={focus === 'disk'
+				? 'Host and account disk observations from the latest usage collection.'
+				: 'Compare measured account consumption with package capacity.'}
+			actions={<button type="button" className="secondary" onClick={load}>Refresh</button>}
+		/>
 		<div className="filter-bar"><label>Search accounts<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>
 		{error ? <ErrorState error={error} onRetry={load} /> : null}{loading ? <LoadingState label="Collecting account usage…" /> : null}
 		{!loading && <div className="table-wrap"><table className="dense-table"><thead><tr><th>Account</th><th>Status</th><th>Package</th><th>Disk</th><th>Bandwidth</th><th>Memory</th><th>CPU</th><th>Inodes</th><th>Processes</th><th>Collected</th></tr></thead><tbody>{rows.map(({ account, pkg, usage: row }) => {

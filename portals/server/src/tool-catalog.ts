@@ -1,6 +1,20 @@
 import { canonicalAccountToolPath } from './account-tool-routes'
+import { accountFunctionHref } from './dedicated-tool-routes'
 import type { ToolDefinition } from './types'
 import { toToolDefinition, whmFeatures } from './whm-catalog'
+
+const dedicatedAccountTasks: Record<string, string> = {
+	password: '/accounts/password',
+	terminate: '/accounts/terminate',
+	remove: '/accounts/remove',
+	package: '/accounts/change-package',
+	modify: '/accounts/modify',
+	suspension: '/accounts/suspension',
+	summary: '/accounts/summary',
+	login: '/accounts/login-control',
+	ownership: '/accounts/ownership',
+	tokens: '/accounts/tokens',
+}
 
 export const toolCatalog: ToolDefinition[] = whmFeatures.map(toToolDefinition)
 
@@ -29,8 +43,7 @@ export function accountTaskTarget (task: string, accountId: string): string {
 	}
 	const service = serviceByTask[task]
 	if (service) return canonicalAccountToolPath(service, accountId) || `/accounts/${accountId}`
-	if (['password', 'terminate', 'remove', 'package', 'modify', 'suspension', 'summary', 'login'].includes(task)) {
-		return `/accounts/${accountId}?task=${task}`
-	}
+	const dedicated = dedicatedAccountTasks[task]
+	if (dedicated) return accountFunctionHref(dedicated, accountId)
 	return `/accounts/${accountId}`
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
+import { managerFocus } from '../dedicated-tool-routes'
 import { api } from '../client'
 import { EmptyState, ErrorState, LoadingState, PageHeader } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
@@ -13,6 +14,7 @@ function isProtectedProcess (process: HostProcess) {
 }
 
 export function ProcessManagerPage () {
+	const focus = managerFocus(useLocation().pathname, '/processes')
 	const canSignal = useCan('server.settings.write')
 	const [processes, setProcesses] = useState<HostProcess[]>([])
 	const [query, setQuery] = useState('')
@@ -69,8 +71,10 @@ export function ProcessManagerPage () {
 	return (
 		<>
 			<PageHeader
-				title="Process Manager"
-				description="Live /proc snapshot from the privileged agent. TERM and KILL are typed signals; pid 1, systemd, init, and the control-plane binaries stay protected."
+				title={focus === 'daily' ? 'Daily Process Log' : 'Process Manager'}
+				description={focus === 'daily'
+					? 'Recent process snapshots collected with host telemetry. This is the daily log view, not the live signal console.'
+					: 'Live /proc snapshot from the privileged agent. TERM and KILL are typed signals; pid 1, systemd, init, and the control-plane binaries stay protected.'}
 				actions={<Link className="button-link secondary-link" to="/status">Service Status</Link>}
 			/>
 			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}

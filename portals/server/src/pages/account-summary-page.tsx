@@ -141,7 +141,7 @@ export function AccountSummaryPage () {
 					<p>Package, domain, IP, reseller, and login access.</p>
 					<div className="button-row">
 						{canModify ? <button type="button" className="secondary" onClick={() => { setEditingAssignment(true); assignmentRef.current?.scrollIntoView({ block: 'center' }) }}>Edit assignment</button> : <span className="subtle">Modify is unavailable to your role.</span>}
-						<Link className="secondary-link" to={`/accounts/${id}?task=package`}>Change package</Link>
+						<Link className="secondary-link" to={`/accounts/change-package?account=${id}`}>Change package</Link>
 					</div>
 				</article>
 				<article>

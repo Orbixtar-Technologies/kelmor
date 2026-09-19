@@ -17,20 +17,20 @@ function tool (id: string, path: string, category = 'Account Information'): Tool
 const catalog = [
 	tool('home', '/', 'Kelmor Director'),
 	tool('accounts', '/accounts'),
-	tool('account-summary', '/accounts?task=summary'),
+	tool('account-summary', '/accounts/summary'),
 	tool('suspended', '/accounts?view=suspended'),
-	tool('modify-account', '/accounts?task=modify', 'Account Functions'),
-	tool('terminate-account', '/accounts?task=terminate', 'Account Functions'),
+	tool('modify-account', '/accounts/modify', 'Account Functions'),
+	tool('terminate-account', '/accounts/terminate', 'Account Functions'),
 	tool('create-account', '/accounts/create', 'Account Functions'),
 	tool('list-domains', '/domains'),
 	tool('list-subdomains', '/domains?view=subdomain'),
 	tool('list-parked', '/domains?view=alias'),
 	tool('ssl', '/ssl', 'SSL/TLS'),
-	tool('ssl-storage', '/ssl?task=inventory', 'SSL/TLS'),
-	tool('generate-csr', '/ssl?task=request', 'SSL/TLS'),
-	tool('manage-autossl', '/ssl?task=autossl', 'SSL/TLS'),
-	tool('ssl-tls-status', '/ssl?task=status', 'SSL/TLS'),
-	tool('service-ssl', '/ssl?task=service', 'SSL/TLS'),
+	tool('ssl-storage', '/ssl/inventory', 'SSL/TLS'),
+	tool('generate-csr', '/ssl/request', 'SSL/TLS'),
+	tool('manage-autossl', '/ssl/autossl', 'SSL/TLS'),
+	tool('ssl-tls-status', '/ssl/status', 'SSL/TLS'),
+	tool('service-ssl', '/ssl/service', 'SSL/TLS'),
 	tool('jobs', '/jobs', 'System Tools'),
 	tool('mail-delivery-reports', '/mail/delivery-reports', 'Email'),
 	tool('track-delivery', '/mail/track-delivery', 'Email'),
@@ -52,8 +52,9 @@ describe('isDirectorToolActive', () => {
 
 	test('highlights only the matching query destination on shared /accounts paths', () => {
 		expect(activeIds('/accounts', '?view=suspended')).toEqual(['suspended'])
-		expect(activeIds('/accounts', '?task=modify')).toEqual(['modify-account'])
-		expect(activeIds('/accounts', '?task=terminate')).toEqual(['terminate-account'])
+		expect(activeIds('/accounts/modify')).toEqual(['modify-account'])
+		expect(activeIds('/accounts/terminate')).toEqual(['terminate-account'])
+		expect(activeIds('/accounts', '?task=modify')).toEqual(['accounts'])
 	})
 
 	test('highlights Account Summary for a specific account hub, not List Accounts', () => {
@@ -85,14 +86,14 @@ describe('isDirectorToolActive', () => {
 		expect(activeIds('/domains', '?view=alias')).toEqual(['list-parked'])
 	})
 
-	test('highlights only the matching SSL task on the shared /ssl manager', () => {
-		expect(activeIds('/ssl')).toEqual(['ssl', 'ssl-storage'])
-		expect(activeIds('/ssl', '?account=acc-1')).toEqual(['ssl', 'ssl-storage'])
-		expect(activeIds('/ssl', '?account=acc-1&task=inventory')).toEqual(['ssl', 'ssl-storage'])
-		expect(activeIds('/ssl', '?account=acc-1&task=request')).toEqual(['generate-csr'])
-		expect(activeIds('/ssl', '?task=autossl')).toEqual(['manage-autossl'])
-		expect(activeIds('/ssl', '?task=status')).toEqual(['ssl-tls-status'])
-		expect(activeIds('/ssl', '?task=service')).toEqual(['service-ssl'])
+	test('highlights only the matching dedicated SSL tool', () => {
+		expect(activeIds('/ssl')).toEqual(['ssl'])
+		expect(activeIds('/ssl', '?account=acc-1')).toEqual(['ssl'])
+		expect(activeIds('/ssl/inventory', '?account=acc-1')).toEqual(['ssl-storage'])
+		expect(activeIds('/ssl/request', '?account=acc-1')).toEqual(['generate-csr'])
+		expect(activeIds('/ssl/autossl')).toEqual(['manage-autossl'])
+		expect(activeIds('/ssl/status')).toEqual(['ssl-tls-status'])
+		expect(activeIds('/ssl/service')).toEqual(['service-ssl'])
 	})
 })
 

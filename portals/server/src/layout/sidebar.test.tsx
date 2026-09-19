@@ -36,10 +36,10 @@ vi.mock('../client', () => ({
 const tools: ToolDefinition[] = [
 	{ id: 'home', label: 'Home', description: 'Overview', category: 'Kelmor Director', path: '/', icon: 'home', capabilities: ['server.read'] },
 	{ id: 'list-accounts', label: 'List Accounts', description: 'Accounts', category: 'Account Information', path: '/accounts', icon: 'users', capabilities: ['accounts.read'] },
-	{ id: 'account-summary', label: 'Account Summary', description: 'Account hub', category: 'Account Information', path: '/accounts?task=summary', icon: 'account', capabilities: ['accounts.read'] },
+	{ id: 'account-summary', label: 'Account Summary', description: 'Account hub', category: 'Account Information', path: '/accounts/summary', icon: 'account', capabilities: ['accounts.read'] },
 	{ id: 'suspended', label: 'Suspended Accounts', description: 'Suspended', category: 'Account Information', path: '/accounts?view=suspended', icon: 'pause', capabilities: ['accounts.read'] },
-	{ id: 'modify-account', label: 'Modify an Account', description: 'Modify', category: 'Account Functions', path: '/accounts?task=modify', icon: 'edit', capabilities: ['accounts.read'] },
-	{ id: 'terminate-account', label: 'Terminate an Account', description: 'Terminate', category: 'Account Functions', path: '/accounts?task=terminate', icon: 'trash', capabilities: ['accounts.read'] },
+	{ id: 'modify-account', label: 'Modify an Account', description: 'Modify', category: 'Account Functions', path: '/accounts/modify', icon: 'edit', capabilities: ['accounts.read'] },
+	{ id: 'terminate-account', label: 'Terminate an Account', description: 'Terminate', category: 'Account Functions', path: '/accounts/terminate', icon: 'trash', capabilities: ['accounts.read'] },
 	{ id: 'tweak-settings', label: 'Tweak Settings', description: 'Host defaults', category: 'Server Configuration', path: '/tools/tweak-settings', icon: 'edit', capabilities: ['server.settings.write'] },
 	{ id: 'change-hostname', label: 'Change Hostname', description: 'Hostname', category: 'Networking Setup', path: '/tools/change-hostname', icon: 'globe', capabilities: ['server.settings.write'] },
 ]
@@ -102,6 +102,7 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: 'Tweak Settings' })).toHaveAttribute('href', '/section/server?tool=tweak-settings')
 		expect(screen.getByRole('link', { name: 'Change Hostname' })).toHaveAttribute('href', '/section/server?tool=change-hostname')
 		expect(screen.getByRole('link', { name: 'List Accounts' })).toHaveAttribute('href', '/accounts')
+		expect(screen.getByRole('link', { name: 'Change Ownership of an Account' })).toHaveAttribute('href', '/accounts/ownership')
 		expect(screen.getByRole('link', { name: 'Mail Delivery Reports' })).toHaveAttribute('href', '/mail/delivery-reports')
 		expect(screen.getByRole('link', { name: 'Track Delivery' })).toHaveAttribute('href', '/mail/track-delivery')
 		expect(screen.getByRole('link', { name: 'Show IP Address Usage' })).toHaveAttribute('href', '/ip-usage')
