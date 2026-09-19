@@ -311,7 +311,7 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 		return (
 			<section className="panel">
 				<p>Mailing lists are first-class Kelmor aliases with multiple members. Create and edit them in Email Management.</p>
-				<Link to="/email?tab=lists">Open mailing lists</Link>
+				<Link to={feature.id === 'reset-mailman' ? '/email?tab=lists&task=reset' : '/email?tab=lists'}>Open mailing lists</Link>
 			</section>
 		)
 	}
@@ -319,8 +319,8 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 		return (
 			<>
 				<section className="panel">
-					<p>Use the audited Postfix recipes below to inspect and flush the live queue. Delivery reports stay on Jobs.</p>
-					<p><Link to="/jobs?q=mail">Mail jobs</Link> · <Link to="/deliverability">Deliverability</Link></p>
+					<p>Use the audited Postfix recipes below to inspect and flush the live queue. Delivery history is Mail Delivery Reports; live watching is Track Delivery.</p>
+					<p><Link to="/mail/delivery-reports">Mail Delivery Reports</Link> · <Link to="/mail/track-delivery">Track Delivery</Link> · <Link to="/deliverability">Deliverability</Link></p>
 				</section>
 				<HostConsolePanel recipeIds={['postfix-queue', 'postfix-flush', 'postfix-status']} />
 			</>

@@ -62,6 +62,9 @@ func ValidateManagedPath(p string) (string, error) {
 	if clean == "/etc/roundcube/config.panel.inc.php" || clean == "/etc/roundcube/config.inc.php" {
 		ok = true
 	}
+	if clean == "/var/log/mail.log" || strings.HasPrefix(clean, "/var/log/mail.log.") {
+		ok = true
+	}
 	if !ok {
 		return "", fmt.Errorf("path outside approved prefixes")
 	}

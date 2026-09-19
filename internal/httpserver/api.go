@@ -135,6 +135,8 @@ func (a *API) Handler() http.Handler {
 			r.Post("/dns/synchronize", a.synchronizeDNS)
 			r.Post("/dns/cleanup", a.cleanupDNS)
 			r.Post("/mail/notify", a.notifyMail)
+			r.Get("/mail/delivery-reports", a.mailDeliveryReports)
+			r.Get("/mail/delivery-track", a.mailDeliveryTrack)
 			r.Get("/accounts/export", a.exportAccounts)
 			r.Post("/accounts/import", a.importAccount)
 			r.Post("/accounts/import/cpanel", a.importCPanel)

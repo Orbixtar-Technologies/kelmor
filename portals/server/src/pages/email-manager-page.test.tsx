@@ -67,6 +67,18 @@ describe('EmailManagerPage lists', () => {
 			}),
 		}))
 	})
+
+	test('shows Reset a Mailing List Password honesty on the lists tab', async () => {
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
+			}
+			return Promise.resolve({ items: [] })
+		})
+		renderEmail('/email?account=acc-1&tab=lists&task=reset')
+		expect(await screen.findByRole('region', { name: 'Reset a mailing list password' })).toHaveTextContent('not GNU Mailman')
+		expect(screen.queryByRole('heading', { name: 'Jobs' })).not.toBeInTheDocument()
+	})
 })
 
 describe('EmailManagerPage mailboxes', () => {

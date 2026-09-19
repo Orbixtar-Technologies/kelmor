@@ -32,6 +32,9 @@ const catalog = [
 	tool('ssl-tls-status', '/ssl?task=status', 'SSL/TLS'),
 	tool('service-ssl', '/ssl?task=service', 'SSL/TLS'),
 	tool('jobs', '/jobs', 'System Tools'),
+	tool('mail-delivery-reports', '/mail/delivery-reports', 'Email'),
+	tool('track-delivery', '/mail/track-delivery', 'Email'),
+	tool('review-transfers', '/jobs?q=transfer', 'Transfers'),
 ]
 
 function activeIds (pathname: string, search = '') {
@@ -64,6 +67,16 @@ describe('isDirectorToolActive', () => {
 
 	test('highlights Jobs even when an account filter is present', () => {
 		expect(activeIds('/jobs', '?account=acc-1')).toEqual(['jobs'])
+	})
+
+	test('highlights only the selected mail delivery tool', () => {
+		expect(activeIds('/mail/delivery-reports')).toEqual(['mail-delivery-reports'])
+		expect(activeIds('/mail/track-delivery')).toEqual(['track-delivery'])
+		expect(activeIds('/jobs', '?q=mail')).toEqual(['jobs'])
+	})
+
+	test('highlights Review Transfers only for the transfer Jobs filter', () => {
+		expect(activeIds('/jobs', '?q=transfer')).toEqual(['review-transfers'])
 	})
 
 	test('highlights only the matching domain inventory view', () => {

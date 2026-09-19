@@ -1483,6 +1483,26 @@ paths:
       x-capability: server.settings.write
       responses:
         "202": { description: notification mail queued }
+  /mail/delivery-reports:
+    get:
+      operationId: mailDeliveryReports
+      x-capability: mail.read
+      parameters:
+        - { name: year, in: query, required: true, schema: { type: integer, minimum: 1970, maximum: 2100 } }
+        - { name: month, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 12 } }
+        - { name: day, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 31 } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Postfix delivery attempts for the selected calendar day }
+        "400": { description: invalid report date }
+  /mail/delivery-track:
+    get:
+      operationId: mailDeliveryTrack
+      x-capability: mail.read
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200": { description: live Postfix queue plus recent delivery attempts }
   /accounts/export:
     get:
       operationId: exportAccounts
