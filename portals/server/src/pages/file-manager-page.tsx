@@ -199,6 +199,22 @@ export function FileManagerPage () {
 		}
 	}
 
+	async function chmodEntry (entry: FileEntry) {
+		if (!accountId) return
+		const mode = window.prompt('Unix mode (octal, for example 0644 or 755)', entry.dir ? '0755' : '0644')
+		if (!mode) return
+		try {
+			await api(`/api/v1/accounts/${accountId}/files`, {
+				method: 'PATCH',
+				body: JSON.stringify({ path: entryPath(entry), mode }),
+			})
+			setMessage(`Changed mode of ${entry.name} to ${mode}`)
+			loadDirectory(accountId, currentPath)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
 	async function uploadFile (file: File) {
 		if (!accountId) return
 		const buffer = await file.arrayBuffer()
@@ -289,6 +305,7 @@ export function FileManagerPage () {
 								<td className="row-actions">
 									{!entry.dir && canWrite ? <button type="button" className="link-button" onClick={() => readFile(entry)}>Edit</button> : null}
 									{canWrite ? <button type="button" className="link-button" onClick={() => renameEntry(entry)}>Rename</button> : null}
+									{canWrite ? <button type="button" className="link-button" onClick={() => chmodEntry(entry)}>chmod</button> : null}
 									{canWrite ? <button type="button" className="link-button danger-text" onClick={() => deleteEntry(entry)}>Delete</button> : null}
 								</td>
 							</tr>

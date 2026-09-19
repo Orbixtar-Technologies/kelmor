@@ -8,6 +8,13 @@ import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, Package } from '../types'
 import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
+import {
+	LOCAL_SETTINGS_BANNER,
+	LOCAL_SETTINGS_SAVED,
+	QUOTA_PACKAGE_COPY,
+	confirmLabelForFeature,
+	isLocalSettingsFeature,
+} from '../catalog-honesty'
 import { hrefForFeature } from '../nav-hubs'
 import { featureById, type WhmFeature, type WhmField } from '../whm-catalog'
 
@@ -112,6 +119,8 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 		<>
 			<PageHeader title={feature.label} description={feature.description} />
 			<p className="subtle">{feature.category} · {feature.layout} journey</p>
+			{isLocalSettingsFeature(feature) ? <p className="settings-local-banner" role="status">{LOCAL_SETTINGS_BANNER}</p> : null}
+			{feature.id === 'quota-modification' || feature.id === 'limit-bandwidth' ? <p className="settings-local-banner host-applied" role="status">{QUOTA_PACKAGE_COPY}</p> : null}
 			{error ? <ErrorState error={error} /> : null}
 			{message ? <p className="feedback" role="status">{message}</p> : null}
 
@@ -320,11 +329,12 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 			</section>
 		)
 	}
-	if (feature.id === 'initial-quota') {
+	if (feature.id === 'initial-quota' || feature.id === 'reset-bandwidth') {
 		return (
 			<section className="panel">
-				<p>Disk caps are enforced from the account package even when the kernel has no usrquota mount. Process Manager and Account Usage show the live observations.</p>
-				<Link to="/usage">Open Account Usage</Link>
+				<p>{QUOTA_PACKAGE_COPY}</p>
+				<p>If an account is held for bandwidth, unsuspend it from List Accounts. Usage observations live on Account Usage.</p>
+				<p><Link to="/usage">Open Account Usage</Link> · <Link to="/accounts?view=over-quota">Over-quota accounts</Link> · <Link to="/packages">Edit packages</Link></p>
 			</section>
 		)
 	}
@@ -446,14 +456,25 @@ async function applyFeature ({
 		throw new Error('Open List Accounts or Account Summary to start a reasoned Control session.')
 	}
 
-	if (feature.accountAction === 'patch' || feature.id === 'quota-modification' || feature.id === 'limit-bandwidth' || feature.id === 'reset-bandwidth') {
+	if (feature.accountAction === 'patch') {
 		if (!accountId) throw new Error('Choose an account first.')
 		const patch: Record<string, string> = {}
-		if (values.ip_address !== undefined && feature.id !== 'quota-modification') patch.ip_address = values.ip_address
+		if (values.ip_address !== undefined) patch.ip_address = values.ip_address
 		if (values.package_id) patch.package_id = values.package_id
 		if (values.shell_class) patch.shell_class = values.shell_class
 		if (Object.keys(patch).length) {
-			await api(`/api/v1/accounts/${accountId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+			if (feature.settingKey) {
+				await saveSetting(feature.settingKey, {
+					...values,
+					account_id: accountId,
+					username: selectedAccount?.username || '',
+				})
+				return LOCAL_SETTINGS_SAVED
+			}
+			return result.operation_id
+				? `Host change queued. Open Jobs to follow ${result.operation_id}.`
+				: 'Host change queued.'
 		}
 		if (feature.settingKey) {
 			await saveSetting(feature.settingKey, {
@@ -461,8 +482,9 @@ async function applyFeature ({
 				account_id: accountId,
 				username: selectedAccount?.username || '',
 			})
+			return LOCAL_SETTINGS_SAVED
 		}
-		return 'Account change applied.'
+		throw new Error('Choose a package or host field to apply.')
 	}
 
 	if (feature.id === 'change-root-password') {
@@ -483,12 +505,12 @@ async function applyFeature ({
 
 	if (feature.settingKey) {
 		await saveSetting(feature.settingKey, values)
-		return 'Settings saved.'
+		return LOCAL_SETTINGS_SAVED
 	}
 
 	if (feature.layout === 'confirm' || feature.layout === 'wizard' || feature.layout === 'form') {
 		await saveSetting(feature.id, values)
-		return 'Request saved on this Director host.'
+		return LOCAL_SETTINGS_SAVED
 	}
 
 	return 'Nothing to apply.'
@@ -528,8 +550,7 @@ function confirmLabel (feature: WhmFeature) {
 	if (feature.accountAction === 'terminate') return 'Terminate account'
 	if (feature.accountAction === 'remove') return 'Remove account'
 	if (feature.accountAction === 'suspend') return 'Suspend account'
-	if (feature.layout === 'settings' || feature.settingKey) return 'Save settings'
-	return 'Apply'
+	return confirmLabelForFeature(feature) || 'Apply'
 }
 
 function canSubmitFeature (feature: WhmFeature, capabilities: Record<string, boolean>) {

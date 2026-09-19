@@ -4,6 +4,7 @@ import { api, asList } from '../client'
 import { WidgetCard } from '../components/widget-card'
 import { ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
 import { formatBytes, messageFrom, percent } from '../helpers'
+import { LOCAL_SETTINGS_LABEL, isLocalSettingsTool } from '../catalog-honesty'
 import { hrefForFeature, hrefForTool } from '../nav-hubs'
 import { failedJobDisplay, measuredVital, operatorNavGroups } from '../operator-nav'
 import { discoverTools, toolCatalog } from '../tool-catalog'
@@ -123,14 +124,14 @@ export function HomePage () {
 				})}
 			</div>
 			{grouped.length ? <>
-				<SectionHeading title="All tools" detail="Every Director tool, grouped in WHM-style categories that match the sidebar. Missing APIs stay as honest empty or disabled states." />
+				<SectionHeading title="All tools" detail="Dedicated managers talk to the host. Tiles marked Settings (local) only write a Director preference and are not applied to nginx, Postfix, or PowerDNS." />
 				<div className="tool-groups">
 					{grouped.map((group) => (
 						<section className="panel tool-group" key={group.id}>
 							<h3>{group.label}</h3>
 							{group.tools.map((tool) => (
 								<Link key={tool.id} to={hrefForTool(tool)}>
-									<strong>{tool.label}</strong>
+									<strong>{tool.label}{isLocalSettingsTool(tool) ? <em className="nav-local-badge">{LOCAL_SETTINGS_LABEL}</em> : null}</strong>
 									<span>{tool.description}</span>
 								</Link>
 							))}

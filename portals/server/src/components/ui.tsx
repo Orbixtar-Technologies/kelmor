@@ -146,7 +146,9 @@ export function AccountTabs ({ id }: { id: string }) {
 			{capabilities['mail.read'] ? <NavLink to={`/email?account=${id}`}>Email</NavLink> : null}
 			{capabilities['databases.read'] ? <NavLink to={`/sql?account=${id}`}>SQL</NavLink> : null}
 			{capabilities['files.read'] ? <NavLink to={`/files?account=${id}`}>Files</NavLink> : null}
+			{capabilities['files.read'] ? <NavLink to={`/ftp?account=${id}`}>FTP</NavLink> : null}
 			{capabilities['dns.read'] ? <NavLink to={`/dns?account=${id}`}>DNS</NavLink> : null}
+			{capabilities['cron.read'] ? <NavLink to={`/cron?account=${id}`}>Cron</NavLink> : null}
 			<NavLink to={`/accounts/${id}/services`}>Access</NavLink>
 			{capabilities['server.read'] || capabilities['accounts.read'] ? <NavLink to={`/jobs?account=${id}`}>Activity</NavLink> : null}
 		</nav>

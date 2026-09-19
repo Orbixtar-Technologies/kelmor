@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
 import { RequestSequence } from '../request-sequence'
@@ -17,6 +18,7 @@ export function CronPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 	const [updatedAt, setUpdatedAt] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('cron.write')
@@ -57,6 +59,7 @@ export function CronPage () {
 		requests.invalidate('cron')
 		setJobs([])
 		setMessage('')
+		setJobId('')
 		if (accountId) loadCron(accountId)
 		else setLoading(false)
 	}, [accountId, loadCron, requests])
@@ -66,7 +69,7 @@ export function CronPage () {
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
 		try {
-			await api(`/api/v1/accounts/${accountId}/cron`, {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/cron`, {
 				method: 'POST',
 				body: JSON.stringify({
 					schedule: data.get('schedule'),
@@ -75,7 +78,8 @@ export function CronPage () {
 					enabled: true,
 				}),
 			})
-			setMessage('Cron job queued.')
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Cron job queued.'))
 			event.currentTarget.reset()
 			loadCron(accountId)
 		} catch (requestError) {
@@ -86,8 +90,9 @@ export function CronPage () {
 	async function removeCron (cronId: string) {
 		if (!accountId || !window.confirm('Delete this scheduled task?')) return
 		try {
-			await api(`/api/v1/accounts/${accountId}/cron/${cronId}`, { method: 'DELETE' })
-			setMessage('Cron deletion queued.')
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/cron/${cronId}`, { method: 'DELETE' })
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Cron deletion queued.'))
 			loadCron(accountId)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
@@ -112,7 +117,7 @@ export function CronPage () {
 					onChange={(next) => setParams({ account: next }, { replace: true })}
 				/>
 			</div>
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<QueuedOpNotice message={message} accountId={accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => loadCron(accountId)} /> : null}
 			{!accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage its cron jobs." /> : null}
 			{accountId ? <>

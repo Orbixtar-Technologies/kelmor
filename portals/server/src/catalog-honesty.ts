@@ -1,0 +1,40 @@
+import type { ToolDefinition } from './types'
+import { featureById, type WhmFeature } from './whm-catalog'
+
+export const LOCAL_SETTINGS_LABEL = 'Settings (local)'
+export const NOT_APPLIED_TO_HOST = 'Not applied to host'
+
+export const LOCAL_SETTINGS_BANNER = 'Settings (local) — Not applied to host. Save writes a Director preference file. nginx, Postfix, PowerDNS, and the Agent do not read this value.'
+
+export const LOCAL_SETTINGS_SAVED = 'Saved a Director preference. This is not applied to nginx, Postfix, PowerDNS, or the Agent.'
+
+export const QUOTA_PACKAGE_COPY = 'Disk and monthly bandwidth caps come from the account package. The Agent enforces those package limits. There is no separate per-account override.'
+
+export const MAILBOX_PASSWORD_STUB = 'Mailbox password and quota changes have no API yet. Create and delete work. Rotate the password from the host only after a mailbox PATCH exists.'
+
+export const CUSTOM_PEM_STUB = 'Custom PEM install is not available. Kelmor issues certificates through AutoSSL. There is no certificate upload API.'
+
+export const DATABASE_USER_MODEL = 'Kelmor provisions one database user per engine for the account. Extra MySQL users and GRANTs are not supported.'
+
+export function isLocalSettingsFeature (feature: Pick<WhmFeature, 'settingKey'>): boolean {
+	return Boolean(feature.settingKey)
+}
+
+export function isLocalSettingsToolId (toolId: string): boolean {
+	const feature = featureById(toolId)
+	return Boolean(feature && isLocalSettingsFeature(feature))
+}
+
+export function isLocalSettingsTool (tool: Pick<ToolDefinition, 'id'>): boolean {
+	return isLocalSettingsToolId(tool.id)
+}
+
+export function localSettingsBadgeTitle (label: string): string {
+	return `${label} — ${LOCAL_SETTINGS_LABEL}. ${NOT_APPLIED_TO_HOST}.`
+}
+
+export function confirmLabelForFeature (feature: Pick<WhmFeature, 'settingKey' | 'layout' | 'accountAction'>): string | undefined {
+	if (feature.settingKey || feature.layout === 'settings') return 'Save local preference'
+	if (feature.accountAction === 'patch' && !feature.settingKey) return 'Apply host change'
+	return undefined
+}

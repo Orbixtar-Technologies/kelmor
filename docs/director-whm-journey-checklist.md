@@ -83,9 +83,10 @@ Themes, Locales, Transfers, Development, Support, Multi Account Functions,
 Files, Market, and System Tools.
 
 Dedicated hubs (`/accounts`, `/domains`, `/dns`, `/email`, …) keep their
-existing pages. Every other interface is a first-class `/tools/:id` journey
-with the WHM workflow (form, wizard, confirm, restart, settings, or status).
-Host preferences persist at `GET`/`PATCH /api/v1/server/settings`. Manage
+existing pages. Settings-stub tools are labeled **Settings (local)** /
+**Not applied to host** in the sidebar, Home catalog, and tool page. They
+still persist at `GET`/`PATCH /api/v1/server/settings`. Quota and bandwidth
+tiles change the account package (the limit the Agent enforces). Manage
 Shell Access writes `shell_class` on `PATCH /api/v1/accounts/:id`.
 
 Kelmor still does not expose an in-browser root terminal or copy WHM

@@ -149,7 +149,7 @@ export function AccountsPage () {
 							<td><Link to={`/accounts/${account.id}`}><strong>{account.username}</strong></Link><small>{account.ip_address || 'Shared IP'} · GID {account.linux_gid}</small></td>
 							<td>{account.primary_domain}</td><td><StatusBadge value={account.status} /></td><td>{account.linux_uid}</td><td><code>{account.home_path}</code></td><td>{pkg?.name || account.package_id}</td>
 							<td>{account.usage ? <><span className={diskPercent > 100 ? 'danger-text' : ''}>{diskPercent}%</span><small>{formatBytes(account.usage.disk_bytes)} / {formatBytes(pkg?.disk_bytes)}</small></> : '—'}</td>
-							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{account.status === 'terminated' ? null : <LoginToControl accountId={account.id} username={account.username} />}<Link to={`/domains?account=${account.id}`}>Domains</Link>{canTerminate && account.status === 'terminated' ? <Link className="danger-text" to={`/accounts/${account.id}?task=remove`}>Remove</Link> : null}{canSuspend && account.status !== 'terminated' ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={() => setPending({
+							<td><div className="row-actions"><Link to={accountTaskTarget(task, account.id)}>{task ? 'Continue' : 'Manage'}</Link>{account.status === 'terminated' ? null : <LoginToControl accountId={account.id} username={account.username} />}{!task ? <><Link to={`/files?account=${account.id}`}>Files</Link><Link to={`/email?account=${account.id}`}>Email</Link><Link to={`/sql?account=${account.id}`}>SQL</Link><Link to={`/dns?account=${account.id}`}>DNS</Link><Link to={`/ssl?account=${account.id}`}>SSL</Link></> : null}<Link to={`/domains?account=${account.id}`}>Domains</Link>{canTerminate && account.status === 'terminated' ? <Link className="danger-text" to={`/accounts/${account.id}?task=remove`}>Remove</Link> : null}{canSuspend && account.status !== 'terminated' ? <button type="button" className={`link-button ${account.status === 'suspended' ? '' : 'danger-text'}`} onClick={() => setPending({
 								action: account.status === 'suspended' ? 'unsuspend' : 'suspend',
 								ids: [account.id],
 								label: account.username,
@@ -182,4 +182,8 @@ const accountTaskGuidance: Record<string, { title: string; detail: string }> = {
 	databases: { title: 'SQL Services', detail: 'Manage account-scoped databases and their provisioning state.' },
 	email: { title: 'Email Services', detail: 'Manage mail domains, mailboxes, aliases, and routing policy.' },
 	certificates: { title: 'SSL Certificates', detail: 'Inspect issued certificates and request account-owned hostnames.' },
+	files: { title: 'File Manager', detail: 'Browse, upload, rename, and delete files for the selected account.' },
+	dns: { title: 'DNS Zone Manager', detail: 'Edit zones and records for the selected account.' },
+	ftp: { title: 'FTP Accounts', detail: 'Create and delete virtual FTP users for the selected account.' },
+	cron: { title: 'Cron Jobs', detail: 'Create and delete scheduled tasks for the selected account.' },
 }

@@ -45,8 +45,9 @@ describe('WhmToolPage', () => {
 		renderTool('/tools/tweak-settings')
 		expect(await screen.findByRole('heading', { name: 'Tweak Settings' })).toBeInTheDocument()
 		expect(screen.getByText(/Server Configuration/)).toBeInTheDocument()
+		expect(await screen.findByText(/Settings \(local\) — Not applied to host/)).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
-		await user.click(screen.getByRole('button', { name: 'Save settings' }))
+		await user.click(screen.getByRole('button', { name: 'Save local preference' }))
 		expect(api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
 	})
 
@@ -59,6 +60,35 @@ describe('WhmToolPage', () => {
 		expect(await screen.findByRole('heading', { name: 'Host console' })).toBeInTheDocument()
 		expect(screen.getAllByText(/not a freeform root shell/i).length).toBeGreaterThan(0)
 		expect(screen.getByText('Test nginx configuration')).toBeInTheDocument()
+	})
+
+	test('quota modification applies a package change instead of a preference stub', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
+			}
+			if (String(path) === '/api/v1/packages') {
+				return Promise.resolve({ items: [{ id: 'pkg-2', name: 'Business' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1' && options?.method === 'PATCH') {
+				return Promise.resolve({ operation_id: 'rec-1' })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/quota-modification', { 'accounts.modify': true, 'accounts.read': true })
+		expect(await screen.findByText(/no separate per-account override/i)).toBeInTheDocument()
+		expect(screen.queryByText(/Settings \(local\) — Not applied to host/)).not.toBeInTheDocument()
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		await user.selectOptions(screen.getByLabelText('Package'), 'pkg-2')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Apply host change' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-1', expect.objectContaining({
+			method: 'PATCH',
+			body: JSON.stringify({ package_id: 'pkg-2' }),
+		}))
+		expect(api).not.toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
 	})
 
 	test('mail queue only mounts Postfix recipes', async () => {
