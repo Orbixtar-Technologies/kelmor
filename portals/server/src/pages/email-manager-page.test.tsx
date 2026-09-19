@@ -70,13 +70,17 @@ describe('EmailManagerPage lists', () => {
 })
 
 describe('EmailManagerPage mailboxes', () => {
-	test('lists mailbox addresses on the mail domain and labels the password stub', async () => {
-		api.mockImplementation((path: string) => {
+	test('lists mailbox addresses and queues password and quota updates', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
 			if (String(path) === '/api/v1/accounts') {
 				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
 			}
 			if (String(path).endsWith('/mail/domains')) {
 				return Promise.resolve({ items: [{ id: 'md-2', ascii_fqdn: 'mail.shop.test' }] })
+			}
+			if (String(path).includes('/mail/mailboxes/mb-1') && options?.method === 'PATCH') {
+				return Promise.resolve({ operation_id: 'job-mb' })
 			}
 			if (String(path).endsWith('/mail/mailboxes')) {
 				return Promise.resolve({ items: [{ id: 'mb-1', local_part: 'info', domain_id: 'md-2', quota_bytes: 0, status: 'active' }] })
@@ -90,10 +94,40 @@ describe('EmailManagerPage mailboxes', () => {
 		renderEmail('/email?account=acc-1&tab=mailboxes')
 		expect(await screen.findByText('info@mail.shop.test')).toBeInTheDocument()
 		expect(screen.queryByText('info@shop.test')).not.toBeInTheDocument()
-		expect(screen.getByText(/Mailbox password and quota changes have no API yet/)).toBeInTheDocument()
-		expect(screen.getByText(/Password\/quota: not available/)).toBeInTheDocument()
+		expect(screen.queryByText(/have no API yet/)).not.toBeInTheDocument()
 		const webmail = await screen.findByRole('link', { name: 'Open webmail' })
 		expect(webmail).toHaveAttribute('href', 'https://webmail.shop.test/')
 		expect(webmail).toHaveAttribute('target', '_blank')
+		await user.type(screen.getByLabelText('New password for info@mail.shop.test'), 'NewPass!2026')
+		await user.clear(screen.getByLabelText('Quota bytes for info@mail.shop.test'))
+		await user.type(screen.getByLabelText('Quota bytes for info@mail.shop.test'), '4096')
+		await user.click(screen.getByRole('button', { name: 'Update mailbox' }))
+		expect(await screen.findByRole('link', { name: 'Open Jobs' })).toHaveAttribute('href', '/jobs?account=acc-1&selected=job-mb')
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-1/mail/mailboxes/mb-1', expect.objectContaining({
+			method: 'PATCH',
+			body: JSON.stringify({ password: 'NewPass!2026', quota_bytes: 4096 }),
+		}))
+	})
+})
+
+describe('EmailManagerPage domains', () => {
+	test('shows the real mail domain instead of a UUID', async () => {
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'orbixtar.dpdns.org' }] })
+			}
+			if (String(path).endsWith('/mail/domains')) {
+				return Promise.resolve({ items: [{ id: 'md-1', domain_id: 'dom-uuid', ascii_fqdn: 'orbixtar.dpdns.org', catchall_policy: 'reject', status: 'active' }] })
+			}
+			if (String(path).includes('/mail/')) return Promise.resolve({ items: [] })
+			if (String(path).endsWith('/domains')) {
+				return Promise.resolve({ items: [{ id: 'dom-uuid', ascii_fqdn: 'orbixtar.dpdns.org' }] })
+			}
+			return Promise.resolve({ items: [] })
+		})
+		renderEmail('/email?account=acc-1&tab=domains')
+		expect(await screen.findByRole('cell', { name: 'orbixtar.dpdns.org' })).toBeInTheDocument()
+		expect(screen.getByRole('option', { name: 'orbixtar.dpdns.org' })).toBeInTheDocument()
+		expect(screen.queryByText('dom-uuid')).not.toBeInTheDocument()
 	})
 })

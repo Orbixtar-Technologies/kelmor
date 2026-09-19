@@ -46,10 +46,8 @@ func (root *Root) ExtractTar(reader io.Reader, dest string, limits ArchiveLimits
 		if name == "." || name == "" {
 			continue
 		}
-		if prefix := archivePrefix(limits.Prefix); prefix != "" {
-			if name != prefix && !strings.HasPrefix(name, prefix+"/") {
-				continue
-			}
+		if prefix := archivePrefix(limits.Prefix); prefix != "" && name != prefix && !strings.HasPrefix(name, prefix+"/") {
+			continue
 		}
 		if path.IsAbs(name) || strings.HasPrefix(name, "../") || strings.Contains(name, ":") {
 			return fmt.Errorf("archive traversal")
@@ -103,8 +101,8 @@ func (root *Root) ExtractTar(reader io.Reader, dest string, limits ArchiveLimits
 func archivePrefix(raw string) string {
 	prefix := path.Clean(strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/"))
 	prefix = strings.TrimPrefix(prefix, "./")
-	prefix = strings.TrimPrefix(prefix, "/")
-	if prefix == "." || prefix == "" {
+	prefix = strings.Trim(prefix, "/")
+	if prefix == "." || prefix == "" || strings.Contains(prefix, "..") {
 		return ""
 	}
 	return prefix

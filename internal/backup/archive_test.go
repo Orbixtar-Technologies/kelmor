@@ -120,7 +120,7 @@ func TestRestoreRejectsTraversal(t *testing.T) {
 	if err := gz.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := unpackHome(buf.Bytes(), t.TempDir()); err == nil {
+	if err := unpackHome(buf.Bytes(), t.TempDir(), ""); err == nil {
 		t.Fatal("expected traversal error")
 	}
 }

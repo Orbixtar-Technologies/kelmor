@@ -61,12 +61,8 @@ func (a *API) clearBandwidthHolds(w http.ResponseWriter, r *http.Request) {
 		usage.BandwidthHold = false
 		usage.CollectedAt = time.Now().UTC()
 		a.Store.PutUsage(usage)
-		acc.DesiredRevision++
-		job, err := a.Store.UpdateAccountWithJobAndAudit(&acc, &store.Job{
-			Type: "account.reconcile", ResourceType: "account", ResourceID: acc.ID,
-			Payload: map[string]any{"account_id": acc.ID, "target_revision": acc.DesiredRevision},
-			State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
-		}, a.auditEvent(r, acc.ID, "account.bandwidth.clear", "account", acc.ID, nil, map[string]any{"bandwidth_hold": false}))
+		cp := acc
+		job, err := a.enqueueBandwidthReset(&cp, r)
 		if err != nil {
 			continue
 		}

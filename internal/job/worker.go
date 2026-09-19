@@ -337,6 +337,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.cleanupOrphanZones()
 	case "mail.notify":
 		return w.notifyMailJob(j)
+	case "bandwidth.reset":
+		return w.resetAccountBandwidth(j)
 	case "cron.apply":
 		return w.applyCron(j)
 	case "ftp.apply":
@@ -379,6 +381,9 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	if err != nil {
 		acc.Status = "failed"
 		w.Store.PutAccount(acc)
+		return err
+	}
+	if err := w.applyAccountShell(acc); err != nil {
 		return err
 	}
 	ownerPass := str(j.Payload["linux_password"])
@@ -996,35 +1001,6 @@ func (w *Worker) syncDNS(j *store.Job) error {
 	z.ObservedRevision = z.DesiredRevision
 	w.Store.PutZone(z)
 	return nil
-}
-
-func (w *Worker) republishPublicAddresses(z *store.DNSZone, pubIP string) {
-	if z == nil || pubIP == "" || netaddr.IsPrivateIPv4String(pubIP) {
-		return
-	}
-	changed := false
-	for _, rec := range w.Store.ListRecords(z.ID) {
-		switch rec.Type {
-		case "A":
-			if rec.Content != pubIP && netaddr.IsPrivateIPv4String(rec.Content) {
-				rec.Content = pubIP
-				w.Store.PutRecord(&rec)
-				changed = true
-			}
-		case "TXT":
-			next := netaddr.RewritePrivateIP4Tokens(rec.Content, pubIP)
-			if next != rec.Content {
-				rec.Content = next
-				w.Store.PutRecord(&rec)
-				changed = true
-			}
-		}
-	}
-	if !changed {
-		return
-	}
-	z.DesiredRevision++
-	w.Store.PutZone(z)
 }
 
 func (w *Worker) ensureServiceRecords(z *store.DNSZone, pubIP string) {
@@ -1817,6 +1793,7 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 		}
 		_ = w.Store.CheckpointRestore(stored.ID, store.StateMaintenance, nil)
 	}
+	pathPrefix := restorePathPrefix(str(j.Payload["path"]))
 	if man.FormatVersion == 1 || man.FormatVersion == 2 {
 		homeTar := opened.LegacyPayload()
 		var dumps []backup.DBDump
@@ -1827,7 +1804,6 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 				return err
 			}
 		}
-		pathPrefix := restorePathPrefix(str(j.Payload["path"]))
 		if !fileJournal.HasCheckpoint("commit:" + backup.ComponentHome) {
 			if err := w.restoreHomeTar(acc, b.ID, home, homeTar, pathPrefix); err != nil {
 				_ = fileJournal.FailRollback(err)
@@ -1850,7 +1826,7 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 				return err
 			}
 		}
-	} else if err := w.restoreHPM3(acc, b.ID, home, opened, fileJournal, stored.ID, restorePathPrefix(str(j.Payload["path"]))); err != nil {
+	} else if err := w.restoreHPM3(acc, b.ID, home, opened, fileJournal, stored.ID, pathPrefix); err != nil {
 		return err
 	}
 	if !fileJournal.HasCheckpoint(backup.StateRestoreVerifying) {
@@ -2019,7 +1995,8 @@ func (w *Worker) collectBackupParts(acc *store.Account, backupID, home string) (
 	return homeTar, dumps, mailTrees, nil
 }
 
-func (w *Worker) restoreHomeTar(acc *store.Account, backupID, destHome string, homeTar []byte, prefix string) error {
+func (w *Worker) restoreHomeTar(acc *store.Account, backupID, destHome string, homeTar []byte, pathPrefix string) error {
+	prefix := restorePathPrefix(pathPrefix)
 	if w.Agent != nil {
 		staging := "/var/lib/panel/backups/staging/restore-" + backupID + "-home.tar.gz"
 		if _, err := w.Agent.ApplyFile(staging, homeTar, 0o640); err != nil {
@@ -2035,7 +2012,7 @@ func (w *Worker) restoreHomeTar(acc *store.Account, backupID, destHome string, h
 		})
 		return err
 	}
-	return backup.UnpackHomeBytes(homeTar, destHome)
+	return backup.UnpackHomePrefix(homeTar, destHome, prefix)
 }
 
 func (w *Worker) restoreDatabaseDumps(acc *store.Account, backupID string, dumps []backup.DBDump) error {
@@ -2228,6 +2205,8 @@ func (w *Worker) applyWebsiteDispatch(acc *store.Account, site *store.Website, d
 			"bandwidth_hold":          w.bandwidthHold(acc),
 			"concurrent_web_requests": w.concurrentWebRequests(acc),
 			"aliases":                 w.aliasesFor(acc, d),
+			"listen_ipv4":             parseIPv4(accountIP(acc)),
+			"listen_ipv6":             accountPublishIPv6(acc),
 		}),
 	})
 	return err
@@ -2328,6 +2307,33 @@ func (w *Worker) recordUsage(acc *store.Account) {
 		return nil
 	})
 	w.persistUsageEnforcement(acc, u, now)
+}
+
+func (w *Worker) resetAccountBandwidth(j *store.Job) error {
+	acc := w.jobAccount(j)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	if w.Agent != nil {
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "ResetAccountBandwidth",
+			Params: mustJSON(map[string]any{"username": acc.Username}),
+		}); err != nil {
+			return err
+		}
+	}
+	u := w.Store.GetUsage(acc.ID)
+	if u == nil {
+		u = &store.Usage{AccountID: acc.ID}
+	}
+	now := time.Now().UTC()
+	u.BandwidthBytes = 0
+	u.BandwidthHold = false
+	u.CollectedAt = now
+	u.EnforcedAt = &now
+	w.Store.PutUsage(u)
+	w.reapplyAccountWebsites(acc)
+	return nil
 }
 
 func (w *Worker) persistUsageEnforcement(acc *store.Account, u *store.Usage, now time.Time) {

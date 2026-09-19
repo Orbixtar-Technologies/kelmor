@@ -16,12 +16,16 @@ import (
 	"github.com/hosting-panel/panel/internal/store"
 )
 
+// posixShell maps Director shell_class to a permitted POSIX path.
+// jailed → rssh; sftp-only and nologin stay nologin (SFTP subsystem only).
 func posixShell(class string) string {
-	switch class {
-	case "sftp-only":
-		return "/usr/sbin/rssh"
+	return accountShellPath(class)
+}
+
+func accountShellPath(class string) string {
+	switch strings.TrimSpace(class) {
 	case "jailed":
-		return "/bin/bash"
+		return "/usr/sbin/rssh"
 	default:
 		return "/usr/sbin/nologin"
 	}
@@ -31,23 +35,51 @@ func parseAccountIP(value string) net.IP {
 	return net.ParseIP(strings.TrimSpace(value))
 }
 
+func accountIP(acc *store.Account) string {
+	if acc == nil {
+		return ""
+	}
+	return strings.TrimSpace(acc.IPAddress)
+}
+
+func parseIPv4(s string) string {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	if ip == nil || ip.To4() == nil {
+		return ""
+	}
+	return ip.To4().String()
+}
+
+func parseIPv6(s string) string {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	if ip == nil || ip.To4() != nil {
+		return ""
+	}
+	return ip.String()
+}
+
 func accountPublishIPv4(acc *store.Account) string {
-	if acc != nil {
-		if ip := parseAccountIP(acc.IPAddress); ip != nil && ip.To4() != nil {
-			return ip.String()
-		}
+	if ip := parseIPv4(accountIP(acc)); ip != "" {
+		return ip
 	}
 	return publicIPv4()
 }
 
 func accountPublishIPv6(acc *store.Account) string {
-	if acc == nil {
-		return ""
+	return parseIPv6(accountIP(acc))
+}
+
+func managedDNSName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "@", "www":
+		return true
 	}
-	if ip := parseAccountIP(acc.IPAddress); ip != nil && ip.To4() == nil {
-		return ip.String()
+	for _, service := range configuration.AccountServiceHostnames() {
+		if name == service {
+			return true
+		}
 	}
-	return ""
+	return false
 }
 
 func (w *Worker) stateDir() string {
@@ -311,7 +343,7 @@ func (w *Worker) republishAccountAddresses(z *store.DNSZone, acc *store.Account)
 	for _, name := range configuration.AccountServiceHostnames() {
 		service[name] = true
 	}
-	dedicatedV4 := parseAccountIP(acc.IPAddress) != nil && parseAccountIP(acc.IPAddress).To4() != nil
+	dedicatedV4 := parseIPv4(accountIP(acc)) != ""
 	changed := false
 	haveAAAA := map[string]bool{}
 	for _, rec := range w.Store.ListRecords(z.ID) {
@@ -373,10 +405,24 @@ func (w *Worker) republishAccountAddresses(z *store.DNSZone, acc *store.Account)
 }
 
 func restorePathPrefix(raw string) string {
-	clean := filepath.ToSlash(strings.TrimSpace(raw))
-	clean = strings.TrimPrefix(clean, "/")
-	if clean == "" || strings.Contains(clean, "..") {
+	prefix := filepath.Clean(strings.TrimSpace(raw))
+	prefix = strings.TrimPrefix(prefix, "/")
+	if prefix == "." || prefix == "" || strings.Contains(prefix, "..") {
 		return ""
 	}
-	return clean
+	return prefix
+}
+
+func (w *Worker) applyAccountShell(acc *store.Account) error {
+	if acc == nil || w.Agent == nil {
+		return nil
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "SetLinuxShell",
+		Params: mustJSON(map[string]any{
+			"username": acc.Username,
+			"shell":    accountShellPath(acc.ShellClass),
+		}),
+	})
+	return err
 }

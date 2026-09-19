@@ -128,6 +128,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/accounts/bulk/suspend", a.bulkSuspend)
 			r.Post("/accounts/bulk/unsuspend", a.bulkUnsuspend)
 			r.Post("/accounts/bulk/clear-bandwidth-hold", a.clearBandwidthHolds)
+			r.Post("/accounts/bulk/unsuspend-bandwidth", a.bulkUnsuspendBandwidth)
 			r.Post("/accounts/bulk/modify", a.bulkModifyAccounts)
 			r.Post("/accounts/ip-migration", a.migrateAccountIPs)
 			r.Post("/accounts/convert-addon", a.convertAddon)
@@ -163,6 +164,7 @@ func (a *API) Handler() http.Handler {
 				r.Patch("/mail/domains/{mailDomainID}", a.patchMailDomain)
 				r.Get("/mail/mailboxes", a.listMailboxes)
 				r.Post("/mail/mailboxes", a.createMailbox)
+				r.Patch("/mail/mailboxes/{mailboxID}", a.patchMailbox)
 				r.Delete("/mail/mailboxes/{mailboxID}", a.deleteMailbox)
 				r.Get("/mail/aliases", a.listMailAliases)
 				r.Post("/mail/aliases", a.createMailAlias)
@@ -2245,6 +2247,58 @@ func (a *API) bulkUnsuspend(w http.ResponseWriter, r *http.Request) {
 	a.bulkAccountStatus(w, r, "active")
 }
 
+func (a *API) bulkUnsuspendBandwidth(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.AccountsSuspend) {
+		return
+	}
+	var in struct {
+		IDs []string `json:"ids"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	who := actor(r)
+	wanted := map[string]bool{}
+	restrict := len(in.IDs) > 0
+	for _, id := range in.IDs {
+		wanted[id] = true
+	}
+	ops := []string{}
+	for _, acc := range a.Store.ListAccounts("", "") {
+		if restrict && !wanted[acc.ID] {
+			continue
+		}
+		if !who.CanAccount(acc.ID) {
+			continue
+		}
+		u := a.Store.GetUsage(acc.ID)
+		if u == nil || !u.BandwidthHold {
+			continue
+		}
+		cp := acc
+		job, err := a.enqueueBandwidthReset(&cp, r)
+		if err != nil {
+			a.fail(w, r, 500, "BANDWIDTH_RESET_ERROR", "Could not queue bandwidth hold release", true)
+			return
+		}
+		ops = append(ops, job.ID)
+	}
+	writeJSON(w, 202, map[string]any{"operations": ops})
+}
+
+func (a *API) enqueueBandwidthReset(acc *store.Account, r *http.Request) (*store.Job, error) {
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey != "" {
+		idempotencyKey += ":" + acc.ID
+	}
+	return a.Store.EnqueueJobWithAudit(&store.Job{
+		Type: "bandwidth.reset", ResourceType: "account", ResourceID: acc.ID,
+		Payload: map[string]any{"account_id": acc.ID},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: idempotencyKey,
+	}, a.auditEvent(r, acc.ID, "bandwidth.reset", "account", acc.ID,
+		map[string]any{"bandwidth_hold": true},
+		map[string]any{"bandwidth_hold": false}))
+}
+
 func (a *API) bulkAccountStatus(w http.ResponseWriter, r *http.Request, status string) {
 	if !a.require(w, r, rbac.AccountsSuspend) {
 		return
@@ -3067,6 +3121,61 @@ func (a *API) createMailbox(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mailbox": mb})
 }
 
+func (a *API) patchMailbox(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.MailWrite) {
+		return
+	}
+	mb := a.Store.GetMailbox(chi.URLParam(r, "mailboxID"))
+	if mb == nil || mb.AccountID != aid {
+		a.fail(w, r, 404, "NOT_FOUND", "mailbox missing", false)
+		return
+	}
+	var in struct {
+		Password   *string `json:"password"`
+		QuotaBytes *int64  `json:"quota_bytes"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if in.Password == nil && in.QuotaBytes == nil {
+		a.fail(w, r, 400, "VALIDATION", "password or quota_bytes is required", false)
+		return
+	}
+	before := map[string]any{"quota_bytes": mb.QuotaBytes}
+	if in.Password != nil {
+		if strings.TrimSpace(*in.Password) == "" {
+			a.fail(w, r, 400, "VALIDATION", "Mailbox password required", false)
+			return
+		}
+		hash, err := auth.HashPassword(*in.Password)
+		if err != nil {
+			a.fail(w, r, 400, "VALIDATION", "Could not hash mailbox password", false)
+			return
+		}
+		mb.PasswordHash = hash
+	}
+	if in.QuotaBytes != nil {
+		if *in.QuotaBytes < 0 {
+			a.fail(w, r, 400, "VALIDATION", "quota_bytes must be zero or greater", false)
+			return
+		}
+		mb.QuotaBytes = *in.QuotaBytes
+	}
+	mb.Status = "provisioning"
+	job, err := a.Store.UpsertMailboxWithJob(mb, &store.Job{
+		Type: "mailbox.provision", ResourceType: "mailbox", ResourceID: mb.ID,
+		Payload: map[string]any{"mailbox_id": mb.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mailbox.update", "mailbox", mb.ID, before, map[string]any{
+		"quota_bytes": mb.QuotaBytes, "password_rotated": in.Password != nil,
+	}))
+	if err != nil {
+		a.fail(w, r, 500, "MAILBOX_UPDATE_ERROR", "Could not persist mailbox update", true)
+		return
+	}
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "mailbox": mb})
+}
+
 func (a *API) deleteMailbox(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.MailWrite) {
@@ -3372,8 +3481,16 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		Path     string `json:"path"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
+	pathPrefix, err := sanitizedRestorePath(in.Path)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
 	if strings.TrimSpace(in.BackupID) == "" {
 		in.BackupID = latestAccountBackupID(a.Store, aid)
+		if in.BackupID == "" {
+			in.BackupID = latestSucceededBackupID(a.Store, aid)
+		}
 	}
 	b := a.Store.GetBackup(in.BackupID)
 	if b == nil || b.AccountID != aid {
@@ -3381,20 +3498,20 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key, _ := b.Manifest["key"].(string)
+	payload := map[string]any{"backup_id": in.BackupID, "account_id": aid, "mode": in.Mode}
+	if pathPrefix != "" {
+		payload["path"] = pathPrefix
+	}
 	journal := &store.RestoreJournal{
 		AccountID: aid, BackupID: in.BackupID, ActorID: actor(r).UserID,
 		ObjectKey: key, State: store.StateRestoreRequested,
-	}
-	payload := map[string]any{"backup_id": in.BackupID, "account_id": aid, "mode": in.Mode}
-	if path := strings.TrimSpace(in.Path); path != "" {
-		payload["path"] = path
 	}
 	job, err := a.Store.CreateRestoreWithJob(journal, &store.Job{
 		Type: "backup.restore", ResourceType: "backup", ResourceID: in.BackupID,
 		Payload: payload,
 		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
-	}, a.auditEvent(r, aid, "backup.restore", "backup", in.BackupID, nil, map[string]any{"mode": in.Mode, "path": in.Path}))
+	}, a.auditEvent(r, aid, "backup.restore", "backup", in.BackupID, nil, map[string]any{"mode": in.Mode, "path": pathPrefix}))
 	if err != nil {
 		if errors.Is(err, store.ErrRestoreInProgress) {
 			a.fail(w, r, 409, "RESTORE_IN_PROGRESS", "An account restore is already in progress", false)
@@ -3404,6 +3521,27 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 202, map[string]any{"operation_id": job.ID})
+}
+
+func sanitizedRestorePath(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	prefix := filepath.Clean(strings.TrimPrefix(raw, "/"))
+	if prefix == "." || prefix == "" || strings.Contains(prefix, "..") {
+		return "", fmt.Errorf("path must stay under the account home")
+	}
+	return prefix, nil
+}
+
+func latestSucceededBackupID(st store.Store, accountID string) string {
+	for _, b := range st.ListBackups(accountID) {
+		if b.State == "succeeded" {
+			return b.ID
+		}
+	}
+	return ""
 }
 
 func (a *API) listFiles(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { mailboxAddress } from './email-copy'
+import { mailDomainLabel, mailboxAddress } from './email-copy'
 
 describe('mailboxAddress', () => {
 	test('uses the mailbox domain instead of the account primary domain', () => {
@@ -9,5 +9,10 @@ describe('mailboxAddress', () => {
 			'shop.test',
 		)
 		expect(address).toBe('info@mail.shop.test')
+	})
+
+	test('labels mail domains by ascii_fqdn instead of UUID', () => {
+		expect(mailDomainLabel({ id: 'dom-uuid', ascii_fqdn: 'orbixtar.dpdns.org' })).toBe('orbixtar.dpdns.org')
+		expect(mailDomainLabel({ id: 'dom-uuid', domain_id: 'dom-uuid' })).toBe('dom-uuid')
 	})
 })

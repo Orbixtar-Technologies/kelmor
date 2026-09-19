@@ -152,6 +152,7 @@ func (h *Host) retargetACMEChallengeLocations() error {
 			return err
 		}
 		updated := strings.ReplaceAll(string(raw), staleRoot, nextRoot)
+		updated = ensureACMEChallengeLocation(updated)
 		if updated == string(raw) {
 			continue
 		}
@@ -160,6 +161,16 @@ func (h *Host) retargetACMEChallengeLocations() error {
 		}
 	}
 	return nil
+}
+
+func ensureACMEChallengeLocation(conf string) string {
+	if strings.Contains(conf, "/.well-known/acme-challenge/") {
+		return conf
+	}
+	if !strings.Contains(conf, "server {") {
+		return conf
+	}
+	return strings.ReplaceAll(conf, "server {\n", "server {\n"+configuration.NginxACMEChallengeLocation)
 }
 
 func (h *Host) exposeACMEWebroot() {

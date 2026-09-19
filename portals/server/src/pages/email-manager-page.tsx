@@ -1,6 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { MAILBOX_PASSWORD_STUB } from '../catalog-honesty'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
@@ -8,7 +7,7 @@ import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatBytes, formatDate, messageFrom, valueOf } from '../helpers'
 import { adminToolUrl } from '../admin-tool-url'
-import { mailboxAddress } from './email-copy'
+import { mailDomainLabel, mailboxAddress } from './email-copy'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
@@ -132,6 +131,40 @@ export function EmailManagerPage () {
 
 	function isTabEmpty (entry: EmailTab) {
 		return tabCount(entry) === 0
+	}
+
+	async function updateMailbox (mailboxId: string, event: FormEvent<HTMLFormElement>) {
+		event.preventDefault()
+		if (!accountId) return
+		const data = new FormData(event.currentTarget)
+		const password = String(data.get('password') || '')
+		const quotaRaw = String(data.get('quota_bytes') || '').trim()
+		const body: Record<string, string | number> = {}
+		if (password) body.password = password
+		if (quotaRaw) {
+			const quota = Number(quotaRaw)
+			if (!Number.isFinite(quota) || quota < 0) {
+				setMessage('Quota must be zero or greater.')
+				return
+			}
+			body.quota_bytes = quota
+		}
+		if (!Object.keys(body).length) {
+			setMessage('Enter a password or quota to update.')
+			return
+		}
+		try {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/mail/mailboxes/${mailboxId}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body),
+			})
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Mailbox update queued.'))
+			event.currentTarget.reset()
+			loadEmail(accountId)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
 	}
 
 	async function createMailbox (event: FormEvent<HTMLFormElement>) {
@@ -279,9 +312,8 @@ export function EmailManagerPage () {
 				</div>
 				{canWrite && tab === 'mailboxes' ? <section className="panel">
 					<h2>Create mailbox</h2>
-					<p className="subtle">{MAILBOX_PASSWORD_STUB}</p>
 					<form className="inline-form" onSubmit={createMailbox}>
-						<label>Domain<select name="domain_id" required>{domainOptions.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn') || valueOf(item, 'domain_id')}</option>)}</select></label>
+						<label>Domain<select name="domain_id" required>{domainOptions.map((item) => <option key={item.id} value={item.id}>{mailDomainLabel(item)}</option>)}</select></label>
 						<label>Local part<input name="local_part" placeholder="info" required /></label>
 						<label>Password<input name="password" type="password" required /></label>
 						<button type="submit">Create mailbox</button>
@@ -290,7 +322,7 @@ export function EmailManagerPage () {
 				{canWrite && tab === 'aliases' ? <section className="panel">
 					<h2>Create alias</h2>
 					<form className="inline-form" onSubmit={createAlias}>
-						<label>Domain<select name="domain_id" required>{domainOptions.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn') || valueOf(item, 'domain_id')}</option>)}</select></label>
+						<label>Domain<select name="domain_id" required>{domainOptions.map((item) => <option key={item.id} value={item.id}>{mailDomainLabel(item)}</option>)}</select></label>
 						<label>Address<input name="address" placeholder="support@example.com" required /></label>
 						<label>Destination<input name="destination" placeholder="owner@example.com" required /></label>
 						<button type="submit">Create alias</button>
@@ -300,7 +332,7 @@ export function EmailManagerPage () {
 					<h2>Create mailing list</h2>
 					<p className="subtle">Kelmor applies a multi-member Postfix alias. Mail to the list address is delivered to every member.</p>
 					<form className="inline-form" onSubmit={createList}>
-						<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn') || valueOf(item, 'domain_id')}</option>)}</select></label>
+						<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{mailDomainLabel(item)}</option>)}</select></label>
 						<label>List local part<input name="local_part" placeholder="staff" required /></label>
 						<label>Members<input name="members" placeholder="owner@example.com, ops@example.com" required /></label>
 						<button type="submit" disabled={!domains.length}>Create list</button>
@@ -310,7 +342,7 @@ export function EmailManagerPage () {
 				{canWrite && tab === 'domains' ? <section className="panel">
 					<h2>Catch-all routing</h2>
 					<form className="inline-form" onSubmit={patchCatchall}>
-						<label>Mail domain<select name="mail_domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'domain_id')}</option>)}</select></label>
+						<label>Mail domain<select name="mail_domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{mailDomainLabel(item)}</option>)}</select></label>
 						<label>Policy<input name="catchall_policy" placeholder="reject, discard, or local part" required /></label>
 						<button type="submit" disabled={!domains.length}>Update routing</button>
 					</form>
@@ -320,11 +352,11 @@ export function EmailManagerPage () {
 					{loading ? <LoadingState label="Loading email resources…" /> : null}
 					{!loading && tab === 'domains' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Domain</th><th>Catch-all</th><th>Status</th></tr></thead>
-						<tbody>{domains.map((item) => <tr key={item.id}><td>{valueOf(item, 'domain_id')}</td><td>{valueOf(item, 'catchall_policy')}</td><td><StatusBadge value={valueOf(item, 'status')} /></td></tr>)}</tbody>
+						<tbody>{domains.map((item) => <tr key={item.id}><td>{mailDomainLabel(item)}</td><td>{valueOf(item, 'catchall_policy')}</td><td><StatusBadge value={valueOf(item, 'status')} /></td></tr>)}</tbody>
 					</table></div> : null}
 					{!loading && tab === 'mailboxes' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Quota</th><th>Status</th><th>Actions</th></tr></thead>
-						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{mailboxAddress(item, domainOptions, account?.primary_domain || '')}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions">{webmailHref ? <a href={webmailHref} target="_blank" rel="noopener noreferrer">Open webmail</a> : null}<span className="subtle" title={MAILBOX_PASSWORD_STUB}>Password/quota: not available</span>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
+						<tbody>{mailboxes.map((item) => <tr key={item.id}><td>{mailboxAddress(item, domainOptions, account?.primary_domain || '')}</td><td>{formatBytes(Number(item.quota_bytes || 0))} limit</td><td><StatusBadge value={valueOf(item, 'status')} /></td><td><div className="row-actions">{webmailHref ? <a href={webmailHref} target="_blank" rel="noopener noreferrer">Open webmail</a> : null}{canWrite ? <form className="inline-form" onSubmit={(event) => { void updateMailbox(item.id, event) }}><input name="password" type="password" placeholder="New password" aria-label={`New password for ${mailboxAddress(item, domainOptions, account?.primary_domain || '')}`} /><input name="quota_bytes" type="number" min="0" defaultValue={Number(item.quota_bytes || 0)} aria-label={`Quota bytes for ${mailboxAddress(item, domainOptions, account?.primary_domain || '')}`} /><button type="submit">Update mailbox</button></form> : null}{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/mailboxes', item.id)}>Delete</button> : null}</div></td></tr>)}</tbody>
 					</table></div> : null}
 					{!loading && tab === 'aliases' ? <div className="table-wrap"><table className="dense-table">
 						<thead><tr><th>Address</th><th>Destination</th><th>Actions</th></tr></thead>

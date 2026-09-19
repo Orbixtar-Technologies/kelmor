@@ -109,6 +109,45 @@ func TestCreateBackupPersistsObjectKeyBeforeUpload(t *testing.T) {
 	}
 }
 
+func TestRestorePathPrefixLeavesSiblingHomeFiles(t *testing.T) {
+	st, w, acc := backupWorker(t)
+	home := filepath.Join(w.Agent.Root, "home", "bk42")
+	if err := os.WriteFile(filepath.Join(home, "keep.txt"), []byte("keep-original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := &store.BackupRun{ID: "bak-path", AccountID: acc.ID, Kind: "full", State: "queued", Destination: "local"}
+	st.PutBackup(b)
+	if err := w.createBackup(&store.Job{Payload: map[string]any{"backup_id": b.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "public_html", "index.html"), []byte("changed-index"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "keep.txt"), []byte("changed-keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.restoreBackup(&store.Job{
+		ID: "job-path-restore", ActorID: "user-1",
+		Payload: map[string]any{"backup_id": b.ID, "account_id": acc.ID, "path": "public_html"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	index, err := os.ReadFile(filepath.Join(home, "public_html", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(index) != "site" {
+		t.Fatalf("path restore missed public_html: %q", index)
+	}
+	keep, err := os.ReadFile(filepath.Join(home, "keep.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(keep) != "changed-keep" {
+		t.Fatalf("path restore overwrote sibling file: %q", keep)
+	}
+}
+
 func backupWorker(t *testing.T) (*store.Memory, *Worker, *store.Account) {
 	t.Helper()
 	st := store.NewMemory()

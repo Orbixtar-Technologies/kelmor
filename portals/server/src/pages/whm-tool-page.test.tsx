@@ -104,6 +104,7 @@ describe('WhmToolPage', () => {
 			return Promise.resolve({ values: {}, items: [] })
 		})
 		renderTool('/tools/file-dir-restore', { 'backups.restore': true, 'accounts.read': true })
+		expect(await screen.findByRole('heading', { name: 'File and Directory Restoration' })).toBeInTheDocument()
 		await screen.findByRole('option', { name: /shop/ })
 		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -127,10 +128,12 @@ describe('WhmToolPage', () => {
 			return Promise.resolve({ values: {}, items: [] })
 		})
 		renderTool('/tools/unsuspend-bandwidth', { 'accounts.suspend': true, 'accounts.read': true })
+		expect(await screen.findByRole('heading', { name: 'Unsuspend Bandwidth Exceeders' })).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
 		await user.click(screen.getByRole('button', { name: 'Confirm' }))
 		expect(api).toHaveBeenCalledWith('/api/v1/accounts/bulk/clear-bandwidth-hold', expect.objectContaining({ method: 'POST' }))
 		expect(api).not.toHaveBeenCalledWith('/api/v1/accounts/bulk/unsuspend', expect.anything())
+		expect(api).not.toHaveBeenCalledWith('/api/v1/accounts/bulk/unsuspend-bandwidth', expect.anything())
 	})
 
 	test('mail queue only mounts Postfix recipes', async () => {

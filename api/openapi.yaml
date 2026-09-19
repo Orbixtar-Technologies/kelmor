@@ -763,6 +763,28 @@ paths:
         "202": { description: queued }
         "403": { description: package mailbox limit exceeded }
   /accounts/{accountID}/mail/mailboxes/{mailboxID}:
+    patch:
+      operationId: patchMailbox
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: mailboxID
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string }
+                quota_bytes: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "202": { description: mailbox password or quota queued }
+        "400": { description: missing or invalid password/quota }
+        "404": { description: mailbox missing }
     delete:
       operationId: deleteMailbox
       x-capability: mail.write
@@ -1410,6 +1432,21 @@ paths:
       x-capability: accounts.suspend
       responses:
         "202": { description: bandwidth-hold clears queued }
+  /accounts/bulk/unsuspend-bandwidth:
+    post:
+      operationId: bulkUnsuspendBandwidth
+      x-capability: accounts.suspend
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "202": { description: bandwidth hold release jobs queued }
   /accounts/bulk/modify:
     post:
       operationId: bulkModifyAccounts

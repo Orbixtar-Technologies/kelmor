@@ -2364,6 +2364,125 @@ func TestCreateAccountExplainsTerminatedConflict(t *testing.T) {
 	assertAPIErrorCode(t, code, body, http.StatusConflict, "TERMINATED_ACCOUNT_EXISTS")
 }
 
+func TestPatchMailboxPasswordAndQuota(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "mbpatch1", "primary_domain": "mbpatch.test", "package_id": pkg,
+		"owner_email": "o@mbpatch.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	dom := &store.Domain{ID: id.New(), AccountID: aid, ASCII: "orbixtar.dpdns.org"}
+	st.PutDomain(dom)
+	md := &store.MailDomain{ID: id.New(), AccountID: aid, DomainID: dom.ID, Status: "active"}
+	st.PutMailDomain(md)
+	mb := &store.Mailbox{ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: "info", QuotaBytes: 1024, Status: "active"}
+	st.PutMailbox(mb)
+	domains := get(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/domains", admin)
+	items := domains["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["ascii_fqdn"] != "orbixtar.dpdns.org" {
+		t.Fatalf("mail domain list: %v", domains)
+	}
+	code, body := requestJSONStatus(t, http.MethodPatch, srv.URL+"/api/v1/accounts/"+aid+"/mail/mailboxes/"+mb.ID, admin, map[string]any{
+		"password": "MailboxPass!2026", "quota_bytes": 4096,
+	}, nil)
+	if code != http.StatusAccepted {
+		t.Fatalf("patch mailbox %d %v", code, body)
+	}
+	got := st.GetMailbox(mb.ID)
+	if got.QuotaBytes != 4096 || got.PasswordHash == "" || got.Status != "provisioning" {
+		t.Fatalf("mailbox after patch: %+v", got)
+	}
+}
+
+func TestRestoreBackupQueuesPathPrefix(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	pkg := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)[0].(map[string]any)["id"].(string)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "rstpath1", "primary_domain": "rstpath.test", "package_id": pkg,
+		"owner_email": "o@rstpath.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	st.PutBackup(&store.BackupRun{
+		ID: "bak-latest", AccountID: aid, Kind: "full", State: "succeeded", Destination: "local",
+		Manifest: map[string]any{"key": "object-1"},
+	})
+	code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/restores", admin, map[string]any{
+		"path": "public_html",
+	}, nil)
+	if code != http.StatusAccepted {
+		t.Fatalf("restore %d %v", code, body)
+	}
+	jobs := st.ListJobs("queued", 20)
+	found := false
+	for _, j := range jobs {
+		if j.Type == "backup.restore" && j.Payload["path"] == "public_html" && j.Payload["backup_id"] == "bak-latest" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("path restore job missing: %+v", jobs)
+	}
+	if code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/"+aid+"/restores", admin, map[string]any{
+		"backup_id": "bak-latest", "path": "../etc",
+	}, nil); code != http.StatusBadRequest {
+		t.Fatalf("traversal restore %d %v", code, body)
+	}
+}
+
+func TestBulkUnsuspendBandwidthHoldsOnly(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	held := &store.Account{ID: id.New(), Username: "held1", PrimaryDomain: "held.test", Status: "active", PackageID: st.ListPackages()[0].ID}
+	suspended := &store.Account{ID: id.New(), Username: "susp1", PrimaryDomain: "susp.test", Status: "suspended", PackageID: st.ListPackages()[0].ID}
+	st.PutAccount(held)
+	st.PutAccount(suspended)
+	st.PutUsage(&store.Usage{AccountID: held.ID, BandwidthHold: true, BandwidthBytes: 100})
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)
+	code, body := requestJSONStatus(t, http.MethodPost, srv.URL+"/api/v1/accounts/bulk/unsuspend-bandwidth", admin, map[string]any{}, nil)
+	if code != http.StatusAccepted {
+		t.Fatalf("bulk bandwidth %d %v", code, body)
+	}
+	ops, _ := body["operations"].([]any)
+	if len(ops) != 1 {
+		t.Fatalf("expected one hold release, got %v", body)
+	}
+	if st.GetAccount(suspended.ID).Status != "suspended" {
+		t.Fatal("suspended account was unsuspended")
+	}
+	if st.GetAccount(held.ID).Status != "active" {
+		t.Fatal("held account status changed")
+	}
+	found := false
+	for _, j := range st.ListJobs("queued", 20) {
+		if j.Type == "bandwidth.reset" && j.ResourceID == held.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("bandwidth.reset job missing")
+	}
+}
+
 func assertAPIErrorCode(t *testing.T, status int, body map[string]any, wantStatus int, wantCode string) {
 	t.Helper()
 	if status != wantStatus {

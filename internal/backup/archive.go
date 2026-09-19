@@ -185,7 +185,7 @@ func Restore(ctx context.Context, box *secret.Box, repo Repository, key, destHom
 			}
 			home = split
 		}
-		if err := unpackHome(home, destHome); err != nil {
+		if err := unpackHome(home, destHome, ""); err != nil {
 			return man, err
 		}
 		return man, nil
@@ -199,7 +199,7 @@ func Restore(ctx context.Context, box *secret.Box, repo Repository, key, destHom
 		if err != nil {
 			return err
 		}
-		return unpackHome(body, destHome)
+		return unpackHome(body, destHome, "")
 	}); err != nil {
 		return man, err
 	}
@@ -215,7 +215,11 @@ func Preflight(man Manifest, dest *store.Account) error {
 
 func PackHome(home string) ([]byte, error) { return packHome(home) }
 
-func UnpackHomeBytes(raw []byte, dest string) error { return unpackHome(raw, dest) }
+func UnpackHomeBytes(raw []byte, dest string) error { return unpackHome(raw, dest, "") }
+
+func UnpackHomePrefix(raw []byte, dest, prefix string) error {
+	return unpackHome(raw, dest, prefix)
+}
 
 func packHome(home string) ([]byte, error) {
 	var buf bytes.Buffer
@@ -252,7 +256,7 @@ func packHome(home string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func unpackHome(raw []byte, dest string) error {
+func unpackHome(raw []byte, dest, prefix string) error {
 	if err := os.MkdirAll(dest, unpackDirMode(dest)); err != nil {
 		return err
 	}
@@ -275,6 +279,9 @@ func unpackHome(raw []byte, dest string) error {
 		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
 			return fmt.Errorf("archive traversal")
 		}
+		if keep := homeRestorePrefix(prefix); keep != "" && name != keep && !strings.HasPrefix(name, keep+string(os.PathSeparator)) {
+			continue
+		}
 		target := filepath.Join(dest, name)
 		if !strings.HasPrefix(target, dest+string(os.PathSeparator)) && target != dest {
 			return fmt.Errorf("archive traversal")
@@ -295,6 +302,15 @@ func unpackHome(raw []byte, dest string) error {
 		}
 		_ = f.Close()
 	}
+}
+
+func homeRestorePrefix(raw string) string {
+	prefix := filepath.Clean(strings.TrimSpace(raw))
+	prefix = strings.TrimPrefix(prefix, "/")
+	if prefix == "." || prefix == "" || strings.Contains(prefix, "..") {
+		return ""
+	}
+	return prefix
 }
 
 func unpackDirMode(path string) os.FileMode {
