@@ -172,6 +172,9 @@ func hostConfigSpec(settings hostconfig.File) operations.HostConfigSpec {
 		NS1IP:             hostconfig.Field(settings, "nameserver_ips", "ns1_ip", ""),
 		NS2IP:             hostconfig.Field(settings, "nameserver_ips", "ns2_ip", ""),
 		MaxEmailsHour:     hostconfig.MaxEmailsHour(settings),
+		Profile:           hostconfig.Field(settings, "server_profile", "profile", ""),
+		ClusterPeers:      hostconfig.Lines(settings, "configuration_cluster", "peers"),
+		WriteCluster:      settings.Values["configuration_cluster"] != nil,
 	}
 }
 

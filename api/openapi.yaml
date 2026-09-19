@@ -1382,6 +1382,54 @@ paths:
       x-capability: server.settings.write
       responses:
         "202": { description: php-fpm install queued }
+  /server/modules:
+    get:
+      operationId: listLanguageModules
+      x-capability: server.read
+      responses:
+        "200": { description: Host-installed Perl, PEAR, PECL, and Ruby modules }
+    post:
+      operationId: installLanguageModule
+      x-capability: server.settings.write
+      responses:
+        "202": { description: Language module install queued }
+  /server/support-access:
+    get:
+      operationId: listSupportAccess
+      x-capability: server.settings.write
+      responses:
+        "200": { description: Active time-limited support sessions }
+    post:
+      operationId: grantSupportAccess
+      x-capability: server.settings.write
+      responses:
+        "200": { description: Support operator session issued }
+  /server/support-access/{grantID}:
+    delete:
+      operationId: revokeSupportAccess
+      x-capability: server.settings.write
+      parameters:
+        - { name: grantID, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Support session revoked }
+  /server/diagnostics:
+    get:
+      operationId: downloadDiagnostics
+      x-capability: server.read
+      responses:
+        "200": { description: Diagnostics tar.gz bundle }
+  /server/cluster/publish:
+    post:
+      operationId: publishClusterSnapshot
+      x-capability: server.settings.write
+      responses:
+        "200": { description: Package and feature-set snapshot written on the host }
+  /server/cluster/snapshot:
+    get:
+      operationId: getClusterSnapshot
+      x-capability: server.read
+      responses:
+        "200": { description: Last published cluster snapshot }
   /accounts/{accountID}/mail/lists:
     get:
       operationId: listMailingLists

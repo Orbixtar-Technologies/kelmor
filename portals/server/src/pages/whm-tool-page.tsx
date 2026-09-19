@@ -6,7 +6,11 @@ import { ErrorState, PageHeader, SectionHeading } from '../components/ui'
 import { messageFrom } from '../helpers'
 import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, Package } from '../types'
+import { ClusterPanel } from './cluster-panel'
+import { DiagnosticsPanel } from './diagnostics-panel'
 import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
+import { HostModulesPanel, moduleKindForFeature } from './host-modules-panel'
+import { SupportAccessPanel } from './support-access-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import {
@@ -357,13 +361,19 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 			</section>
 		)
 	}
-	if (feature.id === 'support-center' || feature.id === 'diagnostics-log') {
+	if (feature.id === 'support-center') {
 		return (
 			<section className="panel">
-				<p>For a support case collect: hostname from the top bar, recent Jobs, matching Audit events, and <code>PANEL_STATE_DIR/logs/api.jsonl</code> on the host.</p>
-				<p><Link to="/jobs">Jobs</Link> · <Link to="/audit">Audit Trail</Link></p>
+				<p>For a support case collect: hostname from the top bar, recent Jobs, matching Audit events, and a diagnostics archive.</p>
+				<p><Link to="/jobs">Jobs</Link> · <Link to="/audit">Audit Trail</Link> · <Link to="/section/system?tool=diagnostics-log">Download diagnostics</Link></p>
 			</section>
 		)
+	}
+	if (feature.id === 'diagnostics-log') return <DiagnosticsPanel />
+	if (feature.id === 'grant-support-access') return <SupportAccessPanel />
+	if (feature.id === 'configuration-cluster') return <ClusterPanel />
+	if (feature.id === 'module-installers' || feature.id === 'perl-modules' || feature.id === 'php-pear' || feature.id === 'php-pecl' || feature.id === 'ruby-gems') {
+		return <HostModulesPanel kind={moduleKindForFeature(feature.id)} />
 	}
 	if (feature.id === 'rearrange-account' && account) {
 		return (

@@ -318,22 +318,14 @@ func ValidIPList(values []string) []string {
 }
 
 var chromeOrDeferredKeys = map[string]bool{
-	"theme":                 true,
-	"locale":                true,
-	"customization":         true,
-	"external_auth":         true,
-	"two_factor":            true,
-	"configuration_cluster": true,
-	"linked_nodes":          true,
-	"remote_access_key":     true,
-	"module_installers":     true,
-	"perl_modules":          true,
-	"php_pear":              true,
-	"php_pecl":              true,
-	"ruby_gems":             true,
-	"mariadb_upgrade":       true,
-	"support_access":        true,
-	"server_profile":        true,
+	"theme":             true,
+	"locale":            true,
+	"customization":     true,
+	"external_auth":     true,
+	"two_factor":        true,
+	"linked_nodes":      true,
+	"remote_access_key": true,
+	"mariadb_upgrade":   true,
 }
 
 func NeedsHostApply(keys []string) bool {

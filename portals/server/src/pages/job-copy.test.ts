@@ -25,6 +25,8 @@ describe('formatJobType', () => {
 		expect(formatJobType('website.provision')).toBe('Create website')
 		expect(formatJobType('account.reconcile')).toBe('Apply account settings')
 		expect(formatJobType('database.create')).toBe('Create database')
+		expect(formatJobType('host.module.install')).toBe('Install language module')
+		expect(formatJobType('host.config.apply')).toBe('Apply host configuration')
 	})
 })
 

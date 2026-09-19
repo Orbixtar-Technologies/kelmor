@@ -15,18 +15,10 @@ describe('catalog honesty', () => {
 	test('labels only deferred policy records as local settings', () => {
 		const deferred = whmFeatures.filter((feature) => isLocalSettingsFeature(feature))
 		expect(deferred.map((feature) => feature.id).sort()).toEqual([
-			'configuration-cluster',
 			'external-auth',
-			'grant-support-access',
 			'link-nodes',
-			'module-installers',
 			'mysql-upgrade',
-			'perl-modules',
-			'php-pear',
-			'php-pecl',
 			'remote-access-key',
-			'ruby-gems',
-			'server-profile',
 			'two-factor',
 		])
 		for (const feature of deferred) {
@@ -44,6 +36,15 @@ describe('catalog honesty', () => {
 		expect(isLocalSettingsFeature(featureById('tweak-settings')!)).toBe(false)
 		expect(isHostSettingsFeature(featureById('change-hostname')!)).toBe(true)
 		expect(isHostSettingsFeature(featureById('spamd-startup')!)).toBe(true)
+		expect(isHostSettingsFeature(featureById('server-profile')!)).toBe(true)
+		expect(isLocalSettingsFeature(featureById('server-profile')!)).toBe(false)
+		expect(isLocalSettingsToolId('module-installers')).toBe(false)
+		expect(isLocalSettingsToolId('perl-modules')).toBe(false)
+		expect(isLocalSettingsToolId('php-pear')).toBe(false)
+		expect(isLocalSettingsToolId('php-pecl')).toBe(false)
+		expect(isLocalSettingsToolId('ruby-gems')).toBe(false)
+		expect(isLocalSettingsToolId('configuration-cluster')).toBe(false)
+		expect(isLocalSettingsToolId('grant-support-access')).toBe(false)
 		expect(HOST_SETTINGS_BANNER).toMatch(/host apply job/i)
 	})
 

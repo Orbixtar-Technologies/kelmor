@@ -711,6 +711,41 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.ensurePHPRuntime(p.Version)
+	case "ListLanguageModules":
+		var p struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.listLanguageModules(p.Kind)
+	case "InstallLanguageModule":
+		var p struct {
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.installLanguageModule(p.Kind, p.Name)
+	case "CollectDiagnostics":
+		return h.collectDiagnostics()
+	case "WriteClusterSnapshot":
+		var p struct {
+			Snapshot json.RawMessage `json:"snapshot"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.writeClusterSnapshot(p.Snapshot)
+	case "ReadClusterSnapshot":
+		raw, err := h.readClusterSnapshot()
+		if err != nil {
+			return nil, err
+		}
+		var payload any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return nil, err
+		}
+		return payload, nil
 	default:
 		return nil, fmt.Errorf("unknown operation %q", req.Method)
 	}

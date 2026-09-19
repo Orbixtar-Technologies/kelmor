@@ -305,6 +305,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.installWordPress(j)
 	case "php.runtime.ensure":
 		return w.ensurePHPRuntime(j)
+	case "host.module.install":
+		return w.installLanguageModule(j)
 	case "database.provision":
 		return w.provisionDB(j)
 	case "database.delete":
@@ -827,6 +829,14 @@ func (w *Worker) ensurePHPRuntime(j *store.Job) error {
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "EnsurePHPRuntime",
 		Params: mustJSON(map[string]any{"version": version}),
+	})
+	return err
+}
+
+func (w *Worker) installLanguageModule(j *store.Job) error {
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "InstallLanguageModule",
+		Params: mustJSON(map[string]any{"kind": str(j.Payload["kind"]), "name": str(j.Payload["name"])}),
 	})
 	return err
 }

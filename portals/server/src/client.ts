@@ -32,3 +32,21 @@ export async function api<T> (path: string, init: RequestInit = {}): Promise<T> 
 	}
 	return data as T
 }
+
+export async function download (path: string, filename: string): Promise<void> {
+	const headers = new Headers()
+	const token = getToken()
+	if (token) headers.set('Authorization', `Bearer ${token}`)
+	const res = await fetch(path, { headers, credentials: 'include' })
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({})) as APIError
+		throw new Error(data.error?.message || res.statusText)
+	}
+	const blob = await res.blob()
+	const objectUrl = URL.createObjectURL(blob)
+	const link = document.createElement('a')
+	link.href = objectUrl
+	link.download = filename
+	link.click()
+	URL.revokeObjectURL(objectUrl)
+}

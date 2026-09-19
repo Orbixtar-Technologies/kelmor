@@ -27,17 +27,9 @@ export const DATABASE_USER_MODEL = 'Kelmor provisions one database user per engi
 const DEFERRED_SETTING_KEYS = new Set([
 	'external_auth',
 	'two_factor',
-	'configuration_cluster',
 	'linked_nodes',
 	'remote_access_key',
-	'module_installers',
-	'perl_modules',
-	'php_pear',
-	'php_pecl',
-	'ruby_gems',
 	'mariadb_upgrade',
-	'support_access',
-	'server_profile',
 ])
 
 const CHROME_SETTING_KEYS = new Set([
