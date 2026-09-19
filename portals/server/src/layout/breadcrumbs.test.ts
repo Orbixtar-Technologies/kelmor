@@ -1,7 +1,19 @@
 import { describe, expect, test } from 'vitest'
-import { directorBreadcrumbs } from './breadcrumbs'
+import { dedicatedToolPaths } from '../dedicated-tool-routes'
+import { featureById } from '../whm-catalog'
+import { directorBreadcrumbs, directorCrumbLabels } from './breadcrumbs'
 
 const labels = { jobs: 'Jobs', accounts: 'Accounts' }
+
+function lastSegmentCrumbLabels (): Record<string, string> {
+	return {
+		packages: 'Packages',
+		...Object.fromEntries(Object.entries(dedicatedToolPaths).map(([id, path]) => {
+			const segment = path.split('/').pop() || id
+			return [segment, featureById(id)?.label || segment]
+		})),
+	}
+}
 
 describe('directorBreadcrumbs', () => {
 	test('makes account ancestors navigable', () => {
@@ -41,5 +53,37 @@ describe('directorBreadcrumbs', () => {
 			{ label: 'Home', to: '/' },
 			{ label: 'Server Configuration' },
 		])
+	})
+
+	test('package add/delete breadcrumbs do not reuse DNS Zone labels', () => {
+		const add = directorBreadcrumbs('/packages/add', directorCrumbLabels)
+		const remove = directorBreadcrumbs('/packages/delete', directorCrumbLabels)
+		const addTrail = add.map((crumb) => crumb.label).join(' / ')
+		const deleteTrail = remove.map((crumb) => crumb.label).join(' / ')
+
+		expect(addTrail).not.toMatch(/DNS Zone/)
+		expect(deleteTrail).not.toMatch(/DNS Zone/)
+		expect(add.at(-1)?.label).toBe('Add a Package')
+		expect(remove.at(-1)?.label).toBe('Delete a Package')
+		expect(directorBreadcrumbs('/domains/add', directorCrumbLabels).at(-1)?.label).toBe('Add a DNS Zone')
+		expect(directorBreadcrumbs('/domains/delete', directorCrumbLabels).at(-1)?.label).toBe('Delete a DNS Zone')
+	})
+
+	test('keeps package crumbs distinct when last-segment labels collide', () => {
+		const colliding = lastSegmentCrumbLabels()
+		expect(colliding.add).toBe('Add a DNS Zone')
+		expect(directorBreadcrumbs('/packages/add', colliding).at(-1)?.label).toBe('Add a Package')
+		expect(directorBreadcrumbs('/packages/delete', colliding).at(-1)?.label).toBe('Delete a Package')
+	})
+
+	test('dedicated tool crumbs keep colliding last segments distinct', () => {
+		expect(directorBreadcrumbs('/accounts/password', directorCrumbLabels).at(-1)?.label).toBe('Password Modification')
+		expect(directorBreadcrumbs('/sql/password', directorCrumbLabels).at(-1)?.label).toBe('Change Database User Password')
+		expect(directorBreadcrumbs('/status', directorCrumbLabels).at(-1)?.label).toBe('Service Status')
+		expect(directorBreadcrumbs('/ssl/status', directorCrumbLabels).at(-1)?.label).toBe('SSL/TLS Status')
+		expect(directorBreadcrumbs('/usage', directorCrumbLabels).at(-1)?.label).toBe('Account Usage')
+		expect(directorBreadcrumbs('/resellers/usage', directorCrumbLabels).at(-1)?.label).toBe('View Reseller Usage and Manage Account Status')
+		expect(directorBreadcrumbs('/processes', directorCrumbLabels).at(-1)?.label).toBe('Process Manager')
+		expect(directorBreadcrumbs('/sql/processes', directorCrumbLabels).at(-1)?.label).toBe('Show MySQL Processes')
 	})
 })
