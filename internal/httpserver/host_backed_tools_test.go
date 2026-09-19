@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -92,12 +93,26 @@ func TestConfigurationClusterSettingsQueueHostApply(t *testing.T) {
 	}
 
 	published := post(t, srv.URL+"/api/v1/server/cluster/publish", token, map[string]any{})
-	if published["ok"] != true {
-		t.Fatalf("publish: %v", published)
+	if published["operation_id"] == nil {
+		t.Fatalf("publish must queue a host job: %v", published)
+	}
+	publishJob := st.GetJob(published["operation_id"].(string))
+	if publishJob == nil || publishJob.Type != "cluster.snapshot.publish" {
+		t.Fatalf("publish job: %+v", publishJob)
+	}
+	if publishJob.ResourceID != "" {
+		t.Fatalf("resource_id must stay empty for host jobs: %q", publishJob.ResourceID)
 	}
 	snap := get(t, srv.URL+"/api/v1/server/cluster/snapshot", token)
 	if snap["packages"] == nil && snap["feature_sets"] == nil {
 		t.Fatalf("snapshot: %v", snap)
+	}
+	caps, _ := snap["capabilities"].(map[string]any)
+	if caps["peer_membership"] != true || caps["snapshot_publish"] != true || caps["peer_health_probe"] != true {
+		t.Fatalf("single-node capabilities: %v", caps)
+	}
+	if caps["live_multi_node"] == true {
+		t.Fatalf("live multi-node must stay unavailable: %v", caps)
 	}
 }
 
@@ -189,5 +204,104 @@ func TestSupportAccessRejectsInvalidTicket(t *testing.T) {
 	})
 	if code != http.StatusBadRequest {
 		t.Fatalf("ticket %d", code)
+	}
+}
+
+func TestConfigurationClusterImportAndPeerProbe(t *testing.T) {
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(peer.Close)
+
+	srv, st, token := directorFixture(t)
+	imported := post(t, srv.URL+"/api/v1/server/cluster/snapshot/import", token, map[string]any{
+		"snapshot": map[string]any{
+			"note": "imported fixture", "packages": []any{map[string]any{"name": "Imported"}},
+		},
+	})
+	if imported["operation_id"] == nil {
+		t.Fatalf("import must queue a host job: %v", imported)
+	}
+	job := st.GetJob(imported["operation_id"].(string))
+	if job == nil || job.Type != "cluster.snapshot.import" {
+		t.Fatalf("import job: %+v", job)
+	}
+
+	probed := post(t, srv.URL+"/api/v1/server/cluster/probe", token, map[string]any{
+		"url": peer.URL,
+	})
+	if probed["operation_id"] == nil {
+		t.Fatalf("probe must queue a host job: %v", probed)
+	}
+	probeJob := st.GetJob(probed["operation_id"].(string))
+	if probeJob == nil || probeJob.Type != "cluster.peer.probe" {
+		t.Fatalf("probe job: %+v", probeJob)
+	}
+	items, _ := probed["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("probe items: %v", probed)
+	}
+	row, _ := items[0].(map[string]any)
+	if row["ok"] != true || row["url"] != peer.URL {
+		t.Fatalf("probe row: %v", row)
+	}
+
+	code, _ := postStatus(t, srv.URL+"/api/v1/server/cluster/probe", token, map[string]any{
+		"url": "https://evil.test; rm -rf /",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("hostile probe %d", code)
+	}
+}
+
+func TestRemoteAccessKeyIsHostAppliedAndHonored(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	issued := post(t, srv.URL+"/api/v1/server/remote-access-key", token, map[string]any{})
+	key, _ := issued["key"].(string)
+	if !strings.HasPrefix(key, "hp_remote_") || issued["operation_id"] == nil {
+		t.Fatalf("issue: %v", issued)
+	}
+	job := st.GetJob(issued["operation_id"].(string))
+	if job == nil || job.Type != "host.remote_access.apply" {
+		t.Fatalf("apply job: %+v", job)
+	}
+	listed := get(t, srv.URL+"/api/v1/server/remote-access-key", token)
+	if listed["applied"] != true || listed["key"] != nil {
+		t.Fatalf("status must hide the secret: %v", listed)
+	}
+	if listed["host_path"] != "/etc/panel/remote-access-key" {
+		t.Fatalf("host path: %v", listed)
+	}
+
+	me := get(t, srv.URL+"/api/v1/me", key)
+	actor, _ := me["actor"].(map[string]any)
+	caps, _ := actor["capabilities"].(map[string]any)
+	if caps[rbac.ServerRead] != true || actor["is_server_scope"] != true {
+		t.Fatalf("remote key actor: %v", me)
+	}
+
+	revoked := doJSON(t, http.MethodDelete, srv.URL+"/api/v1/server/remote-access-key", token, nil)
+	if revoked["operation_id"] == nil {
+		t.Fatalf("revoke: %v", revoked)
+	}
+	if status, _ := doStatus(t, http.MethodGet, srv.URL+"/api/v1/me", key, nil); status != http.StatusUnauthorized {
+		t.Fatalf("revoked key still works: %d", status)
+	}
+}
+
+func TestRemoteAccessKeyRequiresServerTokenCapability(t *testing.T) {
+	srv, st, _ := directorFixture(t)
+	putUpdateTestUser(t, st, "key-auditor", "auditor")
+	token := loginUpdateTestUser(t, srv.URL, "key-auditor", "UpdateTestPass!2026")
+	if status, _ := doStatus(t, http.MethodGet, srv.URL+"/api/v1/server/remote-access-key", token, nil); status != http.StatusForbidden {
+		t.Fatalf("auditor must not read remote key: %d", status)
+	}
+	if status, _ := postStatus(t, srv.URL+"/api/v1/server/remote-access-key", token, map[string]any{}); status != http.StatusForbidden {
+		t.Fatalf("auditor must not issue remote key")
 	}
 }

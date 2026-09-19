@@ -101,6 +101,44 @@ func (w *Worker) loadHostSettings() hostconfig.File {
 	return f
 }
 
+func (w *Worker) writeClusterSnapshotJob(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent missing")
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "WriteClusterSnapshot",
+		Params: mustJSON(map[string]any{"snapshot": j.Payload["snapshot"]}),
+	})
+	return err
+}
+
+func (w *Worker) probeClusterPeersJob(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent missing")
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ProbeClusterPeers",
+		Params: mustJSON(map[string]any{"urls": j.Payload["urls"]}),
+	})
+	return err
+}
+
+func (w *Worker) applyRemoteAccessKeyJob(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent missing")
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "WriteRemoteAccessKey",
+		Params: mustJSON(map[string]any{
+			"prefix":     str(j.Payload["prefix"]),
+			"hash":       str(j.Payload["hash"]),
+			"created_at": str(j.Payload["created_at"]),
+			"revoked":    payloadBool(j.Payload["revoked"], false),
+		}),
+	})
+	return err
+}
+
 func (w *Worker) setupInitialQuotaJob(j *store.Job) error {
 	if w.Agent == nil {
 		return fmt.Errorf("agent missing")

@@ -3,7 +3,9 @@ package operations
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 )
 
 const (
@@ -94,6 +96,10 @@ func (h *Host) writeClusterMembership(peers []string) error {
 	return err
 }
 
+func ClusterPeerOK(raw string) bool {
+	return clusterPeerOK(raw)
+}
+
 func clusterPeerOK(raw string) bool {
 	if len(raw) > 256 || strings.ContainsAny(raw, " \t\n;|&$`") {
 		return false
@@ -134,4 +140,46 @@ func (h *Host) readServerProfile() string {
 		return ""
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+func (h *Host) probeClusterPeers(urls []string) (any, error) {
+	items := make([]map[string]any, 0, len(urls))
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+	for _, raw := range urls {
+		raw = strings.TrimSpace(raw)
+		if !clusterPeerOK(raw) {
+			return nil, fmt.Errorf("invalid cluster peer URL")
+		}
+		target := strings.TrimRight(raw, "/") + "/healthz"
+		started := time.Now()
+		req, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "text/plain, application/json")
+		res, err := client.Do(req)
+		row := map[string]any{
+			"url":        raw,
+			"ok":         false,
+			"latency_ms": time.Since(started).Milliseconds(),
+		}
+		if err != nil {
+			row["error"] = err.Error()
+			items = append(items, row)
+			continue
+		}
+		_ = res.Body.Close()
+		row["status"] = res.StatusCode
+		row["ok"] = res.StatusCode < 400
+		items = append(items, row)
+	}
+	return map[string]any{"items": items}, nil
 }

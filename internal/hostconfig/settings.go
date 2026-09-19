@@ -318,11 +318,10 @@ func ValidIPList(values []string) []string {
 }
 
 var chromeOrDeferredKeys = map[string]bool{
-	"theme":             true,
-	"locale":            true,
-	"customization":     true,
-	"remote_access_key": true,
-	"mariadb_upgrade":   true,
+	"theme":           true,
+	"locale":          true,
+	"customization":   true,
+	"mariadb_upgrade": true,
 }
 
 func TwoFactorRequired(f File) bool {

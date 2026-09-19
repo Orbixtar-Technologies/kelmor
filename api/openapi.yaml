@@ -1575,13 +1575,41 @@ paths:
       operationId: publishClusterSnapshot
       x-capability: server.settings.write
       responses:
-        "200": { description: Package and feature-set snapshot written on the host }
+        "202": { description: Package and feature-set snapshot publish queued }
   /server/cluster/snapshot:
     get:
       operationId: getClusterSnapshot
       x-capability: server.read
       responses:
         "200": { description: Last published cluster snapshot }
+  /server/cluster/snapshot/import:
+    post:
+      operationId: importClusterSnapshot
+      x-capability: server.settings.write
+      responses:
+        "202": { description: Imported cluster snapshot write queued }
+  /server/cluster/probe:
+    post:
+      operationId: probeClusterPeers
+      x-capability: server.settings.write
+      responses:
+        "202": { description: Peer health probe queued }
+  /server/remote-access-key:
+    get:
+      operationId: getRemoteAccessKey
+      x-capability: api_tokens.read
+      responses:
+        "200": { description: Remote access key status without the secret }
+    post:
+      operationId: issueRemoteAccessKey
+      x-capability: api_tokens.write
+      responses:
+        "202": { description: Host-applied remote access key issued }
+    delete:
+      operationId: revokeRemoteAccessKey
+      x-capability: api_tokens.write
+      responses:
+        "202": { description: Remote access key revoked on the host }
   /accounts/{accountID}/mail/lists:
     get:
       operationId: listMailingLists
@@ -1614,6 +1642,15 @@ paths:
         - { name: listID, in: path, required: true, schema: { type: string } }
       responses:
         "202": { description: list alias deleted }
+  /accounts/{accountID}/mail/lists/{listID}/reset-password:
+    post:
+      operationId: resetMailingListPassword
+      x-capability: mail.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: listID, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: list owner mailbox password queued }
   /accounts/bulk/suspend:
     post:
       operationId: bulkSuspend

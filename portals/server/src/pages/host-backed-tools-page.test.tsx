@@ -32,10 +32,32 @@ beforeEach(() => {
 			return { items: [{ id: 'grant-1', ticket: 'CASE-1', expires_at: '2099-01-01T00:00:00Z' }] }
 		}
 		if (path === '/api/v1/server/cluster/publish') {
-			return { ok: true, snapshot: { published_at: '2099-01-01T00:00:00Z', packages: [{}], feature_sets: [{}], note: 'snapshot' } }
+			return { operation_id: 'job-cluster-1', snapshot: { published_at: '2099-01-01T00:00:00Z', packages: [{}], feature_sets: [{}], note: 'snapshot' } }
+		}
+		if (path === '/api/v1/server/cluster/snapshot/import') {
+			return { operation_id: 'job-cluster-import' }
+		}
+		if (path === '/api/v1/server/cluster/probe') {
+			return { operation_id: 'job-cluster-probe', items: [{ url: 'https://peer.example.test:2087', ok: true, status: 200 }] }
 		}
 		if (path === '/api/v1/server/cluster/snapshot') {
-			return { packages: [{ name: 'Starter' }], feature_sets: [{ name: 'full-hosting' }] }
+			return {
+				packages: [{ name: 'Starter' }],
+				feature_sets: [{ name: 'full-hosting' }],
+				capabilities: {
+					peer_membership: true, snapshot_publish: true, snapshot_export: true,
+					snapshot_import: true, peer_health_probe: true, live_multi_node: false,
+				},
+			}
+		}
+		if (path === '/api/v1/server/remote-access-key' && init?.method === 'POST') {
+			return { operation_id: 'job-rak-1', key: 'hp_remote_secret', prefix: 'hp_remote_se', host_path: '/etc/panel/remote-access-key', created_at: '2099-01-01T00:00:00Z' }
+		}
+		if (path === '/api/v1/server/remote-access-key' && init?.method === 'DELETE') {
+			return { operation_id: 'job-rak-2', revoked: true }
+		}
+		if (path === '/api/v1/server/remote-access-key') {
+			return { applied: true, prefix: 'hp_remote_se', host_path: '/etc/panel/remote-access-key', created_at: '2099-01-01T00:00:00Z' }
 		}
 		if (path === '/api/v1/server/settings' && init?.method === 'PATCH') {
 			return { operation_id: 'job-host-1', values: {} }
@@ -51,7 +73,7 @@ beforeEach(() => {
 function renderTool (path: string) {
 	return render(
 		<MemoryRouter initialEntries={[path]}>
-			<CapProvider caps={{ 'server.settings.write': true, 'server.read': true }}>
+			<CapProvider caps={{ 'server.settings.write': true, 'server.read': true, 'api_tokens.write': true, 'api_tokens.read': true }}>
 				<Routes>
 					<Route path="section/:hubId" element={<HubPage />} />
 				</Routes>
@@ -68,6 +90,7 @@ describe('host-backed Director tools', () => {
 		['/section/websites?tool=php-pecl', 'Install a PHP PECL Module'],
 		['/section/websites?tool=ruby-gems', 'Install a Ruby Gem'],
 		['/section/server?tool=configuration-cluster', 'Configuration Cluster'],
+		['/section/server?tool=remote-access-key', 'Remote Access Key'],
 		['/section/server?tool=server-profile', 'Server Profile'],
 		['/section/system?tool=grant-support-access', 'Grant Support Access'],
 		['/section/system?tool=diagnostics-log', 'Download a Diagnostics File'],
@@ -115,8 +138,24 @@ describe('host-backed Director tools', () => {
 		const user = userEvent.setup()
 		renderTool('/section/server?tool=configuration-cluster')
 		expect(await screen.findByText(/not live-replicate/i)).toBeInTheDocument()
+		expect(screen.getByRole('table', { name: 'Cluster capability matrix' })).toHaveTextContent('Unavailable')
+		expect(screen.queryByRole('button', { name: /apply to all nodes/i })).not.toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Publish package snapshot' }))
-		expect(await screen.findByText(/snapshot written on the host/i)).toBeInTheDocument()
+		expect(await screen.findByText(/Job job-cluster-1/)).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Probe peer health' }))
+		expect(client.api).toHaveBeenCalledWith('/api/v1/server/cluster/probe', expect.objectContaining({ method: 'POST' }))
+	})
+
+	test('remote access key issues and revokes a host-applied secret', async () => {
+		const user = userEvent.setup()
+		renderTool('/section/server?tool=remote-access-key')
+		expect(await screen.findByRole('heading', { name: 'Remote Access Key' })).toBeInTheDocument()
+		expect(screen.getAllByText('/etc/panel/remote-access-key').length).toBeGreaterThan(0)
+		expect(screen.queryByText(LOCAL_SETTINGS_BANNER)).not.toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Regenerate key' }))
+		expect(await screen.findByText('hp_remote_secret')).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Revoke key' }))
+		expect(client.api).toHaveBeenCalledWith('/api/v1/server/remote-access-key', expect.objectContaining({ method: 'DELETE' }))
 	})
 
 	test('server profile save queues host apply', async () => {

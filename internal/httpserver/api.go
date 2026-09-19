@@ -108,6 +108,11 @@ func (a *API) Handler() http.Handler {
 			r.Get("/server/diagnostics", a.downloadDiagnostics)
 			r.Post("/server/cluster/publish", a.publishClusterSnapshot)
 			r.Get("/server/cluster/snapshot", a.getClusterSnapshot)
+			r.Post("/server/cluster/snapshot/import", a.importClusterSnapshot)
+			r.Post("/server/cluster/probe", a.probeClusterPeers)
+			r.Get("/server/remote-access-key", a.getRemoteAccessKey)
+			r.Post("/server/remote-access-key", a.issueRemoteAccessKey)
+			r.Delete("/server/remote-access-key", a.revokeRemoteAccessKey)
 			r.Get("/server/updates", a.updateStatus)
 			r.Post("/server/updates/check", a.checkUpdate)
 			r.Post("/server/updates/install", a.installUpdate)
@@ -199,6 +204,7 @@ func (a *API) Handler() http.Handler {
 				r.Post("/mail/lists", a.createMailingList)
 				r.Patch("/mail/lists/{listID}", a.updateMailingList)
 				r.Delete("/mail/lists/{listID}", a.deleteMailingList)
+				r.Post("/mail/lists/{listID}/reset-password", a.resetMailingListPassword)
 				r.Get("/certificates", a.listCerts)
 				r.Post("/certificates", a.requestCert)
 				r.Get("/backups", a.listBackups)
@@ -553,6 +559,14 @@ func (a *API) authenticate(next http.Handler) http.Handler {
 		}
 		if token == "" {
 			a.fail(w, r, 401, "UNAUTHENTICATED", "Authentication required", false)
+			return
+		}
+		if actor, ok := a.authenticateRemoteAccessKey(token); ok {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxActor{}, actor)))
+			return
+		}
+		if strings.HasPrefix(token, remoteAccessKeyPrefix) {
+			a.fail(w, r, 401, "INVALID_TOKEN", "Token rejected", false)
 			return
 		}
 		if strings.HasPrefix(token, "hp_live_") {
@@ -959,7 +973,7 @@ func retryCapability(jobType string) string {
 		return rbac.WebsitesWrite
 	case "application.deploy", "wordpress.install", "application.retire":
 		return rbac.ApplicationsWrite
-	case "php.runtime.ensure", "host.module.install":
+	case "php.runtime.ensure", "host.module.install", "cluster.snapshot.publish", "cluster.snapshot.import", "cluster.peer.probe", "host.remote_access.apply":
 		return rbac.ServerSettingsWrite
 	case "database.provision", "database.delete":
 		return rbac.DatabasesWrite

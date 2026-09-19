@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/hosting-panel/panel/agent/operations"
+	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/pkg/validate"
@@ -287,7 +288,7 @@ func (a *API) createMailingList(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "MAIL_LIST_CREATE_ERROR", "Could not persist mailing list", true)
 		return
 	}
-	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "list": mailingListFromAlias(al, "provisioning")})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "list": mailingListFromAlias(a.Store, al, "provisioning")})
 }
 
 func (a *API) updateMailingList(w http.ResponseWriter, r *http.Request) {
@@ -323,7 +324,7 @@ func (a *API) updateMailingList(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "MAIL_LIST_UPDATE_ERROR", "Could not persist mailing list update", true)
 		return
 	}
-	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "list": mailingListFromAlias(al, "provisioning")})
+	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "list": mailingListFromAlias(a.Store, al, "provisioning")})
 }
 
 func (a *API) deleteMailingList(w http.ResponseWriter, r *http.Request) {
@@ -376,12 +377,97 @@ func mailingListsFor(st store.Store, accountID string) []map[string]any {
 		if !isMailingList(&alias) {
 			continue
 		}
-		out = append(out, mailingListFromAlias(&alias, "active"))
+		out = append(out, mailingListFromAlias(st, &alias, "active"))
 	}
 	return out
 }
 
-func mailingListFromAlias(alias *store.MailAlias, status string) map[string]any {
+func listOwnerLocalPart(localPart string) string {
+	return strings.TrimSpace(localPart) + "-owner"
+}
+
+func (a *API) resetMailingListPassword(w http.ResponseWriter, r *http.Request) {
+	aid := chi.URLParam(r, "accountID")
+	if !a.requireAccount(w, r, aid, rbac.MailWrite) {
+		return
+	}
+	al := a.Store.GetMailAlias(chi.URLParam(r, "listID"))
+	if al == nil || al.AccountID != aid || !isMailingList(al) {
+		a.fail(w, r, 404, "NOT_FOUND", "mailing list missing", false)
+		return
+	}
+	var in struct {
+		Password string `json:"password"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if strings.TrimSpace(in.Password) == "" {
+		a.fail(w, r, 400, "VALIDATION", "Mailbox password required", false)
+		return
+	}
+	md := resolveMailDomain(a.Store, aid, al.DomainID)
+	if md == nil {
+		a.fail(w, r, 400, "VALIDATION", "Mail domain is not provisioned yet", false)
+		return
+	}
+	ownerLocal := listOwnerLocalPart(al.Address)
+	if err := validate.LocalPart(ownerLocal); err != nil {
+		a.fail(w, r, 400, "VALIDATION", "owner mailbox: "+err.Error(), false)
+		return
+	}
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		a.fail(w, r, 400, "VALIDATION", "Could not hash mailbox password", false)
+		return
+	}
+	quota := int64(1 << 30)
+	if pkg := a.accountPackage(aid); pkg != nil && pkg.MailboxStorageBytes > 0 {
+		quota = pkg.MailboxStorageBytes
+	}
+	mb := &store.Mailbox{
+		ID: id.New(), AccountID: aid, DomainID: md.ID, LocalPart: ownerLocal,
+		QuotaBytes: quota, PasswordHash: hash, Status: "provisioning",
+	}
+	updating := false
+	for _, existing := range a.Store.ListMailboxes(aid) {
+		if existing.DomainID == md.ID && existing.LocalPart == ownerLocal {
+			existing.PasswordHash = hash
+			existing.Status = "provisioning"
+			cp := existing
+			mb = &cp
+			updating = true
+			break
+		}
+	}
+	if !updating {
+		if msg := mailLocalPartConflict(a.Store, aid, md.ID, ownerLocal); msg != "" && msg != "mailbox already exists" {
+			a.fail(w, r, 409, "CONFLICT", msg, false)
+			return
+		}
+		if err := a.enforceCountLimit(aid, "mailboxes", len(a.Store.ListMailboxes(aid)), func(p *store.Package) int { return p.Mailboxes }); err != nil {
+			a.rejectLimit(w, r, err)
+			return
+		}
+	}
+	job, err := a.Store.UpsertMailboxWithJob(mb, &store.Job{
+		Type: "mailbox.provision", ResourceType: "mailbox", ResourceID: mb.ID,
+		Payload: map[string]any{"mailbox_id": mb.ID, "account_id": aid},
+		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	}, a.auditEvent(r, aid, "mail.list.reset_password", "mailbox", mb.ID, nil, map[string]any{
+		"list_id": al.ID, "local_part": mb.LocalPart,
+	}))
+	if err != nil {
+		a.fail(w, r, 500, "MAIL_LIST_PASSWORD_ERROR", "Could not persist list owner mailbox", true)
+		return
+	}
+	writeJSON(w, 202, map[string]any{
+		"operation_id": job.ID,
+		"mailbox":      mb,
+		"list":         mailingListFromAlias(a.Store, al, "active"),
+	})
+}
+
+func mailingListFromAlias(st store.Store, alias *store.MailAlias, status string) map[string]any {
 	members := make([]string, 0)
 	for _, part := range strings.Split(alias.Destination, ",") {
 		part = strings.TrimSpace(part)
@@ -392,14 +478,26 @@ func mailingListFromAlias(alias *store.MailAlias, status string) map[string]any 
 	if status == "" {
 		status = "active"
 	}
-	return map[string]any{
-		"id":         alias.ID,
-		"account_id": alias.AccountID,
-		"domain_id":  alias.DomainID,
-		"local_part": alias.Address,
-		"members":    members,
-		"status":     status,
+	ownerLocal := listOwnerLocalPart(alias.Address)
+	out := map[string]any{
+		"id":               alias.ID,
+		"account_id":       alias.AccountID,
+		"domain_id":        alias.DomainID,
+		"local_part":       alias.Address,
+		"members":          members,
+		"status":           status,
+		"owner_local_part": ownerLocal,
 	}
+	if st != nil {
+		for _, mb := range st.ListMailboxes(alias.AccountID) {
+			if mb.DomainID == alias.DomainID && mb.LocalPart == ownerLocal {
+				out["owner_mailbox_id"] = mb.ID
+				out["owner_status"] = mb.Status
+				break
+			}
+		}
+	}
+	return out
 }
 
 func normalizeAliasDestinations(raw string) (string, error) {

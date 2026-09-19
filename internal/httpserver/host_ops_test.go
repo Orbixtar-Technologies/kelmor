@@ -168,6 +168,63 @@ func TestMailingListUsesAliasExpansion(t *testing.T) {
 	}
 }
 
+func TestResetMailingListPasswordQueuesOwnerMailbox(t *testing.T) {
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	admin := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+	pkgs := get(t, srv.URL+"/api/v1/packages", admin)["items"].([]any)
+	acc := post(t, srv.URL+"/api/v1/accounts", admin, map[string]string{
+		"username": "listpw", "primary_domain": "listpw.test", "package_id": pkgs[0].(map[string]any)["id"].(string),
+		"owner_email": "owner@listpw.test", "owner_password": "TenantPass!2026",
+	})
+	aid := acc["resource_id"].(string)
+	st.PutMailDomain(&store.MailDomain{ID: "md-listpw", AccountID: aid, DomainID: firstDomainID(st, aid), Status: "active"})
+	created := post(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/lists", admin, map[string]any{
+		"domain_id":  "md-listpw",
+		"local_part": "staff",
+		"members":    []string{"owner@listpw.test", "ops@listpw.test"},
+	})
+	list, _ := created["list"].(map[string]any)
+	listID, _ := list["id"].(string)
+	if listID == "" {
+		t.Fatalf("create list: %v", created)
+	}
+
+	reset := post(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/lists/"+listID+"/reset-password", admin, map[string]any{
+		"password": "ListOwnerPass!2026",
+	})
+	if reset["operation_id"] == nil {
+		t.Fatalf("reset must queue mailbox provision: %v", reset)
+	}
+	job := st.GetJob(reset["operation_id"].(string))
+	if job == nil || job.Type != "mailbox.provision" {
+		t.Fatalf("job: %+v", job)
+	}
+	mailbox, _ := reset["mailbox"].(map[string]any)
+	if mailbox["local_part"] != "staff-owner" {
+		t.Fatalf("owner mailbox: %v", reset)
+	}
+	listed := get(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/lists", admin)["items"].([]any)
+	row, _ := listed[0].(map[string]any)
+	if row["owner_local_part"] != "staff-owner" || row["owner_mailbox_id"] == nil {
+		t.Fatalf("list owner fields: %v", row)
+	}
+
+	code, _ := postStatus(t, srv.URL+"/api/v1/accounts/"+aid+"/mail/lists/"+listID+"/reset-password", admin, map[string]any{
+		"password": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("empty password %d", code)
+	}
+}
+
 func TestHostAppEnableGuardsWordPressAndAccount(t *testing.T) {
 	st := store.NewMemory()
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {

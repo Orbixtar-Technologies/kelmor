@@ -242,6 +242,21 @@ export function EmailManagerPage () {
 		}
 	}
 
+	async function resetListPassword (listId: string, password: string) {
+		if (!accountId) return
+		try {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/mail/lists/${listId}/reset-password`, {
+				method: 'POST',
+				body: JSON.stringify({ password }),
+			})
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'List owner mailbox password queued.'))
+			loadEmail(accountId)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
 	async function updateList (listId: string, membersRaw: string) {
 		if (!accountId) return
 		const members = membersRaw.split(',').map((part) => part.trim()).filter(Boolean)
@@ -312,7 +327,7 @@ export function EmailManagerPage () {
 				<section className="task-guidance" aria-label="Reset a mailing list password">
 					<div>
 						<strong>Reset a Mailing List Password</strong>
-						<p>Kelmor lists are Postfix aliases, not GNU Mailman, so there is no list admin password to rotate. Edit members below, or open the Mailboxes tab to rotate a mailbox password.</p>
+						<p>Kelmor lists are Postfix aliases, not GNU Mailman. Reset rotates the host-backed <code>{'{list}'}-owner</code> mailbox password so the list owner can sign in over IMAP/webmail.</p>
 					</div>
 				</section>
 			) : null}
@@ -379,7 +394,7 @@ export function EmailManagerPage () {
 						<tbody>{aliases.map((item) => <tr key={item.id}><td>{valueOf(item, 'address')}</td><td>{valueOf(item, 'destination')}</td><td>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/aliases', item.id)}>Delete</button> : null}</td></tr>)}</tbody>
 					</table></div> : null}
 					{!loading && tab === 'lists' ? <div className="table-wrap"><table className="dense-table">
-						<thead><tr><th>List</th><th>Members</th><th>Status</th><th>Actions</th></tr></thead>
+						<thead><tr><th>List</th><th>Members</th><th>Owner mailbox</th><th>Status</th><th>Actions</th></tr></thead>
 						<tbody>{lists.map((item) => (
 							<tr key={item.id}>
 								<td>{valueOf(item, 'local_part')}</td>
@@ -395,8 +410,24 @@ export function EmailManagerPage () {
 										</form>
 									) : listMembers(item).join(', ')}
 								</td>
+								<td>{valueOf(item, 'owner_local_part') || `${valueOf(item, 'local_part')}-owner`}</td>
 								<td><StatusBadge value={valueOf(item, 'status') || 'active'} /></td>
-								<td>{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/lists', item.id)}>Delete</button> : null}</td>
+								<td>
+									<div className="row-actions">
+										{canWrite ? (
+											<form className="inline-form" onSubmit={(event) => {
+												event.preventDefault()
+												const data = new FormData(event.currentTarget)
+												void resetListPassword(item.id, String(data.get('password') || ''))
+												event.currentTarget.reset()
+											}}>
+												<input name="password" type="password" required placeholder="New owner password" aria-label={`New owner password for ${valueOf(item, 'local_part')}`} />
+												<button type="submit">Reset owner password</button>
+											</form>
+										) : null}
+										{canWrite ? <button type="button" className="link-button danger-text" onClick={() => removeItem('mail/lists', item.id)}>Delete</button> : null}
+									</div>
+								</td>
 							</tr>
 						))}</tbody>
 					</table></div> : null}
