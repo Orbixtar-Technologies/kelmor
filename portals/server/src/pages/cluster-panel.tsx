@@ -62,7 +62,7 @@ export function ClusterPanel () {
 				method: 'POST',
 				body: '{}',
 			})
-			setSnapshot(result.snapshot || result)
+			setSnapshot(result.snapshot ?? null)
 			setMessage('Package and feature-set snapshot written on the host.')
 		} catch (reason) {
 			setError(messageFrom(reason))
