@@ -79,7 +79,7 @@ describe('EmailManagerPage mailboxes', () => {
 			if (String(path).endsWith('/mail/domains')) {
 				return Promise.resolve({ items: [{ id: 'md-2', ascii_fqdn: 'mail.shop.test' }] })
 			}
-			if (String(path).endsWith('/mail/mailboxes') && options?.method === 'PATCH') {
+			if (String(path).includes('/mail/mailboxes/mb-1') && options?.method === 'PATCH') {
 				return Promise.resolve({ operation_id: 'job-mb' })
 			}
 			if (String(path).endsWith('/mail/mailboxes')) {
@@ -126,7 +126,8 @@ describe('EmailManagerPage domains', () => {
 			return Promise.resolve({ items: [] })
 		})
 		renderEmail('/email?account=acc-1&tab=domains')
-		expect(await screen.findByText('orbixtar.dpdns.org')).toBeInTheDocument()
+		expect(await screen.findByRole('cell', { name: 'orbixtar.dpdns.org' })).toBeInTheDocument()
+		expect(screen.getByRole('option', { name: 'orbixtar.dpdns.org' })).toBeInTheDocument()
 		expect(screen.queryByText('dom-uuid')).not.toBeInTheDocument()
 	})
 })
