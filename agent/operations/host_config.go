@@ -223,8 +223,13 @@ func nginxDefaults(spec HostConfigSpec) string {
 	b.WriteString("# index " + indexes + "\n")
 	b.WriteString("client_max_body_size " + body + ";\n")
 	b.WriteString("keepalive_timeout " + keep + ";\n")
+	// Ubuntu nginx.conf already sets `gzip on` in http{}. A second gzip
+	// in conf.d/panel-defaults.conf makes nginx -t fail ("directive is
+	// duplicate"). Record the nginx-manager setting as a comment only.
 	if spec.Gzip {
-		b.WriteString("gzip on;\n")
+		b.WriteString("# gzip on; not redeclared (http gzip already set in nginx.conf)\n")
+	} else {
+		b.WriteString("# gzip off; not redeclared (would duplicate nginx.conf gzip)\n")
 	}
 	if spec.HTTPSRedirect {
 		b.WriteString("# https_redirect=on for new vhosts\n")
