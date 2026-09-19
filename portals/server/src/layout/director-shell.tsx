@@ -102,7 +102,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const toolAccountName = toolAccountId ? accounts.find((account) => account.id === toolAccountId)?.username : undefined
 	const crumbs = directorBreadcrumbs(location.pathname, crumbLabels, accountName, toolAccountName)
 	const currentHub = hubForLocation(location.pathname, location.search)
-	const showHubTabs = Boolean(currentHub && shouldShowHubTabs(location.pathname))
+	const showHubTabs = Boolean(currentHub && shouldShowHubTabs(location.pathname, location.search))
 	function dismissMobileNavigation () {
 		setMobileOpen(false)
 		menuButtonRef.current?.focus()

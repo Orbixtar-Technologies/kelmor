@@ -185,10 +185,13 @@ describe('Sidebar interactions', () => {
 		function renderShell (path: string) {
 			return render(
 				<MemoryRouter initialEntries={[path]}>
-					<CapProvider caps={{ 'accounts.read': true, 'server.read': true }}>
+					<CapProvider caps={{ 'accounts.read': true, 'server.read': true, 'packages.read': true }}>
 						<Routes>
 							<Route element={<DirectorShell me={me} onSignOut={vi.fn()} />}>
+								<Route index element={<p>Home content</p>} />
 								<Route path="accounts" element={<p>Account inventory</p>} />
+								<Route path="accounts/create" element={<p>Create account wizard</p>} />
+								<Route path="packages" element={<p>Package inventory</p>} />
 								<Route path="jobs" element={<p>Job queue</p>} />
 								<Route path="section/:hubId" element={<p>Catalog tool</p>} />
 							</Route>
@@ -198,8 +201,23 @@ describe('Sidebar interactions', () => {
 			)
 		}
 
+		renderShell('/')
+		expect(screen.getByText('Home content')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		cleanup()
+
 		renderShell('/accounts')
 		expect(screen.getByText('Account inventory')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		cleanup()
+
+		renderShell('/accounts/create')
+		expect(screen.getByText('Create account wizard')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		cleanup()
+
+		renderShell('/packages')
+		expect(screen.getByText('Package inventory')).toBeInTheDocument()
 		expect(document.querySelector('.hub-chrome')).toBeNull()
 		cleanup()
 
@@ -208,9 +226,41 @@ describe('Sidebar interactions', () => {
 		expect(document.querySelector('.hub-chrome')).toBeNull()
 		cleanup()
 
-		renderShell('/section/server?tool=tweak-settings')
+		renderShell('/section/server')
 		expect(screen.getByText('Catalog tool')).toBeInTheDocument()
 		expect(document.querySelector('.hub-chrome')).not.toBeNull()
+	})
+
+	test('does not dump hub catalogs onto dedicated tool routes', () => {
+		function renderShell (path: string) {
+			return render(
+				<MemoryRouter initialEntries={[path]}>
+					<CapProvider caps={{ 'accounts.read': true, 'server.read': true, 'resellers.read': true }}>
+						<Routes>
+							<Route element={<DirectorShell me={me} onSignOut={vi.fn()} />}>
+								<Route path="section/:hubId" element={<p>Selected tool workflow</p>} />
+							</Route>
+						</Routes>
+					</CapProvider>
+				</MemoryRouter>,
+			)
+		}
+
+		renderShell('/section/accounts?tool=change-site-ip')
+		expect(screen.getByText('Selected tool workflow')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		expect(screen.queryByRole('navigation', { name: /tools$/i })).not.toBeInTheDocument()
+		cleanup()
+
+		renderShell('/section/packages?tool=email-resellers')
+		expect(screen.getByText('Selected tool workflow')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		expect(screen.queryByRole('navigation', { name: /tools$/i })).not.toBeInTheDocument()
+		cleanup()
+
+		renderShell('/section/server?tool=tweak-settings')
+		expect(screen.getByText('Selected tool workflow')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
 	})
 
 	test('shows the host resources bar on Home only', async () => {

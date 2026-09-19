@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { DirectorShell } from '../layout/director-shell'
 import { CapProvider } from '../rbac'
+import type { Me } from '../types'
 import { HubPage, HubTabs, ToolRedirect } from './hub-page'
 
 const api = vi.fn().mockResolvedValue({ values: {}, items: [] })
@@ -12,9 +14,23 @@ vi.mock('../client', () => ({
 	asList: (value: { items?: unknown[] }) => value.items || [],
 }))
 
+const me: Me = {
+	user: { username: 'operator', roles: [], email: 'operator@example.com' },
+	actor: { capabilities: {} },
+}
+
+beforeEach(() => {
+	vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+		matches: false,
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn(),
+	}))
+})
+
 afterEach(() => {
 	cleanup()
 	api.mockClear()
+	vi.unstubAllGlobals()
 })
 
 function renderPath (path: string) {
@@ -46,6 +62,38 @@ describe('HubPage', () => {
 	test('sends legacy /tools/:id links to the combined hub', async () => {
 		renderPath('/tools/change-hostname')
 		expect(await screen.findByRole('heading', { name: 'Change Hostname' })).toBeInTheDocument()
+	})
+
+	test('selected section tools render the journey without hub catalogs', async () => {
+		function renderTool (path: string) {
+			return render(
+				<MemoryRouter initialEntries={[path]}>
+					<CapProvider caps={{ 'accounts.modify': true, 'accounts.read': true, 'resellers.read': true, 'server.settings.write': true }}>
+						<Routes>
+							<Route element={<DirectorShell me={me} onSignOut={() => undefined} />}>
+								<Route path="section/:hubId" element={<HubPage />} />
+							</Route>
+						</Routes>
+					</CapProvider>
+				</MemoryRouter>,
+			)
+		}
+
+		renderTool('/section/accounts?tool=change-site-ip')
+		expect(await screen.findByRole('heading', { name: "Change Site's IP Address" })).toBeInTheDocument()
+		expect(screen.getByRole('list', { name: 'Workflow' })).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		expect(screen.queryByRole('heading', { name: 'Account Functions' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('heading', { name: 'Account Information' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('heading', { name: 'Multi Account Functions' })).not.toBeInTheDocument()
+		cleanup()
+
+		renderTool('/section/packages?tool=email-resellers')
+		expect(await screen.findByRole('heading', { name: 'Email All Resellers' })).toBeInTheDocument()
+		expect(screen.getByRole('list', { name: 'Workflow' })).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		expect(screen.queryByRole('heading', { name: 'Packages' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('heading', { name: 'Resellers' })).not.toBeInTheDocument()
 	})
 })
 

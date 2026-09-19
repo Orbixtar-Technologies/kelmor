@@ -287,8 +287,10 @@ export function isAccountDetailPath (pathname: string): boolean {
 	return /^\/accounts\/(?!create(?:\/|$))[^/]+/.test(pathname)
 }
 
-export function shouldShowHubTabs (pathname: string): boolean {
-	return pathname.startsWith('/section/')
+export function shouldShowHubTabs (pathname: string, search = ''): boolean {
+	if (!pathname.startsWith('/section/')) return false
+	const params = new URLSearchParams(search.startsWith('?') ? search : search ? `?${search}` : '')
+	return !params.get('tool')
 }
 
 function hubIndex (feature: WhmFeature): number {

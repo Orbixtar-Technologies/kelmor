@@ -24,11 +24,13 @@ For the route-by-route WHM pattern mapping, see
 - Breadcrumbs preserve location context throughout the application.
 
 The sidebar and Home list the entire WHM-mapped catalog so operators can learn
-every journey. Dedicated managers (List Accounts, Create Account, Jobs, and
-the other first-class pages) stay as the tool itself; sibling catalog tabs
-appear only on `/section/:hub` pages. Write buttons stay disabled without the
-matching capability, and the API remains the security boundary. Generic tools
-live at `/tools/:id`.
+every journey. Dedicated managers (List Accounts, Create Account, Packages,
+Jobs, and the other first-class pages) stay as the tool itself. Sibling
+catalog tabs appear only on `/section/:hub` landings with no selected tool.
+Dedicated tool routes (`?tool=`, account-action, and settings journeys) render
+breadcrumbs plus the tool workflow only. Write buttons stay disabled without
+the matching capability, and the API remains the security boundary. Generic
+tools live at `/tools/:id`.
 
 ## Home
 

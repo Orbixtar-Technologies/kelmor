@@ -78,12 +78,18 @@ describe('nav hubs', () => {
 		expect(visibleHubs(toolCatalog).map((hub) => hub.id)).toEqual(navHubs.map((hub) => hub.id))
 	})
 
-	test('keeps sibling hub tabs on catalog section pages only', () => {
+	test('keeps sibling hub tabs on catalog section landings only', () => {
 		expect(shouldShowHubTabs('/section/server')).toBe(true)
 		expect(shouldShowHubTabs('/section/accounts')).toBe(true)
+		expect(shouldShowHubTabs('/section/packages')).toBe(true)
+		expect(shouldShowHubTabs('/section/accounts', '?tool=change-site-ip')).toBe(false)
+		expect(shouldShowHubTabs('/section/packages', '?tool=email-resellers')).toBe(false)
+		expect(shouldShowHubTabs('/section/server', '?tool=tweak-settings')).toBe(false)
+		expect(shouldShowHubTabs('/section/accounts', 'tool=limit-bandwidth')).toBe(false)
 		expect(shouldShowHubTabs('/accounts')).toBe(false)
 		expect(shouldShowHubTabs('/accounts/create')).toBe(false)
 		expect(shouldShowHubTabs('/accounts/acc-1')).toBe(false)
+		expect(shouldShowHubTabs('/packages')).toBe(false)
 		expect(shouldShowHubTabs('/jobs')).toBe(false)
 		expect(shouldShowHubTabs('/')).toBe(false)
 	})
