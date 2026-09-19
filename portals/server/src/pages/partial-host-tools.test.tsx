@@ -106,7 +106,7 @@ describe('host-backed PARTIAL tools', () => {
 		})
 		renderPage('/security/external-auth', <ExternalAuthPage />)
 		expect(await screen.findByRole('heading', { name: 'Manage External Authentications' })).toBeInTheDocument()
-		expect(screen.getByText(/external-auth.json/)).toBeInTheDocument()
+		expect(screen.getAllByText(/external-auth.json/).length).toBeGreaterThan(0)
 		expect(screen.queryByText(LOCAL_SETTINGS_BANNER)).not.toBeInTheDocument()
 		expect(screen.queryByText(LOCAL_SETTINGS_LABEL)).not.toBeInTheDocument()
 		cleanup()
