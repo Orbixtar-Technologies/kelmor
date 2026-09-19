@@ -33,6 +33,7 @@ import { SqlToolPage } from './pages/sql-tool-page'
 import { ServiceStatusPage } from './pages/service-status-page'
 import { TrackDeliveryPage } from './pages/track-delivery-page'
 import { TransfersPage } from './pages/transfers-page'
+import { UpdateToolPage } from './pages/update-tool-page'
 import { UpdatesPage } from './pages/updates-page'
 import { UsagePage } from './pages/usage-page'
 import { WebsitesPage } from './pages/websites-page'
@@ -125,8 +126,8 @@ export function App () {
 					<Route path="jobs" element={(capabilities['server.read'] || capabilities['accounts.read']) ? <JobsPage /> : <Forbidden title="Jobs" />} />
 					<Route path="jobs/queue" element={(capabilities['server.read'] || capabilities['accounts.read']) ? <JobsPage /> : <Forbidden title="Jobs" />} />
 					<Route path="updates" element={allowed('server.read', <UpdatesPage />)} />
-					<Route path="updates/preferences" element={allowed('server.read', <UpdatesPage />)} />
-					<Route path="updates/changelog" element={allowed('server.read', <UpdatesPage />)} />
+					<Route path="updates/preferences" element={allowed('server.read', <UpdateToolPage toolId="preferences" />)} />
+					<Route path="updates/changelog" element={allowed('server.read', <UpdateToolPage toolId="changelog" />)} />
 					<Route path="audit" element={allowed('security.audit.read', <AuditPage />)} />
 					<Route path="usage" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />
 					<Route path="usage/disk" element={allowed(['billing.usage.read', 'accounts.read', 'packages.read'], <UsagePage />)} />

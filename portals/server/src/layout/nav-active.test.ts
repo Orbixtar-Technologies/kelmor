@@ -35,6 +35,9 @@ const catalog = [
 	tool('mail-delivery-reports', '/mail/delivery-reports', 'Email'),
 	tool('track-delivery', '/mail/track-delivery', 'Email'),
 	tool('review-transfers', '/jobs?q=transfer', 'Transfers'),
+	tool('updates', '/updates', 'System Tools'),
+	tool('update-preferences', '/updates/preferences', 'Server Configuration'),
+	tool('change-log', '/updates/changelog', 'cPanel'),
 ]
 
 function activeIds (pathname: string, search = '') {
@@ -84,6 +87,12 @@ describe('isDirectorToolActive', () => {
 		expect(activeIds('/domains')).toEqual(['list-domains'])
 		expect(activeIds('/domains', '?view=subdomain')).toEqual(['list-subdomains'])
 		expect(activeIds('/domains', '?view=alias')).toEqual(['list-parked'])
+	})
+
+	test('highlights only the matching dedicated update tool', () => {
+		expect(activeIds('/updates')).toEqual(['updates'])
+		expect(activeIds('/updates/preferences')).toEqual(['update-preferences'])
+		expect(activeIds('/updates/changelog')).toEqual(['change-log'])
 	})
 
 	test('highlights only the matching dedicated SSL tool', () => {

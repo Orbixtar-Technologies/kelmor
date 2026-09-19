@@ -86,4 +86,21 @@ describe('directorBreadcrumbs', () => {
 		expect(directorBreadcrumbs('/processes', directorCrumbLabels).at(-1)?.label).toBe('Process Manager')
 		expect(directorBreadcrumbs('/sql/processes', directorCrumbLabels).at(-1)?.label).toBe('Show MySQL Processes')
 	})
+
+	test('update preference and changelog crumbs stay exclusive of Software Updates', () => {
+		expect(directorBreadcrumbs('/updates', directorCrumbLabels)).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'Software Updates' },
+		])
+		expect(directorBreadcrumbs('/updates/preferences', directorCrumbLabels)).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'Software Updates', to: '/updates' },
+			{ label: 'Update Preferences' },
+		])
+		expect(directorBreadcrumbs('/updates/changelog', directorCrumbLabels)).toEqual([
+			{ label: 'Home', to: '/' },
+			{ label: 'Software Updates', to: '/updates' },
+			{ label: 'Change Log' },
+		])
+	})
 })

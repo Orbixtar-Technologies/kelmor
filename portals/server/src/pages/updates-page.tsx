@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import { managerFocus } from '../dedicated-tool-routes'
 import { api } from '../client'
 import { ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
@@ -19,7 +17,6 @@ interface UpdateStatus {
 }
 
 export function UpdatesPage () {
-	const focus = managerFocus(useLocation().pathname, '/updates')
 	const canManage = useCan('server.settings.write')
 	const [status, setStatus] = useState<UpdateStatus | null>(null)
 	const [loading, setLoading] = useState(true)
@@ -74,12 +71,8 @@ export function UpdatesPage () {
 		status.available_release !== status.installed_release)
 	return <>
 		<PageHeader
-			title={focus === 'preferences' ? 'Update Preferences' : focus === 'changelog' ? 'Change Log' : 'Software Updates'}
-			description={focus === 'preferences'
-				? 'Release channel and automatic install policy for this host.'
-				: focus === 'changelog'
-					? 'Operator-facing notes for this host’s Kelmor release channel.'
-					: 'This page shows the running panel binaries. Check now only reads the local signed feed on this host, not GitHub Releases. Upgrade a live host with get-kelmor.sh from the latest GitHub release.'}
+			title="Software Updates"
+			description="This page shows the running panel binaries. Check now only reads the local signed feed on this host, not GitHub Releases. Upgrade a live host with get-kelmor.sh from the latest GitHub release."
 		/>
 		{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
 		{message ? <p className="feedback" role="status">{message}</p> : null}
