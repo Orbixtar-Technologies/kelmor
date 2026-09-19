@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { api, clearToken, getToken, setToken } from './client'
+import { api, clearToken, getToken } from './client'
 import { DirectorShell } from './layout/director-shell'
 import { AccountFunctionPage } from './pages/account-function-page'
 import { AccountServicesPage } from './pages/account-services-page'
@@ -26,8 +26,15 @@ import { SSLManagerPage } from './pages/ssl-manager-page'
 import { WebmailPage } from './pages/webmail-page'
 import { JobsPage } from './pages/jobs-page'
 import { PackagesPage } from './pages/packages-page'
+import { ExternalAuthPage } from './pages/external-auth-page'
+import { InitialQuotaPage } from './pages/initial-quota-page'
+import { LinkNodesPage } from './pages/link-nodes-page'
+import { LoginPage } from './pages/login-page'
+import { ResetBandwidthPage } from './pages/reset-bandwidth-page'
 import { ResellerUsagePage } from './pages/reseller-usage-page'
 import { ResellersPage } from './pages/resellers-page'
+import { SkeletonDirectoryPage } from './pages/skeleton-directory-page'
+import { TwoFactorPage } from './pages/two-factor-page'
 import { SecurityPage } from './pages/security-page'
 import { SecurityToolPage } from './pages/security-tool-page'
 import { SqlToolPage } from './pages/sql-tool-page'
@@ -41,7 +48,7 @@ import { WebsitesPage } from './pages/websites-page'
 import { HubPage, ToolRedirect } from './pages/hub-page'
 import { CapProvider, Forbidden, hasCapabilities } from './rbac'
 import type { ReactNode } from 'react'
-import type { Me, User } from './types'
+import type { Me } from './types'
 
 export function App () {
 	const [me, setMe] = useState<Me | null>(null)
@@ -75,6 +82,8 @@ export function App () {
 					<Route path="accounts/login-control" element={allowed(['accounts.read', 'accounts.impersonate'], <AccountFunctionPage toolId="login-control" />)} />
 					<Route path="accounts/summary" element={allowed('accounts.read', <AccountFunctionPage toolId="account-summary" />)} />
 					<Route path="accounts/tokens" element={allowed('api_tokens.read', <AccountFunctionPage toolId="api-tokens-whm" />)} />
+					<Route path="accounts/reset-bandwidth" element={allowed('accounts.modify', <ResetBandwidthPage />)} />
+					<Route path="accounts/skeleton" element={allowed('server.read', <SkeletonDirectoryPage />)} />
 					<Route path="accounts/:id" element={allowed('accounts.read', <AccountSummaryPage />)} />
 					<Route path="accounts/:id/services" element={allowed('accounts.read', <AccountServicesPage />)} />
 					<Route path="packages" element={allowed('packages.read', <PackagesPage />)} />
@@ -114,11 +123,15 @@ export function App () {
 					<Route path="ssl/service" element={allowed('websites.read', <SSLManagerPage />)} />
 					<Route path="processes" element={allowed('server.read', <ProcessManagerPage />)} />
 					<Route path="processes/daily" element={allowed('server.read', <ProcessManagerPage />)} />
+					<Route path="server/link-nodes" element={allowed('server.settings.write', <LinkNodesPage />)} />
+					<Route path="server/initial-quota" element={allowed('server.read', <InitialQuotaPage />)} />
 					<Route path="status" element={allowed('server.read', <ServiceStatusPage />)} />
 					<Route path="status/info" element={allowed('server.read', <ServiceStatusPage focus="info" />)} />
 					<Route path="status/services" element={allowed('server.read', <ServiceStatusPage focus="services" />)} />
 					<Route path="status/http" element={allowed('server.read', <ServiceStatusPage focus="http" />)} />
 					<Route path="security" element={allowed('server.read', <SecurityPage />)} />
+					<Route path="security/external-auth" element={allowed('server.settings.write', <ExternalAuthPage />)} />
+					<Route path="security/two-factor" element={allowed('server.settings.write', <TwoFactorPage />)} />
 					<Route path="security/advisor" element={allowed('server.read', <SecurityToolPage toolId="advisor" />)} />
 					<Route path="security/reboot" element={allowed('server.read', <SecurityToolPage toolId="reboot" />)} />
 					<Route path="security/force-reboot" element={allowed('server.read', <SecurityToolPage toolId="force-reboot" />)} />
@@ -144,18 +157,3 @@ export function App () {
 	)
 }
 
-interface LoginPageProps {
-	onLogin: (me: Me) => void
-}
-
-function LoginPage ({ onLogin }: LoginPageProps) {
-	const [error, setError] = useState('')
-	return <main className="auth"><section className="login-card"><div className="login-brand"><span>K</span><div><strong>Kelmor Director</strong><small>Server administration</small></div></div><h1>Sign in</h1><p>Access your Kelmor host, accounts, services, and background operations.</p><form onSubmit={async (event) => {
-		event.preventDefault(); setError('')
-		const data = new FormData(event.currentTarget)
-		try {
-			const result = await api<{ token: string; user: User }>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ username: data.get('username'), password: data.get('password') }) })
-			setToken(result.token); onLogin(await api<Me>('/api/v1/me'))
-		} catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Sign in failed.') }
-	}}><label>Username<input name="username" autoComplete="username" required autoFocus /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label>{error ? <p className="field-error" role="alert">{error}</p> : null}<button type="submit">Sign in to Kelmor Director</button></form></section></main>
-}

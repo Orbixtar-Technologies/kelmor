@@ -1,63 +1,93 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, asList } from '../client'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
-import { messageFrom } from '../helpers'
-import type { Account, Reseller } from '../types'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
+import { formatBytes, messageFrom, percent } from '../helpers'
+import { useCan } from '../rbac'
+
+interface ResellerUsageRow {
+	id: string
+	name: string
+	brand_name?: string
+	status: string
+	accounts: number
+	active: number
+	suspended: number
+	disk_bytes: number
+	disk_limit: number
+	bandwidth_bytes: number
+	bandwidth_limit: number
+	bandwidth_holds: number
+}
 
 export function ResellerUsagePage () {
-	const [resellers, setResellers] = useState<Reseller[]>([])
-	const [accounts, setAccounts] = useState<Account[]>([])
+	const canReset = useCan('accounts.modify')
+	const [rows, setRows] = useState<ResellerUsageRow[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
+	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 
 	function load () {
 		setLoading(true)
 		setError('')
-		Promise.allSettled([
-			api<{ items: Reseller[] }>('/api/v1/resellers'),
-			api<{ items: Account[] }>('/api/v1/accounts'),
-		]).then(([resellerResult, accountResult]) => {
-			if (resellerResult.status === 'fulfilled') setResellers(asList(resellerResult.value))
-			else setError(messageFrom(resellerResult.reason))
-			if (accountResult.status === 'fulfilled') setAccounts(asList(accountResult.value))
-		}).finally(() => setLoading(false))
+		api<{ items: ResellerUsageRow[] }>('/api/v1/resellers/usage')
+			.then((result) => setRows(asList(result)))
+			.catch((reason) => setError(messageFrom(reason)))
+			.finally(() => setLoading(false))
 	}
 	useEffect(load, [])
 
-	const rows = useMemo(() => resellers.map((reseller) => {
-		const owned = accounts.filter((account) => account.reseller_id === reseller.id)
-		return {
-			reseller,
-			total: owned.length,
-			suspended: owned.filter((account) => account.status === 'suspended').length,
-			active: owned.filter((account) => account.status === 'active').length,
+	async function handleReset (resellerId: string) {
+		setError('')
+		try {
+			const result = await api<{ operations?: string[] }>(`/api/v1/resellers/${resellerId}/bandwidth/reset`, { method: 'POST', body: '{}' })
+			setJobId(result.operations?.[0] || '')
+			setMessage(queuedOpMessage({ operation_id: result.operations?.[0] }, 'Reseller bandwidth reset queued.'))
+			load()
+		} catch (reason) {
+			setError(messageFrom(reason))
 		}
-	}), [accounts, resellers])
+	}
 
 	return (
 		<>
 			<PageHeader
 				title="View Reseller Usage and Manage Account Status"
-				description="Assigned account counts for each reseller. Kelmor does not collect WHM-style reseller bandwidth meters."
+				description="Disk and monthly bandwidth totals from control-plane usage, against the packages assigned to each reseller’s accounts."
 			/>
-			<p className="subtle">Open Change Ownership to move an account. Suspend or unsuspend from Manage Account Suspension.</p>
+			<p className="subtle">
+				<Link to="/resellers">Edit reseller</Link> · <Link to="/accounts/ownership">Change ownership</Link> · <Link to="/accounts/suspension">Suspension</Link>
+			</p>
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
+			{message ? <QueuedOpNotice message={message} jobId={jobId} /> : null}
 			{loading ? <LoadingState label="Loading reseller usage…" /> : (
 				<div className="table-wrap"><table className="dense-table">
-					<thead><tr><th>Reseller</th><th>Status</th><th>Accounts</th><th>Active</th><th>Suspended</th><th>Actions</th></tr></thead>
+					<thead>
+						<tr>
+							<th>Reseller</th>
+							<th>Status</th>
+							<th>Accounts</th>
+							<th>Disk</th>
+							<th>Bandwidth</th>
+							<th>Holds</th>
+							<th>Actions</th>
+						</tr>
+					</thead>
 					<tbody>
-						{rows.map(({ reseller, total, active, suspended }) => (
-							<tr key={reseller.id}>
-								<td><strong>{reseller.name}</strong><small>{reseller.brand_name || 'No brand'}</small></td>
-								<td><StatusBadge value={reseller.status} /></td>
-								<td>{total}</td>
-								<td>{active}</td>
-								<td>{suspended}</td>
+						{rows.map((row) => (
+							<tr key={row.id}>
+								<td><strong>{row.name}</strong><small>{row.brand_name || 'No brand'}</small></td>
+								<td><StatusBadge value={row.status} /></td>
+								<td>{row.accounts} · {row.active} active · {row.suspended} suspended</td>
+								<td>{formatBytes(row.disk_bytes)} / {formatBytes(row.disk_limit)} ({percent(row.disk_bytes, row.disk_limit)}%)</td>
+								<td>{formatBytes(row.bandwidth_bytes)} / {formatBytes(row.bandwidth_limit)} ({percent(row.bandwidth_bytes, row.bandwidth_limit)}%)</td>
+								<td>{row.bandwidth_holds}</td>
 								<td><div className="row-actions">
-									<Link to="/resellers">Edit reseller</Link>
-									<Link to="/accounts/ownership">Change ownership</Link>
+									<Link to="/accounts/ownership">Ownership</Link>
 									<Link to="/accounts/suspension">Suspension</Link>
+									{canReset ? <button type="button" onClick={() => handleReset(row.id)}>Reset bandwidth</button> : null}
 								</div></td>
 							</tr>
 						))}

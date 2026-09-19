@@ -9,6 +9,7 @@ export interface BreadcrumbItem {
 
 export const directorCrumbLabels: Record<string, string> = {
 	accounts: 'Accounts', create: 'Create Account', services: 'Account Services',
+	server: 'Server Configuration',
 	packages: 'Packages', resellers: 'Resellers', dns: 'DNS Management',
 	status: 'Service Status', security: 'Security', transfers: 'Transfers & Backups',
 	jobs: 'Jobs', audit: 'Audit Trail', usage: 'Account Usage',

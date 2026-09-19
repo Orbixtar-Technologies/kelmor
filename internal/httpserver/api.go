@@ -74,9 +74,20 @@ func (a *API) Handler() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(a.authenticate)
 			r.Get("/me", a.me)
+			r.Post("/auth/totp/enroll", a.enrollTOTP)
+			r.Post("/auth/totp/confirm", a.confirmTOTP)
+			r.Post("/auth/totp/disable", a.disableTOTP)
 			r.Get("/server", a.serverOverview)
 			r.Get("/server/settings", a.getDirectorSettings)
 			r.Patch("/server/settings", a.patchDirectorSettings)
+			r.Get("/server/skeleton", a.listSkeleton)
+			r.Get("/server/skeleton/file", a.readSkeletonFile)
+			r.Put("/server/skeleton/file", a.writeSkeletonFile)
+			r.Delete("/server/skeleton/file", a.deleteSkeletonFile)
+			r.Post("/server/skeleton/mkdir", a.mkdirSkeleton)
+			r.Get("/server/quota", a.getQuotaStatus)
+			r.Post("/server/quota/setup", a.setupInitialQuota)
+			r.Get("/server/nodes", a.listLinkedNodes)
 			r.Get("/server/monitor", a.serverMonitor)
 			r.Get("/server/services", a.serverServices)
 			r.Get("/server/processes", a.serverProcesses)
@@ -120,8 +131,10 @@ func (a *API) Handler() http.Handler {
 			r.Get("/feature-sets", a.listFeatureSets)
 			r.Get("/resellers", a.listResellers)
 			r.Post("/resellers", a.createReseller)
+			r.Get("/resellers/usage", a.listResellerUsage)
 			r.Get("/resellers/{resellerID}", a.getReseller)
 			r.Patch("/resellers/{resellerID}", a.updateReseller)
+			r.Post("/resellers/{resellerID}/bandwidth/reset", a.resetResellerBandwidth)
 			r.Get("/accounts", a.listAccounts)
 			r.Post("/accounts", a.createAccount)
 			r.Get("/accounts/{accountID}", a.getAccount)
@@ -133,6 +146,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/accounts/{accountID}/migrate", a.migrateAccount)
 			r.Post("/accounts/{accountID}/impersonate", a.impersonate)
 			r.Get("/accounts/{accountID}/usage", a.accountUsage)
+			r.Post("/accounts/{accountID}/bandwidth/reset", a.resetAccountBandwidthUsage)
 			r.Post("/accounts/bulk/suspend", a.bulkSuspend)
 			r.Post("/accounts/bulk/unsuspend", a.bulkUnsuspend)
 			r.Post("/accounts/bulk/clear-bandwidth-hold", a.clearBandwidthHolds)
@@ -304,6 +318,7 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		TOTPCode string `json:"totp_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		a.fail(w, r, 400, "INVALID_JSON", "Invalid request", false)
@@ -311,18 +326,34 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	}
 	u := a.Store.UserByUsername(in.Username)
 	ok := u != nil && auth.VerifyPassword(u.PasswordHash, in.Password) && a.userCanAuthenticate(u)
-	a.Store.AppendAudit(store.AuditEvent{
-		ActorType: "user", Action: "auth.login", RequestID: logging.RequestID(r.Context()),
-		Success: ok && !u.MustChangePassword, SourceIP: ip, UserAgent: r.UserAgent(),
-		Metadata: map[string]any{"username": in.Username},
-	})
 	if !ok {
+		a.Store.AppendAudit(store.AuditEvent{
+			ActorType: "user", Action: "auth.login", RequestID: logging.RequestID(r.Context()),
+			Success: false, SourceIP: ip, UserAgent: r.UserAgent(),
+			Metadata: map[string]any{"username": in.Username},
+		})
 		a.logAuthFailure(ip, in.Username)
 		a.fail(w, r, 401, "INVALID_CREDENTIALS", "Invalid username or password", false)
 		return
 	}
 	if u.MustChangePassword {
+		a.Store.AppendAudit(store.AuditEvent{
+			ActorType: "user", Action: "auth.login", RequestID: logging.RequestID(r.Context()),
+			Success: false, SourceIP: ip, UserAgent: r.UserAgent(),
+			Metadata: map[string]any{"username": in.Username, "must_change_password": true},
+		})
 		a.fail(w, r, 403, "PASSWORD_CHANGE_REQUIRED", "Password change required", false)
+		return
+	}
+	extras, factorCode, factorMsg := a.loginFactorExtras(r, u, in.Password, in.TOTPCode)
+	if factorCode != "" {
+		a.Store.AppendAudit(store.AuditEvent{
+			ActorType: "user", Action: "auth.login", RequestID: logging.RequestID(r.Context()),
+			Success: false, SourceIP: ip, UserAgent: r.UserAgent(),
+			Metadata: map[string]any{"username": in.Username, "factor": factorCode},
+		})
+		a.logAuthFailure(ip, in.Username)
+		a.fail(w, r, 401, factorCode, factorMsg, false)
 		return
 	}
 	plain, hash, err := auth.NewOpaqueToken()
@@ -337,7 +368,16 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		Name: "panel_session", Value: plain, Path: "/", HttpOnly: true,
 		Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: int(ttl.Seconds()),
 	})
-	writeJSON(w, 200, map[string]any{"token": plain, "user": publicUser(u), "expires_at": sess.ExpiresAt})
+	a.Store.AppendAudit(store.AuditEvent{
+		ActorType: "user", Action: "auth.login", RequestID: logging.RequestID(r.Context()),
+		Success: true, SourceIP: ip, UserAgent: r.UserAgent(),
+		Metadata: map[string]any{"username": in.Username},
+	})
+	out := map[string]any{"token": plain, "user": publicUser(u), "expires_at": sess.ExpiresAt}
+	for key, value := range extras {
+		out[key] = value
+	}
+	writeJSON(w, 200, out)
 }
 
 func (a *API) completePasswordChange(w http.ResponseWriter, r *http.Request) {

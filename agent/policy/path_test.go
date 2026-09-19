@@ -63,6 +63,18 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/etc/roundcube/config.inc.php"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := ValidateManagedPath("/etc/skel"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/skel/.bashrc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WithinSkeleton("public_html/index.html"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WithinSkeleton("/etc/passwd"); err == nil {
+		t.Fatal("skeleton must stay under /etc/skel")
+	}
 	if _, err := ValidateManagedPath("/usr/share/phpmyadmin/index.php"); err == nil {
 		t.Fatal("must not treat package roots as managed writes")
 	}

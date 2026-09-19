@@ -321,11 +321,41 @@ var chromeOrDeferredKeys = map[string]bool{
 	"theme":             true,
 	"locale":            true,
 	"customization":     true,
-	"external_auth":     true,
-	"two_factor":        true,
-	"linked_nodes":      true,
 	"remote_access_key": true,
 	"mariadb_upgrade":   true,
+}
+
+func TwoFactorRequired(f File) bool {
+	return BoolField(f, "two_factor", "required", false) ||
+		BoolField(f, "security_policies", "require_2fa", false)
+}
+
+func ExternalAuthProvider(f File) string {
+	provider := strings.ToLower(Field(f, "external_auth", "provider", "disabled"))
+	switch provider {
+	case "ldap", "oidc", "disabled", "local":
+		return provider
+	default:
+		if Field(f, "external_auth", "ldap_url", "") != "" {
+			return "ldap"
+		}
+		if Field(f, "external_auth", "issuer", "") != "" {
+			return "oidc"
+		}
+		return "disabled"
+	}
+}
+
+func ExternalAuthRequired(f File) bool {
+	return BoolField(f, "external_auth", "require_external", false)
+}
+
+func InitialQuotaBytes(f File) int64 {
+	mb := IntField(f, "initial_quota", "default_disk_mb", 0)
+	if mb < 1 {
+		return 0
+	}
+	return int64(mb) * 1024 * 1024
 }
 
 func NeedsHostApply(keys []string) bool {

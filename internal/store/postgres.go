@@ -46,13 +46,13 @@ func nullStr(s string) any {
 
 func (p *PG) PutUser(u *User) {
 	_, _ = p.pool.Exec(p.ctx(), `
-		INSERT INTO users (id, username, email, password_hash, display_name, status, totp_enabled, must_change_password, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, now()), now())
+		INSERT INTO users (id, username, email, password_hash, display_name, status, totp_enabled, totp_secret_enc, must_change_password, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10, now()), now())
 		ON CONFLICT (id) DO UPDATE SET
 			username=EXCLUDED.username, email=EXCLUDED.email, password_hash=EXCLUDED.password_hash,
 			display_name=EXCLUDED.display_name, status=EXCLUDED.status, totp_enabled=EXCLUDED.totp_enabled,
-			must_change_password=EXCLUDED.must_change_password, updated_at=now()`,
-		u.ID, u.Username, u.Email, u.PasswordHash, u.DisplayName, u.Status, u.TOTPEnabled, u.MustChangePassword, u.CreatedAt)
+			totp_secret_enc=EXCLUDED.totp_secret_enc, must_change_password=EXCLUDED.must_change_password, updated_at=now()`,
+		u.ID, u.Username, u.Email, u.PasswordHash, u.DisplayName, u.Status, u.TOTPEnabled, u.TOTPSecretEnc, u.MustChangePassword, u.CreatedAt)
 	p.ensureRoles(u.Roles)
 	_, _ = p.pool.Exec(p.ctx(), `DELETE FROM user_roles WHERE user_id=$1`, u.ID)
 	for _, role := range u.Roles {
@@ -70,7 +70,7 @@ func (p *PG) ensureRoles(names []string) {
 
 func (p *PG) scanUser(row pgx.Row) *User {
 	u := &User{}
-	if err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.Status, &u.TOTPEnabled, &u.MustChangePassword, &u.CreatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.DisplayName, &u.Status, &u.TOTPEnabled, &u.TOTPSecretEnc, &u.MustChangePassword, &u.CreatedAt); err != nil {
 		return nil
 	}
 	rows, err := p.pool.Query(p.ctx(), `SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$1`, u.ID)
@@ -87,13 +87,13 @@ func (p *PG) scanUser(row pgx.Row) *User {
 
 func (p *PG) UserByUsername(name string) *User {
 	return p.scanUser(p.pool.QueryRow(p.ctx(), `
-		SELECT id, username, email, password_hash, display_name, status, totp_enabled, must_change_password, created_at
+		SELECT id, username, email, password_hash, display_name, status, totp_enabled, totp_secret_enc, must_change_password, created_at
 		FROM users WHERE username=$1`, name))
 }
 
 func (p *PG) UserByID(uid string) *User {
 	return p.scanUser(p.pool.QueryRow(p.ctx(), `
-		SELECT id, username, email, password_hash, display_name, status, totp_enabled, must_change_password, created_at
+		SELECT id, username, email, password_hash, display_name, status, totp_enabled, totp_secret_enc, must_change_password, created_at
 		FROM users WHERE id=$1`, uid))
 }
 

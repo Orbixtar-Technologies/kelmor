@@ -746,6 +746,27 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return payload, nil
+	case "ProbeQuotaStatus":
+		return h.probeQuotaStatus()
+	case "SetupInitialQuota":
+		var p struct {
+			Bytes   int64 `json:"bytes"`
+			Enforce bool  `json:"enforce"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.setupInitialQuota(p.Bytes, p.Enforce)
+	case "VerifyLDAPBind":
+		var p struct {
+			URL      string `json:"url"`
+			UserDN   string `json:"user_dn"`
+			Password string `json:"password"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.verifyLDAPBind(p.URL, p.UserDN, p.Password)
 	default:
 		return nil, fmt.Errorf("unknown operation %q", req.Method)
 	}

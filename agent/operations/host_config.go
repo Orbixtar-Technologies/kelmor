@@ -57,6 +57,24 @@ type HostConfigSpec struct {
 	Profile           string            `json:"profile,omitempty"`
 	ClusterPeers      []string          `json:"cluster_peers,omitempty"`
 	WriteCluster      bool              `json:"write_cluster,omitempty"`
+	LinkedNodes       []string          `json:"linked_nodes,omitempty"`
+	WriteLinkedNodes  bool              `json:"write_linked_nodes,omitempty"`
+	ExternalAuth      *ExternalAuthSpec `json:"external_auth,omitempty"`
+	TwoFactorRequired bool              `json:"two_factor_required,omitempty"`
+	WriteTwoFactor    bool              `json:"write_two_factor,omitempty"`
+	InitialQuotaBytes int64             `json:"initial_quota_bytes,omitempty"`
+	WriteInitialQuota bool              `json:"write_initial_quota,omitempty"`
+	QuotaEnforce      bool              `json:"quota_enforce,omitempty"`
+}
+
+type ExternalAuthSpec struct {
+	Provider        string `json:"provider,omitempty"`
+	Issuer          string `json:"issuer,omitempty"`
+	ClientID        string `json:"client_id,omitempty"`
+	LDAPURL         string `json:"ldap_url,omitempty"`
+	LDAPUserDN      string `json:"ldap_user_dn,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	RequireExternal bool   `json:"require_external"`
 }
 
 func (h *Host) applyHostConfig(spec HostConfigSpec) (Result, error) {
@@ -208,6 +226,30 @@ func (h *Host) applyHostConfig(spec HostConfigSpec) (Result, error) {
 			return Result{}, err
 		}
 		applied = append(applied, "cluster")
+	}
+	if spec.WriteLinkedNodes {
+		if err := h.writeLinkedNodes(spec.LinkedNodes); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "linked-nodes")
+	}
+	if spec.ExternalAuth != nil {
+		if err := h.writeExternalAuth(*spec.ExternalAuth); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "external-auth")
+	}
+	if spec.WriteTwoFactor {
+		if err := h.writeTwoFactorPolicy(spec.TwoFactorRequired); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "two-factor")
+	}
+	if spec.WriteInitialQuota {
+		if err := h.writeInitialQuotaPolicy(spec.InitialQuotaBytes, spec.QuotaEnforce); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "initial-quota")
 	}
 	if h.live() {
 		_ = reloadNamedService("nginx")

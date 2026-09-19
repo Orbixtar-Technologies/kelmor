@@ -15,6 +15,7 @@ var allowedRoots = []string{
 	"/run/panel/",
 	"/var/vmail/",
 	"/etc/panel/",
+	"/etc/skel/",
 	"/etc/ssh/sshd_config.d/",
 	"/var/tmp/panel-imports/",
 	"/var/log/nginx/",
@@ -62,6 +63,9 @@ func ValidateManagedPath(p string) (string, error) {
 	if clean == "/etc/roundcube/config.panel.inc.php" || clean == "/etc/roundcube/config.inc.php" {
 		ok = true
 	}
+	if clean == "/etc/skel" || strings.HasPrefix(clean, "/etc/skel/") {
+		ok = true
+	}
 	if clean == "/var/log/mail.log" || strings.HasPrefix(clean, "/var/log/mail.log.") {
 		ok = true
 	}
@@ -76,6 +80,26 @@ func ValidateManagedPath(p string) (string, error) {
 
 func AccountRoot(username string) string {
 	return filepath.Join("/home", username)
+}
+
+const skeletonRoot = "/etc/skel"
+
+func WithinSkeleton(requested string) (string, error) {
+	if requested == "" || requested == "/" {
+		return skeletonRoot, nil
+	}
+	abs := requested
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(skeletonRoot, strings.TrimPrefix(requested, "/"))
+	}
+	clean, err := ValidateManagedPath(abs)
+	if err != nil {
+		return "", err
+	}
+	if clean != skeletonRoot && !strings.HasPrefix(clean, skeletonRoot+"/") {
+		return "", fmt.Errorf("path outside skeleton directory")
+	}
+	return clean, nil
 }
 
 func WithinAccount(username, requested string) (string, error) {
