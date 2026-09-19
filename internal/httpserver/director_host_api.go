@@ -425,10 +425,13 @@ func latestAccountBackupID(st store.Store, accountID string) string {
 }
 
 func (a *API) enqueueHostConfigJob(r *http.Request, keys []string) (*store.Job, error) {
+	// jobs.resource_id and audit_events.resource_id are UUIDs on Postgres.
+	// The singleton host-config target is not a UUID, so leave ResourceID
+	// empty (NULL) and keep the logical name in the payload.
 	return a.enqueueTypedJob(r, &store.Job{
-		Type: "host.config.apply", ResourceType: "server", ResourceID: "host-config",
-		Payload: map[string]any{"keys": keys},
-	}, a.auditEvent(r, "", "host.config.apply", "server", "host-config", nil, map[string]any{"keys": keys}))
+		Type: "host.config.apply", ResourceType: "server",
+		Payload: map[string]any{"keys": keys, "target": "host-config"},
+	}, a.auditEvent(r, "", "host.config.apply", "server", "", nil, map[string]any{"keys": keys}))
 }
 
 func sessionTTL(settings hostconfig.File) time.Duration {

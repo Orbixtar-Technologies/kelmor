@@ -134,7 +134,7 @@ func (a *API) patchDirectorSettings(w http.ResponseWriter, r *http.Request) {
 	if hostconfig.NeedsHostApply(keys) {
 		job, err := a.enqueueHostConfigJob(r, keys)
 		if err != nil {
-			a.fail(w, r, 500, "SETTINGS_APPLY_ERROR", "Settings saved but host apply could not be queued", false)
+			a.fail(w, r, 500, "SETTINGS_APPLY_ERROR", "Settings saved but host apply could not be queued: "+err.Error(), false)
 			return
 		}
 		out["operation_id"] = job.ID
