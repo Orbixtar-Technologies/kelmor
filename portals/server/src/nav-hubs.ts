@@ -287,6 +287,10 @@ export function isAccountDetailPath (pathname: string): boolean {
 	return /^\/accounts\/(?!create(?:\/|$))[^/]+/.test(pathname)
 }
 
+export function shouldShowHubTabs (pathname: string): boolean {
+	return pathname.startsWith('/section/')
+}
+
 function hubIndex (feature: WhmFeature): number {
 	const hub = hubForCategory(feature.category)
 	return hub ? navHubs.findIndex((entry) => entry.id === hub.id) : navHubs.length

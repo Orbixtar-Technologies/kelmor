@@ -181,6 +181,38 @@ describe('Sidebar interactions', () => {
 		expect(screen.queryByText('Host')).not.toBeInTheDocument()
 	})
 
+	test('does not dump sibling hub tabs onto dedicated P0 pages', () => {
+		function renderShell (path: string) {
+			return render(
+				<MemoryRouter initialEntries={[path]}>
+					<CapProvider caps={{ 'accounts.read': true, 'server.read': true }}>
+						<Routes>
+							<Route element={<DirectorShell me={me} onSignOut={vi.fn()} />}>
+								<Route path="accounts" element={<p>Account inventory</p>} />
+								<Route path="jobs" element={<p>Job queue</p>} />
+								<Route path="section/:hubId" element={<p>Catalog tool</p>} />
+							</Route>
+						</Routes>
+					</CapProvider>
+				</MemoryRouter>,
+			)
+		}
+
+		renderShell('/accounts')
+		expect(screen.getByText('Account inventory')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		cleanup()
+
+		renderShell('/jobs')
+		expect(screen.getByText('Job queue')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).toBeNull()
+		cleanup()
+
+		renderShell('/section/server?tool=tweak-settings')
+		expect(screen.getByText('Catalog tool')).toBeInTheDocument()
+		expect(document.querySelector('.hub-chrome')).not.toBeNull()
+	})
+
 	test('shows the host resources bar on Home only', async () => {
 		function renderShell (path: string) {
 			return render(

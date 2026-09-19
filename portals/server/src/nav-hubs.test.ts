@@ -8,6 +8,7 @@ import {
 	hrefForFeature,
 	isDirectorHubActive,
 	navHubs,
+	shouldShowHubTabs,
 	sidebarToolGroups,
 	visibleHubs,
 } from './nav-hubs'
@@ -75,5 +76,15 @@ describe('nav hubs', () => {
 
 	test('lists every hub that still has catalog tools', () => {
 		expect(visibleHubs(toolCatalog).map((hub) => hub.id)).toEqual(navHubs.map((hub) => hub.id))
+	})
+
+	test('keeps sibling hub tabs on catalog section pages only', () => {
+		expect(shouldShowHubTabs('/section/server')).toBe(true)
+		expect(shouldShowHubTabs('/section/accounts')).toBe(true)
+		expect(shouldShowHubTabs('/accounts')).toBe(false)
+		expect(shouldShowHubTabs('/accounts/create')).toBe(false)
+		expect(shouldShowHubTabs('/accounts/acc-1')).toBe(false)
+		expect(shouldShowHubTabs('/jobs')).toBe(false)
+		expect(shouldShowHubTabs('/')).toBe(false)
 	})
 })

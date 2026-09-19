@@ -6,7 +6,7 @@ import { ResourcesSidebar } from '../components/resources-sidebar'
 import { useCapabilities } from '../rbac'
 import { discoverTools, toolCatalog } from '../tool-catalog'
 import { whmFeatures } from '../whm-catalog'
-import { hubForLocation, isAccountDetailPath } from '../nav-hubs'
+import { hubForLocation, shouldShowHubTabs } from '../nav-hubs'
 import { HubTabs } from '../pages/hub-page'
 import { GlobalFind } from './global-find'
 import { directorBreadcrumbs } from './breadcrumbs'
@@ -102,7 +102,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const toolAccountName = toolAccountId ? accounts.find((account) => account.id === toolAccountId)?.username : undefined
 	const crumbs = directorBreadcrumbs(location.pathname, crumbLabels, accountName, toolAccountName)
 	const currentHub = hubForLocation(location.pathname, location.search)
-	const showHubTabs = Boolean(currentHub && currentHub.id !== 'home' && !isAccountDetailPath(location.pathname))
+	const showHubTabs = Boolean(currentHub && shouldShowHubTabs(location.pathname))
 	function dismissMobileNavigation () {
 		setMobileOpen(false)
 		menuButtonRef.current?.focus()
