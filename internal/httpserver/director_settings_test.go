@@ -1,6 +1,8 @@
 package httpserver
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -218,5 +220,141 @@ func TestModifyAccountShellClass(t *testing.T) {
 		"shell_class": "root",
 	}); status != http.StatusBadRequest {
 		t.Fatalf("invalid shell must be refused: %d %v", status, body)
+	}
+}
+
+// uuidConstrainedJobStore mirrors live Postgres: jobs.resource_id and
+// audit_events.resource_id are UUID columns. Memory store accepts "host-config".
+type uuidConstrainedJobStore struct {
+	store.Store
+}
+
+func (s uuidConstrainedJobStore) EnqueueJobWithAudit(job *store.Job, audit store.AuditEvent) (*store.Job, error) {
+	if err := requirePostgresUUID(job.ResourceID, "jobs.resource_id"); err != nil {
+		return nil, err
+	}
+	if err := requirePostgresUUID(audit.ResourceID, "audit_events.resource_id"); err != nil {
+		return nil, err
+	}
+	return s.Store.EnqueueJobWithAudit(job, audit)
+}
+
+func requirePostgresUUID(value, column string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	if _, err := id.Parse(value); err != nil {
+		return fmt.Errorf("ERROR: invalid input syntax for type uuid: %q (%s)", value, column)
+	}
+	return nil
+}
+
+func hostApplyPayloadKeys(payload map[string]any) int {
+	switch keys := payload["keys"].(type) {
+	case []string:
+		return len(keys)
+	case []any:
+		return len(keys)
+	default:
+		return 0
+	}
+}
+
+type failingHostApplyStore struct {
+	store.Store
+}
+
+func (s failingHostApplyStore) EnqueueJobWithAudit(*store.Job, store.AuditEvent) (*store.Job, error) {
+	return nil, errors.New("could not connect to database")
+}
+
+func TestDirectorSettingsHostApplyQueuesOnUUIDConstrainedStore(t *testing.T) {
+	t.Setenv("PANEL_STATE_DIR", t.TempDir())
+	inner := store.NewMemory()
+	if err := store.SeedDev(inner, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	st := uuidConstrainedJobStore{Store: inner}
+	api := New(st, logging.New("test"), &operations.Host{Sock: "/run/panel/agent.sock"})
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+
+	saved := doJSON(t, http.MethodPatch, srv.URL+"/api/v1/server/settings", token, map[string]any{
+		"values": map[string]any{
+			"tweak_settings": map[string]string{"max_emails_hour": "250", "default_php": "8.3"},
+		},
+	})
+	opID, _ := saved["operation_id"].(string)
+	if opID == "" {
+		t.Fatalf("host apply job missing: %v", saved)
+	}
+	job := inner.GetJob(opID)
+	if job == nil || job.Type != "host.config.apply" || job.State != "queued" {
+		t.Fatalf("queued job: %+v", job)
+	}
+	if job.ResourceID != "" {
+		if _, err := id.Parse(job.ResourceID); err != nil {
+			t.Fatalf("jobs.resource_id must be empty or a UUID on Postgres: %q", job.ResourceID)
+		}
+	}
+	if hostApplyPayloadKeys(job.Payload) == 0 {
+		t.Fatalf("apply payload keys missing: %+v", job.Payload)
+	}
+	if job.Payload["target"] != "host-config" {
+		t.Fatalf("logical target must stay in payload: %+v", job.Payload)
+	}
+	found := false
+	for _, listed := range inner.ListJobs("", 50) {
+		if listed.Type == "host.config.apply" && listed.ID == opID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("Jobs list must show host.config.apply")
+	}
+}
+
+func TestDirectorSettingsHostApplyReportsEnqueueError(t *testing.T) {
+	t.Setenv("PANEL_STATE_DIR", t.TempDir())
+	inner := store.NewMemory()
+	if err := store.SeedDev(inner, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(failingHostApplyStore{Store: inner}, logging.New("test"), &operations.Host{Sock: "/run/panel/agent.sock"})
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+
+	status, body := doStatus(t, http.MethodPatch, srv.URL+"/api/v1/server/settings", token, map[string]any{
+		"values": map[string]any{
+			"tweak_settings": map[string]string{"max_emails_hour": "250"},
+		},
+	})
+	if status != http.StatusInternalServerError {
+		t.Fatalf("expected enqueue failure: %d %v", status, body)
+	}
+	errBody, _ := body["error"].(map[string]any)
+	msg, _ := errBody["message"].(string)
+	if !strings.Contains(msg, "Settings saved but host apply could not be queued") {
+		t.Fatalf("message: %v", body)
+	}
+	if !strings.Contains(msg, "could not connect to database") {
+		t.Fatalf("enqueue cause must not be swallowed: %v", body)
+	}
+	again := get(t, srv.URL+"/api/v1/server/settings", token)
+	row, _ := again["values"].(map[string]any)["tweak_settings"].(map[string]any)
+	if row["max_emails_hour"] != "250" {
+		t.Fatalf("settings must stay persisted after enqueue failure: %v", again)
+	}
+	for _, job := range inner.ListJobs("", 50) {
+		if job.Type == "host.config.apply" {
+			t.Fatalf("must not queue apply when enqueue fails: %+v", job)
+		}
 	}
 }
