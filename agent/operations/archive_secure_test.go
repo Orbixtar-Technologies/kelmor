@@ -36,7 +36,7 @@ func TestUnpackDirectoryRejectsTraversalAndLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := &Host{Root: root}
-	if _, err := h.unpackDirectory("/var/tmp/panel-imports/evil.tgz", "/home/acme42/restore"); err == nil {
+	if _, err := h.unpackDirectory("/var/tmp/panel-imports/evil.tgz", "/home/acme42/restore", ""); err == nil {
 		t.Fatal("expected archive traversal to fail")
 	}
 }
@@ -71,7 +71,7 @@ func TestUnpackDirectoryRejectsDuplicateAndDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := &Host{Root: root}
-	if _, err := h.unpackDirectory("/var/tmp/panel-imports/dup.tgz", "/home/acme42/restore"); err == nil {
+	if _, err := h.unpackDirectory("/var/tmp/panel-imports/dup.tgz", "/home/acme42/restore", ""); err == nil {
 		t.Fatal("expected duplicate archive entry to fail")
 	}
 }

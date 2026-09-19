@@ -3,6 +3,7 @@ package firewall
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"sort"
 	"strconv"
@@ -19,6 +20,14 @@ var HostingPASV = [2]int{40000, 40100}
 // merged so applying on a live lab node does not drop existing listeners
 // (for example the cloud-agent tunnel).
 func Rules(extraTCP []int) string {
+	return RulesWithAccess(extraTCP, nil, nil)
+}
+
+func RulesWithAccess(extraTCP []int, allowCIDRs, denyCIDRs []string) string {
+	return rulesWithAccess(extraTCP, allowCIDRs, denyCIDRs)
+}
+
+func rulesWithAccess(extraTCP []int, allowCIDRs, denyCIDRs []string) string {
 	ports := uniquePorts(append(append([]int{}, HostingTCP...), extraTCP...))
 	var b strings.Builder
 	b.WriteString("#!/usr/sbin/nft -f\n")
@@ -27,6 +36,19 @@ func Rules(extraTCP []int) string {
 	b.WriteString("    type filter hook input priority 0; policy drop;\n")
 	b.WriteString("    iif lo accept\n")
 	b.WriteString("    ct state established,related accept\n")
+	for _, cidr := range sanitizeCIDRs(denyCIDRs) {
+		b.WriteString("    ip saddr ")
+		b.WriteString(cidr)
+		b.WriteString(" drop\n")
+	}
+	for _, cidr := range sanitizeCIDRs(allowCIDRs) {
+		if cidr == "0.0.0.0/0" || cidr == "::/0" {
+			continue
+		}
+		b.WriteString("    ip saddr ")
+		b.WriteString(cidr)
+		b.WriteString(" accept\n")
+	}
 	b.WriteString("    tcp dport { ")
 	for i, p := range ports {
 		if i > 0 {
@@ -51,6 +73,35 @@ func Rules(extraTCP []int) string {
 	b.WriteString("  }\n")
 	b.WriteString("}\n")
 	return b.String()
+}
+
+func sanitizeCIDRs(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, raw := range in {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if ip := net.ParseIP(raw); ip != nil {
+			if ip.To4() != nil {
+				raw = ip.String() + "/32"
+			} else {
+				raw = ip.String() + "/128"
+			}
+		} else if _, network, err := net.ParseCIDR(raw); err == nil {
+			raw = network.String()
+		} else {
+			continue
+		}
+		if seen[raw] {
+			continue
+		}
+		seen[raw] = true
+		out = append(out, raw)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func uniquePorts(in []int) []int {

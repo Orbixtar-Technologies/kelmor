@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hosting-panel/panel/internal/hostconfig"
 	"github.com/hosting-panel/panel/internal/rbac"
 )
 
@@ -128,25 +129,85 @@ func (a *API) patchDirectorSettings(w http.ResponseWriter, r *http.Request) {
 		cleaned[key] = safe
 	}
 
+	keys := settingKeys(cleaned)
 	directorSettingsMu.Lock()
-	defer directorSettingsMu.Unlock()
 	current, err := a.loadDirectorSettings()
 	if err != nil {
+		directorSettingsMu.Unlock()
 		a.fail(w, r, 500, "SETTINGS_READ_ERROR", "Could not read Director settings", false)
 		return
 	}
 	if current.Values == nil {
 		current.Values = map[string]map[string]string{}
 	}
+	if row := cleaned["ip_pool"]; row != nil {
+		if addr := row["address"]; addr != "" {
+			prev := ""
+			if current.Values["ip_pool"] != nil {
+				prev = current.Values["ip_pool"]["address"]
+			}
+			row["address"] = mergeSettingLines(prev, addr)
+		}
+	}
+	if row := cleaned["ip_pool_removed"]; row != nil {
+		if gone := row["address"]; gone != "" && current.Values["ip_pool"] != nil {
+			current.Values["ip_pool"]["address"] = removeSettingLine(current.Values["ip_pool"]["address"], gone)
+		}
+	}
 	for key, fields := range cleaned {
 		current.Values[key] = fields
 	}
 	if err := a.storeDirectorSettings(current); err != nil {
+		directorSettingsMu.Unlock()
 		a.fail(w, r, 500, "SETTINGS_WRITE_ERROR", "Could not persist Director settings", false)
 		return
 	}
-	a.audit(r, "server.settings.update", "server", "director-settings", true, nil, map[string]any{"keys": settingKeys(cleaned)})
-	writeJSON(w, 200, current)
+	directorSettingsMu.Unlock()
+	a.audit(r, "server.settings.update", "server", "director-settings", true, nil, map[string]any{"keys": keys})
+	out := map[string]any{"values": current.Values}
+	if hostconfig.NeedsHostApply(keys) {
+		job, err := a.enqueueHostConfigJob(r, keys)
+		if err != nil {
+			a.fail(w, r, 500, "SETTINGS_APPLY_ERROR", "Settings saved but host apply could not be queued", false)
+			return
+		}
+		out["operation_id"] = job.ID
+		writeJSON(w, 202, out)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+func mergeSettingLines(existing, added string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, part := range append(strings.Fields(strings.ReplaceAll(existing, ",", " ")), strings.Fields(strings.ReplaceAll(added, ",", " "))...) {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+	}
+	return strings.Join(out, "\n")
+}
+
+func removeSettingLine(existing, gone string) string {
+	drop := map[string]bool{}
+	for _, part := range strings.Fields(strings.ReplaceAll(gone, ",", " ")) {
+		if part = strings.TrimSpace(part); part != "" {
+			drop[part] = true
+		}
+	}
+	var out []string
+	for _, part := range strings.Fields(strings.ReplaceAll(existing, ",", " ")) {
+		part = strings.TrimSpace(part)
+		if part == "" || drop[part] {
+			continue
+		}
+		out = append(out, part)
+	}
+	return strings.Join(out, "\n")
 }
 
 func settingKeys(values map[string]map[string]string) []string {

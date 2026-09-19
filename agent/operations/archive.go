@@ -70,7 +70,7 @@ func (h *Host) packDirectory(source, dest string) (Result, error) {
 	return Result{OK: true, ObservedState: "packed"}, nil
 }
 
-func (h *Host) unpackDirectory(archive, dest string) (Result, error) {
+func (h *Host) unpackDirectory(archive, dest, prefix string) (Result, error) {
 	srcRoot, srcRel, err := h.openManaged(archive)
 	if err != nil {
 		return Result{}, err
@@ -94,7 +94,7 @@ func (h *Host) unpackDirectory(archive, dest string) (Result, error) {
 		return Result{}, err
 	}
 	defer gz.Close()
-	if err := destRoot.ExtractTar(gz, destRel, filesystem.ArchiveLimits{}); err != nil {
+	if err := destRoot.ExtractTar(gz, destRel, filesystem.ArchiveLimits{Prefix: prefix}); err != nil {
 		return Result{}, err
 	}
 	return Result{OK: true, ObservedState: "unpacked"}, nil

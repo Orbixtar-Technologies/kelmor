@@ -8,11 +8,17 @@ import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, Package } from '../types'
 import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import {
+	CHROME_SETTINGS_SAVED,
+	DEFERRED_SETTINGS_SAVED,
+	HOST_SETTINGS_BANNER,
 	LOCAL_SETTINGS_BANNER,
-	LOCAL_SETTINGS_SAVED,
 	QUOTA_PACKAGE_COPY,
 	confirmLabelForFeature,
+	isChromeSettingsKey,
+	isDeferredSettingsKey,
+	isHostSettingsFeature,
 	isLocalSettingsFeature,
 } from '../catalog-honesty'
 import { hrefForFeature } from '../nav-hubs'
@@ -55,6 +61,7 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 	const [settings, setSettings] = useState<Record<string, string>>({})
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
 	const [busy, setBusy] = useState(false)
 	const steps = feature.steps.length ? feature.steps : ['Configure', 'Review']
 	const isLast = step >= steps.length - 1
@@ -106,8 +113,11 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 		setBusy(true)
 		setError('')
 		setMessage('')
+		setJobId('')
 		try {
-			setMessage(await applyFeature({ feature, accountId, selectedAccount, values, accounts }))
+			const result = await applyFeature({ feature, accountId, values })
+			setMessage(result.message)
+			setJobId(result.jobId || '')
 		} catch (reason) {
 			setError(messageFrom(reason))
 		} finally {
@@ -120,9 +130,10 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 			<PageHeader title={feature.label} description={feature.description} />
 			<p className="subtle">{feature.category} · {feature.layout} journey</p>
 			{isLocalSettingsFeature(feature) ? <p className="settings-local-banner" role="status">{LOCAL_SETTINGS_BANNER}</p> : null}
+			{isHostSettingsFeature(feature) ? <p className="settings-local-banner host-applied" role="status">{HOST_SETTINGS_BANNER}</p> : null}
+			<QueuedOpNotice message={message} accountId={accountId || undefined} jobId={jobId} />
 			{feature.id === 'quota-modification' || feature.id === 'limit-bandwidth' ? <p className="settings-local-banner host-applied" role="status">{QUOTA_PACKAGE_COPY}</p> : null}
 			{error ? <ErrorState error={error} /> : null}
-			{message ? <p className="feedback" role="status">{message}</p> : null}
 
 			{feature.layout === 'status' ? <StatusPanel feature={feature} account={selectedAccount} /> : null}
 
@@ -134,8 +145,8 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 						setBusy(true)
 						setError('')
 						setMessage('')
-						void applyFeature({ feature, accountId, selectedAccount, values, accounts })
-							.then(setMessage)
+						void applyFeature({ feature, accountId, values })
+							.then((result) => { setMessage(result.message); setJobId(result.jobId || '') })
 							.catch((reason) => setError(messageFrom(reason)))
 							.finally(() => setBusy(false))
 					}}>
@@ -383,26 +394,110 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 	)
 }
 
+interface ApplyResult {
+	message: string
+	jobId?: string
+}
+
+function applied (result: { operation_id?: string } | undefined, fallback: string): ApplyResult {
+	return { message: queuedOpMessage(result, fallback), jobId: result?.operation_id }
+}
+
 async function applyFeature ({
-	feature, accountId, selectedAccount, values, accounts,
+	feature, accountId, values,
 }: {
 	feature: WhmFeature
 	accountId: string
-	selectedAccount?: Account
 	values: Record<string, string>
-	accounts: Account[]
-}): Promise<string> {
+}): Promise<ApplyResult> {
 	if (feature.layout === 'restart') {
 		const name = serviceName(feature)
-		await api(`/api/v1/server/services/${encodeURIComponent(name)}/restart`, { method: 'POST', body: '{}' })
-		return `Restart queued for ${name}.`
+		const result = await api<{ operation_id?: string }>(`/api/v1/server/services/${encodeURIComponent(name)}/restart`, { method: 'POST', body: '{}' })
+		return applied(result, `Restart queued for ${name}.`)
 	}
 
 	if (feature.id === 'unsuspend-bandwidth') {
-		const ids = accounts.filter((account) => account.status === 'suspended').map((account) => account.id)
-		if (!ids.length) return 'No suspended accounts to unsuspend.'
-		await api('/api/v1/accounts/bulk/unsuspend', { method: 'POST', body: JSON.stringify({ ids }) })
-		return `Queued unsuspend for ${ids.length} account(s).`
+		const result = await api<{ operations?: string[] }>('/api/v1/accounts/bulk/clear-bandwidth-hold', { method: 'POST', body: '{}' })
+		const count = result.operations?.length || 0
+		return { message: count ? `Queued bandwidth-hold clear for ${count} account(s).` : 'No bandwidth holds to clear.', jobId: result.operations?.[0] }
+	}
+
+	if (feature.id === 'file-dir-restore') {
+		if (!accountId) throw new Error('Choose an account first.')
+		if (!values.path) throw new Error('Enter a path under home.')
+		const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/restores`, {
+			method: 'POST',
+			body: JSON.stringify({ path: values.path, backup_id: values.backup_id || undefined }),
+		})
+		return applied(result, 'Path restore queued.')
+	}
+
+	if (feature.id === 'email-all-users' || feature.id === 'email-resellers') {
+		const result = await api<{ operation_id?: string }>('/api/v1/mail/notify', {
+			method: 'POST',
+			body: JSON.stringify({
+				from: values.from,
+				subject: values.subject,
+				body: values.body,
+				audience: feature.id === 'email-resellers' ? 'resellers' : 'owners',
+			}),
+		})
+		return applied(result, 'Notification mail queued.')
+	}
+
+	if (feature.id === 'synchronize-dns') {
+		const result = await api<{ operation_id?: string }>('/api/v1/dns/synchronize', { method: 'POST', body: '{}' })
+		return applied(result, 'DNS synchronize queued.')
+	}
+
+	if (feature.id === 'dns-cleanup') {
+		const result = await api<{ operation_id?: string }>('/api/v1/dns/cleanup', { method: 'POST', body: '{}' })
+		return applied(result, 'DNS cleanup queued.')
+	}
+
+	if (feature.id === 'ip-migration') {
+		const result = await api<{ operations?: string[] }>('/api/v1/accounts/ip-migration', {
+			method: 'POST',
+			body: JSON.stringify({ from_ip: values.from_ip, to_ip: values.to_ip }),
+		})
+		return { message: `Queued IP migration for ${result.operations?.length || 0} account(s).`, jobId: result.operations?.[0] }
+	}
+
+	if (feature.id === 'multi-modify' || feature.id === 'multi-ip' || feature.id === 'change-ownership-bulk') {
+		const result = await api<{ operations?: string[] }>('/api/v1/accounts/bulk/modify', {
+			method: 'POST',
+			body: JSON.stringify({
+				usernames: values.usernames,
+				package_id: values.package_id,
+				reseller_id: values.reseller_id,
+				ip_address: values.ip_address,
+			}),
+		})
+		return { message: `Queued account updates for ${result.operations?.length || 0} account(s).`, jobId: result.operations?.[0] }
+	}
+
+	if (feature.id === 'convert-addon') {
+		if (!accountId) throw new Error('Choose a source account first.')
+		const result = await api<{ resource_id?: string; operation_id?: string }>('/api/v1/accounts/convert-addon', {
+			method: 'POST',
+			body: JSON.stringify({
+				account_id: accountId,
+				addon_domain: values.addon_domain,
+				username: values.username,
+				package_id: values.package_id,
+				owner_password: values.owner_password,
+			}),
+		})
+		return applied(result, `Addon conversion queued as ${result.resource_id || 'a new account'}.`)
+	}
+
+	if (feature.id === 'domain-forwarding') {
+		if (!accountId) throw new Error('Choose an account first.')
+		const created = await api<{ operation_id?: string; resource_id?: string }>(`/api/v1/accounts/${accountId}/domains`, {
+			method: 'POST',
+			body: JSON.stringify({ fqdn: values.source, type: 'alias' }),
+		})
+		return applied(created, 'Alias domain queued. Use DNS Zone Manager if the target URL needs an extra record.')
 	}
 
 	if (feature.id === 'wp-toolkit') {
@@ -418,39 +513,39 @@ async function applyFeature ({
 				admin_email: values.admin_email,
 			}),
 		})
-		return 'WordPress install queued.'
+		return { message: 'WordPress install queued.' }
 	}
 
 	if (feature.id === 'repair-mailbox-perms') {
 		if (!accountId) throw new Error('Choose an account first.')
-		await api(`/api/v1/accounts/${accountId}`, { method: 'PATCH', body: JSON.stringify({}) })
-		return 'Mail maps reconcile queued with account reconciliation.'
+		const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}`, { method: 'PATCH', body: JSON.stringify({}) })
+		return applied(result, 'Mail maps reconcile queued with account reconciliation.')
 	}
 
 	if (feature.accountAction === 'suspend') {
 		if (!accountId) throw new Error('Choose an account first.')
-		await api(`/api/v1/accounts/${accountId}/suspend`, { method: 'POST', body: JSON.stringify({ reason: values.reason || '' }) })
-		return 'Account suspend queued.'
+		const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/suspend`, { method: 'POST', body: JSON.stringify({ reason: values.reason || '' }) })
+		return applied(result, 'Account suspend queued.')
 	}
 	if (feature.accountAction === 'unsuspend') {
 		if (!accountId) throw new Error('Choose an account first.')
-		await api(`/api/v1/accounts/${accountId}/unsuspend`, { method: 'POST', body: '{}' })
-		return 'Account unsuspend queued.'
+		const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/unsuspend`, { method: 'POST', body: '{}' })
+		return applied(result, 'Account unsuspend queued.')
 	}
 	if (feature.accountAction === 'terminate') {
 		if (!accountId) throw new Error('Choose an account first.')
-		await api(`/api/v1/accounts/${accountId}/terminate`, { method: 'POST', body: '{}' })
-		return 'Account terminate queued.'
+		const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/terminate`, { method: 'POST', body: '{}' })
+		return applied(result, 'Account terminate queued.')
 	}
 	if (feature.accountAction === 'remove') {
 		if (!accountId) throw new Error('Choose an account first.')
 		await api(`/api/v1/accounts/${accountId}/remove`, { method: 'POST', body: '{}' })
-		return 'Terminated account removed. The username and domain can be reused.'
+		return { message: 'Terminated account removed. The username and domain can be reused.' }
 	}
 	if (feature.accountAction === 'password') {
 		if (!accountId) throw new Error('Choose an account first.')
-		await api(`/api/v1/accounts/${accountId}/password`, { method: 'POST', body: JSON.stringify({ password: values.password || values.new_password }) })
-		return 'Password rotation queued.'
+		const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/password`, { method: 'POST', body: JSON.stringify({ password: values.password || values.new_password }) })
+		return applied(result, 'Password rotation queued.')
 	}
 	if (feature.accountAction === 'impersonate') {
 		throw new Error('Open List Accounts or Account Summary to start a reasoned Control session.')
@@ -464,56 +559,40 @@ async function applyFeature ({
 		if (values.shell_class) patch.shell_class = values.shell_class
 		if (Object.keys(patch).length) {
 			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}`, { method: 'PATCH', body: JSON.stringify(patch) })
-			if (feature.settingKey) {
-				await saveSetting(feature.settingKey, {
-					...values,
-					account_id: accountId,
-					username: selectedAccount?.username || '',
-				})
-				return LOCAL_SETTINGS_SAVED
-			}
-			return result.operation_id
-				? `Host change queued. Open Jobs to follow ${result.operation_id}.`
-				: 'Host change queued.'
-		}
-		if (feature.settingKey) {
-			await saveSetting(feature.settingKey, {
-				...values,
-				account_id: accountId,
-				username: selectedAccount?.username || '',
-			})
-			return LOCAL_SETTINGS_SAVED
+			return applied(result, 'Host change queued.')
 		}
 		throw new Error('Choose a package or host field to apply.')
 	}
 
 	if (feature.id === 'change-root-password') {
 		await api('/api/v1/server/root-password', { method: 'POST', body: JSON.stringify({ password: values.password || values.new_password }) })
-		return 'Root password applied on the host. It was not stored in Director.'
+		return { message: 'Root password applied on the host. It was not stored in Director.' }
 	}
 	if (feature.id === 'mysql-root-password') {
 		await api('/api/v1/server/database-root-password', { method: 'POST', body: JSON.stringify({ current: values.current || values.current_password, password: values.password || values.new_password }) })
-		return 'Database root password applied on the host. It was not stored in Director.'
+		return { message: 'Database root password applied on the host. It was not stored in Director.' }
 	}
 	if (feature.id === 'easyapache') {
 		const versions = String(values.php_versions || '').split(/\s+/).filter(Boolean)
 		for (const version of versions) {
 			await api('/api/v1/server/runtimes', { method: 'POST', body: JSON.stringify({ version }) })
 		}
-		return versions.length ? `PHP runtime install queued for ${versions.join(', ')}.` : 'No PHP versions selected.'
+		return { message: versions.length ? `PHP runtime install queued for ${versions.join(', ')}.` : 'No PHP versions selected.' }
 	}
 
 	if (feature.settingKey) {
-		await saveSetting(feature.settingKey, values)
-		return LOCAL_SETTINGS_SAVED
+		const result = await saveSetting(feature.settingKey, values)
+		if (isDeferredSettingsKey(feature.settingKey)) return { message: DEFERRED_SETTINGS_SAVED, jobId: result.operation_id }
+		if (isChromeSettingsKey(feature.settingKey)) return { message: CHROME_SETTINGS_SAVED, jobId: result.operation_id }
+		return applied(result, 'Host apply queued.')
 	}
 
 	if (feature.layout === 'confirm' || feature.layout === 'wizard' || feature.layout === 'form') {
-		await saveSetting(feature.id, values)
-		return LOCAL_SETTINGS_SAVED
+		const result = await saveSetting(feature.id.replaceAll('-', '_'), values)
+		return applied(result, 'Host apply queued.')
 	}
 
-	return 'Nothing to apply.'
+	return { message: 'Nothing to apply.' }
 }
 
 async function saveSetting (key: string, values: Record<string, string>) {
@@ -523,7 +602,7 @@ async function saveSetting (key: string, values: Record<string, string>) {
 		safe[name] = value
 	}
 	const current = await api<ServerSettings>('/api/v1/server/settings').catch(() => ({ values: {} }))
-	await api('/api/v1/server/settings', {
+	return api<{ operation_id?: string }>('/api/v1/server/settings', {
 		method: 'PATCH',
 		body: JSON.stringify({ values: { ...(current.values || {}), [key]: safe } }),
 	})

@@ -35,7 +35,7 @@ func ValidateManagedPath(p string) (string, error) {
 	ok := false
 	for _, root := range allowedRoots {
 		if root == "/etc/php/" {
-			if strings.HasPrefix(clean, "/etc/php/") && strings.Contains(clean, "/fpm/pool.d/") {
+			if strings.HasPrefix(clean, "/etc/php/") && (strings.Contains(clean, "/fpm/pool.d/") || strings.HasSuffix(clean, "/fpm/conf.d/99-panel.ini")) {
 				ok = true
 				break
 			}

@@ -27,6 +27,9 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/etc/nginx/conf.d/panel-conn-limit.conf"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := ValidateManagedPath("/etc/php/8.3/fpm/conf.d/99-panel.ini"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ValidateManagedPath("/etc/rspamd/local.d/dkim_signing.conf"); err != nil {
 		t.Fatal(err)
 	}

@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { CapProvider } from '../rbac'
-import { canRetryJob, JobsPage } from './jobs-page'
+import { canCancelJob, canRetryJob, JobsPage } from './jobs-page'
 import type { Job } from '../types'
 
 vi.mock('../client', () => ({
@@ -35,6 +35,12 @@ describe('canRetryJob', () => {
 
 	it('allows an eligible job when the capability is present', () => {
 		expect(canRetryJob({ ...failedJob, retryable: true }, { 'websites.write': true })).toBe(true)
+	})
+
+	it('allows cancel for queued or failed jobs with the write capability', () => {
+		expect(canCancelJob({ ...failedJob, state: 'queued' }, { 'websites.write': true })).toBe(true)
+		expect(canCancelJob({ ...failedJob, state: 'failed' }, { 'websites.write': true })).toBe(true)
+		expect(canCancelJob({ ...failedJob, state: 'running' }, { 'websites.write': true })).toBe(false)
 	})
 })
 

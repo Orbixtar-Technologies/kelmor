@@ -158,7 +158,8 @@ paths:
                     type: object
                     additionalProperties: { type: string }
       responses:
-        "200": { description: merged Director host preferences }
+        "200": { description: chrome or deferred preferences saved without a host job }
+        "202": { description: preferences saved and host.config.apply queued }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
@@ -1105,10 +1106,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [backup_id]
               properties:
-                backup_id: { type: string }
+                backup_id: { type: string, description: Latest ready backup is used when omitted }
                 mode: { type: string, enum: [in_place] }
+                path: { type: string, description: Optional home-tree prefix for a path-scoped restore }
       responses:
         "202": { description: restore queued }
   /accounts/{accountID}/dns/zones:
@@ -1403,6 +1404,48 @@ paths:
       x-capability: accounts.suspend
       responses:
         "202": { description: unsuspend jobs queued }
+  /accounts/bulk/clear-bandwidth-hold:
+    post:
+      operationId: clearBandwidthHolds
+      x-capability: accounts.suspend
+      responses:
+        "202": { description: bandwidth-hold clears queued }
+  /accounts/bulk/modify:
+    post:
+      operationId: bulkModifyAccounts
+      x-capability: accounts.modify
+      responses:
+        "202": { description: account reconcile jobs queued }
+  /accounts/ip-migration:
+    post:
+      operationId: migrateAccountIPs
+      x-capability: accounts.modify
+      responses:
+        "202": { description: IP migration reconcile jobs queued }
+  /accounts/convert-addon:
+    post:
+      operationId: convertAddonDomain
+      x-capability: accounts.create
+      responses:
+        "202": { description: new account provision queued }
+  /dns/synchronize:
+    post:
+      operationId: synchronizeDNS
+      x-capability: dns.write
+      responses:
+        "202": { description: zone republish queued }
+  /dns/cleanup:
+    post:
+      operationId: cleanupDNS
+      x-capability: dns.write
+      responses:
+        "202": { description: orphan zone cleanup queued }
+  /mail/notify:
+    post:
+      operationId: notifyMail
+      x-capability: server.settings.write
+      responses:
+        "202": { description: notification mail queued }
   /accounts/export:
     get:
       operationId: exportAccounts

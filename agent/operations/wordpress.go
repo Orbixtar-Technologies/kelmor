@@ -78,7 +78,7 @@ func (h *Host) installWordPress(p WordPressInstall) (Result, error) {
 		return Result{}, err
 	}
 	stage := "/var/tmp/panel-imports/wordpress-" + p.Username
-	if _, err := h.unpackDirectory(archive, stage); err != nil {
+	if _, err := h.unpackDirectory(archive, stage, ""); err != nil {
 		return Result{}, err
 	}
 	if err := flattenWordPressTree(h, stage, doc); err != nil {

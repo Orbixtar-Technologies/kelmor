@@ -22,6 +22,9 @@ func TestDirectorSettingsRoundTripAndRejectSecrets(t *testing.T) {
 			"tweak_settings": map[string]string{"max_emails_hour": "250", "default_php": "8.3"},
 		},
 	})
+	if saved["operation_id"] == nil || saved["operation_id"] == "" {
+		t.Fatalf("host apply job missing: %v", saved)
+	}
 	got := saved["values"].(map[string]any)["tweak_settings"].(map[string]any)
 	if got["max_emails_hour"] != "250" || got["default_php"] != "8.3" {
 		t.Fatalf("saved settings: %v", saved)
