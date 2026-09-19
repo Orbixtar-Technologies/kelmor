@@ -104,6 +104,35 @@ describe('JobsPage account scope', () => {
 		expect(screen.getAllByText('provision timed out').length).toBeGreaterThan(0)
 	})
 
+	it('shows success copy in details for a SUCCEEDED host apply job', async () => {
+		vi.mocked(api).mockResolvedValue({
+			items: [{
+				...failedJob,
+				id: '01a0b7c8-c8b0-7000-bd57-c2fe7fe25484',
+				type: 'host.config.apply',
+				resource_type: 'server',
+				resource_id: '',
+				payload: { target: 'host-config', keys: ['tweak_settings'] },
+				state: 'SUCCEEDED',
+				progress: 100,
+				last_error: undefined,
+			}],
+		})
+
+		render(
+			<MemoryRouter initialEntries={['/jobs?selected=01a0b7c8-c8b0-7000-bd57-c2fe7fe25484']}>
+				<CapProvider caps={{ 'server.settings.write': true }}>
+					<Routes>
+						<Route path="/jobs" element={<JobsPage />} />
+					</Routes>
+				</CapProvider>
+			</MemoryRouter>,
+		)
+
+		expect(await screen.findByText(/completed successfully/i)).toBeInTheDocument()
+		expect(screen.queryByText(/The operation failed/i)).not.toBeInTheDocument()
+	})
+
 	it('keeps recovery actions visible and summarizes earlier log failures', async () => {
 		vi.mocked(api).mockResolvedValue({
 			items: [{

@@ -197,9 +197,9 @@ func (a *API) synchronizeDNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job, err := a.enqueueTypedJob(r, &store.Job{
-		Type: "dns.synchronize", ResourceType: "dns", ResourceID: "all",
-		Payload: map[string]any{"scope": "all"},
-	}, a.auditEvent(r, "", "dns.synchronize", "dns", "all", nil, nil))
+		Type: "dns.synchronize", ResourceType: "dns",
+		Payload: map[string]any{"scope": "all", "target": "all"},
+	}, a.auditEvent(r, "", "dns.synchronize", "dns", "", nil, map[string]any{"target": "all"}))
 	if err != nil {
 		a.fail(w, r, 500, "DNS_SYNC_ERROR", "Could not queue DNS synchronize", false)
 		return
@@ -212,9 +212,9 @@ func (a *API) cleanupDNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job, err := a.enqueueTypedJob(r, &store.Job{
-		Type: "dns.cleanup", ResourceType: "dns", ResourceID: "orphans",
-		Payload: map[string]any{"scope": "terminated"},
-	}, a.auditEvent(r, "", "dns.cleanup", "dns", "orphans", nil, nil))
+		Type: "dns.cleanup", ResourceType: "dns",
+		Payload: map[string]any{"scope": "terminated", "target": "orphans"},
+	}, a.auditEvent(r, "", "dns.cleanup", "dns", "", nil, map[string]any{"target": "orphans"}))
 	if err != nil {
 		a.fail(w, r, 500, "DNS_CLEANUP_ERROR", "Could not queue DNS cleanup", false)
 		return
@@ -255,9 +255,12 @@ func (a *API) notifyMail(w http.ResponseWriter, r *http.Request) {
 		in.Audience = "owners"
 	}
 	job, err := a.enqueueTypedJob(r, &store.Job{
-		Type: "mail.notify", ResourceType: "mail", ResourceID: in.Audience,
-		Payload: map[string]any{"from": in.From, "subject": in.Subject, "body": in.Body, "audience": in.Audience},
-	}, a.auditEvent(r, "", "mail.notify", "mail", in.Audience, nil, map[string]any{"subject": in.Subject}))
+		Type: "mail.notify", ResourceType: "mail",
+		Payload: map[string]any{
+			"from": in.From, "subject": in.Subject, "body": in.Body,
+			"audience": in.Audience, "target": in.Audience,
+		},
+	}, a.auditEvent(r, "", "mail.notify", "mail", "", nil, map[string]any{"subject": in.Subject, "target": in.Audience}))
 	if err != nil {
 		a.fail(w, r, 500, "MAIL_NOTIFY_ERROR", "Could not queue notification mail", false)
 		return

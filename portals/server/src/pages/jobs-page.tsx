@@ -7,7 +7,7 @@ import { RequestSequence } from '../request-sequence'
 import { useCapabilities } from '../rbac'
 import { filterRows, paginateRows, sortRows } from '../table-helpers'
 import type { Job } from '../types'
-import { describeJobFailure, describeJobTimeline, formatJobType, jobMatchesAccount, jobRecoveryGuidance, summarizeJobCounts } from './job-copy'
+import { describeJobFailure, describeJobStatus, describeJobTimeline, formatJobType, jobMatchesAccount, jobRecoveryGuidance, summarizeJobCounts } from './job-copy'
 
 export function JobsPage () {
 	const capabilities = useCapabilities()
@@ -66,7 +66,7 @@ export function JobsPage () {
 			setMessage(`Cancelled ${job.id}.`); setSelected(null); load()
 		} catch (requestError) { setMessage(messageFrom(requestError)) }
 	}
-	const selectedFailure = selected ? describeJobFailure(selected) : null
+	const selectedStatus = selected ? describeJobStatus(selected) : null
 	return <>
 		<PageHeader title="Jobs" description={accountId ? 'Operations for the selected account.' : 'Search background work, inspect failures, and retry eligible jobs.'} actions={<button type="button" className="secondary" onClick={load}>Refresh</button>} />
 		{accountId ? (
@@ -105,10 +105,10 @@ export function JobsPage () {
 				{selected.state === 'failed' && canRetryJob(selected, capabilities) ? <button type="button" onClick={() => retry(selected)}>Retry failed job</button> : null}
 				{canCancelJob(selected, capabilities) ? <button type="button" className="secondary" onClick={() => cancel(selected)}>Cancel job</button> : null}
 			</> : undefined}
-		>{selected && selectedFailure ? <>
-			<p className="job-summary">{selectedFailure.reason}</p>
+		>{selected && selectedStatus ? <>
+			<p className="job-summary">{selectedStatus.reason}</p>
 			<dl className="detail-list">
-				<div><dt>Affected</dt><dd>{selectedFailure.resource}</dd></div>
+				<div><dt>Affected</dt><dd>{selectedStatus.resource}</dd></div>
 				<div><dt>State</dt><dd><StatusBadge value={selected.state} /></dd></div>
 			</dl>
 			<ol className="job-timeline">
@@ -117,7 +117,7 @@ export function JobsPage () {
 				))}
 			</ol>
 			{selected.state === 'failed' ? <p className="subtle">{jobRecoveryGuidance(selected)}</p> : null}
-			<details className="job-technical"><summary>Technical details</summary><pre>{JSON.stringify(selected.payload, null, 2)}</pre>{selectedFailure.technical ? <pre>{selectedFailure.technical}</pre> : null}</details>
+			<details className="job-technical"><summary>Technical details</summary><pre>{JSON.stringify(selected.payload, null, 2)}</pre>{selectedStatus.technical ? <pre>{selectedStatus.technical}</pre> : null}</details>
 		</> : null}</Dialog>
 	</>
 }

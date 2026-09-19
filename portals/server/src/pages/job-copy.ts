@@ -74,13 +74,60 @@ function extractErrorMessage (raw: string): { reason: string; technical: string 
 export function describeJobFailure (job: Job): JobFailureSummary {
 	const extracted = extractErrorMessage(job.last_error || '')
 	const hostname = typeof job.payload.hostname === 'string' ? job.payload.hostname : ''
-	const resource = hostname || job.resource_type || job.resource_id || 'this account'
+	const target = typeof job.payload.target === 'string' ? job.payload.target : ''
+	const resource = hostname || target || job.resource_type || job.resource_id || 'this account'
 	return {
 		title: formatJobType(job.type),
 		resource,
 		reason: extracted.reason,
 		technical: extracted.technical || job.last_error || '',
 	}
+}
+
+export function describeJobStatus (job: Job): JobFailureSummary {
+	const described = describeJobFailure(job)
+	const kind = jobStateKind(job.state)
+	switch (kind) {
+		case 'success':
+			return { ...described, reason: 'The operation completed successfully.', technical: '' }
+		case 'progress':
+			return { ...described, reason: progressReason(job.state), technical: '' }
+		case 'cancelled':
+			return { ...described, reason: 'The operation was cancelled.', technical: '' }
+		case 'failure':
+			return described
+		default: {
+			const _exhaustive: never = kind
+			return _exhaustive
+		}
+	}
+}
+
+type JobStateKind = 'success' | 'failure' | 'progress' | 'cancelled'
+
+function jobStateKind (state: string): JobStateKind {
+	switch (state.trim().toLocaleLowerCase()) {
+		case 'succeeded':
+		case 'completed':
+			return 'success'
+		case 'failed':
+		case 'error':
+			return 'failure'
+		case 'queued':
+		case 'running':
+		case 'retrying':
+			return 'progress'
+		case 'cancelled':
+		case 'canceled':
+			return 'cancelled'
+		default:
+			return 'progress'
+	}
+}
+
+function progressReason (state: string): string {
+	if (state.trim().toLocaleLowerCase() === 'queued') return 'The operation is queued.'
+	return 'The operation is in progress.'
 }
 
 export function jobMatchesAccount (job: Job, accountId: string): boolean {

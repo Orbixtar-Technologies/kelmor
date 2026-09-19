@@ -129,7 +129,7 @@ func (a *API) patchDirectorSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	directorSettingsMu.Unlock()
-	a.audit(r, "server.settings.update", "server", "director-settings", true, nil, map[string]any{"keys": keys})
+	a.audit(r, "server.settings.update", "server", "", true, nil, map[string]any{"keys": keys, "target": "director-settings"})
 	out := map[string]any{"values": current.Values}
 	if hostconfig.NeedsHostApply(keys) {
 		job, err := a.enqueueHostConfigJob(r, keys)

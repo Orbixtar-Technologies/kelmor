@@ -1,15 +1,31 @@
 package job
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
 	"github.com/hosting-panel/panel/internal/store"
 	paneltls "github.com/hosting-panel/panel/internal/tls"
 )
+
+type uuidConstrainedStore struct {
+	store.Store
+}
+
+func (s uuidConstrainedStore) EnqueueJob(job *store.Job) (*store.Job, error) {
+	if strings.TrimSpace(job.ResourceID) != "" {
+		if _, err := id.Parse(job.ResourceID); err != nil {
+			return nil, fmt.Errorf("ERROR: invalid input syntax for type uuid: %q (jobs.resource_id)", job.ResourceID)
+		}
+	}
+	return s.Store.EnqueueJob(job)
+}
 
 func TestScanCertRenewalsQueuesExpiring(t *testing.T) {
 	st := store.NewMemory()
@@ -64,14 +80,24 @@ func TestScanPortalHostnameCertQueuesExpiring(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "certs", "panel.example.net.crt"), cert, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st := store.NewMemory()
+	inner := store.NewMemory()
+	st := uuidConstrainedStore{Store: inner}
 	w := New(st, nil, logging.New("test"), nil, "w1")
 	w.scanPortalHostnameCert()
 	found := false
-	for _, j := range st.ListJobs("queued", 20) {
-		if j.Type == "certificate.portal" && j.ResourceID == "panel.example.net" {
-			found = true
+	for _, j := range inner.ListJobs("queued", 20) {
+		if j.Type != "certificate.portal" {
+			continue
 		}
+		if j.ResourceID != "" {
+			if _, err := id.Parse(j.ResourceID); err != nil {
+				t.Fatalf("jobs.resource_id must be empty or a UUID on Postgres: %q", j.ResourceID)
+			}
+		}
+		if j.Payload["hostname"] != "panel.example.net" && j.Payload["target"] != "panel.example.net" {
+			t.Fatalf("portal hostname must stay in payload: %+v", j.Payload)
+		}
+		found = true
 	}
 	if !found {
 		t.Fatal("expiring portal hostname cert not queued")
