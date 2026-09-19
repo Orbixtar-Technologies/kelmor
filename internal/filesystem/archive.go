@@ -16,6 +16,7 @@ const (
 type ArchiveLimits struct {
 	MaxFiles int
 	MaxBytes int64
+	Prefix   string
 }
 
 func (root *Root) ExtractTar(reader io.Reader, dest string, limits ArchiveLimits) error {
@@ -44,6 +45,11 @@ func (root *Root) ExtractTar(reader io.Reader, dest string, limits ArchiveLimits
 		name = strings.TrimPrefix(name, "./")
 		if name == "." || name == "" {
 			continue
+		}
+		if prefix := archivePrefix(limits.Prefix); prefix != "" {
+			if name != prefix && !strings.HasPrefix(name, prefix+"/") {
+				continue
+			}
 		}
 		if path.IsAbs(name) || strings.HasPrefix(name, "../") || strings.Contains(name, ":") {
 			return fmt.Errorf("archive traversal")
@@ -92,4 +98,14 @@ func (root *Root) ExtractTar(reader io.Reader, dest string, limits ArchiveLimits
 			return fmt.Errorf("archive contains unsupported entry %q", name)
 		}
 	}
+}
+
+func archivePrefix(raw string) string {
+	prefix := path.Clean(strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/"))
+	prefix = strings.TrimPrefix(prefix, "./")
+	prefix = strings.TrimPrefix(prefix, "/")
+	if prefix == "." || prefix == "" {
+		return ""
+	}
+	return prefix
 }

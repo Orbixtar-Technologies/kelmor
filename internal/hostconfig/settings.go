@@ -1,0 +1,285 @@
+package hostconfig
+
+import (
+	"encoding/json"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"unicode"
+)
+
+const FileName = "director-settings.json"
+
+type File struct {
+	Values map[string]map[string]string `json:"values"`
+}
+
+func Load(stateDir string) (File, error) {
+	out := File{Values: map[string]map[string]string{}}
+	if stateDir == "" {
+		return out, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(stateDir, FileName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return out, nil
+		}
+		return out, err
+	}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return File{Values: map[string]map[string]string{}}, err
+	}
+	if out.Values == nil {
+		out.Values = map[string]map[string]string{}
+	}
+	return out, nil
+}
+
+func Field(f File, key, field, fallback string) string {
+	if f.Values == nil {
+		return fallback
+	}
+	row := f.Values[key]
+	if row == nil {
+		return fallback
+	}
+	value := strings.TrimSpace(row[field])
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func BoolField(f File, key, field string, fallback bool) bool {
+	raw := strings.ToLower(Field(f, key, field, ""))
+	switch raw {
+	case "on", "true", "1", "yes":
+		return true
+	case "off", "false", "0", "no":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func IntField(f File, key, field string, fallback int) int {
+	raw := Field(f, key, field, "")
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func Lines(f File, key, field string) []string {
+	raw := Field(f, key, field, "")
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(strings.ReplaceAll(line, ",", " "))
+		if line == "" {
+			continue
+		}
+		for _, part := range strings.Fields(line) {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+type PasswordPolicy struct {
+	MinLength     int
+	RequireSymbol bool
+}
+
+func PasswordPolicyFrom(f File) PasswordPolicy {
+	minLen := IntField(f, "password_strength", "min_length", 0)
+	if minLen == 0 {
+		minLen = IntField(f, "security_policies", "min_password_length", 12)
+	}
+	if minLen < 8 {
+		minLen = 8
+	}
+	requireSymbol := BoolField(f, "password_strength", "require_symbol", false)
+	return PasswordPolicy{MinLength: minLen, RequireSymbol: requireSymbol}
+}
+
+func (p PasswordPolicy) Check(password string) string {
+	if len(password) < p.MinLength {
+		return "Password must be at least " + strconv.Itoa(p.MinLength) + " characters"
+	}
+	if p.RequireSymbol {
+		ok := false
+		for _, r := range password {
+			if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return "Password must include a symbol"
+		}
+	}
+	return ""
+}
+
+func IdleMinutes(f File) int {
+	n := IntField(f, "security_policies", "idle_minutes", 0)
+	if n < 1 {
+		return 0
+	}
+	if n > 24*60 {
+		return 24 * 60
+	}
+	return n
+}
+
+func BruteForce(f File) (enabled bool, maxFailures int, windowMinutes int) {
+	enabled = BoolField(f, "brute_force", "enabled", true)
+	maxFailures = IntField(f, "brute_force", "max_failures", 8)
+	if maxFailures < 1 {
+		maxFailures = 1
+	}
+	windowMinutes = IntField(f, "brute_force", "window_minutes", 1)
+	if windowMinutes < 1 {
+		windowMinutes = 1
+	}
+	return enabled, maxFailures, windowMinutes
+}
+
+func DemoUsernames(f File) []string {
+	return Lines(f, "demo_accounts", "usernames")
+}
+
+func IsDemoUsername(f File, username string) bool {
+	want := strings.ToLower(strings.TrimSpace(username))
+	for _, name := range DemoUsernames(f) {
+		if strings.ToLower(name) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func ZoneTTL(f File) int {
+	ttl := IntField(f, "zone_ttl", "ttl", 0)
+	if ttl == 0 {
+		ttl = IntField(f, "zone_templates", "ttl", 3600)
+	}
+	if ttl < 60 {
+		return 60
+	}
+	if ttl > 86400 {
+		return 86400
+	}
+	return ttl
+}
+
+func DefaultPHP(f File) string {
+	ver := Field(f, "tweak_settings", "default_php", "8.3")
+	switch ver {
+	case "8.2", "8.3", "8.4", "8.5":
+		return ver
+	default:
+		return "8.3"
+	}
+}
+
+func MaxEmailsHour(f File) int {
+	n := IntField(f, "tweak_settings", "max_emails_hour", 0)
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+func BackupUsernames(f File) []string {
+	return Lines(f, "backup_users", "usernames")
+}
+
+func BackupRetentionDays(f File) int {
+	n := IntField(f, "backup_configuration", "retention_days", 14)
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func BackupDestination(f File) string {
+	dest := Field(f, "backup_configuration", "destination", "local")
+	switch dest {
+	case "local", "sftp", "s3":
+		return dest
+	default:
+		return "local"
+	}
+}
+
+func ValidIPList(values []string) []string {
+	var out []string
+	for _, value := range values {
+		if parsed := net.ParseIP(value); parsed != nil {
+			out = append(out, parsed.String())
+			continue
+		}
+		if _, network, err := net.ParseCIDR(value); err == nil {
+			out = append(out, network.String())
+		}
+	}
+	return out
+}
+
+var chromeOrDeferredKeys = map[string]bool{
+	"theme":                 true,
+	"locale":                true,
+	"customization":         true,
+	"external_auth":         true,
+	"two_factor":            true,
+	"configuration_cluster": true,
+	"linked_nodes":          true,
+	"remote_access_key":     true,
+	"module_installers":     true,
+	"perl_modules":          true,
+	"php_pear":              true,
+	"php_pecl":              true,
+	"ruby_gems":             true,
+	"mariadb_upgrade":       true,
+	"support_access":        true,
+	"server_profile":        true,
+}
+
+func NeedsHostApply(keys []string) bool {
+	for _, key := range keys {
+		if !chromeOrDeferredKeys[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func StateDir(envDir, agentRoot string, sockEmpty bool) string {
+	base := strings.TrimSpace(envDir)
+	if base == "" {
+		base = "/var/lib/panel"
+	}
+	if sockEmpty && agentRoot != "" {
+		return filepath.Join(agentRoot, "var/lib/panel")
+	}
+	return base
+}

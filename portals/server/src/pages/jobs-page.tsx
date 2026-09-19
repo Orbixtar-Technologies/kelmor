@@ -60,6 +60,12 @@ export function JobsPage () {
 			setMessage(`Retry queued as ${result.operation_id || result.id || 'a new job'}.`); setSelected(null); load()
 		} catch (requestError) { setMessage(messageFrom(requestError)) }
 	}
+	async function cancel (job: Job) {
+		try {
+			await api(`/api/v1/jobs/${job.id}/cancel`, { method: 'POST', body: '{}' })
+			setMessage(`Cancelled ${job.id}.`); setSelected(null); load()
+		} catch (requestError) { setMessage(messageFrom(requestError)) }
+	}
 	const selectedFailure = selected ? describeJobFailure(selected) : null
 	return <>
 		<PageHeader title="Jobs" description={accountId ? 'Operations for the selected account.' : 'Search background work, inspect failures, and retry eligible jobs.'} actions={<button type="button" className="secondary" onClick={load}>Refresh</button>} />
@@ -97,6 +103,7 @@ export function JobsPage () {
 			actions={selected ? <>
 				<button type="button" className="secondary" onClick={() => setSelected(null)}>Close</button>
 				{selected.state === 'failed' && canRetryJob(selected, capabilities) ? <button type="button" onClick={() => retry(selected)}>Retry failed job</button> : null}
+				{canCancelJob(selected, capabilities) ? <button type="button" className="secondary" onClick={() => cancel(selected)}>Cancel job</button> : null}
 			</> : undefined}
 		>{selected && selectedFailure ? <>
 			<p className="job-summary">{selectedFailure.reason}</p>
@@ -115,6 +122,11 @@ export function JobsPage () {
 	</>
 }
 
+export function canCancelJob (job: Job, capabilities: Record<string, boolean>): boolean {
+	if (job.state !== 'queued' && job.state !== 'failed') return false
+	return canRetryJob(job, capabilities)
+}
+
 export function canRetryJob (job: Job, capabilities: Record<string, boolean>): boolean {
 	if (job.retryable === false) return false
 	const prefixes: Array<[string, string]> = [
@@ -122,7 +134,8 @@ export function canRetryJob (job: Job, capabilities: Record<string, boolean>): b
 		['domain.', 'domains.write'], ['website.', 'websites.write'], ['application.', 'applications.write'],
 		['wordpress.', 'applications.write'], ['database.', 'databases.write'], ['dns.', 'dns.write'],
 		['mail', 'mail.write'], ['certificate.provision', 'websites.write'], ['certificate.portal', 'server.settings.write'],
-		['backup.create', 'backups.create'], ['backup.restore', 'backups.restore'], ['cron.', 'cron.write'], ['ftp.', 'files.write'],
+		['backup.create', 'backups.create'], ['backup.restore', 'backups.restore'], ['backup.schedule', 'backups.create'],
+		['host.config.apply', 'server.settings.write'], ['cron.', 'cron.write'], ['ftp.', 'files.write'],
 	]
 	const match = prefixes.find(([prefix]) => job.type.startsWith(prefix))
 	return Boolean(match && capabilities[match[1]])

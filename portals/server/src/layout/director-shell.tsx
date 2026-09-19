@@ -53,6 +53,16 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const showResources = canViewResources && location.pathname === '/'
 
 	useEffect(() => {
+		if (capabilities['server.read'] || capabilities['server.settings.write']) {
+			api<{ values?: Record<string, Record<string, string>> }>('/api/v1/server/settings').then((result) => {
+				const density = result.values?.theme?.density || 'comfortable'
+				const locale = result.values?.locale?.locale || ''
+				const product = result.values?.customization?.product_name || ''
+				document.documentElement.dataset.density = density
+				if (locale) document.documentElement.lang = locale
+				if (product) document.documentElement.dataset.productName = product
+			}).catch(() => undefined)
+		}
 		if (capabilities['accounts.read']) api<{ items: Account[] }>('/api/v1/accounts').then((result) => setAccounts(asList(result))).catch(() => setAccounts([]))
 		if (capabilities['server.read']) {
 			api<ServerOverview>('/api/v1/server').then((result) => {

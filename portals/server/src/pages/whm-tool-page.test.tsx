@@ -45,9 +45,10 @@ describe('WhmToolPage', () => {
 		renderTool('/tools/tweak-settings')
 		expect(await screen.findByRole('heading', { name: 'Tweak Settings' })).toBeInTheDocument()
 		expect(screen.getByText(/Server Configuration/)).toBeInTheDocument()
-		expect(await screen.findByText(/Settings \(local\) — Not applied to host/)).toBeInTheDocument()
+		expect(await screen.findByText(/Save queues a host apply job/)).toBeInTheDocument()
+		expect(screen.queryByText(/Settings \(local\) — Not applied to host/)).not.toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
-		await user.click(screen.getByRole('button', { name: 'Save local preference' }))
+		await user.click(screen.getByRole('button', { name: 'Apply on host' }))
 		expect(api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
 	})
 
@@ -89,6 +90,47 @@ describe('WhmToolPage', () => {
 			body: JSON.stringify({ package_id: 'pkg-2' }),
 		}))
 		expect(api).not.toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
+	})
+
+	test('file and directory restore posts a path-scoped restore', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1/restores' && options?.method === 'POST') {
+				return Promise.resolve({ operation_id: 'restore-1' })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/file-dir-restore', { 'backups.restore': true, 'accounts.read': true })
+		await screen.findByRole('option', { name: /shop/ })
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Apply' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-1/restores', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({ path: 'public_html' }),
+		}))
+	})
+
+	test('unsuspend bandwidth clears holds instead of bulk-unsuspending everyone', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', status: 'suspended' }] })
+			}
+			if (String(path) === '/api/v1/accounts/bulk/clear-bandwidth-hold') {
+				return Promise.resolve({ operations: ['hold-1'] })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/unsuspend-bandwidth', { 'accounts.suspend': true, 'accounts.read': true })
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Confirm' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/bulk/clear-bandwidth-hold', expect.objectContaining({ method: 'POST' }))
+		expect(api).not.toHaveBeenCalledWith('/api/v1/accounts/bulk/unsuspend', expect.anything())
 	})
 
 	test('mail queue only mounts Postfix recipes', async () => {

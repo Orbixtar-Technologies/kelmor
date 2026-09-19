@@ -150,7 +150,7 @@ export function HomePage () {
 				})}
 			</div>
 			{grouped.length ? <>
-				<SectionHeading title="All tools" detail="Dedicated managers talk to the host. Tiles marked Settings (local) only write a Director preference and are not applied to nginx, Postfix, or PowerDNS." />
+				<SectionHeading title="All tools" detail="Dedicated managers and host-settings tiles talk to the API and Agent. Tiles marked Settings (local) are policy records that are not a live host product yet." />
 				<div className="tool-groups">
 					{grouped.map((group) => (
 						<section className="panel tool-group" key={group.id}>

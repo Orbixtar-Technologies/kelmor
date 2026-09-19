@@ -26,6 +26,7 @@ import (
 	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/brand"
 	"github.com/hosting-panel/panel/internal/configuration"
+	"github.com/hosting-panel/panel/internal/hostconfig"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/limits"
 	"github.com/hosting-panel/panel/internal/migration"
@@ -126,6 +127,13 @@ func (a *API) Handler() http.Handler {
 			r.Get("/accounts/{accountID}/usage", a.accountUsage)
 			r.Post("/accounts/bulk/suspend", a.bulkSuspend)
 			r.Post("/accounts/bulk/unsuspend", a.bulkUnsuspend)
+			r.Post("/accounts/bulk/clear-bandwidth-hold", a.clearBandwidthHolds)
+			r.Post("/accounts/bulk/modify", a.bulkModifyAccounts)
+			r.Post("/accounts/ip-migration", a.migrateAccountIPs)
+			r.Post("/accounts/convert-addon", a.convertAddon)
+			r.Post("/dns/synchronize", a.synchronizeDNS)
+			r.Post("/dns/cleanup", a.cleanupDNS)
+			r.Post("/mail/notify", a.notifyMail)
 			r.Get("/accounts/export", a.exportAccounts)
 			r.Post("/accounts/import", a.importAccount)
 			r.Post("/accounts/import/cpanel", a.importCPanel)
@@ -273,7 +281,9 @@ func writeBrandHTML(w http.ResponseWriter, title, body string) {
 
 func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	if !a.limiter.allow("login:"+ip, 8, time.Minute) {
+	settings := a.settingsFile()
+	enabled, maxFailures, windowMinutes := hostconfig.BruteForce(settings)
+	if enabled && !a.limiter.allow("login:"+ip, maxFailures, time.Duration(windowMinutes)*time.Minute) {
 		a.fail(w, r, 429, "RATE_LIMITED", "Too many login attempts", false)
 		return
 	}
@@ -306,11 +316,12 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "SESSION_ERROR", "Could not create session", false)
 		return
 	}
-	sess := &store.Session{ID: id.New(), UserID: u.ID, TokenHash: hash, ExpiresAt: time.Now().Add(12 * time.Hour), SourceIP: ip, UserAgent: r.UserAgent()}
+	ttl := sessionTTL(settings)
+	sess := &store.Session{ID: id.New(), UserID: u.ID, TokenHash: hash, ExpiresAt: time.Now().Add(ttl), SourceIP: ip, UserAgent: r.UserAgent()}
 	a.Store.PutSession(sess)
 	http.SetCookie(w, &http.Cookie{
 		Name: "panel_session", Value: plain, Path: "/", HttpOnly: true,
-		Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600,
+		Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: int(ttl.Seconds()),
 	})
 	writeJSON(w, 200, map[string]any{"token": plain, "user": publicUser(u), "expires_at": sess.ExpiresAt})
 }
@@ -340,8 +351,8 @@ func (a *API) completePasswordChange(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 409, "PASSWORD_CHANGE_NOT_REQUIRED", "Password change is not required", false)
 		return
 	}
-	if len(in.NewPassword) < 12 {
-		a.fail(w, r, 400, "VALIDATION", "New password must be at least 12 characters", false)
+	if msg := a.passwordPolicyError(in.NewPassword); msg != "" {
+		a.fail(w, r, 400, "VALIDATION", msg, false)
 		return
 	}
 	if auth.VerifyPassword(u.PasswordHash, in.NewPassword) {
@@ -463,7 +474,7 @@ func (a *API) refresh(w http.ResponseWriter, r *http.Request) {
 		ID:                  id.New(),
 		UserID:              u.ID,
 		TokenHash:           hash,
-		ExpiresAt:           time.Now().Add(12 * time.Hour),
+		ExpiresAt:           time.Now().Add(sessionTTL(a.settingsFile())),
 		SourceIP:            clientIP(r),
 		UserAgent:           r.UserAgent(),
 		ImpersonatorID:      current.ImpersonatorID,
@@ -473,7 +484,7 @@ func (a *API) refresh(w http.ResponseWriter, r *http.Request) {
 	a.Store.RevokeSession(current.ID)
 	http.SetCookie(w, &http.Cookie{
 		Name: "panel_session", Value: plain, Path: "/", HttpOnly: true,
-		Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600,
+		Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL(a.settingsFile()).Seconds()),
 	})
 	writeJSON(w, 200, map[string]any{"token": plain, "user": publicUser(u), "expires_at": next.ExpiresAt})
 }
@@ -898,10 +909,14 @@ func retryCapability(jobType string) string {
 		return rbac.ServerSettingsWrite
 	case "database.provision", "database.delete":
 		return rbac.DatabasesWrite
-	case "dns.sync", "dns.dnssec":
+	case "dns.sync", "dns.dnssec", "dns.synchronize", "dns.cleanup":
 		return rbac.DNSWrite
-	case "mailbox.provision", "mailbox.delete", "mail.alias", "mail.maps":
+	case "mailbox.provision", "mailbox.delete", "mail.alias", "mail.maps", "mail.notify":
 		return rbac.MailWrite
+	case "host.config.apply":
+		return rbac.ServerSettingsWrite
+	case "backup.schedule":
+		return rbac.BackupsCreate
 	case "certificate.provision":
 		return rbac.WebsitesWrite
 	case "certificate.portal":
@@ -1867,8 +1882,8 @@ func (a *API) createAccount(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 403, "FORBIDDEN", "Package is not available to this reseller", false)
 		return
 	}
-	if len(in.OwnerPassword) < 12 {
-		a.fail(w, r, 400, "VALIDATION", "Owner password must be at least 12 characters", false)
+	if msg := a.passwordPolicyError(in.OwnerPassword); msg != "" {
+		a.fail(w, r, 400, "VALIDATION", msg, false)
 		return
 	}
 	hash, err := auth.HashPassword(in.OwnerPassword)
@@ -1974,7 +1989,11 @@ func (a *API) modifyAccount(w http.ResponseWriter, r *http.Request) {
 		acc.PrimaryDomain = ascii
 	}
 	if v, ok := in["ip_address"].(string); ok {
-		acc.IPAddress = v
+		if err := validateAccountIP(v, true); err != nil {
+			a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+			return
+		}
+		acc.IPAddress = strings.TrimSpace(v)
 	}
 	if raw, present := in["shell_class"]; present {
 		value, ok := raw.(string)
@@ -2031,8 +2050,11 @@ func (a *API) rotateAccountPassword(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "INVALID_JSON", "Invalid password request", false)
 		return
 	}
-	if len(in.Password) < 12 {
-		a.fail(w, r, 400, "VALIDATION", "Password must be at least 12 characters", false)
+	if a.rejectDemoWrite(w, r, acc.Username) {
+		return
+	}
+	if msg := a.passwordPolicyError(in.Password); msg != "" {
+		a.fail(w, r, 400, "VALIDATION", msg, false)
 		return
 	}
 	owner := a.Store.UserByID(acc.OwnerUserID)
@@ -2075,6 +2097,10 @@ func (a *API) unsuspendAccount(w http.ResponseWriter, r *http.Request) {
 	a.setAccountStatus(w, r, "active", "account.unsuspend", rbac.AccountsSuspend)
 }
 func (a *API) terminateAccount(w http.ResponseWriter, r *http.Request) {
+	acc := a.Store.GetAccount(chi.URLParam(r, "accountID"))
+	if acc != nil && a.rejectDemoWrite(w, r, acc.Username) {
+		return
+	}
 	a.setAccountStatus(w, r, "terminating", "account.terminate", rbac.AccountsTerminate)
 }
 
@@ -3343,8 +3369,12 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		BackupID string `json:"backup_id"`
 		Mode     string `json:"mode"`
+		Path     string `json:"path"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
+	if strings.TrimSpace(in.BackupID) == "" {
+		in.BackupID = latestAccountBackupID(a.Store, aid)
+	}
 	b := a.Store.GetBackup(in.BackupID)
 	if b == nil || b.AccountID != aid {
 		a.fail(w, r, 404, "BACKUP_NOT_FOUND", "Backup was not found for this account", false)
@@ -3355,12 +3385,16 @@ func (a *API) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		AccountID: aid, BackupID: in.BackupID, ActorID: actor(r).UserID,
 		ObjectKey: key, State: store.StateRestoreRequested,
 	}
+	payload := map[string]any{"backup_id": in.BackupID, "account_id": aid, "mode": in.Mode}
+	if path := strings.TrimSpace(in.Path); path != "" {
+		payload["path"] = path
+	}
 	job, err := a.Store.CreateRestoreWithJob(journal, &store.Job{
 		Type: "backup.restore", ResourceType: "backup", ResourceID: in.BackupID,
-		Payload: map[string]any{"backup_id": in.BackupID, "account_id": aid, "mode": in.Mode},
+		Payload: payload,
 		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
-	}, a.auditEvent(r, aid, "backup.restore", "backup", in.BackupID, nil, map[string]any{"mode": in.Mode}))
+	}, a.auditEvent(r, aid, "backup.restore", "backup", in.BackupID, nil, map[string]any{"mode": in.Mode, "path": in.Path}))
 	if err != nil {
 		if errors.Is(err, store.ErrRestoreInProgress) {
 			a.fail(w, r, 409, "RESTORE_IN_PROGRESS", "An account restore is already in progress", false)
@@ -3416,6 +3450,9 @@ func (a *API) listFiles(w http.ResponseWriter, r *http.Request) {
 func (a *API) writeFile(w http.ResponseWriter, r *http.Request) {
 	aid := chi.URLParam(r, "accountID")
 	if !a.requireAccount(w, r, aid, rbac.FilesWrite) {
+		return
+	}
+	if acc := a.Store.GetAccount(aid); acc != nil && a.rejectDemoWrite(w, r, acc.Username) {
 		return
 	}
 	var in struct {

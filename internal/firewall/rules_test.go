@@ -37,6 +37,16 @@ func TestRulesIsolatePowerDNSManagement(t *testing.T) {
 	}
 }
 
+func TestRulesWithAccessDropsDeniedCIDR(t *testing.T) {
+	body := RulesWithAccess(nil, []string{"203.0.113.10"}, []string{"198.51.100.0/24"})
+	if !contains(body, "ip saddr 198.51.100.0/24 drop") {
+		t.Fatal(body)
+	}
+	if !contains(body, "ip saddr 203.0.113.10/32 accept") {
+		t.Fatal(body)
+	}
+}
+
 func TestSplitHexAddr(t *testing.T) {
 	host, port, err := splitHexAddr("0100007F:4652")
 	if err != nil || port != 0x4652 || host != "0100007F" {

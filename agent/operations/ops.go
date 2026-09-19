@@ -159,9 +159,24 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 	case "UnlockLinuxUser":
 		var p struct {
 			Username string `json:"username"`
+			Shell    string `json:"shell"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.unlockUnixUser(p.Username)
+		res, err := h.unlockUnixUser(p.Username)
+		if err != nil {
+			return res, err
+		}
+		if p.Shell != "" {
+			return h.setUnixShell(p.Username, p.Shell)
+		}
+		return res, nil
+	case "SetLinuxShell":
+		var p struct {
+			Username string `json:"username"`
+			Shell    string `json:"shell"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.setUnixShell(p.Username, p.Shell)
 	case "DeleteLinuxUser":
 		var p struct {
 			Username string `json:"username"`
@@ -418,9 +433,25 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 		var p struct {
 			Archive string `json:"archive"`
 			Dest    string `json:"dest"`
+			Prefix  string `json:"prefix"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.unpackDirectory(p.Archive, p.Dest)
+		return h.unpackDirectory(p.Archive, p.Dest, p.Prefix)
+	case "ApplyHostConfig":
+		var spec HostConfigSpec
+		if err := json.Unmarshal(req.Params, &spec); err != nil {
+			return nil, err
+		}
+		return h.applyHostConfig(spec)
+	case "SendSystemMail":
+		var p struct {
+			From    string `json:"from"`
+			To      string `json:"to"`
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.sendSystemMail(p.From, p.To, p.Subject, p.Body)
 	case "CopyHomedir":
 		var p struct {
 			Username string `json:"username"`

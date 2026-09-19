@@ -16,6 +16,7 @@ import (
 	"github.com/hosting-panel/panel/internal/backup"
 	"github.com/hosting-panel/panel/internal/configuration"
 	"github.com/hosting-panel/panel/internal/dns"
+	"github.com/hosting-panel/panel/internal/hostconfig"
 	"github.com/hosting-panel/panel/internal/mail"
 	"github.com/hosting-panel/panel/internal/netaddr"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
@@ -33,10 +34,11 @@ type Worker struct {
 	stop           chan struct{}
 	usageCursor    string
 	lastCertScan   time.Time
+	lastBackupScan time.Time
 }
 
 func New(st store.Store, agent *operations.Host, log *logging.Logger, box *secret.Box, name string) *Worker {
-	return &Worker{Store: st, Agent: agent, Log: log, Box: box, Name: name, stop: make(chan struct{})}
+	return &Worker{Store: st, Agent: agent, Log: log, Box: box, Name: name, stop: make(chan struct{}), lastBackupScan: time.Now()}
 }
 
 func (w *Worker) Drain(ctx context.Context) {
@@ -75,6 +77,7 @@ func (w *Worker) reap() {
 
 func (w *Worker) scanDrift(ctx context.Context) {
 	w.maybeScanCertRenewals()
+	w.maybeScheduleBackups()
 	w.collectUsageBatch()
 	for _, acc := range w.Store.DriftedAccounts() {
 		_, _ = w.Store.EnqueueJob(&store.Job{
@@ -324,6 +327,16 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.createBackup(j)
 	case "backup.restore":
 		return w.restoreBackup(j)
+	case "backup.schedule":
+		return w.scheduleSelectedBackups(w.loadHostSettings())
+	case "host.config.apply":
+		return w.applyHostConfigJob(j)
+	case "dns.synchronize":
+		return w.synchronizeAllZones()
+	case "dns.cleanup":
+		return w.cleanupOrphanZones()
+	case "mail.notify":
+		return w.notifyMailJob(j)
 	case "cron.apply":
 		return w.applyCron(j)
 	case "ftp.apply":
@@ -361,7 +374,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	}
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "CreateLinuxUser",
-		Params: mustJSON(map[string]any{"username": acc.Username, "uid": acc.LinuxUID, "gid": acc.LinuxGID, "home": acc.HomePath, "shell": "/usr/sbin/nologin"}),
+		Params: mustJSON(map[string]any{"username": acc.Username, "uid": acc.LinuxUID, "gid": acc.LinuxGID, "home": acc.HomePath, "shell": posixShell(acc.ShellClass)}),
 	})
 	if err != nil {
 		acc.Status = "failed"
@@ -389,7 +402,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 		Method: "SetFilesystemQuota",
 		Params: mustJSON(map[string]any{"username": acc.Username, "bytes": pkg.DiskBytes}),
 	})
-	pubIP := publicIPv4()
+	pubIP := accountPublishIPv4(acc)
 	for _, d := range w.Store.ListDomains(acc.ID) {
 		if err := w.ensureDomainStack(&d, acc, pubIP, "", true); err != nil {
 			return err
@@ -422,7 +435,7 @@ func (w *Worker) provisionAccount(j *store.Job) error {
 	case "suspended":
 		w.applySuspendedHost(acc)
 	default:
-		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "UnlockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username})})
+		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "UnlockLinuxUser", Params: mustJSON(map[string]any{"username": acc.Username, "shell": posixShell(acc.ShellClass)})})
 		_, _ = w.Agent.Dispatch(context.Background(), operations.Request{Method: "FreezeAccount", Params: mustJSON(map[string]any{"username": acc.Username, "freeze": false})})
 		for _, site := range w.Store.ListWebsites(acc.ID) {
 			s := site
@@ -525,8 +538,9 @@ func (w *Worker) retireAccount(acc *store.Account, j *store.Job) error {
 
 func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, runtime string, skipMail bool) error {
 	if pubIP == "" {
-		pubIP = publicIPv4()
+		pubIP = accountPublishIPv4(acc)
 	}
+	ttl := hostconfig.ZoneTTL(w.loadHostSettings())
 	if d.Type == "alias" {
 		d.DocumentRoot = acc.HomePath + "/public_html"
 	}
@@ -535,15 +549,21 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 	if w.Store.ZoneByDomain(d.ID) == nil {
 		z := &store.DNSZone{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Name: d.ASCII, Provider: "powerdns", DesiredRevision: 1, ObservedRevision: 1}
 		w.Store.PutZone(z)
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "A", Content: pubIP, TTL: 3600})
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "A", Content: pubIP, TTL: ttl})
 		for _, name := range configuration.AccountServiceHostnames() {
-			w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: name, Type: "A", Content: pubIP, TTL: 3600})
+			w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: name, Type: "A", Content: pubIP, TTL: ttl})
 		}
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "MX", Content: "mail." + d.ASCII, TTL: 3600, Priority: intPtr(10)})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:" + pubIP + " ~all", TTL: 3600})
-		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "_dmarc", Type: "TXT", Content: "v=DMARC1; p=none", TTL: 3600})
+		if v6 := accountPublishIPv6(acc); v6 != "" {
+			w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "AAAA", Content: v6, TTL: ttl})
+			for _, name := range configuration.AccountServiceHostnames() {
+				w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: name, Type: "AAAA", Content: v6, TTL: ttl})
+			}
+		}
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "MX", Content: "mail." + d.ASCII, TTL: ttl, Priority: intPtr(10)})
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "@", Type: "TXT", Content: "v=spf1 a mx ip4:" + pubIP + " ~all", TTL: ttl})
+		w.Store.PutRecord(&store.DNSRecord{ID: store.NewID(), ZoneID: z.ID, Name: "_dmarc", Type: "TXT", Content: "v=DMARC1; p=none", TTL: ttl})
 	} else {
-		w.republishPublicAddresses(w.Store.ZoneByDomain(d.ID), pubIP)
+		w.republishAccountAddresses(w.Store.ZoneByDomain(d.ID), acc)
 	}
 	if z := w.Store.ZoneByDomain(d.ID); z != nil {
 		w.ensureServiceRecords(z, pubIP)
@@ -573,7 +593,7 @@ func (w *Worker) ensureDomainStack(d *store.Domain, acc *store.Account, pubIP, r
 			}
 			ver := ""
 			if runtime == "php" {
-				ver = "8.3"
+				ver = hostconfig.DefaultPHP(w.loadHostSettings())
 			}
 			site = &store.Website{ID: store.NewID(), AccountID: acc.ID, DomainID: d.ID, Runtime: runtime, RuntimeVersion: ver, DocumentRoot: d.DocumentRoot, HTTPSRedirect: false, Enabled: acc.Status != "suspended", DesiredRevision: 1}
 			w.Store.PutWebsite(site)
@@ -666,7 +686,7 @@ func (w *Worker) provisionDomain(j *store.Job) error {
 	if d == nil || acc == nil {
 		return fmt.Errorf("missing domain or account")
 	}
-	return w.ensureDomainStack(d, acc, publicIPv4(), str(j.Payload["runtime"]), false)
+	return w.ensureDomainStack(d, acc, accountPublishIPv4(acc), str(j.Payload["runtime"]), false)
 }
 
 func (w *Worker) deleteWebsite(j *store.Job) error {
@@ -1383,13 +1403,13 @@ func (w *Worker) publishAccountPublicDNS(acc *store.Account) error {
 	if acc == nil {
 		return nil
 	}
-	pubIP := publicIPv4()
+	pubIP := accountPublishIPv4(acc)
 	for _, d := range w.Store.ListDomains(acc.ID) {
 		z := w.Store.ZoneByDomain(d.ID)
 		if z == nil {
 			continue
 		}
-		w.republishPublicAddresses(z, pubIP)
+		w.republishAccountAddresses(z, acc)
 		w.ensureServiceRecords(z, pubIP)
 		if err := w.writeZone(z); err != nil {
 			return fmt.Errorf("publish zone %s: %w", z.Name, err)
@@ -1807,8 +1827,9 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 				return err
 			}
 		}
+		pathPrefix := restorePathPrefix(str(j.Payload["path"]))
 		if !fileJournal.HasCheckpoint("commit:" + backup.ComponentHome) {
-			if err := w.restoreHomeTar(acc, b.ID, home, homeTar); err != nil {
+			if err := w.restoreHomeTar(acc, b.ID, home, homeTar, pathPrefix); err != nil {
 				_ = fileJournal.FailRollback(err)
 				_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
 				return err
@@ -1817,17 +1838,19 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 				return err
 			}
 		}
-		if err := w.restoreDatabaseDumps(acc, b.ID, dumps); err != nil {
-			_ = fileJournal.FailRollback(err)
-			_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
-			return err
+		if pathPrefix == "" {
+			if err := w.restoreDatabaseDumps(acc, b.ID, dumps); err != nil {
+				_ = fileJournal.FailRollback(err)
+				_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
+				return err
+			}
+			if err := w.restoreMailboxTrees(acc, b.ID, mailTrees); err != nil {
+				_ = fileJournal.FailRollback(err)
+				_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
+				return err
+			}
 		}
-		if err := w.restoreMailboxTrees(acc, b.ID, mailTrees); err != nil {
-			_ = fileJournal.FailRollback(err)
-			_ = w.Store.FailRestore(stored.ID, store.StateManualIntervention, true)
-			return err
-		}
-	} else if err := w.restoreHPM3(acc, b.ID, home, opened, fileJournal, stored.ID); err != nil {
+	} else if err := w.restoreHPM3(acc, b.ID, home, opened, fileJournal, stored.ID, restorePathPrefix(str(j.Payload["path"]))); err != nil {
 		return err
 	}
 	if !fileJournal.HasCheckpoint(backup.StateRestoreVerifying) {
@@ -1843,7 +1866,7 @@ func (w *Worker) restoreBackup(j *store.Job) error {
 	return w.Store.FinishRestore(stored.ID)
 }
 
-func (w *Worker) restoreHPM3(acc *store.Account, backupID, destHome string, opened *backup.ArchiveReader, journal *backup.Journal, restoreID string) error {
+func (w *Worker) restoreHPM3(acc *store.Account, backupID, destHome string, opened *backup.ArchiveReader, journal *backup.Journal, restoreID, pathPrefix string) error {
 	if journal.HasCheckpoint(backup.StateStaged) && journal.HasCheckpoint("commit:"+backup.ComponentHome) {
 		return nil
 	}
@@ -1861,12 +1884,15 @@ func (w *Worker) restoreHPM3(acc *store.Account, backupID, destHome string, open
 		}
 		switch {
 		case name == backup.ComponentHome:
-			if err := w.restoreHomeTar(acc, backupID, destHome, body); err != nil {
+			if err := w.restoreHomeTar(acc, backupID, destHome, body, pathPrefix); err != nil {
 				_ = journal.FailRollback(err)
 				_ = w.Store.FailRestore(restoreID, store.StateManualIntervention, true)
 				return err
 			}
 		case strings.HasPrefix(name, "databases/"):
+			if pathPrefix != "" {
+				return journal.Checkpoint(step)
+			}
 			engine, file, ok := strings.Cut(strings.TrimPrefix(name, "databases/"), "/")
 			if !ok {
 				return fmt.Errorf("invalid database component")
@@ -1877,6 +1903,9 @@ func (w *Worker) restoreHPM3(acc *store.Account, backupID, destHome string, open
 				return err
 			}
 		case strings.HasPrefix(name, "mail/"):
+			if pathPrefix != "" {
+				return journal.Checkpoint(step)
+			}
 			domain, local, ok := strings.Cut(strings.TrimPrefix(name, "mail/"), "/")
 			if !ok {
 				return fmt.Errorf("invalid mailbox component")
@@ -1990,15 +2019,19 @@ func (w *Worker) collectBackupParts(acc *store.Account, backupID, home string) (
 	return homeTar, dumps, mailTrees, nil
 }
 
-func (w *Worker) restoreHomeTar(acc *store.Account, backupID, destHome string, homeTar []byte) error {
+func (w *Worker) restoreHomeTar(acc *store.Account, backupID, destHome string, homeTar []byte, prefix string) error {
 	if w.Agent != nil {
 		staging := "/var/lib/panel/backups/staging/restore-" + backupID + "-home.tar.gz"
 		if _, err := w.Agent.ApplyFile(staging, homeTar, 0o640); err != nil {
 			return err
 		}
+		params := map[string]any{"archive": staging, "dest": acc.HomePath}
+		if prefix != "" {
+			params["prefix"] = prefix
+		}
 		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "UnpackDirectory",
-			Params: mustJSON(map[string]any{"archive": staging, "dest": acc.HomePath}),
+			Params: mustJSON(params),
 		})
 		return err
 	}

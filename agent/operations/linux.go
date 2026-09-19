@@ -141,6 +141,9 @@ func (h *Host) createUnixIdentity(username string, uid, gid int, home, shell str
 		_, _ = runFixed("/usr/sbin/usermod", "-aG", "panel-sftp", username)
 		_ = h.placeHomeOnQuotaVolume(username, home)
 		_ = hardenSFTPHome(home, uid, gid)
+		if _, err := h.setUnixShell(username, shell); err != nil {
+			return Result{}, err
+		}
 		return Result{OK: true, Message: "unix identity exists", ObservedState: "exists"}, nil
 	}
 	if out, err := runFixed("/usr/sbin/groupadd", "-g", "19999", "panel-sftp"); err != nil {

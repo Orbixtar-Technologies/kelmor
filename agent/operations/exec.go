@@ -73,9 +73,12 @@ var allowedBins = map[string]bool{
 	"/usr/bin/nodejs":       true,
 	"/exec-daemon/node":     true,
 	"/usr/bin/python3":      true,
-	"/usr/sbin/vsftpd":      true,
-	"/sbin/shutdown":        true,
-	"/usr/sbin/shutdown":    true,
+	"/usr/sbin/vsftpd":        true,
+	"/sbin/shutdown":          true,
+	"/usr/sbin/shutdown":      true,
+	"/usr/sbin/sendmail":      true,
+	"/usr/bin/hostnamectl":    true,
+	"/usr/bin/timedatectl":    true,
 }
 
 var allowedServices = map[string]bool{
