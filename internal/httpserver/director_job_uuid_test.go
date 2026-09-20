@@ -55,6 +55,10 @@ func TestServerJobsEnqueueOnUUIDConstrainedStore(t *testing.T) {
 			name: "mysql.upgrade", path: "/api/v1/server/mysql-upgrade",
 			body: map[string]any{"target": "10.11"}, jobType: "mysql.upgrade", target: "10.11",
 		},
+		{
+			name: "host.app.control", path: "/api/v1/server/apps/rspamd/actions",
+			body: map[string]any{"action": "restart"}, jobType: "host.app.control", target: "rspamd",
+		},
 	}
 
 	for _, tc := range cases {

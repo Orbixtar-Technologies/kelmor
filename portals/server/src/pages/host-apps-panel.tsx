@@ -1,10 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
+import { Link } from 'react-router-dom'
 import { adminToolUrl } from '../admin-tool-url'
 import { api, asList } from '../client'
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from '../components/ui'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { messageFrom } from '../helpers'
 import { useCan } from '../rbac'
 import type { Account } from '../types'
+
+interface HostAppAction {
+	id: string
+	label: string
+	kind?: 'job' | 'href' | 'disabled'
+	available: boolean
+	reason?: string
+	href?: string
+}
 
 interface HostApp {
 	id: string
@@ -13,6 +24,7 @@ interface HostApp {
 	status: string
 	path?: string
 	description: string
+	actions?: HostAppAction[]
 }
 
 interface HostAppsPanelProps {
@@ -27,6 +39,8 @@ export function HostAppsPanel ({ kind }: HostAppsPanelProps) {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
+	const [busy, setBusy] = useState('')
 	const [urls, setUrls] = useState<{ phpmyadmin_url?: string; webmail_url?: string }>({})
 
 	function load () {
@@ -57,9 +71,11 @@ export function HostAppsPanel ({ kind }: HostAppsPanelProps) {
 	const selectedAccount = accounts.find((account) => account.id === accountId)
 	const phpmyadminHref = adminToolUrl('phpmyadmin', urls.phpmyadmin_url, selectedAccount?.primary_domain)
 	const webmailHref = adminToolUrl('webmail', urls.webmail_url, selectedAccount?.primary_domain)
+	const showAccountPicker = kind !== 'plugin' && accounts.length > 0
 
 	async function enable (app: HostApp) {
 		setMessage('')
+		setJobId('')
 		try {
 			await api(`/api/v1/server/apps/${app.id}/enable`, {
 				method: 'POST',
@@ -76,17 +92,38 @@ export function HostAppsPanel ({ kind }: HostAppsPanelProps) {
 		}
 	}
 
+	async function runHostAction (app: HostApp, action: HostAppAction) {
+		setBusy(`${app.id}:${action.id}`)
+		setMessage('')
+		setJobId('')
+		try {
+			const result = await api<{ operation_id?: string }>(`/api/v1/server/apps/${app.id}/actions`, {
+				method: 'POST',
+				body: JSON.stringify({ action: action.id }),
+			})
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, `${action.label} queued for ${app.label}.`))
+			load()
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		} finally {
+			setBusy('')
+		}
+	}
+
 	return (
 		<section className="panel">
 			<h2>Host applications</h2>
-			<p>These are the packages Kelmor installs on Ubuntu and publishes as account tools. Enable writes the nginx tool vhost through the agent.</p>
-			{accounts.length ? <label>Account
+			<p>{kind === 'plugin'
+				? 'These are first-party host packages Kelmor already wires, such as rspamd. Enable, disable, restart, or review them through Agent jobs.'
+				: 'These are the packages Kelmor installs on Ubuntu and publishes as account tools. Enable writes the nginx tool vhost through the agent.'}</p>
+			{showAccountPicker ? <label>Account
 				<select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
 					{accounts.map((account) => <option key={account.id} value={account.id}>{account.username} · {account.primary_domain}</option>)}
 				</select>
 			</label> : null}
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<QueuedOpNotice message={message} jobId={jobId} />
 			{loading ? <LoadingState label="Loading host apps…" /> : null}
 			{!loading ? <div className="table-wrap"><table className="dense-table">
 				<thead><tr><th>App</th><th>Kind</th><th>Status</th><th>Actions</th></tr></thead>
@@ -96,12 +133,15 @@ export function HostAppsPanel ({ kind }: HostAppsPanelProps) {
 							<td><strong>{app.label}</strong><small>{app.description}</small></td>
 							<td>{app.kind}</td>
 							<td><StatusBadge value={app.status} /></td>
-							<td><div className="row-actions">
-								{canWrite && (app.id === 'phpmyadmin' || app.id === 'roundcube') ? <button type="button" className="link-button" onClick={() => enable(app)}>Enable / publish</button> : null}
-								{app.id === 'phpmyadmin' && phpmyadminHref ? <a href={phpmyadminHref} target="_blank" rel="noopener noreferrer">Open phpMyAdmin</a> : null}
-								{app.id === 'roundcube' && webmailHref ? <a href={webmailHref} target="_blank" rel="noopener noreferrer">Open webmail</a> : null}
-								{app.id === 'wordpress' ? <a href="/tools/wp-toolkit">WP Toolkit</a> : null}
-							</div></td>
+							<td><HostAppActionCell
+								app={app}
+								busy={busy}
+								canWrite={canWrite}
+								phpmyadminHref={phpmyadminHref}
+								webmailHref={webmailHref}
+								onEnable={enable}
+								onHostAction={runHostAction}
+							/></td>
 						</tr>
 					))}
 				</tbody>
@@ -109,6 +149,104 @@ export function HostAppsPanel ({ kind }: HostAppsPanelProps) {
 			{!loading && !visible.length ? <EmptyState title="No host apps" detail="The API did not return a host application catalog." /> : null}
 		</section>
 	)
+}
+
+interface HostAppActionCellProps {
+	app: HostApp
+	busy: string
+	canWrite: boolean
+	phpmyadminHref?: string
+	webmailHref?: string
+	onEnable: (app: HostApp) => void
+	onHostAction: (app: HostApp, action: HostAppAction) => void
+}
+
+function HostAppActionCell ({
+	app, busy, canWrite, phpmyadminHref, webmailHref, onEnable, onHostAction,
+}: HostAppActionCellProps) {
+	const catalog = app.actions || []
+	const extras = marketExtras(app, canWrite, phpmyadminHref, webmailHref, onEnable)
+	if (!catalog.length && !extras.length) {
+		return <span className="subtle">No host-backed action is available for this app yet.</span>
+	}
+	return (
+		<div className="row-actions">
+			{catalog.map((action) => (
+				<CatalogAction
+					key={action.id}
+					app={app}
+					action={action}
+					busy={busy === `${app.id}:${action.id}`}
+					onHostAction={onHostAction}
+				/>
+			))}
+			{extras}
+		</div>
+	)
+}
+
+function CatalogAction ({
+	app, action, busy, onHostAction,
+}: {
+	app: HostApp
+	action: HostAppAction
+	busy: boolean
+	onHostAction: (app: HostApp, action: HostAppAction) => void
+}) {
+	const kind = normalizeActionKind(action)
+	switch (kind) {
+		case 'href':
+			if (action.available && action.href) return <ActionHref href={action.href} label={action.label} />
+			return <span className="subtle">{action.reason || action.label}</span>
+		case 'job':
+			if (action.available) {
+				return (
+					<button type="button" className="link-button" disabled={busy} onClick={() => onHostAction(app, action)}>
+						{busy ? `${action.label}…` : action.label}
+					</button>
+				)
+			}
+			return <span className="subtle">{action.reason || `${action.label} unavailable`}</span>
+		case 'disabled':
+			return <span className="subtle">{action.reason || action.label}</span>
+		default: {
+			const _exhaustive: never = kind
+			return _exhaustive
+		}
+	}
+}
+
+function normalizeActionKind (action: HostAppAction): 'job' | 'href' | 'disabled' {
+	if (action.kind === 'href' || action.kind === 'job' || action.kind === 'disabled') return action.kind
+	if (action.href) return 'href'
+	if (action.available) return 'job'
+	return 'disabled'
+}
+
+function ActionHref ({ href, label }: { href: string; label: string }) {
+	if (href.startsWith('/') && !href.startsWith('//')) return <Link to={href}>{label}</Link>
+	return <a href={href} target="_blank" rel="noopener noreferrer">{label}</a>
+}
+
+function marketExtras (
+	app: HostApp,
+	canWrite: boolean,
+	phpmyadminHref: string | undefined,
+	webmailHref: string | undefined,
+	onEnable: (app: HostApp) => void,
+) {
+	const extras: ReactElement[] = []
+	if (canWrite && (app.id === 'phpmyadmin' || app.id === 'roundcube')) {
+		extras.push(<button key="publish" type="button" className="link-button" onClick={() => onEnable(app)}>Enable / publish</button>)
+	}
+	if (app.id === 'phpmyadmin' && phpmyadminHref) {
+		extras.push(<a key="open-pma" href={phpmyadminHref} target="_blank" rel="noopener noreferrer">Open phpMyAdmin</a>)
+	}
+	if (app.id === 'roundcube' && webmailHref) {
+		extras.push(<a key="open-webmail" href={webmailHref} target="_blank" rel="noopener noreferrer">Open webmail</a>)
+	}
+	if (app.id === 'wordpress') extras.push(<Link key="wp" to="/tools/wp-toolkit">WP Toolkit</Link>)
+	return extras
 }
 
 export function PHPRuntimePanel () {

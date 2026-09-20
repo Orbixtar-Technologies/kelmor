@@ -1506,6 +1506,26 @@ paths:
       responses:
         "200": { description: phpMyAdmin or Roundcube published }
         "202": { description: WordPress install queued }
+  /server/apps/{appID}/actions:
+    post:
+      operationId: controlHostApp
+      x-capability: server.services.restart
+      parameters:
+        - { name: appID, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [enable, disable, restart, start, stop, reload, install] }
+      responses:
+        "202": { description: Host application action queued as host.app.control }
+        "400": { description: unsupported action }
+        "403": { description: missing service or settings capability }
+        "404": { description: unknown host app }
   /server/console/recipes:
     get:
       operationId: listHostRecipes

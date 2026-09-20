@@ -693,6 +693,15 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 		return h.setMariaDBRootPassword(p.Current, p.Password)
 	case "ListHostApps":
 		return h.listHostApps(), nil
+	case "ControlHostApp":
+		var p struct {
+			ID     string `json:"id"`
+			Action string `json:"action"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.controlHostApp(p.ID, p.Action)
 	case "RunHostRecipe":
 		var p struct {
 			ID string `json:"id"`

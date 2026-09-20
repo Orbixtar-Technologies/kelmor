@@ -94,6 +94,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/server/processes/{pid}/signal", a.signalProcess)
 			r.Get("/server/apps", a.listHostApps)
 			r.Post("/server/apps/{appID}/enable", a.enableHostApp)
+			r.Post("/server/apps/{appID}/actions", a.controlHostApp)
 			r.Get("/server/console/recipes", a.listHostRecipes)
 			r.Post("/server/console", a.runHostRecipe)
 			r.Post("/server/root-password", a.setRootPassword)
@@ -980,7 +981,7 @@ func retryCapability(jobType string) string {
 		return rbac.WebsitesWrite
 	case "application.deploy", "wordpress.install", "application.retire":
 		return rbac.ApplicationsWrite
-	case "php.runtime.ensure", "host.module.install", "mysql.upgrade", "cluster.snapshot.publish", "cluster.snapshot.import", "cluster.peer.probe", "cluster.snapshot.apply", "host.remote_access.apply", "host.ssl.service.apply":
+	case "php.runtime.ensure", "host.module.install", "mysql.upgrade", "cluster.snapshot.publish", "cluster.snapshot.import", "cluster.peer.probe", "cluster.snapshot.apply", "host.remote_access.apply", "host.ssl.service.apply", "host.app.control":
 		return rbac.ServerSettingsWrite
 	case "database.provision", "database.delete":
 		return rbac.DatabasesWrite
