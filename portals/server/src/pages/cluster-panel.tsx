@@ -1,16 +1,61 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../client'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
-import { ErrorState } from '../components/ui'
+import { EmptyState, ErrorState } from '../components/ui'
+import { dedicatedPath } from '../dedicated-tool-routes'
 import { downloadJSON, messageFrom } from '../helpers'
 import { useCan } from '../rbac'
+
+interface ClusterCapabilities {
+	peer_membership?: boolean
+	snapshot_publish?: boolean
+	snapshot_export?: boolean
+	snapshot_import?: boolean
+	peer_health_probe?: boolean
+	live_multi_node?: boolean
+	linked_peers?: number
+}
 
 interface ClusterSnapshot {
 	published_at?: string
 	note?: string
 	packages?: unknown[]
 	feature_sets?: unknown[]
-	capabilities?: Record<string, boolean>
+	capabilities?: ClusterCapabilities
+}
+
+export const CLUSTER_NO_PEERS_TITLE = 'No linked nodes'
+export const CLUSTER_NO_PEERS_DETAIL = 'Apply to peers needs at least one linked node. Register a peer Director URL in Link Server Nodes. Director does not invent remote nodes.'
+export const CLUSTER_LINK_NODES_LABEL = 'Open Link Server Nodes'
+
+export function linkedPeerCount (capabilities: ClusterCapabilities): number {
+	const raw = capabilities.linked_peers
+	if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0)
+		return Math.floor(raw)
+	return capabilities.live_multi_node ? 1 : 0
+}
+
+export function linkedNodesStatus ({
+	linkedPeers,
+	canApplyRemote,
+}: {
+	linkedPeers: number
+	canApplyRemote: boolean
+}): string {
+	const countLabel = linkedPeers === 1 ? '1 linked node' : `${linkedPeers} linked nodes`
+	if (canApplyRemote) return `${countLabel} — Apply to peers is available.`
+	return `${countLabel} — Apply to peers needs at least one linked node.`
+}
+
+function capabilityAvailable (
+	capabilities: ClusterCapabilities,
+	key: string,
+	fallback: boolean,
+): boolean {
+	if (key === 'linked_peers') return fallback
+	const value = capabilities[key as keyof ClusterCapabilities]
+	return typeof value === 'boolean' ? value : fallback
 }
 
 interface ProbeRow {
@@ -41,6 +86,7 @@ export function ClusterPanel () {
 	const [message, setMessage] = useState('')
 	const [jobId, setJobId] = useState('')
 	const [busy, setBusy] = useState(false)
+	const [snapshotLoaded, setSnapshotLoaded] = useState(false)
 
 	function load () {
 		api<{ values?: Record<string, Record<string, string>> }>('/api/v1/server/settings')
@@ -49,6 +95,7 @@ export function ClusterPanel () {
 		api<ClusterSnapshot>('/api/v1/server/cluster/snapshot')
 			.then(setSnapshot)
 			.catch(() => setSnapshot(null))
+			.finally(() => setSnapshotLoaded(true))
 	}
 
 	useEffect(load, [])
@@ -158,6 +205,8 @@ export function ClusterPanel () {
 
 	const capabilities = snapshot?.capabilities || {}
 	const canApplyRemote = Boolean(capabilities.live_multi_node)
+	const linkedPeers = linkedPeerCount(capabilities)
+	const nodesStatus = linkedNodesStatus({ linkedPeers, canApplyRemote })
 
 	return (
 		<section className="panel">
@@ -165,11 +214,21 @@ export function ClusterPanel () {
 			<p>{canApplyRemote
 				? 'This node writes peer URLs and package snapshots on the host. Linked Directors can receive the current snapshot through multi-node apply.'
 				: 'This node writes peer URLs and package snapshots on the host. Multi-node apply stays unavailable until at least one linked node or cluster peer is registered.'}</p>
+			<p aria-live="polite">{snapshotLoaded ? nodesStatus : 'Checking linked nodes…'}</p>
+			{snapshotLoaded && !canApplyRemote ? (
+				<div id="cluster-no-peers-help">
+					<EmptyState
+						title={CLUSTER_NO_PEERS_TITLE}
+						detail={CLUSTER_NO_PEERS_DETAIL}
+						action={<Link className="button-link" to={dedicatedPath('link-nodes')}>{CLUSTER_LINK_NODES_LABEL}</Link>}
+					/>
+				</div>
+			) : null}
 			<table className="dense-table" aria-label="Cluster capability matrix">
 				<thead><tr><th>Capability</th><th>This Ubuntu stack</th></tr></thead>
 				<tbody>
 					{CAPABILITY_ROWS.map((row) => {
-						const available = capabilities[row.key] ?? row.available
+						const available = capabilityAvailable(capabilities, row.key, row.available)
 						return (
 							<tr key={row.key}>
 								<td>{row.label}</td>
@@ -203,14 +262,20 @@ export function ClusterPanel () {
 				<button type="button" disabled={!canWrite || busy} onClick={() => { void handleProbe() }}>
 					Probe peer health
 				</button>
-				<button type="button" disabled={!canWrite || busy || !canApplyRemote} onClick={() => { void handleApply() }}>
+				<button
+					type="button"
+					disabled={!canWrite || busy || !canApplyRemote}
+					aria-describedby={snapshotLoaded && !canApplyRemote ? 'cluster-no-peers-help' : undefined}
+					title={snapshotLoaded && !canApplyRemote ? CLUSTER_NO_PEERS_DETAIL : undefined}
+					onClick={() => { void handleApply() }}
+				>
 					Apply to linked nodes
 				</button>
 				<button type="button" disabled={!snapshot} onClick={() => downloadJSON('kelmor-cluster-snapshot.json', snapshot)}>
 					Export snapshot
 				</button>
 			</div>
-			{!canApplyRemote ? <p className="subtle">Register a peer on this page or in Link Server Nodes to enable live multi-node apply. Director does not invent remote nodes.</p> : null}
+			{snapshotLoaded && !canApplyRemote ? <p className="subtle">Saving peer URLs on this page also enables Apply after the host records them. Director does not invent remote nodes.</p> : null}
 			{probeRows.length ? (
 				<table className="dense-table" aria-label="Peer health">
 					<thead><tr><th>Peer</th><th>Result</th><th>Detail</th></tr></thead>
