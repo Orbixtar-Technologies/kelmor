@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -123,6 +124,142 @@ func TestCheckCachesUnsignedFeedChangelog(t *testing.T) {
 	doc, err := ReadChangelogFile(ChangelogCachePath(statusPath, root), "update-feed")
 	if err != nil || len(doc.Items) != 1 || doc.Items[0].Notes[0] != "Signed feed published this note." {
 		t.Fatalf("cached changelog: %+v %v", doc, err)
+	}
+}
+
+func TestCheckResolvesStableManifestURLFromLocalFeedBase(t *testing.T) {
+	var got string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		got = request.URL.String()
+		return &http.Response{
+			StatusCode: http.StatusNotFound,
+			Body:       io.NopCloser(strings.NewReader("missing")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	withHTTPClient(t, client)
+
+	_, err := Check(context.Background(), Config{
+		FeedURL: "https://127.0.0.1:2087/updates", Channel: "stable",
+		InstalledRelease: "0.2.415", InstallRoot: t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("expected honest HTTP 404, got %v", err)
+	}
+	if got != "https://127.0.0.1:2087/updates/stable/manifest.json" {
+		t.Fatalf("manifest URL %q", got)
+	}
+}
+
+func TestCheckResolvesManifestURLWithTrailingSlashFeedBase(t *testing.T) {
+	var got string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		got = request.URL.String()
+		return &http.Response{
+			StatusCode: http.StatusNotFound,
+			Body:       io.NopCloser(strings.NewReader("missing")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	withHTTPClient(t, client)
+
+	_, err := Check(context.Background(), Config{
+		FeedURL: "https://127.0.0.1:2087/updates/", Channel: "stable",
+		InstalledRelease: "0.2.415", InstallRoot: t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("expected honest HTTP 404, got %v", err)
+	}
+	if got != "https://127.0.0.1:2087/updates/stable/manifest.json" {
+		t.Fatalf("manifest URL %q", got)
+	}
+}
+
+func TestCheckReportsHTTP404WhenSignedFeedIsMissing(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	withHTTPClient(t, server.Client())
+
+	_, err := Check(context.Background(), Config{
+		FeedURL: server.URL, Channel: "stable",
+		InstalledRelease: "0.2.415", InstallRoot: t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("expected honest missing-feed error, got %v", err)
+	}
+}
+
+func TestCheckUsesLocalSignedFeedWhenHTTPSReturns404(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := validManifest("1.2.3")
+	if err := Sign(manifest, priv); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	withHTTPClient(t, server.Client())
+
+	root := t.TempDir()
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(root, "share", "updates", "stable", "manifest.json")
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(localPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := Check(context.Background(), Config{
+		FeedURL: server.URL, Channel: "stable",
+		InstalledRelease: "1.2.3", PublicKey: pub,
+		InstallRoot: root, StatusPath: filepath.Join(root, "status.json"),
+	})
+	if err != nil {
+		t.Fatalf("local signed feed should satisfy check: %v", err)
+	}
+	if status.State != "idle" || status.AvailableRelease != "1.2.3" {
+		t.Fatalf("unexpected status: %#v", status)
+	}
+	if status.LastCheckedAt == "" {
+		t.Fatal("successful check did not record last_checked_at")
+	}
+}
+
+func TestCheckDoesNotUseLocalFeedForRemote404(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusNotFound,
+			Body:       io.NopCloser(strings.NewReader("missing")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	withHTTPClient(t, client)
+
+	root := t.TempDir()
+	localPath := filepath.Join(root, "share", "updates", "stable", "manifest.json")
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(localPath, []byte(`{"release":"1.2.3"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Check(context.Background(), Config{
+		FeedURL: "https://updates.example.test", Channel: "stable",
+		InstalledRelease: "1.2.3", InstallRoot: root,
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("remote 404 must stay honest, got %v", err)
 	}
 }
 

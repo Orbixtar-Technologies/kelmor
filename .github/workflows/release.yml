@@ -43,9 +43,21 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: echo "version=$(bash scripts/ci/resolve-release-version.sh)" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare signing key
+        env:
+          SIGNING_KEY: ${{ secrets.PANEL_UPDATE_SIGNING_KEY }}
+        run: |
+          if [[ -z "$SIGNING_KEY" ]]; then
+            echo "PANEL_UPDATE_SIGNING_KEY secret is required to ship a signed local feed." >&2
+            exit 1
+          fi
+          bash scripts/ci/prepare-signing-key.sh "$RUNNER_TEMP/signing/update-signing.priv"
+
       - name: Build GitHub installer
         env:
           PANEL_INSTALLER_VERSION: ${{ steps.version.outputs.version }}
+          PANEL_UPDATE_RELEASE: ${{ steps.version.outputs.version }}
+          PANEL_UPDATE_SIGNING_KEY: ${{ runner.temp }}/signing/update-signing.priv
         run: make installer
 
       - name: Upload installer artifacts

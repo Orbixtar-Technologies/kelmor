@@ -125,6 +125,11 @@ func fetchManifest(ctx context.Context, config Config) (*Manifest, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusNotFound {
+			if local, localErr := loadLocalFeedManifest(config); localErr == nil {
+				return local, nil
+			}
+		}
 		return nil, fmt.Errorf("fetch manifest: HTTP %d", response.StatusCode)
 	}
 	reader := io.LimitReader(response.Body, maxManifestSize+1)
@@ -132,6 +137,25 @@ func fetchManifest(ctx context.Context, config Config) (*Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read manifest: %w", err)
 	}
+	return decodeManifestBytes(raw)
+}
+
+func loadLocalFeedManifest(config Config) (*Manifest, error) {
+	base, err := validateFeedURL(config.FeedURL)
+	if err != nil {
+		return nil, err
+	}
+	if !isLoopbackHost(base.Hostname()) {
+		return nil, fmt.Errorf("remote feed has no local fallback")
+	}
+	path := LocalManifestPath(config.InstallRoot, config.Channel)
+	if path == "" {
+		return nil, fmt.Errorf("local manifest path is invalid")
+	}
+	return readLocalManifest(path)
+}
+
+func decodeManifestBytes(raw []byte) (*Manifest, error) {
 	if len(raw) > maxManifestSize {
 		return nil, fmt.Errorf("manifest exceeds size limit")
 	}

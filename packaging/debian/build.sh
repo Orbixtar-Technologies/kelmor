@@ -28,6 +28,10 @@ while IFS=$'\t' read -r src dest mode class; do
 	fi
 	_="$class"
 done < <(go run "$ROOT/scripts/release-inventory" -format package-copy)
+if [[ -f "$ROOT/dist/update-feed/stable/manifest.json" ]]; then
+	mkdir -p "$STAGE/usr/local/panel/share/updates"
+	cp -a "$ROOT/dist/update-feed/." "$STAGE/usr/local/panel/share/updates/"
+fi
 cp "$ROOT/packaging/debian/postinst" "$STAGE/DEBIAN/postinst"
 chmod 0755 "$STAGE/DEBIAN/postinst"
 chmod 0755 "$STAGE/DEBIAN" "$STAGE/usr/local/panel/bin/"*

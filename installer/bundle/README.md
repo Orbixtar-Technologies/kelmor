@@ -6,7 +6,12 @@ Self-contained Ubuntu 24.04 host installer. Prefer the GitHub one-liner:
 curl -fsSL https://github.com/Orbixtar-Technologies/kelmor/releases/latest/download/get-kelmor.sh | sudo bash -s -- --admin-password 'your-password'
 ```
 
-This tarball does not contact the lab VM. Offline install:
+This tarball does not contact the lab VM. It includes a signed
+`share/updates/stable/manifest.json` when the installer was built with
+`PANEL_UPDATE_SIGNING_KEY`, so Director **Check now** can read the local nginx
+feed after `install.sh` copies that tree to `/usr/local/panel/share/updates/`.
+
+Offline install:
 
 ```bash
 tar -xzf kelmor-installer_*_linux_*.tar.gz

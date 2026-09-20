@@ -54,6 +54,20 @@ if [[ ! -f "$STAGE/share/portals/server/index.html" || ! -f "$STAGE/share/portal
 	exit 1
 fi
 
+feed_src="$ROOT/dist/update-feed"
+if [[ ! -f "$feed_src/stable/manifest.json" && -n "${PANEL_UPDATE_SIGNING_KEY:-}" && -f "$ROOT/go.mod" ]]; then
+	echo "build-installer: signing local update feed"
+	PANEL_UPDATE_FEED_ROOT="$feed_src" PANEL_UPDATE_RELEASE="${PANEL_UPDATE_RELEASE:-$VER}" \
+		bash "$REPO/scripts/bootstrap-update-feed.sh"
+fi
+if [[ -f "$feed_src/stable/manifest.json" ]]; then
+	mkdir -p "$STAGE/share/updates"
+	cp -a "$feed_src/." "$STAGE/share/updates/"
+	echo "build-installer: included signed update feed"
+else
+	echo "build-installer: warning: signed update feed missing; Check now will 404 until the feed is published" >&2
+fi
+
 printf '%s\n' "$VER" >"$STAGE/VERSION"
 install -m 0755 "$REPO/installer/bundle/install.sh" "$STAGE/install.sh"
 install -m 0644 "$REPO/installer/bundle/install.yaml.example" "$STAGE/install.yaml.example"

@@ -90,6 +90,34 @@ func TestInstallScriptStagesAndExecsPanelInstall(t *testing.T) {
 	}
 }
 
+func TestInstallScriptStagesSignedUpdateFeed(t *testing.T) {
+	script, err := filepath.Abs("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := stageTree(t, script)
+	if err := os.MkdirAll(filepath.Join(ready, "share/updates/stable"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ready, "share/updates/stable/manifest.json"), []byte(`{"release":"0.2.415","channel":"stable"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "host")
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc", "os-release"), []byte("NAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runInstall(ready, []string{"--root", root, "--non-interactive", "--hostname", "panel.example.net"})
+	if err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(root, "usr/local/panel/share/updates/stable/manifest.json")); err != nil {
+		t.Fatalf("staged signed feed missing: %v", err)
+	}
+}
+
 func TestInstallScriptReplacesBusyBinary(t *testing.T) {
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {
