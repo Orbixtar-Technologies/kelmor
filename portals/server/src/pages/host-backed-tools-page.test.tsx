@@ -4,6 +4,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { LOCAL_SETTINGS_BANNER, LOCAL_SETTINGS_LABEL } from '../catalog-honesty'
+import {
+	CLUSTER_LINK_NODES_LABEL,
+	CLUSTER_NO_PEERS_DETAIL,
+	CLUSTER_NO_PEERS_TITLE,
+} from './cluster-panel'
 import { CapProvider } from '../rbac'
 import { HubPage } from './hub-page'
 import * as client from '../client'
@@ -50,6 +55,7 @@ beforeEach(() => {
 				capabilities: {
 					peer_membership: true, snapshot_publish: true, snapshot_export: true,
 					snapshot_import: true, peer_health_probe: true, live_multi_node: false,
+					linked_peers: 0,
 				},
 			}
 		}
@@ -162,6 +168,19 @@ describe('host-backed Director tools', () => {
 		expect(client.api).toHaveBeenCalledWith('/api/v1/server/cluster/probe', expect.objectContaining({ method: 'POST' }))
 	})
 
+	test('configuration cluster empty state explains disabled apply and links to Link Server Nodes', async () => {
+		renderTool('/section/server?tool=configuration-cluster')
+		expect(await screen.findByText(CLUSTER_NO_PEERS_TITLE)).toBeInTheDocument()
+		expect(screen.getByText(CLUSTER_NO_PEERS_DETAIL)).toBeInTheDocument()
+		expect(screen.getByText('0 linked nodes — Apply to peers needs at least one linked node.')).toBeInTheDocument()
+		expect(screen.getByRole('link', { name: CLUSTER_LINK_NODES_LABEL })).toHaveAttribute('href', '/server/link-nodes')
+		const apply = screen.getByRole('button', { name: 'Apply to linked nodes' })
+		expect(apply).toBeDisabled()
+		expect(apply).toHaveAttribute('aria-describedby', 'cluster-no-peers-help')
+		expect(screen.getByRole('button', { name: 'Publish package snapshot' })).toBeEnabled()
+		expect(screen.getByRole('button', { name: 'Probe peer health' })).toBeEnabled()
+	})
+
 	test('configuration cluster applies to linked nodes when the host reports peers', async () => {
 		const user = userEvent.setup()
 		vi.mocked(client.api).mockImplementation(async (path, init) => {
@@ -172,6 +191,7 @@ describe('host-backed Director tools', () => {
 					capabilities: {
 						peer_membership: true, snapshot_publish: true, snapshot_export: true,
 						snapshot_import: true, peer_health_probe: true, live_multi_node: true,
+						linked_peers: 1,
 					},
 				}
 			}
@@ -184,8 +204,12 @@ describe('host-backed Director tools', () => {
 			return { items: [], values: {}, operation_id: 'job-host-1' }
 		})
 		renderTool('/section/server?tool=configuration-cluster')
-		const apply = await screen.findByRole('button', { name: 'Apply to linked nodes' })
+		expect(await screen.findByText('1 linked node — Apply to peers is available.')).toBeInTheDocument()
+		const apply = screen.getByRole('button', { name: 'Apply to linked nodes' })
 		expect(apply).toBeEnabled()
+		expect(apply).not.toHaveAttribute('aria-describedby')
+		expect(screen.queryByText(CLUSTER_NO_PEERS_TITLE)).not.toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: CLUSTER_LINK_NODES_LABEL })).not.toBeInTheDocument()
 		await user.click(apply)
 		expect(client.api).toHaveBeenCalledWith('/api/v1/server/cluster/apply', expect.objectContaining({ method: 'POST' }))
 		expect(await screen.findByText(/Job job-cluster-apply/)).toBeInTheDocument()

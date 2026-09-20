@@ -358,6 +358,7 @@ td small { display: block; color: var(--muted); }
 .error-state { border-color: #d9aaa5; background: #fdf1f0; color: #862d27; }
 .empty-state { border-style: dashed; border-color: #aab7c3; background: #fafbfc; color: #536779; }
 .empty-state p, .error-state p { margin: 3px 0 0; }
+.empty-state > .button-link, .empty-state > button { display: inline-block; margin-top: 10px; }
 .loading-state { display: flex; align-items: center; gap: 9px; color: #476174; }
 .loading-state > span { width: 14px; height: 14px; border: 2px solid #a4bfd3; border-top-color: #17689f; border-radius: 50%; animation: spin .7s linear infinite; }
 .dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(14, 31, 46, .5); }
