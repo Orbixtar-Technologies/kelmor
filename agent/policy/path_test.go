@@ -78,6 +78,18 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/usr/share/phpmyadmin/index.php"); err == nil {
 		t.Fatal("must not treat package roots as managed writes")
 	}
+	if _, err := ValidateManagedPath("/etc/postgresql/16/main/conf.d/kelmor.conf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/postgresql/16/main/pg_hba.conf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/postgresql/16/main/postgresql.conf"); err == nil {
+		t.Fatal("must not rewrite the vendor postgresql.conf")
+	}
+	if _, err := ValidateManagedPath("/etc/postgresql/16/main/conf.d/other.conf"); err == nil {
+		t.Fatal("only kelmor.conf overlays")
+	}
 }
 
 func TestWithinAccount(t *testing.T) {

@@ -383,9 +383,9 @@ Dedicated managers bypass `applyFeature` and call their own APIs.
 | `mysql-root-password` → `/section/sql?tool=mysql-root-password` | SQL Services | Rotate MariaDB root; never store. | Catalog tool `/section/sql?tool=mysql-root-password` → `WhmToolBody` (`status`). POST /server/database-root-password; not stored. | **OK** |  |
 | `db-user-password` → `/sql` | SQL Services | Rotate the account DB user password. | Dedicated `/sql`. Opens Database Manager; no rotate-user API. | **Stub** | Honest “open manager”; password is auto-provisioned file. |
 | `additional-mysql-hosts` → `/section/sql?tool=additional-mysql-hosts` | SQL Services | Remote hosts allowed to reach MariaDB. | Catalog tool `/section/sql?tool=additional-mysql-hosts` → `WhmToolBody` (`settings`). Save → `PATCH /api/v1/server/settings` (unconsumed JSON). Allowed hosts unused. Remote MySQL not a product. | **Stub** |  |
-| `postgres-config` → `/section/sql?tool=postgres-config` | SQL Services | Tenant PG listen/auth if offered. | Catalog tool `/section/sql?tool=postgres-config` → `WhmToolBody` (`settings`). Save → `PATCH /api/v1/server/settings` (unconsumed JSON). Listen/auth unused (control-plane PG). | **Stub** |  |
+| `postgres-config` → `/section/sql?tool=postgres-config` | SQL Services | Tenant PG listen/auth if offered. | Catalog tool `/section/sql?tool=postgres-config` → dedicated panel. PATCH settings queues `host.config.apply`; Agent writes `listen_addresses` and TCP `pg_hba` methods. Honest empty state if PostgreSQL is missing. | **OK** | Unix-socket peer stays for the control plane. |
 | `show-mysql-processes` → `/sql` | SQL Services | Show/kill MariaDB threads. | Dedicated `/sql`. Opens /sql; no processlist API. | **Stub** | Copy says process lists stay on the SQL host. |
-| `mysql-upgrade` → `/section/sql?tool=mysql-upgrade` | SQL Services | Plan + typed Agent MariaDB major upgrade. | Catalog tool `/section/sql?tool=mysql-upgrade` → `WhmToolBody` (`settings`). Save → `PATCH /api/v1/server/settings` (unconsumed JSON). Target version preference. Copy still says the agent applies it; Save does not. | **Stub** | Labeled Settings (local); description remains overstated. |
+| `mysql-upgrade` → `/section/sql?tool=mysql-upgrade` | SQL Services | Plan + typed Agent MariaDB major upgrade. | Catalog tool `/section/sql?tool=mysql-upgrade` → dedicated panel. GET/POST `/server/mysql-upgrade` queues `mysql.upgrade`. Agent detects MariaDB vs MySQL and runs `mariadb-upgrade` / `mysql_upgrade`. | **OK** | Major versions not in apt fail honestly. |
 | `phpmyadmin` → `/section/sql?tool=phpmyadmin` | SQL Services | Publish phpmyadmin.<domain> and open HTTPS. | Catalog tool `/section/sql?tool=phpmyadmin` → `WhmToolBody` (`status`). HostAppsPanel kind=sql: enable phpMyAdmin + HTTPS open. | **OK** | Needs account + apps enable. |
 
 ### System Health (3)
@@ -571,7 +571,6 @@ These tiles stay honest **Settings (local)** / policy records. Do not pretend Ag
 | `two-factor` | No TOTP enroll/verify API. `require_2fa` is stored only. |
 | `configuration-cluster`, `link-nodes`, `remote-access-key` | No Director cluster or peer-token product. |
 | `module-installers`, `perl-modules`, `php-pear`, `php-pecl`, `ruby-gems` | No typed Agent op to apt-install arbitrary language modules. |
-| `mysql-upgrade` | Major MariaDB upgrade is a planned record, not a live upgrade job. |
 | `grant-support-access` | Ticket id note only; no time-boxed operator session issuer. |
 | `server-profile` | Mail/DNS-only service hide is chrome policy, not a host role switch. |
 

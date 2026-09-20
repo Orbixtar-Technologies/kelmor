@@ -28,6 +28,8 @@ branch implements as host-applied work (API → job → Agent) instead of
 | `configuration-cluster` | Clusters | Done | Peer URLs on host + `POST /server/cluster/publish` snapshot. No live multi-node orchestration |
 | `grant-support-access` | Support | Done | Time-limited `server_operator` session for `kelmor-support` |
 | `diagnostics-log` | Support | Done | Authenticated `GET /server/diagnostics` tar.gz download |
+| `postgres-config` | SQL | Done | Auth method + listen → `host.config.apply` writes `pg_hba.conf` and `conf.d/kelmor.conf` |
+| `mysql-upgrade` | SQL | Done | `POST /server/mysql-upgrade` → `mysql.upgrade` runs `mariadb-upgrade` / `mysql_upgrade` |
 
 Rows that stay honest status (cannot be a real host product yet) are noted in
 the audit file under **Deferred / omitted**.

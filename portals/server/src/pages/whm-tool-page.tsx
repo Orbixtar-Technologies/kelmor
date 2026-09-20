@@ -11,6 +11,8 @@ import { RemoteAccessPanel } from './remote-access-panel'
 import { DiagnosticsPanel } from './diagnostics-panel'
 import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
 import { HostModulesPanel, moduleKindForFeature } from './host-modules-panel'
+import { MySQLUpgradePanel } from './mysql-upgrade-panel'
+import { PostgresConfigPanel } from './postgres-config-panel'
 import { SupportAccessPanel } from './support-access-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
@@ -337,6 +339,8 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 	if (feature.id === 'mysql-root-password') {
 		return <HostPasswordForm title="Change database root password" endpoint="/api/v1/server/database-root-password" includeCurrent />
 	}
+	if (feature.id === 'postgres-config') return <PostgresConfigPanel />
+	if (feature.id === 'mysql-upgrade') return <MySQLUpgradePanel />
 	if (feature.id === 'easyapache') return <PHPRuntimePanel />
 	if (feature.id === 'api-shell') {
 		return (

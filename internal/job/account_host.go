@@ -255,6 +255,9 @@ func hostConfigSpec(settings hostconfig.File) operations.HostConfigSpec {
 		InitialQuotaBytes: hostconfig.InitialQuotaBytes(settings),
 		WriteInitialQuota: settings.Values["initial_quota"] != nil,
 		QuotaEnforce:      hostconfig.BoolField(settings, "initial_quota", "enforce", true),
+		PostgresListen:    hostconfig.Field(settings, "postgres", "listen", ""),
+		PostgresAuth:      hostconfig.Field(settings, "postgres", "auth", ""),
+		WritePostgres:     settings.Values["postgres"] != nil,
 	}
 	if settings.Values["external_auth"] != nil {
 		provider := hostconfig.ExternalAuthProvider(settings)

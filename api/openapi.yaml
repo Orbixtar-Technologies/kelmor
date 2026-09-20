@@ -1552,6 +1552,34 @@ paths:
       x-capability: server.settings.write
       responses:
         "202": { description: Language module install queued }
+  /server/postgres:
+    get:
+      operationId: getPostgresConfig
+      x-capability: server.read
+      responses:
+        "200": { description: Host PostgreSQL listen/auth observation, or an honest not-installed message }
+  /server/mysql-upgrade:
+    get:
+      operationId: getMySQLUpgrade
+      x-capability: server.read
+      responses:
+        "200": { description: Detected MariaDB or MySQL engine and upgrade capability }
+    post:
+      operationId: queueMySQLUpgrade
+      x-capability: server.settings.write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [target]
+              properties:
+                target: { type: string, enum: ["10.11", "11.4"] }
+      responses:
+        "202": { description: mysql.upgrade queued }
+        "400": { $ref: "#/components/responses/Error" }
   /server/support-access:
     get:
       operationId: listSupportAccess

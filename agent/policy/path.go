@@ -63,6 +63,9 @@ func ValidateManagedPath(p string) (string, error) {
 	if clean == "/etc/roundcube/config.panel.inc.php" || clean == "/etc/roundcube/config.inc.php" {
 		ok = true
 	}
+	if postgresPathOK(clean) {
+		ok = true
+	}
 	if clean == "/etc/skel" || strings.HasPrefix(clean, "/etc/skel/") {
 		ok = true
 	}
@@ -76,6 +79,31 @@ func ValidateManagedPath(p string) (string, error) {
 		return "", fmt.Errorf("path escape")
 	}
 	return clean, nil
+}
+
+func postgresPathOK(clean string) bool {
+	const prefix = "/etc/postgresql/"
+	if !strings.HasPrefix(clean, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(clean, prefix)
+	version, rem, ok := strings.Cut(rest, "/")
+	if !ok || !postgresVersionOK(version) {
+		return false
+	}
+	return rem == "main/pg_hba.conf" || rem == "main/conf.d/kelmor.conf"
+}
+
+func postgresVersionOK(version string) bool {
+	if version == "" {
+		return false
+	}
+	for _, r := range version {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func AccountRoot(username string) string {
@@ -138,6 +166,7 @@ func SplitManaged(clean string) (prefix, relative string, err error) {
 		"/etc/rspamd/local.d/",
 		"/etc/phpmyadmin/conf.d/",
 		"/etc/roundcube/",
+		"/etc/postgresql/",
 	)
 	best := ""
 	for _, root := range candidates {

@@ -14,9 +14,7 @@ import { featureById, whmFeatures } from './whm-catalog'
 describe('catalog honesty', () => {
 	test('labels only deferred policy records as local settings', () => {
 		const deferred = whmFeatures.filter((feature) => isLocalSettingsFeature(feature))
-		expect(deferred.map((feature) => feature.id).sort()).toEqual([
-			'mysql-upgrade',
-		])
+		expect(deferred.map((feature) => feature.id).sort()).toEqual([])
 		for (const feature of deferred) {
 			expect(isLocalSettingsToolId(feature.id)).toBe(true)
 			expect(localSettingsBadgeTitle(feature.label)).toContain(LOCAL_SETTINGS_LABEL)
@@ -48,6 +46,11 @@ describe('catalog honesty', () => {
 		expect(isLocalSettingsToolId('external-auth')).toBe(false)
 		expect(isLocalSettingsToolId('two-factor')).toBe(false)
 		expect(isLocalSettingsToolId('link-nodes')).toBe(false)
+		expect(isHostSettingsFeature(featureById('postgres-config')!)).toBe(true)
+		expect(isLocalSettingsToolId('postgres-config')).toBe(false)
+		expect(isLocalSettingsToolId('mysql-upgrade')).toBe(false)
+		expect(featureById('postgres-config')?.fields?.some((field) => field.name === 'auth')).toBe(true)
+		expect(featureById('mysql-upgrade')?.settingKey).toBeUndefined()
 		expect(HOST_SETTINGS_BANNER).toMatch(/host apply job/i)
 	})
 
