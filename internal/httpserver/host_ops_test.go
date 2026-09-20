@@ -263,3 +263,138 @@ func firstDomainID(st store.Store, accountID string) string {
 	}
 	return ""
 }
+
+func TestHostAppsCatalogIncludesPluginActions(t *testing.T) {
+	srv, _, token := directorFixture(t)
+	apps := get(t, srv.URL+"/api/v1/server/apps", token)["items"].([]any)
+	rspamd := hostAppByID(t, apps, "rspamd")
+	if rspamd["kind"] != "plugin" {
+		t.Fatalf("rspamd kind: %v", rspamd)
+	}
+	actions, _ := rspamd["actions"].([]any)
+	if len(actions) == 0 {
+		t.Fatalf("installed/available plugins must expose actions, got %v", rspamd)
+	}
+	ids := hostAppActionIDs(actions)
+	if rspamd["status"] == "installed" {
+		if !ids["restart"] || !ids["review"] || !ids["status"] {
+			t.Fatalf("installed rspamd actions: %v", actions)
+		}
+		if !ids["enable"] && !ids["disable"] {
+			t.Fatalf("installed rspamd must offer enable or disable: %v", actions)
+		}
+	} else if !ids["install"] {
+		t.Fatalf("available rspamd must offer install or an honest action: %v", actions)
+	}
+	for _, raw := range actions {
+		action, _ := raw.(map[string]any)
+		if action["label"] == "" {
+			t.Fatalf("action missing label: %v", action)
+		}
+		if action["available"] == false && action["reason"] == "" {
+			t.Fatalf("disabled action needs a reason: %v", action)
+		}
+	}
+}
+
+func TestHostAppControlQueuesJobWithLogicalTarget(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	queued := post(t, srv.URL+"/api/v1/server/apps/rspamd/actions", token, map[string]string{
+		"action": "restart",
+	})
+	if queued["operation_id"] == nil || queued["status"] != "queued" {
+		t.Fatalf("restart: %v", queued)
+	}
+	job := st.GetJob(queued["operation_id"].(string))
+	if job == nil || job.Type != "host.app.control" {
+		t.Fatalf("job: %+v", job)
+	}
+	if job.ResourceID != "" {
+		t.Fatalf("resource_id must stay empty for host jobs: %q", job.ResourceID)
+	}
+	if job.Payload["target"] != "rspamd" || job.Payload["action"] != "restart" {
+		t.Fatalf("payload: %+v", job.Payload)
+	}
+
+	code, body := postStatus(t, srv.URL+"/api/v1/server/apps/unknown/actions", token, map[string]string{
+		"action": "restart",
+	})
+	if code != http.StatusNotFound {
+		t.Fatalf("unknown app %d %v", code, body)
+	}
+	code, body = postStatus(t, srv.URL+"/api/v1/server/apps/rspamd/actions", token, map[string]string{
+		"action": "explode",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("unknown action %d %v", code, body)
+	}
+}
+
+func TestHostAppControlRequiresServiceCapability(t *testing.T) {
+	srv, st, _ := directorFixture(t)
+	putUpdateTestUser(t, st, "plugin-auditor", "auditor")
+	token := loginUpdateTestUser(t, srv.URL, "plugin-auditor", "UpdateTestPass!2026")
+	if status, _ := doStatus(t, http.MethodGet, srv.URL+"/api/v1/server/apps", token, nil); status != http.StatusOK {
+		t.Fatalf("auditor can list apps: %d", status)
+	}
+	code, body := postStatus(t, srv.URL+"/api/v1/server/apps/rspamd/actions", token, map[string]string{
+		"action": "restart",
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("auditor must not control plugins %d %v", code, body)
+	}
+}
+
+func TestHostAppInstallQueuesWhenAvailable(t *testing.T) {
+	root := t.TempDir()
+	st := store.NewMemory()
+	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
+		t.Fatal(err)
+	}
+	api := New(st, logging.New("test"), &operations.Host{Root: root})
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "admin", "password": "ChangeMeOnce!2026",
+	})["token"].(string)
+
+	apps := get(t, srv.URL+"/api/v1/server/apps", token)["items"].([]any)
+	rspamd := hostAppByID(t, apps, "rspamd")
+	if rspamd["status"] != "available" {
+		t.Fatalf("overlay without binary should be available: %v", rspamd)
+	}
+	queued := post(t, srv.URL+"/api/v1/server/apps/rspamd/actions", token, map[string]string{
+		"action": "install",
+	})
+	job := st.GetJob(queued["operation_id"].(string))
+	if job == nil || job.Type != "host.app.control" || job.Payload["action"] != "install" {
+		t.Fatalf("install job: %+v %v", job, queued)
+	}
+	if job.ResourceID != "" || job.Payload["target"] != "rspamd" {
+		t.Fatalf("install payload: %+v", job.Payload)
+	}
+}
+
+func hostAppByID(t *testing.T, apps []any, id string) map[string]any {
+	t.Helper()
+	for _, raw := range apps {
+		app, _ := raw.(map[string]any)
+		if app["id"] == id {
+			return app
+		}
+	}
+	t.Fatalf("missing host app %s in %v", id, apps)
+	return nil
+}
+
+func hostAppActionIDs(actions []any) map[string]bool {
+	out := map[string]bool{}
+	for _, raw := range actions {
+		action, _ := raw.(map[string]any)
+		id, _ := action["id"].(string)
+		if id != "" {
+			out[id] = true
+		}
+	}
+	return out
+}

@@ -24,13 +24,26 @@ type HostProcess struct {
 	Scope string `json:"scope,omitempty"`
 }
 
+type HostAppAction struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Kind      string `json:"kind"`
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+	Href      string `json:"href,omitempty"`
+}
+
 type HostApp struct {
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	Kind        string `json:"kind"`
-	Status      string `json:"status"`
-	Path        string `json:"path,omitempty"`
-	Description string `json:"description"`
+	ID          string          `json:"id"`
+	Label       string          `json:"label"`
+	Kind        string          `json:"kind"`
+	Status      string          `json:"status"`
+	Path        string          `json:"path,omitempty"`
+	Description string          `json:"description"`
+	Service     string          `json:"service,omitempty"`
+	Running     bool            `json:"running,omitempty"`
+	Health      string          `json:"health,omitempty"`
+	Actions     []HostAppAction `json:"actions"`
 }
 
 type HostRecipe struct {
@@ -267,19 +280,148 @@ func writeMariaDBDefaultsFile(password string) (string, error) {
 
 func (h *Host) listHostApps() []HostApp {
 	return []HostApp{
-		hostApp("phpmyadmin", "phpMyAdmin", "sql", phpMyAdminRootPath, "SQL browser installed from the host phpmyadmin package and published on phpmyadmin.<domain>."),
-		hostApp("roundcube", "Roundcube Webmail", "mail", webmailRootPath, "Webmail installed from the host roundcube packages and published on webmail.<domain>."),
-		{ID: "wordpress", Label: "WordPress", Kind: "market", Status: "available", Description: "Install WordPress into an account document root through the existing WordPress API."},
-		hostApp("rspamd", "rspamd", "plugin", "/usr/bin/rspamd", "Mail filter already wired as the Postfix milter."),
+		h.hostApp("phpmyadmin", "phpMyAdmin", "sql", phpMyAdminRootPath, "", "SQL browser installed from the host phpmyadmin package and published on phpmyadmin.<domain>."),
+		h.hostApp("roundcube", "Roundcube Webmail", "mail", webmailRootPath, "", "Webmail installed from the host roundcube packages and published on webmail.<domain>."),
+		{
+			ID: "wordpress", Label: "WordPress", Kind: "market", Status: "available",
+			Description: "Install WordPress into an account document root through the existing WordPress API.",
+			Actions: []HostAppAction{{
+				ID: "review", Label: "WP Toolkit", Kind: "href", Available: true, Href: "/tools/wp-toolkit",
+			}},
+		},
+		h.hostApp("rspamd", "rspamd", "plugin", "/usr/bin/rspamd", "rspamd", "Mail filter already wired as the Postfix milter."),
 	}
 }
 
-func hostApp(id, label, kind, path, description string) HostApp {
+func (h *Host) hostFileExists(path string) bool {
+	if h != nil && h.Root != "" {
+		_, err := os.Stat(filepath.Join(h.Root, strings.TrimPrefix(path, "/")))
+		return err == nil
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func (h *Host) hostAppRunning(service string) bool {
+	if service == "" || h == nil || !h.live() {
+		return false
+	}
+	probe := probeService(service)
+	running, _ := probe["running"].(bool)
+	return running
+}
+
+func (h *Host) hostApp(id, label, kind, path, service, description string) HostApp {
 	status := "available"
-	if _, err := os.Stat(path); err == nil {
+	if h.hostFileExists(path) {
 		status = "installed"
 	}
-	return HostApp{ID: id, Label: label, Kind: kind, Status: status, Path: path, Description: description}
+	app := HostApp{
+		ID: id, Label: label, Kind: kind, Status: status,
+		Path: path, Description: description, Service: service,
+	}
+	if service != "" && status == "installed" {
+		app.Running = h.hostAppRunning(service)
+		if app.Running {
+			app.Health = "ok"
+		} else {
+			app.Health = "stopped"
+		}
+	}
+	app.Actions = hostAppActions(app)
+	return app
+}
+
+func hostAppActions(app HostApp) []HostAppAction {
+	if app.ID != "rspamd" {
+		return app.Actions
+	}
+	review := HostAppAction{
+		ID: "review", Label: "Review config", Kind: "href", Available: true,
+		Href: "/section/server?tool=exim-config",
+	}
+	status := HostAppAction{
+		ID: "status", Label: "View status", Kind: "href", Available: true,
+		Href: "/status/services",
+	}
+	if app.Status != "installed" {
+		return []HostAppAction{
+			{ID: "install", Label: "Install", Kind: "job", Available: true},
+			review, status,
+		}
+	}
+	enable := HostAppAction{ID: "enable", Label: "Enable", Kind: "job", Available: !app.Running}
+	if app.Running {
+		enable.Reason = app.Label + " is already running."
+	}
+	disable := HostAppAction{ID: "disable", Label: "Disable", Kind: "job", Available: app.Running}
+	if !app.Running {
+		disable.Reason = app.Label + " is already stopped."
+	}
+	return []HostAppAction{
+		enable, disable,
+		{ID: "restart", Label: "Restart", Kind: "job", Available: true},
+		review, status,
+	}
+}
+
+func controlHostAppSpec(id string) (service, pkg string, ok bool) {
+	switch id {
+	case "rspamd":
+		return "rspamd", "rspamd", true
+	default:
+		return "", "", false
+	}
+}
+
+func (h *Host) controlHostApp(id, action string) (Result, error) {
+	service, pkg, ok := controlHostAppSpec(id)
+	if !ok {
+		return Result{}, fmt.Errorf("unknown host app")
+	}
+	action = strings.ToLower(strings.TrimSpace(action))
+	switch action {
+	case "restart", "start", "stop", "reload", "enable", "disable":
+		if err := validateService(service); err != nil {
+			return Result{}, err
+		}
+		if h.live() {
+			if err := controlNamedService(service, action); err != nil {
+				return Result{}, err
+			}
+		}
+		return Result{OK: true, Message: action + " requested for " + service, ObservedState: action}, nil
+	case "install":
+		return h.installHostApp(id, pkg)
+	default:
+		return Result{}, fmt.Errorf("unsupported host app action")
+	}
+}
+
+func (h *Host) installHostApp(id, pkg string) (Result, error) {
+	if pkg == "" {
+		return Result{}, fmt.Errorf("install is not available for %s", id)
+	}
+	if !h.live() {
+		return Result{OK: true, Message: id + " staged", ObservedState: "staged"}, nil
+	}
+	out, err := runFixedEnv(
+		h.commandContext(),
+		"/usr/bin/apt-get",
+		[]string{"DEBIAN_FRONTEND=noninteractive"},
+		10*time.Minute,
+		nil,
+		"-o", "Dpkg::Options::=--force-confold",
+		"-o", "Dpkg::Lock::Timeout=120",
+		"install", "-y", pkg,
+	)
+	if err != nil {
+		return Result{}, fmt.Errorf("apt-get: %s", strings.TrimSpace(string(out)))
+	}
+	if service, _, ok := controlHostAppSpec(id); ok {
+		_ = controlNamedService(service, "enable")
+	}
+	return Result{OK: true, Message: id + " installed", ObservedState: "installed"}, nil
 }
 
 func (h *Host) runHostRecipe(id string) (Result, error) {

@@ -317,9 +317,23 @@ func controlNamedService(name, action string) error {
 	case "reload":
 		return reloadNamedService(name)
 	case "restart", "start", "stop":
+		return systemctlUnit(action, name)
+	case "enable":
+		if err := systemctlUnit("enable", name); err != nil {
+			return err
+		}
+		return systemctlUnit("start", name)
+	case "disable":
+		if err := systemctlUnit("stop", name); err != nil {
+			return err
+		}
+		return systemctlUnit("disable", name)
 	default:
 		return fmt.Errorf("unsupported service action")
 	}
+}
+
+func systemctlUnit(action, name string) error {
 	out, err := runFixed("/bin/systemctl", action, name)
 	if err == nil {
 		return nil

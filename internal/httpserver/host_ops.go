@@ -66,7 +66,109 @@ func (a *API) listHostApps(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 500, "AGENT_ERROR", err.Error(), false)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": raw})
+	apps := decodeHostApps(raw)
+	ac := actor(r)
+	for i := range apps {
+		if len(apps[i].Actions) == 0 && apps[i].Kind == "plugin" {
+			apps[i].Actions = []operations.HostAppAction{{
+				ID: "unavailable", Label: "No action", Kind: "disabled", Available: false,
+				Reason: "No host-backed action is available for this app yet.",
+			}}
+		}
+		for j := range apps[i].Actions {
+			action := &apps[i].Actions[j]
+			if !action.Available {
+				continue
+			}
+			need := hostAppActionCapability(action.ID)
+			if need != "" && !ac.Has(need) {
+				action.Available = false
+				action.Reason = "Requires " + need
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"items": apps})
+}
+
+func (a *API) controlHostApp(w http.ResponseWriter, r *http.Request) {
+	appID := strings.TrimSpace(chi.URLParam(r, "appID"))
+	var in struct {
+		Action string `json:"action"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	action := strings.ToLower(strings.TrimSpace(in.Action))
+	if !knownHostAppID(appID) {
+		a.fail(w, r, 404, "NOT_FOUND", "unknown host app", false)
+		return
+	}
+	if !hostAppAllowsAction(appID, action) {
+		a.fail(w, r, 400, "VALIDATION", "action must be enable, disable, restart, start, stop, reload, or install", false)
+		return
+	}
+	if !a.require(w, r, hostAppActionCapability(action)) {
+		return
+	}
+	job, err := a.enqueueTypedJob(r, &store.Job{
+		Type: "host.app.control", ResourceType: "server",
+		Payload: map[string]any{"target": appID, "action": action},
+		State:   "queued",
+	}, a.auditEvent(r, "", "server.app."+action, "server", "", nil, map[string]any{
+		"app": appID, "action": action, "target": appID,
+	}))
+	if err != nil {
+		a.fail(w, r, 500, "HOST_APP_CONTROL_ERROR", "Could not queue host application action", true)
+		return
+	}
+	writeJSON(w, 202, map[string]any{
+		"operation_id": job.ID, "status": "queued", "app": appID, "action": action,
+	})
+}
+
+func decodeHostApps(raw any) []operations.HostApp {
+	if apps, ok := raw.([]operations.HostApp); ok {
+		return apps
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var apps []operations.HostApp
+	if err := json.Unmarshal(b, &apps); err != nil {
+		return nil
+	}
+	return apps
+}
+
+func knownHostAppID(id string) bool {
+	switch id {
+	case "phpmyadmin", "roundcube", "wordpress", "rspamd":
+		return true
+	default:
+		return false
+	}
+}
+
+func hostAppAllowsAction(id, action string) bool {
+	if id != "rspamd" {
+		return false
+	}
+	switch action {
+	case "enable", "disable", "restart", "start", "stop", "reload", "install":
+		return true
+	default:
+		return false
+	}
+}
+
+func hostAppActionCapability(action string) string {
+	switch action {
+	case "install":
+		return rbac.ServerSettingsWrite
+	case "enable", "disable", "restart", "start", "stop", "reload":
+		return rbac.ServerServicesRestart
+	default:
+		return ""
+	}
 }
 
 func (a *API) enableHostApp(w http.ResponseWriter, r *http.Request) {

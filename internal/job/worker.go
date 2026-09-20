@@ -355,6 +355,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.applyServiceCertificateJob(j)
 	case "host.remote_access.apply":
 		return w.applyRemoteAccessKeyJob(j)
+	case "host.app.control":
+		return w.controlHostApp(j)
 	case "cron.apply":
 		return w.applyCron(j)
 	case "ftp.apply":
@@ -851,6 +853,17 @@ func (w *Worker) installLanguageModule(j *store.Job) error {
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "InstallLanguageModule",
 		Params: mustJSON(map[string]any{"kind": str(j.Payload["kind"]), "name": str(j.Payload["name"])}),
+	})
+	return err
+}
+
+func (w *Worker) controlHostApp(j *store.Job) error {
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ControlHostApp",
+		Params: mustJSON(map[string]any{
+			"id":     str(j.Payload["target"]),
+			"action": str(j.Payload["action"]),
+		}),
 	})
 	return err
 }

@@ -27,6 +27,7 @@ describe('formatJobType', () => {
 		expect(formatJobType('database.create')).toBe('Create database')
 		expect(formatJobType('host.module.install')).toBe('Install language module')
 		expect(formatJobType('host.config.apply')).toBe('Apply host configuration')
+		expect(formatJobType('host.app.control')).toBe('Control host application')
 		expect(formatJobType('mysql.upgrade')).toBe('Upgrade MariaDB')
 	})
 })

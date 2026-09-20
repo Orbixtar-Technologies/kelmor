@@ -146,7 +146,7 @@ export function canRetryJob (job: Job, capabilities: Record<string, boolean>): b
 		['wordpress.', 'applications.write'], ['database.', 'databases.write'], ['dns.', 'dns.write'],
 		['mail', 'mail.write'], ['certificate.provision', 'websites.write'], ['certificate.portal', 'server.settings.write'],
 		['backup.create', 'backups.create'], ['backup.restore', 'backups.restore'], ['backup.schedule', 'backups.create'],
-		['host.config.apply', 'server.settings.write'], ['host.module.install', 'server.settings.write'], ['mysql.upgrade', 'server.settings.write'], ['cron.', 'cron.write'], ['ftp.', 'files.write'],
+		['host.config.apply', 'server.settings.write'], ['host.module.install', 'server.settings.write'], ['host.app.control', 'server.settings.write'], ['mysql.upgrade', 'server.settings.write'], ['cron.', 'cron.write'], ['ftp.', 'files.write'],
 	]
 	const match = prefixes.find(([prefix]) => job.type.startsWith(prefix))
 	return Boolean(match && capabilities[match[1]])
