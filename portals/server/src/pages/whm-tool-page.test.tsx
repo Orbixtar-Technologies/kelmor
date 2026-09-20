@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { CapProvider } from '../rbac'
+import { HubPage } from './hub-page'
 import { WhmToolPage } from './whm-tool-page'
 
 const api = vi.fn().mockResolvedValue({ values: {}, items: [] })
@@ -24,6 +25,8 @@ function renderTool (path: string, caps: Record<string, boolean> = { 'server.set
 			<CapProvider caps={caps}>
 				<Routes>
 					<Route path="tools/:toolId" element={<WhmToolPage />} />
+					<Route path="section/:hubId" element={<HubPage />} />
+					<Route path="domains" element={<p>List Domains hub</p>} />
 				</Routes>
 			</CapProvider>
 		</MemoryRouter>,
@@ -194,5 +197,85 @@ describe('WhmToolPage', () => {
 		expect(await screen.findByText('Show mail queue')).toBeInTheDocument()
 		expect(screen.getByText('Flush mail queue')).toBeInTheDocument()
 		expect(screen.queryByText('Test nginx configuration')).not.toBeInTheDocument()
+	})
+
+	test('convert addon shows an honest empty state when the account has no addons', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'alpha', primary_domain: 'alpha.test' }] })
+			}
+			if (String(path) === '/api/v1/packages') {
+				return Promise.resolve({ items: [{ id: 'pkg-1', name: 'Starter' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1/domains') {
+				return Promise.resolve({ items: [
+					{ id: 'dom-1', ascii_fqdn: 'alpha.test', type: 'primary' },
+					{ id: 'dom-2', ascii_fqdn: 'park.alpha.test', type: 'alias' },
+				] })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/section/system?tool=convert-addon', {
+			'accounts.create': true, 'domains.write': true, 'accounts.read': true,
+		})
+		expect(await screen.findByRole('heading', { name: 'Convert Addon Domain to Account' })).toBeInTheDocument()
+		await screen.findByRole('option', { name: /alpha/ })
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		expect(await screen.findByText('No addon domains to convert')).toBeInTheDocument()
+		const cta = screen.getByRole('link', { name: 'Create or manage domains' })
+		expect(cta).toHaveAttribute('href', '/domains?account=acc-1&view=addon')
+		expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument()
+		expect(screen.queryByLabelText('Addon domain')).not.toBeInTheDocument()
+		expect(screen.queryByText('List Domains hub')).not.toBeInTheDocument()
+	})
+
+	test('convert addon reviews a real addon then queues host-backed conversion', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'alpha', primary_domain: 'alpha.test' }] })
+			}
+			if (String(path) === '/api/v1/packages') {
+				return Promise.resolve({ items: [{ id: 'pkg-1', name: 'Starter' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1/domains') {
+				return Promise.resolve({ items: [
+					{ id: 'dom-1', ascii_fqdn: 'alpha.test', type: 'primary' },
+					{ id: 'dom-2', ascii_fqdn: 'shop.alpha.test', type: 'addon' },
+				] })
+			}
+			if (String(path) === '/api/v1/accounts/convert-addon' && options?.method === 'POST') {
+				return Promise.resolve({ resource_id: 'acc-new', operation_id: 'job-convert-1' })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/section/system?tool=convert-addon', {
+			'accounts.create': true, 'domains.write': true, 'accounts.read': true,
+		})
+		await screen.findByRole('option', { name: /alpha/ })
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		expect(await screen.findByLabelText('Addon domain')).toBeInTheDocument()
+		expect(screen.getByRole('option', { name: 'shop.alpha.test' })).toBeInTheDocument()
+		expect(screen.queryByRole('option', { name: 'alpha.test' })).not.toBeInTheDocument()
+		await user.selectOptions(screen.getByLabelText('Addon domain'), 'shop.alpha.test')
+		await user.type(screen.getByLabelText('New username'), 'shop')
+		await user.type(screen.getByLabelText('Owner password'), 'TenantPass!2026')
+		await user.selectOptions(screen.getByLabelText('Package'), 'pkg-1')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(screen.getByRole('heading', { name: 'Review' })).toBeInTheDocument()
+		expect(screen.getByText('shop.alpha.test')).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Apply' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/convert-addon', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({
+				account_id: 'acc-1',
+				addon_domain: 'shop.alpha.test',
+				username: 'shop',
+				package_id: 'pkg-1',
+				owner_password: 'TenantPass!2026',
+			}),
+		}))
+		expect(await screen.findByText(/Addon conversion queued/)).toBeInTheDocument()
 	})
 })

@@ -1,16 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
+import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
+import {
+	pendingPhpChanges,
+	stageSelectedPhpVersions,
+	websitePhpVersion,
+	type PhpWebsiteRow,
+} from '../multiphp-staging'
 import { isSupportedPHPVersion, SUPPORTED_PHP_VERSIONS } from '../php-runtimes'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
 
-interface WebsiteRow extends ResourceItem {
+interface WebsiteRow extends PhpWebsiteRow {
 	account_username?: string
 }
 
@@ -23,6 +30,12 @@ export function WebsitesPage () {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
+	const [jobId, setJobId] = useState('')
+	const [drafts, setDrafts] = useState<Record<string, string>>({})
+	const [selected, setSelected] = useState<Record<string, boolean>>({})
+	const [bulkVersion, setBulkVersion] = useState<string>(SUPPORTED_PHP_VERSIONS[1] || SUPPORTED_PHP_VERSIONS[0])
+	const [step, setStep] = useState(0)
+	const [busy, setBusy] = useState(false)
 	const [updatedAt, setUpdatedAt] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('websites.write')
@@ -30,6 +43,16 @@ export function WebsitesPage () {
 	const currentAccountId = useRef(accountId)
 	currentAccountId.current = accountId
 	const account = accounts.find((entry) => entry.id === accountId)
+	const pending = useMemo(() => pendingPhpChanges(rows, drafts), [drafts, rows])
+	const isReview = step === 1
+	const selectedCount = rows.filter((website) => selected[website.id]).length
+	const allSelected = rows.length > 0 && selectedCount === rows.length
+
+	useEffect(() => {
+		setDrafts({})
+		setSelected({})
+		setStep(0)
+	}, [accountId])
 
 	useEffect(() => {
 		const request = requests.begin('accounts')
@@ -118,26 +141,83 @@ export function WebsitesPage () {
 		}
 	}
 
-	async function changeRuntime (ownerAccountId: string, website: WebsiteRow, runtime: string, runtimeVersion: string) {
-		if (runtime === 'php' && !isSupportedPHPVersion(runtimeVersion)) {
-			setMessage(`Unsupported PHP version ${runtimeVersion}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
+	function stageVersion (website: WebsiteRow, version: string) {
+		if (String(website.runtime || 'php') === 'php' && !isSupportedPHPVersion(version)) {
+			setMessage(`Unsupported PHP version ${version}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
 			return
 		}
+		setMessage('')
+		setDrafts((current) => ({ ...current, [website.id]: version }))
+	}
+
+	function handleStageSelected () {
+		if (!isSupportedPHPVersion(bulkVersion)) {
+			setMessage(`Unsupported PHP version ${bulkVersion}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
+			return
+		}
+		setMessage('')
+		setDrafts((current) => stageSelectedPhpVersions(rows, selected, bulkVersion, current))
+	}
+
+	function handleToggle (websiteId: string, checked: boolean) {
+		setSelected((current) => ({ ...current, [websiteId]: checked }))
+	}
+
+	function handleToggleAll (checked: boolean) {
+		const next: Record<string, boolean> = {}
+		if (checked) {
+			for (const website of rows) next[website.id] = true
+		}
+		setSelected(next)
+	}
+
+	async function applyPending () {
+		if (!pending.length) return
+		for (const change of pending) {
+			if (change.runtime === 'php' && !isSupportedPHPVersion(change.proposed)) {
+				setMessage(`Unsupported PHP version ${change.proposed}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
+				return
+			}
+		}
+		setBusy(true)
+		setError('')
+		setMessage('')
+		setJobId('')
 		try {
-			await api(`/api/v1/accounts/${ownerAccountId}/websites`, {
-				method: 'POST',
-				body: JSON.stringify({
-					domain_id: website.domain_id,
-					runtime,
-					runtime_version: runtimeVersion || undefined,
-					document_root: website.document_root,
-				}),
-			})
-			setMessage('PHP / runtime change queued.')
+			let lastJob = ''
+			for (const change of pending) {
+				const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${change.accountId}/websites`, {
+					method: 'POST',
+					body: JSON.stringify({
+						domain_id: change.domainId,
+						runtime: change.runtime,
+						runtime_version: change.proposed,
+						document_root: change.documentRoot,
+					}),
+				})
+				if (result.operation_id) lastJob = result.operation_id
+			}
+			setMessage(queuedOpMessage({ operation_id: lastJob || undefined }, `Queued PHP version changes for ${pending.length} site(s).`))
+			setJobId(lastJob)
+			setDrafts({})
+			setSelected({})
+			setStep(0)
 			loadWebsites(accountId, accounts)
 		} catch (requestError) {
 			setMessage(messageFrom(requestError))
+		} finally {
+			setBusy(false)
 		}
+	}
+
+	function handleStagingSubmit (event: FormEvent) {
+		event.preventDefault()
+		if (!isReview) {
+			if (!pending.length) return
+			setStep(1)
+			return
+		}
+		void applyPending()
 	}
 
 	return (
@@ -156,9 +236,9 @@ export function WebsitesPage () {
 					onFilterChange={setAccountFilter}
 					onChange={(next) => setParams(next ? { account: next } : {}, { replace: true })}
 				/>
-				<p className="subtle">Select an account to create a site or change its PHP version. The inventory can list every visible website.</p>
+				<p className="subtle">Select an account to create a site or change its PHP version. The inventory can list every visible website. PHP selector changes stay local until you Review and Apply.</p>
 			</div>
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			<QueuedOpNotice message={message} accountId={accountId || undefined} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => loadWebsites(accountId, accounts)} /> : null}
 			{canWrite && accountId ? <section className="panel">
 				<h2>Create or update a website</h2>
@@ -172,7 +252,120 @@ export function WebsitesPage () {
 			<section className="panel">
 				<h2>Websites</h2>
 				{loading ? <LoadingState label="Loading websites…" /> : null}
-				{!loading ? <div className="table-wrap"><table className="dense-table">
+				{!loading && canWrite && rows.length ? (
+					<form className="form-panel" onSubmit={handleStagingSubmit}>
+						<ol className="steps" aria-label="Workflow">
+							{['Select PHP versions', 'Review'].map((label, index) => (
+								<li key={label} className={index === step ? 'active' : index < step ? 'complete' : ''}>
+									<span>{index + 1}</span>{label}
+								</li>
+							))}
+						</ol>
+						<div className="form-section-heading">
+							<h2>{isReview ? 'Review' : 'Select PHP versions'}</h2>
+							<p>{isReview
+								? `Director will queue a host php-fpm apply for ${pending.length} site(s).`
+								: 'Changing a selector only stages a review. Apply queues website.provision through the Agent.'}</p>
+						</div>
+						{!isReview ? (
+							<div className="inline-form">
+								<label>
+									PHP version for selected sites
+									<select
+										aria-label="PHP version for selected sites"
+										value={bulkVersion}
+										onChange={(event) => setBulkVersion(event.target.value)}
+									>
+										{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
+									</select>
+								</label>
+								<button type="button" disabled={!selectedCount} onClick={handleStageSelected}>Stage selected</button>
+							</div>
+						) : null}
+						<div className="table-wrap"><table className="dense-table">
+							<thead>
+								<tr>
+									{!isReview ? (
+										<th>
+											<input
+												type="checkbox"
+												checked={allSelected}
+												aria-label="Select all websites"
+												onChange={(event) => handleToggleAll(event.target.checked)}
+											/>
+										</th>
+									) : null}
+									<th>Document root</th>
+									{isReview ? <th>Change</th> : <><th>Runtime</th><th>Version</th></>}
+									<th>Account</th>
+									{isReview ? null : <><th>Enabled</th><th>Actions</th></>}
+								</tr>
+							</thead>
+							<tbody>
+								{(isReview ? pending.map((change) => rows.find((website) => website.id === change.websiteId)).filter(Boolean) as WebsiteRow[] : rows).map((website) => {
+									const ownerId = String(website.account_id || accountId)
+									const root = valueOf(website, 'document_root')
+									const current = websitePhpVersion(website)
+									const proposed = drafts[website.id] || current
+									return (
+										<tr key={`${ownerId}:${website.id}`}>
+											{!isReview ? (
+												<td>
+													<input
+														type="checkbox"
+														checked={Boolean(selected[website.id])}
+														aria-label={`Select ${root}`}
+														onChange={(event) => handleToggle(website.id, event.target.checked)}
+													/>
+												</td>
+											) : null}
+											<td><strong>{root}</strong></td>
+											{isReview ? (
+												<td>{current} → {proposed}</td>
+											) : (
+												<>
+													<td>{valueOf(website, 'runtime')}</td>
+													<td>
+														<label className="inline-select">
+															<span className="sr-only">PHP version for {root}</span>
+															<select
+																value={proposed}
+																onChange={(event) => stageVersion(website, event.target.value)}
+															>
+																{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
+															</select>
+														</label>
+													</td>
+												</>
+											)}
+											<td><Link to={`/accounts/${ownerId}`}>{website.account_username || ownerId}</Link></td>
+											{isReview ? null : (
+												<>
+													<td><StatusBadge value={Boolean(website.enabled)} /></td>
+													<td>
+														<div className="row-actions">
+															<Link to={`/files?account=${ownerId}`}>Files</Link>
+															<Link to={`/ssl?account=${ownerId}`}>SSL</Link>
+														</div>
+													</td>
+												</>
+											)}
+										</tr>
+									)
+								})}
+							</tbody>
+						</table></div>
+						<div className="page-actions">
+							{isReview ? <button type="button" className="secondary" onClick={() => setStep(0)}>Back</button> : null}
+							{pending.length ? (
+								<button type="submit" disabled={busy || (isReview && !canWrite)}>
+									{busy ? 'Working…' : isReview ? 'Apply' : 'Review'}
+								</button>
+							) : null}
+						</div>
+					</form>
+				) : null}
+				{!loading && !canWrite ? <div className="table-wrap"><table className="dense-table">
 					<thead><tr><th>Document root</th><th>Runtime</th><th>Version</th><th>Account</th><th>Enabled</th><th>Actions</th></tr></thead>
 					<tbody>
 						{rows.map((website) => {
@@ -181,18 +374,7 @@ export function WebsitesPage () {
 								<tr key={`${ownerId}:${website.id}`}>
 									<td><strong>{valueOf(website, 'document_root')}</strong></td>
 									<td>{valueOf(website, 'runtime')}</td>
-									<td>{canWrite ? (
-										<label className="inline-select">
-											<span className="sr-only">PHP version for {valueOf(website, 'document_root')}</span>
-											<select
-												defaultValue={String(website.runtime_version || '8.3')}
-												onChange={(event) => changeRuntime(ownerId, website, String(website.runtime || 'php'), event.target.value)}
-											>
-												{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
-											</select>
-										</label>
-									) : valueOf(website, 'runtime_version')}
-									</td>
+									<td>{valueOf(website, 'runtime_version')}</td>
 									<td><Link to={`/accounts/${ownerId}`}>{website.account_username || ownerId}</Link></td>
 									<td><StatusBadge value={Boolean(website.enabled)} /></td>
 									<td>

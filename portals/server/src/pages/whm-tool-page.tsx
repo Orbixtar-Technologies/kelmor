@@ -2,10 +2,11 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
-import { ErrorState, PageHeader, SectionHeading } from '../components/ui'
+import { EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
+import { addonDomainsFrom, convertAddonDomainsHref, domainFqdn } from '../convert-addon'
 import { messageFrom } from '../helpers'
 import { hasCapabilities, useCapabilities } from '../rbac'
-import type { Account, Package } from '../types'
+import type { Account, Package, ResourceItem } from '../types'
 import { ClusterPanel } from './cluster-panel'
 import { RemoteAccessPanel } from './remote-access-panel'
 import { DiagnosticsPanel } from './diagnostics-panel'
@@ -67,6 +68,8 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 	const [accounts, setAccounts] = useState<Account[]>([])
 	const [packages, setPackages] = useState<Package[]>([])
 	const [websites, setWebsites] = useState<Website[]>([])
+	const [addonDomains, setAddonDomains] = useState<ResourceItem[]>([])
+	const [addonsLoading, setAddonsLoading] = useState(false)
 	const [settings, setSettings] = useState<Record<string, string>>({})
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
@@ -76,6 +79,9 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 	const isLast = step >= steps.length - 1
 	const selectedAccount = accounts.find((account) => account.id === accountId)
 	const canSubmit = canSubmitFeature(feature, capabilities)
+	const isConvertAddon = feature.id === 'convert-addon'
+	const convertEmpty = isConvertAddon && Boolean(accountId) && !addonsLoading && addonDomains.length === 0
+	const convertReady = !isConvertAddon || (Boolean(accountId) && !addonsLoading && addonDomains.length > 0)
 
 	useEffect(() => {
 		const needsAccounts = feature.layout === 'account-action' || feature.fields?.some((field) => field.type === 'account')
@@ -108,6 +114,26 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 			.catch(() => setWebsites([]))
 	}, [accountId, feature.id])
 
+	useEffect(() => {
+		if (feature.id !== 'convert-addon') {
+			setAddonDomains([])
+			setAddonsLoading(false)
+			return
+		}
+		setStep(0)
+		setValues((current) => ({ ...current, addon_domain: '' }))
+		if (!accountId) {
+			setAddonDomains([])
+			setAddonsLoading(false)
+			return
+		}
+		setAddonsLoading(true)
+		api<{ items: ResourceItem[] }>(`/api/v1/accounts/${accountId}/domains`)
+			.then((result) => setAddonDomains(addonDomainsFrom(asList(result))))
+			.catch(() => setAddonDomains([]))
+			.finally(() => setAddonsLoading(false))
+	}, [accountId, feature.id])
+
 	function handleField (name: string, value: string) {
 		setValues((current) => ({ ...current, [name]: value }))
 		if (name === 'account_id') setAccountId(value)
@@ -116,6 +142,7 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 	async function handleSubmit (event: FormEvent) {
 		event.preventDefault()
 		if (!isLast) {
+			if (isConvertAddon && !convertReady) return
 			setStep((current) => current + 1)
 			return
 		}
@@ -195,34 +222,66 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 							onFilterChange={setAccountFilter}
 						/>
 					) : null}
-					{!isLast ? (
+					{isConvertAddon && !accountId ? <p className="subtle">Select a source account to look for addon domains.</p> : null}
+					{isConvertAddon && accountId && addonsLoading ? <LoadingState label="Loading addon domains…" /> : null}
+					{convertEmpty ? (
+						<EmptyState
+							title="No addon domains to convert"
+							detail="This account has no addon domains. Create an addon domain first, then return here to promote it to its own POSIX account."
+							action={<Link to={convertAddonDomainsHref(accountId)}>Create or manage domains</Link>}
+						/>
+					) : null}
+					{!isLast && convertReady ? (
 						<div className="form-grid">
-							{(feature.fields ?? []).filter((field) => field.type !== 'account').map((field) => (
-								<ToolField
-									key={field.name}
-									field={field}
-									value={values[field.name] ?? settings[field.name] ?? field.defaultValue ?? ''}
-									packages={packages}
-									websites={websites}
-									onChange={handleField}
-								/>
-							))}
+							{(feature.fields ?? []).filter((field) => field.type !== 'account').map((field) => {
+								if (isConvertAddon && field.name === 'addon_domain') {
+									return (
+										<label key={field.name}>
+											{field.label}
+											<select
+												value={values.addon_domain || ''}
+												onChange={(event) => handleField('addon_domain', event.target.value)}
+												required
+											>
+												<option value="">Select an addon domain…</option>
+												{addonDomains.map((domain) => {
+													const fqdn = domainFqdn(domain)
+													return <option key={domain.id} value={fqdn}>{fqdn}</option>
+												})}
+											</select>
+										</label>
+									)
+								}
+								return (
+									<ToolField
+										key={field.name}
+										field={field}
+										value={values[field.name] ?? settings[field.name] ?? field.defaultValue ?? ''}
+										packages={packages}
+										websites={websites}
+										onChange={handleField}
+									/>
+								)
+							})}
 						</div>
-					) : (
+					) : null}
+					{isLast && convertReady ? (
 						<dl className="detail-list">
 							{needsAccountPicker(feature) ? <div><dt>Account</dt><dd>{selectedAccount ? `${selectedAccount.username} · ${selectedAccount.primary_domain}` : 'Not selected'}</dd></div> : null}
 							{Object.entries(values).filter(([key, value]) => key !== 'account_id' && value).map(([key, value]) => (
 								<div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{SECRET_FIELD.test(key) ? '••••••••' : value}</dd></div>
 							))}
 						</dl>
-					)}
+					) : null}
 					<div className="page-actions">
-						{step > 0 ? <button type="button" className="secondary" onClick={() => setStep((current) => current - 1)}>Back</button> : null}
-						<button type="submit" disabled={busy || (isLast && !canSubmit)}>
-							{busy ? 'Working…' : isLast ? confirmLabel(feature) : 'Continue'}
-						</button>
+						{step > 0 && convertReady ? <button type="button" className="secondary" onClick={() => setStep((current) => current - 1)}>Back</button> : null}
+						{convertReady ? (
+							<button type="submit" disabled={busy || (isLast && !canSubmit)}>
+								{busy ? 'Working…' : isLast ? confirmLabel(feature) : 'Continue'}
+							</button>
+						) : null}
 					</div>
-					{isLast && !canSubmit ? <p className="subtle">Your role can open this journey, but the API will refuse the write.</p> : null}
+					{isLast && convertReady && !canSubmit ? <p className="subtle">Your role can open this journey, but the API will refuse the write.</p> : null}
 				</form>
 			) : null}
 
