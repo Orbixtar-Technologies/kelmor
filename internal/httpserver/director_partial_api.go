@@ -89,10 +89,11 @@ func (a *API) resetResellerBandwidth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listRestoreInventory(w http.ResponseWriter, r *http.Request) {
-	if !a.require(w, r, rbac.BackupsRead) {
+	ac := actor(r)
+	if !ac.Has(rbac.BackupsRead) && !ac.Has(rbac.AccountsRead) {
+		a.require(w, r, rbac.BackupsRead)
 		return
 	}
-	ac := actor(r)
 	items := make([]map[string]any, 0)
 	for _, backup := range a.Store.ListBackups("") {
 		account := a.Store.GetAccount(backup.AccountID)

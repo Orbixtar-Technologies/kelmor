@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hosting-panel/panel/internal/auth"
 	"github.com/hosting-panel/panel/internal/id"
 	"github.com/hosting-panel/panel/internal/store"
 	"github.com/pquerna/otp/totp"
@@ -123,6 +124,32 @@ func TestRestoreInventoryEmptyWhenNone(t *testing.T) {
 	items, _ := listed["items"].([]any)
 	if items == nil || len(items) != 0 {
 		t.Fatalf("empty inventory must be []: %v", listed)
+	}
+}
+
+func TestRestoreInventoryAcceptsAccountsRead(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	pkg := firstPackageID(t, srv, token)
+	aid := seedAccount(t, srv, token, "opback", "opback.example.test", pkg)
+	st.PutBackup(&store.BackupRun{
+		ID: "dddddddd-dddd-7ddd-8ddd-dddddddddddd", AccountID: aid,
+		Kind: "full", State: "succeeded", Destination: "local",
+	})
+	hash, err := auth.HashPassword("OperatorPass!2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.PutUser(&store.User{
+		ID: id.New(), Username: "restore-op", Email: "op@localhost", PasswordHash: hash,
+		DisplayName: "Operator", Status: "active", Roles: []string{"server_operator"},
+	})
+	op := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{
+		"username": "restore-op", "password": "OperatorPass!2026",
+	})["token"].(string)
+	listed := get(t, srv.URL+"/api/v1/backups", op)
+	items, _ := listed["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("operator inventory: %v", listed)
 	}
 }
 
