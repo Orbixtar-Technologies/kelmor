@@ -14,61 +14,67 @@ import (
 )
 
 type HostConfigSpec struct {
-	Hostname          string            `json:"hostname,omitempty"`
-	Resolvers         []string          `json:"resolvers,omitempty"`
-	Timezone          string            `json:"timezone,omitempty"`
-	IndexFiles        string            `json:"index_files,omitempty"`
-	HTTPSRedirect     bool              `json:"https_redirect"`
-	Gzip              bool              `json:"gzip"`
-	ClientMaxBody     string            `json:"client_max_body_size,omitempty"`
-	KeepaliveTimeout  string            `json:"keepalive_timeout,omitempty"`
-	PHPIni            map[string]string `json:"php_ini,omitempty"`
-	SpamEnabled       bool              `json:"spam_enabled"`
-	RejectScore       int               `json:"reject_score,omitempty"`
-	GreylistEnabled   bool              `json:"greylist_enabled"`
-	GreylistMinutes   int               `json:"greylist_minutes,omitempty"`
-	CountryAction     string            `json:"country_action,omitempty"`
-	Countries         []string          `json:"countries,omitempty"`
-	DenyDomains       []string          `json:"deny_domains,omitempty"`
-	AllowDomains      []string          `json:"allow_domains,omitempty"`
-	RequireAuth       bool              `json:"require_auth"`
-	Milter            bool              `json:"milter"`
-	RestrictSMTP      bool              `json:"restrict_smtp"`
-	FTPEnabled        bool              `json:"ftp_enabled"`
-	PasvMin           int               `json:"pasv_min,omitempty"`
-	PasvMax           int               `json:"pasv_max,omitempty"`
-	FTPBanner         string            `json:"ftp_banner,omitempty"`
-	LogRetainDays     int               `json:"log_retain_days,omitempty"`
-	AllowCIDRs        []string          `json:"allow_cidrs,omitempty"`
-	DenyCIDRs         []string          `json:"deny_cidrs,omitempty"`
-	RootSSHKeys       string            `json:"root_ssh_keys,omitempty"`
-	WheelMembers      []string          `json:"wheel_members,omitempty"`
-	CompilerAllow     bool              `json:"compiler_allow"`
-	BackupSchedule    string            `json:"backup_schedule,omitempty"`
-	BackupUsers       []string          `json:"backup_users,omitempty"`
-	BackupDestination string            `json:"backup_destination,omitempty"`
-	BackupRetention   int               `json:"backup_retention_days,omitempty"`
-	Nameservers       []string          `json:"nameservers,omitempty"`
-	IPPool            []string          `json:"ip_pool,omitempty"`
-	IPv6Ranges        []string          `json:"ipv6_ranges,omitempty"`
-	Relayers          []string          `json:"relayers,omitempty"`
-	NS1IP             string            `json:"ns1_ip,omitempty"`
-	NS2IP             string            `json:"ns2_ip,omitempty"`
-	MaxEmailsHour     int               `json:"max_emails_hour,omitempty"`
-	Profile           string            `json:"profile,omitempty"`
-	ClusterPeers      []string          `json:"cluster_peers,omitempty"`
-	WriteCluster      bool              `json:"write_cluster,omitempty"`
-	LinkedNodes       []string          `json:"linked_nodes,omitempty"`
-	WriteLinkedNodes  bool              `json:"write_linked_nodes,omitempty"`
-	ExternalAuth      *ExternalAuthSpec `json:"external_auth,omitempty"`
-	TwoFactorRequired bool              `json:"two_factor_required,omitempty"`
-	WriteTwoFactor    bool              `json:"write_two_factor,omitempty"`
-	InitialQuotaBytes int64             `json:"initial_quota_bytes,omitempty"`
-	WriteInitialQuota bool              `json:"write_initial_quota,omitempty"`
-	QuotaEnforce      bool              `json:"quota_enforce,omitempty"`
-	PostgresListen    string            `json:"postgres_listen,omitempty"`
-	PostgresAuth      string            `json:"postgres_auth,omitempty"`
-	WritePostgres     bool              `json:"write_postgres,omitempty"`
+	Hostname           string            `json:"hostname,omitempty"`
+	Resolvers          []string          `json:"resolvers,omitempty"`
+	Timezone           string            `json:"timezone,omitempty"`
+	IndexFiles         string            `json:"index_files,omitempty"`
+	HTTPSRedirect      bool              `json:"https_redirect"`
+	Gzip               bool              `json:"gzip"`
+	ClientMaxBody      string            `json:"client_max_body_size,omitempty"`
+	KeepaliveTimeout   string            `json:"keepalive_timeout,omitempty"`
+	PHPIni             map[string]string `json:"php_ini,omitempty"`
+	SpamEnabled        bool              `json:"spam_enabled"`
+	RejectScore        int               `json:"reject_score,omitempty"`
+	GreylistEnabled    bool              `json:"greylist_enabled"`
+	GreylistMinutes    int               `json:"greylist_minutes,omitempty"`
+	CountryAction      string            `json:"country_action,omitempty"`
+	Countries          []string          `json:"countries,omitempty"`
+	DenyDomains        []string          `json:"deny_domains,omitempty"`
+	AllowDomains       []string          `json:"allow_domains,omitempty"`
+	RequireAuth        bool              `json:"require_auth"`
+	Milter             bool              `json:"milter"`
+	RestrictSMTP       bool              `json:"restrict_smtp"`
+	FTPEnabled         bool              `json:"ftp_enabled"`
+	PasvMin            int               `json:"pasv_min,omitempty"`
+	PasvMax            int               `json:"pasv_max,omitempty"`
+	FTPBanner          string            `json:"ftp_banner,omitempty"`
+	LogRetainDays      int               `json:"log_retain_days,omitempty"`
+	AllowCIDRs         []string          `json:"allow_cidrs,omitempty"`
+	DenyCIDRs          []string          `json:"deny_cidrs,omitempty"`
+	RootSSHKeys        string            `json:"root_ssh_keys,omitempty"`
+	WheelMembers       []string          `json:"wheel_members,omitempty"`
+	CompilerAllow      bool              `json:"compiler_allow"`
+	BackupSchedule     string            `json:"backup_schedule,omitempty"`
+	BackupUsers        []string          `json:"backup_users,omitempty"`
+	BackupDestination  string            `json:"backup_destination,omitempty"`
+	BackupRetention    int               `json:"backup_retention_days,omitempty"`
+	Nameservers        []string          `json:"nameservers,omitempty"`
+	IPPool             []string          `json:"ip_pool,omitempty"`
+	IPv6Ranges         []string          `json:"ipv6_ranges,omitempty"`
+	Relayers           []string          `json:"relayers,omitempty"`
+	NS1IP              string            `json:"ns1_ip,omitempty"`
+	NS2IP              string            `json:"ns2_ip,omitempty"`
+	MaxEmailsHour      int               `json:"max_emails_hour,omitempty"`
+	Profile            string            `json:"profile,omitempty"`
+	ClusterPeers       []string          `json:"cluster_peers,omitempty"`
+	WriteCluster       bool              `json:"write_cluster,omitempty"`
+	LinkedNodes        []string          `json:"linked_nodes,omitempty"`
+	WriteLinkedNodes   bool              `json:"write_linked_nodes,omitempty"`
+	ExternalAuth       *ExternalAuthSpec `json:"external_auth,omitempty"`
+	TwoFactorRequired  bool              `json:"two_factor_required,omitempty"`
+	WriteTwoFactor     bool              `json:"write_two_factor,omitempty"`
+	InitialQuotaBytes  int64             `json:"initial_quota_bytes,omitempty"`
+	WriteInitialQuota  bool              `json:"write_initial_quota,omitempty"`
+	QuotaEnforce       bool              `json:"quota_enforce,omitempty"`
+	PostgresListen     string            `json:"postgres_listen,omitempty"`
+	PostgresAuth       string            `json:"postgres_auth,omitempty"`
+	WritePostgres      bool              `json:"write_postgres,omitempty"`
+	NameserverSoftware string            `json:"nameserver_software,omitempty"`
+	NameserverListen   string            `json:"nameserver_listen,omitempty"`
+	WriteNameserver    bool              `json:"write_nameserver,omitempty"`
+	IMAPPort           int               `json:"imap_port,omitempty"`
+	SubmissionPort     int               `json:"submission_port,omitempty"`
+	WriteMailserver    bool              `json:"write_mailserver,omitempty"`
 }
 
 type ExternalAuthSpec struct {
@@ -254,6 +260,18 @@ func (h *Host) applyHostConfig(spec HostConfigSpec) (Result, error) {
 			return Result{}, err
 		}
 		applied = append(applied, "postgres")
+	}
+	if spec.WriteNameserver {
+		if err := h.applyNameserverSelection(spec); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "nameserver")
+	}
+	if spec.WriteMailserver {
+		if err := h.applyMailserverPorts(spec); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "mailserver")
 	}
 	if h.live() {
 		_ = reloadNamedService("nginx")

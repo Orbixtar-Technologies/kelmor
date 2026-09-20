@@ -15,6 +15,7 @@ const icons: Record<string, string> = {
 
 interface SidebarProps {
 	tools: ToolDefinition[]
+	favoriteIds?: string[]
 	collapsed: boolean
 	onCollapse: () => void
 	mobileOpen: boolean
@@ -22,7 +23,7 @@ interface SidebarProps {
 	onMobileDismiss: () => void
 }
 
-export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate, onMobileDismiss }: SidebarProps) {
+export function Sidebar ({ tools, favoriteIds = [], collapsed, onCollapse, mobileOpen, onNavigate, onMobileDismiss }: SidebarProps) {
 	const [filter, setFilter] = useState('')
 	const [closedOverride, setClosedOverride] = useState<Set<string> | null>(null)
 	const [isMobile, setIsMobile] = useState(() => window.matchMedia?.('(max-width: 780px)').matches ?? false)
@@ -64,6 +65,13 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 	}
 
 	const showHome = Boolean(homeTool && (!query || `${homeTool.label} home`.toLocaleLowerCase().includes(query)))
+	const favoriteTools = useMemo(() => {
+		const byId = new Map(tools.map((tool) => [tool.id, tool]))
+		return favoriteIds
+			.map((id) => byId.get(id))
+			.filter((tool): tool is ToolDefinition => Boolean(tool))
+			.filter((tool) => !query || `${tool.label} ${tool.category}`.toLocaleLowerCase().includes(query))
+	}, [tools, favoriteIds, query])
 
 	return (
 		<aside
@@ -88,6 +96,14 @@ export function Sidebar ({ tools, collapsed, onCollapse, mobileOpen, onNavigate,
 			<nav className="feature-nav" aria-label="Director tools">
 				{showHome && homeTool ? (
 					<ToolLink tool={homeTool} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} />
+				) : null}
+				{favoriteTools.length ? (
+					<nav className="favorite-nav" aria-label="Favorite tools">
+						<p className="category-heading" aria-hidden="true"><span>Favorites</span></p>
+						{favoriteTools.map((tool) => (
+							<ToolLink key={`favorite-${tool.id}`} tool={tool} collapsed={collapsed} pathname={location.pathname} search={location.search} onNavigate={onNavigate} />
+						))}
+					</nav>
 				) : null}
 				{groups.map((group) => {
 					const closed = query && !closedOverride ? false : closedGroups.has(group.id)

@@ -80,5 +80,48 @@ describe('HomePage', () => {
 		expect(failed).toHaveTextContent('does not mass-retry')
 		expect(failed.querySelector('a[href="/jobs?state=failed"]')).toBeTruthy()
 		expect(failed.querySelector('button')).toBeNull()
+		expect(screen.getByRole('heading', { name: 'Frequent tools' })).toBeInTheDocument()
+	})
+
+	it('renders saved favorite tools instead of the default frequent set', async () => {
+		vi.mocked(api).mockImplementation(async (path: string) => {
+			if (path === '/api/v1/server/settings') {
+				return { values: { theme: { density: 'compact', favorites: 'jobs,services' } } }
+			}
+			if (path === '/api/v1/server') {
+				return {
+					system: {
+						hostname: 'host.example',
+						load1: 0.1,
+						memory_used: 1,
+						memory_total: 2,
+						disk_used: 1,
+						disk_total: 2,
+						inodes_used: 1,
+						inodes_total: 2,
+						uptime_seconds: 10,
+					},
+					stats: { accounts: 0, failedJobs: 0 },
+					services: [{ name: 'nginx', health: 'ok', desired_enabled: true, observed_running: true }],
+				}
+			}
+			return { items: [] }
+		})
+
+		render(
+			<MemoryRouter>
+				<CapProvider caps={{ 'server.read': true, 'accounts.read': true }}>
+					<HomePage />
+				</CapProvider>
+			</MemoryRouter>,
+		)
+
+		await waitFor(() => {
+			expect(screen.getByRole('heading', { name: 'Favorite tools' })).toBeInTheDocument()
+		})
+		const favorites = screen.getByLabelText('Favorite tools')
+		expect(favorites.querySelector('a[href="/jobs"]')).toBeTruthy()
+		expect(favorites.querySelector('a[href="/status"]')).toBeTruthy()
+		expect(favorites.querySelector('a[href="/accounts"]')).toBeNull()
 	})
 })

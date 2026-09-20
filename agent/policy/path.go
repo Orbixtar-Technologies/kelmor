@@ -69,6 +69,9 @@ func ValidateManagedPath(p string) (string, error) {
 	if clean == "/etc/vsftpd.conf" {
 		ok = true
 	}
+	if nameserverPathOK(clean) || mailserverPathOK(clean) {
+		ok = true
+	}
 	if clean == "/etc/skel" || strings.HasPrefix(clean, "/etc/skel/") {
 		ok = true
 	}
@@ -95,6 +98,29 @@ func postgresPathOK(clean string) bool {
 		return false
 	}
 	return rem == "main/pg_hba.conf" || rem == "main/conf.d/kelmor.conf"
+}
+
+func nameserverPathOK(clean string) bool {
+	return clean == "/etc/powerdns/pdns.conf" || clean == "/etc/powerdns/pdns.d/99-panel-listen.conf"
+}
+
+func mailserverPathOK(clean string) bool {
+	return clean == "/etc/dovecot/conf.d/99-panel-ports.conf" || clean == "/etc/postfix/master.cf"
+}
+
+func splitExactManaged(clean string) (prefix, rel string, ok bool) {
+	switch clean {
+	case "/etc/powerdns/pdns.conf":
+		return "/etc/powerdns", "pdns.conf", true
+	case "/etc/powerdns/pdns.d/99-panel-listen.conf":
+		return "/etc/powerdns", "pdns.d/99-panel-listen.conf", true
+	case "/etc/dovecot/conf.d/99-panel-ports.conf":
+		return "/etc/dovecot", "conf.d/99-panel-ports.conf", true
+	case "/etc/postfix/master.cf":
+		return "/etc/postfix", "master.cf", true
+	default:
+		return "", "", false
+	}
 }
 
 func postgresVersionOK(version string) bool {
@@ -182,6 +208,9 @@ func SplitManaged(clean string) (prefix, relative string, err error) {
 	}
 	if clean == "/etc/vsftpd.conf" {
 		return "/etc", "vsftpd.conf", nil
+	}
+	if prefix, rel, ok := splitExactManaged(clean); ok {
+		return prefix, rel, nil
 	}
 	if best == "" {
 		return "", "", fmt.Errorf("path outside approved prefixes")

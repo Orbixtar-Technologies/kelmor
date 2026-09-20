@@ -4,6 +4,7 @@ import {
 	LOCAL_SETTINGS_BANNER,
 	LOCAL_SETTINGS_LABEL,
 	QUOTA_PACKAGE_COPY,
+	isChromeSettingsKey,
 	isHostSettingsFeature,
 	isLocalSettingsFeature,
 	isLocalSettingsToolId,
@@ -57,6 +58,21 @@ describe('catalog honesty', () => {
 		expect(featureById('ftp-server-config')?.description).toMatch(/banner/i)
 		expect(featureById('mysql-upgrade')?.settingKey).toBeUndefined()
 		expect(HOST_SETTINGS_BANNER).toMatch(/host apply job/i)
+		expect(isHostSettingsFeature(featureById('nameserver-selection')!)).toBe(true)
+		expect(featureById('nameserver-selection')?.fields?.some((field) => field.name === 'listen_address')).toBe(true)
+		expect(featureById('nameserver-selection')?.description).toMatch(/listening address/i)
+		expect(isHostSettingsFeature(featureById('mailserver-config')!)).toBe(true)
+		expect(featureById('mailserver-config')?.fields?.some((field) => field.name === 'imap')).toBe(true)
+		expect(featureById('mailserver-config')?.fields?.some((field) => field.name === 'submission')).toBe(true)
+		expect(featureById('mailserver-config')?.fields?.some((field) => field.name === 'pop')).toBe(false)
+		expect(featureById('mailserver-config')?.description).toMatch(/IMAP and submission/i)
+		expect(featureById('mailserver-config')?.description).not.toMatch(/POP/i)
+		expect(featureById('security-policies')?.description).toMatch(/minimum password length/i)
+		expect(featureById('security-policies')?.description).not.toMatch(/password age/i)
+		expect(featureById('security-policies')?.fields?.some((field) => field.name === 'min_password_length')).toBe(true)
+		expect(isChromeSettingsKey(featureById('theme-manager')!.settingKey)).toBe(true)
+		expect(featureById('theme-manager')?.fields?.some((field) => field.name === 'favorites')).toBe(true)
+		expect(featureById('theme-manager')?.description).toMatch(/favorite/i)
 	})
 
 	test('does not treat quota or bandwidth tiles as preference stubs', () => {
