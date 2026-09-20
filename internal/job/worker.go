@@ -307,6 +307,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.ensurePHPRuntime(j)
 	case "host.module.install":
 		return w.installLanguageModule(j)
+	case "mysql.upgrade":
+		return w.upgradeMySQL(j)
 	case "database.provision":
 		return w.provisionDB(j)
 	case "database.delete":
@@ -845,6 +847,14 @@ func (w *Worker) installLanguageModule(j *store.Job) error {
 	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 		Method: "InstallLanguageModule",
 		Params: mustJSON(map[string]any{"kind": str(j.Payload["kind"]), "name": str(j.Payload["name"])}),
+	})
+	return err
+}
+
+func (w *Worker) upgradeMySQL(j *store.Job) error {
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "UpgradeMySQL",
+		Params: mustJSON(map[string]any{"target": str(j.Payload["target"])}),
 	})
 	return err
 }

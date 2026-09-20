@@ -51,6 +51,10 @@ func TestServerJobsEnqueueOnUUIDConstrainedStore(t *testing.T) {
 			name: "host.remote_access.apply", path: "/api/v1/server/remote-access-key",
 			body: map[string]any{}, jobType: "host.remote_access.apply", target: "remote-access-key",
 		},
+		{
+			name: "mysql.upgrade", path: "/api/v1/server/mysql-upgrade",
+			body: map[string]any{"target": "10.11"}, jobType: "mysql.upgrade", target: "10.11",
+		},
 	}
 
 	for _, tc := range cases {

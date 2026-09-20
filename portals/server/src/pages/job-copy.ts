@@ -25,6 +25,7 @@ const JOB_LABELS: Record<string, string> = {
 	'ftp.create': 'Create FTP user',
 	'host.module.install': 'Install language module',
 	'host.config.apply': 'Apply host configuration',
+	'mysql.upgrade': 'Upgrade MariaDB',
 }
 
 export interface JobFailureSummary {

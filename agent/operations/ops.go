@@ -726,6 +726,18 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.installLanguageModule(p.Kind, p.Name)
+	case "ListPostgresConfig":
+		return h.probePostgres(), nil
+	case "ListMySQLUpgrade":
+		return h.probeMySQL(), nil
+	case "UpgradeMySQL":
+		var p struct {
+			Target string `json:"target"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.upgradeMySQL(p.Target)
 	case "CollectDiagnostics":
 		return h.collectDiagnostics()
 	case "WriteClusterSnapshot":

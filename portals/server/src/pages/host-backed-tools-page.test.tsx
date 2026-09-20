@@ -63,7 +63,16 @@ beforeEach(() => {
 			return { operation_id: 'job-host-1', values: {} }
 		}
 		if (path === '/api/v1/server/settings') {
-			return { values: { configuration_cluster: { peers: '' }, server_profile: { profile: 'standard' } } }
+			return { values: { configuration_cluster: { peers: '' }, server_profile: { profile: 'standard' }, postgres: { listen: '127.0.0.1', auth: 'scram-sha-256' } } }
+		}
+		if (path === '/api/v1/server/postgres') {
+			return { installed: true, version: '16', cluster: '/etc/postgresql/16/main', listen: '127.0.0.1', auth: 'scram-sha-256' }
+		}
+		if (path === '/api/v1/server/mysql-upgrade' && init?.method === 'POST') {
+			return { operation_id: 'job-mysql-1', status: 'provisioning', target: '10.11' }
+		}
+		if (path === '/api/v1/server/mysql-upgrade') {
+			return { installed: true, engine: 'mariadb', version: '10.11.8', major: '10.11', upgrade_tool: '/usr/bin/mariadb-upgrade', targets: ['10.11', '11.4'] }
 		}
 		return { items: [], values: {} }
 	})
@@ -94,6 +103,8 @@ describe('host-backed Director tools', () => {
 		['/section/server?tool=server-profile', 'Server Profile'],
 		['/section/system?tool=grant-support-access', 'Grant Support Access'],
 		['/section/system?tool=diagnostics-log', 'Download a Diagnostics File'],
+		['/section/sql?tool=postgres-config', 'Configure PostgreSQL'],
+		['/section/sql?tool=mysql-upgrade', 'MySQL/MariaDB Upgrade'],
 	])('%s is not a local-only stub', async (path, title) => {
 		renderTool(path)
 		expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument()
@@ -156,6 +167,34 @@ describe('host-backed Director tools', () => {
 		expect(await screen.findByText('hp_remote_secret')).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Revoke key' }))
 		expect(client.api).toHaveBeenCalledWith('/api/v1/server/remote-access-key', expect.objectContaining({ method: 'DELETE' }))
+	})
+
+	test('postgres config save queues host apply with auth method', async () => {
+		const user = userEvent.setup()
+		renderTool('/section/sql?tool=postgres-config')
+		expect(await screen.findByRole('heading', { name: 'Configure PostgreSQL' })).toBeInTheDocument()
+		expect(screen.queryByText(LOCAL_SETTINGS_BANNER)).not.toBeInTheDocument()
+		expect(screen.getByLabelText('TCP auth method')).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Apply on host' }))
+		expect(client.api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({
+			method: 'PATCH',
+			body: JSON.stringify({ values: { postgres: { listen: '127.0.0.1', auth: 'scram-sha-256' } } }),
+		}))
+		expect(await screen.findByText(/Job job-host-1/)).toBeInTheDocument()
+	})
+
+	test('mysql upgrade queues a host job', async () => {
+		const user = userEvent.setup()
+		renderTool('/section/sql?tool=mysql-upgrade')
+		expect(await screen.findByRole('heading', { name: 'MySQL/MariaDB Upgrade' })).toBeInTheDocument()
+		expect(screen.queryByText(LOCAL_SETTINGS_BANNER)).not.toBeInTheDocument()
+		expect(screen.getByText('/usr/bin/mariadb-upgrade')).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Queue upgrade' }))
+		expect(client.api).toHaveBeenCalledWith('/api/v1/server/mysql-upgrade', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({ target: '10.11' }),
+		}))
+		expect(await screen.findByText(/Job job-mysql-1/)).toBeInTheDocument()
 	})
 
 	test('server profile save queues host apply', async () => {

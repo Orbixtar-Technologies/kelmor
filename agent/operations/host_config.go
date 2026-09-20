@@ -65,6 +65,9 @@ type HostConfigSpec struct {
 	InitialQuotaBytes int64             `json:"initial_quota_bytes,omitempty"`
 	WriteInitialQuota bool              `json:"write_initial_quota,omitempty"`
 	QuotaEnforce      bool              `json:"quota_enforce,omitempty"`
+	PostgresListen    string            `json:"postgres_listen,omitempty"`
+	PostgresAuth      string            `json:"postgres_auth,omitempty"`
+	WritePostgres     bool              `json:"write_postgres,omitempty"`
 }
 
 type ExternalAuthSpec struct {
@@ -250,6 +253,12 @@ func (h *Host) applyHostConfig(spec HostConfigSpec) (Result, error) {
 			return Result{}, err
 		}
 		applied = append(applied, "initial-quota")
+	}
+	if spec.WritePostgres {
+		if err := h.applyPostgresConfig(spec); err != nil {
+			return Result{}, err
+		}
+		applied = append(applied, "postgres")
 	}
 	if h.live() {
 		_ = reloadNamedService("nginx")

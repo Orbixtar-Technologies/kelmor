@@ -102,6 +102,9 @@ func (a *API) Handler() http.Handler {
 			r.Post("/server/runtimes", a.ensurePHPRuntime)
 			r.Get("/server/modules", a.listLanguageModules)
 			r.Post("/server/modules", a.installLanguageModule)
+			r.Get("/server/postgres", a.getPostgresConfig)
+			r.Get("/server/mysql-upgrade", a.getMySQLUpgrade)
+			r.Post("/server/mysql-upgrade", a.queueMySQLUpgrade)
 			r.Get("/server/support-access", a.listSupportAccess)
 			r.Post("/server/support-access", a.grantSupportAccess)
 			r.Delete("/server/support-access/{grantID}", a.revokeSupportAccess)
@@ -974,7 +977,7 @@ func retryCapability(jobType string) string {
 		return rbac.WebsitesWrite
 	case "application.deploy", "wordpress.install", "application.retire":
 		return rbac.ApplicationsWrite
-	case "php.runtime.ensure", "host.module.install", "cluster.snapshot.publish", "cluster.snapshot.import", "cluster.peer.probe", "host.remote_access.apply":
+	case "php.runtime.ensure", "host.module.install", "mysql.upgrade", "cluster.snapshot.publish", "cluster.snapshot.import", "cluster.peer.probe", "host.remote_access.apply":
 		return rbac.ServerSettingsWrite
 	case "database.provision", "database.delete":
 		return rbac.DatabasesWrite
