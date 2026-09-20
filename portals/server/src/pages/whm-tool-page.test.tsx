@@ -36,6 +36,41 @@ describe('WhmToolPage', () => {
 		expect(screen.getByRole('heading', { name: 'Tool not found' })).toBeInTheDocument()
 	})
 
+	test('ftp server config exposes banner and queues host apply', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/server/settings' && options?.method === 'PATCH') {
+				return Promise.resolve({ operation_id: 'job-ftp-1', values: {} })
+			}
+			if (String(path) === '/api/v1/server/settings') {
+				return Promise.resolve({ values: { ftp_server: { pasv_min: '40000', pasv_max: '40100' } } })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/ftp-server-config')
+		expect(await screen.findByRole('heading', { name: 'FTP Server Configuration' })).toBeInTheDocument()
+		expect(await screen.findByText(/Save queues a host apply job/)).toBeInTheDocument()
+		expect(screen.getByLabelText(/FTP banner/i)).toBeInTheDocument()
+		expect(screen.getByLabelText(/PASV min port/i)).toBeInTheDocument()
+		expect(screen.getByLabelText(/PASV max port/i)).toBeInTheDocument()
+		await user.clear(screen.getByLabelText(/FTP banner/i))
+		await user.type(screen.getByLabelText(/FTP banner/i), 'Kelmor FTP ready.')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Apply on host' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({
+			method: 'PATCH',
+			body: JSON.stringify({
+				values: {
+					ftp_server: {
+						pasv_min: '40000',
+						pasv_max: '40100',
+						banner: 'Kelmor FTP ready.',
+					},
+				},
+			}),
+		}))
+	})
+
 	test('renders a settings journey and saves host preferences', async () => {
 		const user = userEvent.setup()
 		api.mockImplementation((path: string) => {

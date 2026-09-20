@@ -66,6 +66,9 @@ func ValidateManagedPath(p string) (string, error) {
 	if postgresPathOK(clean) {
 		ok = true
 	}
+	if clean == "/etc/vsftpd.conf" {
+		ok = true
+	}
 	if clean == "/etc/skel" || strings.HasPrefix(clean, "/etc/skel/") {
 		ok = true
 	}
@@ -176,6 +179,9 @@ func SplitManaged(clean string) (prefix, relative string, err error) {
 				best = base
 			}
 		}
+	}
+	if clean == "/etc/vsftpd.conf" {
+		return "/etc", "vsftpd.conf", nil
 	}
 	if best == "" {
 		return "", "", fmt.Errorf("path outside approved prefixes")

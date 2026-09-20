@@ -90,6 +90,12 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/etc/postgresql/16/main/conf.d/other.conf"); err == nil {
 		t.Fatal("only kelmor.conf overlays")
 	}
+	if _, err := ValidateManagedPath("/etc/vsftpd.conf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/vsftpd.conf.d/evil.conf"); err == nil {
+		t.Fatal("only the vsftpd main config is writable")
+	}
 }
 
 func TestWithinAccount(t *testing.T) {

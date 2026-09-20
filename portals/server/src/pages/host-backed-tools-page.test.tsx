@@ -108,6 +108,8 @@ describe('host-backed Director tools', () => {
 		['/section/system?tool=diagnostics-log', 'Download a Diagnostics File'],
 		['/section/sql?tool=postgres-config', 'Configure PostgreSQL'],
 		['/section/sql?tool=mysql-upgrade', 'MySQL/MariaDB Upgrade'],
+		['/section/server?tool=ftp-server-config', 'FTP Server Configuration'],
+		['/section/server?tool=ftp-server-selection', 'FTP Server Selection'],
 	])('%s is not a local-only stub', async (path, title) => {
 		renderTool(path)
 		expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument()
