@@ -11,15 +11,70 @@ import (
 	"github.com/hosting-panel/panel/internal/store"
 )
 
-func clusterCapabilities() map[string]any {
+func (a *API) clusterCapabilities() map[string]any {
+	peers := a.clusterPeerURLs()
 	return map[string]any{
 		"peer_membership":   true,
 		"snapshot_publish":  true,
 		"snapshot_export":   true,
 		"snapshot_import":   true,
 		"peer_health_probe": true,
-		"live_multi_node":   false,
+		"live_multi_node":   len(peers) > 0,
+		"linked_peers":      len(peers),
 	}
+}
+
+func (a *API) applyClusterSnapshot(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ServerSettingsWrite) {
+		return
+	}
+	var in struct {
+		Token string `json:"token"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	urls := a.clusterPeerURLs()
+	if len(urls) == 0 {
+		a.fail(w, r, 400, "VALIDATION", "link at least one peer Director before multi-node apply", false)
+		return
+	}
+	for _, url := range urls {
+		if !operations.ClusterPeerOK(url) {
+			a.fail(w, r, 400, "VALIDATION", "invalid cluster peer URL", false)
+			return
+		}
+	}
+	snapshot := a.clusterSnapshotMap()
+	raw, err := a.Agent.Dispatch(r.Context(), operations.Request{
+		Method: "ApplyClusterSnapshot",
+		Params: mustJSON(map[string]any{
+			"urls": urls, "snapshot": snapshot, "token": in.Token,
+		}),
+	})
+	if err != nil {
+		a.fail(w, r, 500, "CLUSTER_APPLY_ERROR", err.Error(), false)
+		return
+	}
+	job, err := a.enqueueTypedJob(r, &store.Job{
+		Type: "cluster.snapshot.apply", ResourceType: "server",
+		Payload: map[string]any{"urls": urls, "snapshot": snapshot, "target": "linked-nodes"},
+	}, a.auditEvent(r, "", "server.cluster.apply", "server", "", nil, map[string]any{"urls": len(urls)}))
+	if err != nil {
+		a.fail(w, r, 500, "CLUSTER_APPLY_ERROR", "Could not queue multi-node apply", false)
+		return
+	}
+	items := []any{}
+	if payload, ok := raw.(map[string]any); ok {
+		if listed, ok := payload["items"].([]map[string]any); ok {
+			for _, row := range listed {
+				items = append(items, row)
+			}
+		} else if listed, ok := payload["items"].([]any); ok {
+			items = listed
+		}
+	}
+	writeJSON(w, 202, map[string]any{
+		"operation_id": job.ID, "items": items, "snapshot": snapshot,
+	})
 }
 
 func (a *API) publishClusterSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +173,7 @@ func (a *API) getClusterSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := a.Agent.Dispatch(r.Context(), operations.Request{Method: "ReadClusterSnapshot"})
 	if err == nil && raw != nil {
-		writeJSON(w, 200, attachClusterCapabilities(raw))
+		writeJSON(w, 200, a.attachClusterCapabilities(raw))
 		return
 	}
 	writeJSON(w, 200, a.clusterSnapshotPayload())
@@ -151,6 +206,10 @@ func (a *API) clusterPeerURLs() []string {
 }
 
 func (a *API) clusterSnapshotPayload() map[string]any {
+	return a.attachClusterCapabilities(a.clusterSnapshotMap())
+}
+
+func (a *API) clusterSnapshotMap() map[string]any {
 	packages := make([]map[string]any, 0)
 	for _, pkg := range a.Store.ListPackages() {
 		packages = append(packages, map[string]any{
@@ -165,15 +224,19 @@ func (a *API) clusterSnapshotPayload() map[string]any {
 			"id": set.ID, "name": set.Name, "features": set.Features,
 		})
 	}
-	return attachClusterCapabilities(map[string]any{
+	note := "Package and feature-set snapshot for peer Directors. Multi-node apply pushes this snapshot to linked nodes."
+	if len(a.clusterPeerURLs()) == 0 {
+		note = "Package and feature-set snapshot for this node. Link a peer Director to enable multi-node apply."
+	}
+	return map[string]any{
 		"published_at": time.Now().UTC(),
-		"note":         "Package and feature-set snapshot for peer Directors. Live multi-node orchestration is not on this Ubuntu Kelmor stack.",
+		"note":         note,
 		"packages":     packages,
 		"feature_sets": features,
-	})
+	}
 }
 
-func attachClusterCapabilities(payload any) map[string]any {
+func (a *API) attachClusterCapabilities(payload any) map[string]any {
 	out := map[string]any{}
 	if row, ok := payload.(map[string]any); ok {
 		for key, value := range row {
@@ -182,6 +245,6 @@ func attachClusterCapabilities(payload any) map[string]any {
 	} else if payload != nil {
 		out["snapshot"] = payload
 	}
-	out["capabilities"] = clusterCapabilities()
+	out["capabilities"] = a.clusterCapabilities()
 	return out
 }

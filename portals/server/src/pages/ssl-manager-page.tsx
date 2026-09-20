@@ -8,6 +8,7 @@ import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { formatDate, messageFrom, valueOf } from '../helpers'
 import { certExpiryLabel, certRenewalState } from './cert-copy'
+import { ServiceSSLPanel } from './service-ssl-panel'
 import { RequestSequence } from '../request-sequence'
 import { managerFocus } from '../dedicated-tool-routes'
 import { useCan } from '../rbac'
@@ -130,9 +131,9 @@ export function SSLManagerPage () {
 	return (
 		<>
 			<PageHeader
-				title={sslToolTitle(task, account && !viewAll ? account.username : '')}
+				title={sslToolTitle(task, account && !viewAll && task !== 'service' ? account.username : '')}
 				description={sslToolDescription(task)}
-				actions={<button type="button" className="secondary" onClick={() => setViewAll((current) => !current)}>{viewAll ? 'Account view' : 'Server-wide inventory'}</button>}
+				actions={task === 'service' ? undefined : <button type="button" className="secondary" onClick={() => setViewAll((current) => !current)}>{viewAll ? 'Account view' : 'Server-wide inventory'}</button>}
 			/>
 			<nav className="ssl-task-nav" aria-label="SSL tasks">
 				{[
@@ -147,9 +148,9 @@ export function SSLManagerPage () {
 					return task === id ? <strong key={id}>{label}</strong> : <Link key={id} to={href}>{label}</Link>
 				})}
 			</nav>
-			{!viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="SSL" onChange={(next) => setParams({ account: next }, { replace: true })} /> : null}
-			{updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
-			{!viewAll ? <div className="hub-toolbar panel">
+			{task !== 'service' && !viewAll ? <AccountScopeBar accountId={accountId} accounts={accounts} toolLabel="SSL" onChange={(next) => setParams({ account: next }, { replace: true })} /> : null}
+			{task !== 'service' && updatedAt ? <p className="subtle">Last updated {formatDate(updatedAt)}.</p> : null}
+			{task !== 'service' && !viewAll ? <div className="hub-toolbar panel">
 				<AccountPicker
 					accounts={accounts}
 					value={accountId}
@@ -160,7 +161,7 @@ export function SSLManagerPage () {
 			</div> : null}
 			<QueuedOpNotice message={message} accountId={viewAll ? undefined : accountId} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={() => viewAll ? loadAllCertificates() : loadCertificates(accountId)} /> : null}
-			{!viewAll && !accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage SSL certificates." /> : null}
+			{task !== 'service' && !viewAll && !accountId ? <EmptyState title="Select an account" detail="Choose a hosting account to manage SSL certificates." /> : null}
 			{!viewAll && accountId && canWrite && (task === 'request' || task === 'install' || task === 'autossl') ? <section className="panel">
 				<h2>{task === 'autossl' ? 'AutoSSL policy and request' : task === 'install' ? 'Install a certificate on a hostname' : 'Request / install certificate'}</h2>
 				<form className="inline-form" onSubmit={requestCertificate}>
@@ -172,11 +173,8 @@ export function SSLManagerPage () {
 					<strong>Custom PEM — labeled stub.</strong> {CUSTOM_PEM_STUB}
 				</aside>
 			</section> : null}
-			{task === 'service' ? <section className="panel">
-				<h2>Service certificates</h2>
-				<p>Director, Control, and mail submission use the host TLS material installed with Kelmor. Account site certificates are listed below and requested with AutoSSL on this same page.</p>
-			</section> : null}
-			{(viewAll || accountId) ? <section className="panel">
+			{task === 'service' ? <ServiceSSLPanel /> : null}
+			{task !== 'service' && (viewAll || accountId) ? <section className="panel">
 				<h2>{viewAll ? 'All account certificates' : `Certificates for ${account?.username}`}</h2>
 				{loading ? <LoadingState label="Loading certificates…" /> : null}
 				{!loading ? <div className="table-wrap"><table className="dense-table">
@@ -228,7 +226,7 @@ function sslToolDescription (task: string): string {
 		case 'status':
 			return 'Which sites currently present a valid certificate.'
 		case 'service':
-			return 'Host and account TLS material. Site certificates are requested with AutoSSL on this family of tools.'
+			return 'Host and account TLS material. Site certificates are requested with AutoSSL on this family of tools. Service hostnames are installed on the host via Agent.'
 		default:
 			return 'Inventory, AutoSSL requests, expiry status, and host certificate policy. Account Services is not part of this journey.'
 	}

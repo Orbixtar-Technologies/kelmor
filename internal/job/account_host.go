@@ -123,6 +123,40 @@ func (w *Worker) probeClusterPeersJob(j *store.Job) error {
 	return err
 }
 
+func (w *Worker) applyClusterSnapshotJob(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent missing")
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "ApplyClusterSnapshot",
+		Params: mustJSON(map[string]any{
+			"urls": j.Payload["urls"], "snapshot": j.Payload["snapshot"],
+		}),
+	})
+	return err
+}
+
+func (w *Worker) applyServiceCertificateJob(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent missing")
+	}
+	service := str(j.Payload["service"])
+	if service == "" {
+		service = str(j.Payload["target"])
+	}
+	if str(j.Payload["cert_pem"]) == "" {
+		return nil
+	}
+	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "InstallServiceCertificate",
+		Params: mustJSON(map[string]any{
+			"service": service, "hostname": str(j.Payload["hostname"]),
+			"cert_pem": str(j.Payload["cert_pem"]), "key_pem": str(j.Payload["key_pem"]),
+		}),
+	})
+	return err
+}
+
 func (w *Worker) applyRemoteAccessKeyJob(j *store.Job) error {
 	if w.Agent == nil {
 		return fmt.Errorf("agent missing")

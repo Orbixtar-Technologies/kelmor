@@ -111,8 +111,8 @@ func TestConfigurationClusterSettingsQueueHostApply(t *testing.T) {
 	if caps["peer_membership"] != true || caps["snapshot_publish"] != true || caps["peer_health_probe"] != true {
 		t.Fatalf("single-node capabilities: %v", caps)
 	}
-	if caps["live_multi_node"] == true {
-		t.Fatalf("live multi-node must stay unavailable: %v", caps)
+	if caps["live_multi_node"] != true {
+		t.Fatalf("saved peers must enable multi-node apply: %v", caps)
 	}
 }
 
@@ -256,6 +256,54 @@ func TestConfigurationClusterImportAndPeerProbe(t *testing.T) {
 	})
 	if code != http.StatusBadRequest {
 		t.Fatalf("hostile probe %d", code)
+	}
+}
+
+func TestConfigurationClusterApplyRequiresLinkedNodes(t *testing.T) {
+	srv, _, token := directorFixture(t)
+	snap := get(t, srv.URL+"/api/v1/server/cluster/snapshot", token)
+	caps, _ := snap["capabilities"].(map[string]any)
+	if caps["live_multi_node"] == true {
+		t.Fatalf("no peers must keep multi-node unavailable: %v", caps)
+	}
+	code, _ := postStatus(t, srv.URL+"/api/v1/server/cluster/apply", token, map[string]any{})
+	if code != http.StatusBadRequest {
+		t.Fatalf("apply without peers %d", code)
+	}
+}
+
+func TestConfigurationClusterApplyPushesToLinkedNodes(t *testing.T) {
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/server/cluster/snapshot/import" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(peer.Close)
+
+	srv, st, token := directorFixture(t)
+	doJSON(t, http.MethodPatch, srv.URL+"/api/v1/server/settings", token, map[string]any{
+		"values": map[string]any{
+			"configuration_cluster": map[string]string{"peers": peer.URL},
+		},
+	})
+	applied := post(t, srv.URL+"/api/v1/server/cluster/apply", token, map[string]any{
+		"token": "peer-token",
+	})
+	if applied["operation_id"] == nil {
+		t.Fatalf("apply: %v", applied)
+	}
+	job := st.GetJob(applied["operation_id"].(string))
+	if job == nil || job.Type != "cluster.snapshot.apply" {
+		t.Fatalf("apply job: %+v", job)
+	}
+	if job.ResourceID != "" || job.Payload["target"] != "linked-nodes" {
+		t.Fatalf("job contract: %+v", job)
+	}
+	items, _ := applied["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("apply items: %v", applied)
 	}
 }
 

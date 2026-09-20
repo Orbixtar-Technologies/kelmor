@@ -122,10 +122,21 @@ func (a *API) listRestoreInventory(w http.ResponseWriter, r *http.Request) {
 			"created_at":       backup.CreatedAt,
 			"finished_at":      backup.FinishedAt,
 			"scope":            scope,
-			"restorable":       backupReady(backup),
+			"restorable":       backupReady(backup) && account != nil,
+			"restore_note":     restoreInventoryNote(backup, account),
 		})
 	}
 	writeJSON(w, 200, map[string]any{"items": items})
+}
+
+func restoreInventoryNote(backup store.BackupRun, account *store.Account) string {
+	if !backupReady(backup) {
+		return "This archive is not ready for in-place restore."
+	}
+	if account == nil {
+		return "System archives are listed from inventory. In-place restore requires an account-scoped archive."
+	}
+	return ""
 }
 
 func (a *API) resellerManagerRow(reseller *store.Reseller, accounts []store.Account) map[string]any {

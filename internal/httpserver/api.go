@@ -113,6 +113,9 @@ func (a *API) Handler() http.Handler {
 			r.Get("/server/cluster/snapshot", a.getClusterSnapshot)
 			r.Post("/server/cluster/snapshot/import", a.importClusterSnapshot)
 			r.Post("/server/cluster/probe", a.probeClusterPeers)
+			r.Post("/server/cluster/apply", a.applyClusterSnapshot)
+			r.Get("/server/ssl/service", a.listServiceCertificates)
+			r.Post("/server/ssl/service", a.installServiceCertificate)
 			r.Get("/server/remote-access-key", a.getRemoteAccessKey)
 			r.Post("/server/remote-access-key", a.issueRemoteAccessKey)
 			r.Delete("/server/remote-access-key", a.revokeRemoteAccessKey)
@@ -977,7 +980,7 @@ func retryCapability(jobType string) string {
 		return rbac.WebsitesWrite
 	case "application.deploy", "wordpress.install", "application.retire":
 		return rbac.ApplicationsWrite
-	case "php.runtime.ensure", "host.module.install", "mysql.upgrade", "cluster.snapshot.publish", "cluster.snapshot.import", "cluster.peer.probe", "host.remote_access.apply":
+	case "php.runtime.ensure", "host.module.install", "mysql.upgrade", "cluster.snapshot.publish", "cluster.snapshot.import", "cluster.peer.probe", "cluster.snapshot.apply", "host.remote_access.apply", "host.ssl.service.apply":
 		return rbac.ServerSettingsWrite
 	case "database.provision", "database.delete":
 		return rbac.DatabasesWrite
