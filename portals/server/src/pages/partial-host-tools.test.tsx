@@ -96,6 +96,31 @@ describe('host-backed PARTIAL tools', () => {
 		expect(screen.getByText(/1\.0 KB \/ 2\.0 KB/)).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Reset bandwidth' }))
 		expect(client.api).toHaveBeenCalledWith('/api/v1/resellers/res-1/bandwidth/reset', expect.objectContaining({ method: 'POST' }))
+		expect(screen.getByLabelText(/Disk/)).toBeInTheDocument()
+		expect(screen.getByLabelText(/Bandwidth/)).toBeInTheDocument()
+	})
+
+	test('reseller usage empty state has a create CTA and no meter table', async () => {
+		vi.spyOn(client, 'api').mockResolvedValue({ items: [] })
+		renderPage('/resellers/usage', <ResellerUsagePage />)
+		expect(await screen.findByText('No resellers')).toBeInTheDocument()
+		expect(screen.getByRole('link', { name: 'Create a reseller' })).toHaveAttribute('href', '/resellers')
+		expect(screen.queryByRole('columnheader', { name: 'Disk' })).not.toBeInTheDocument()
+	})
+
+	test('reseller usage shows meter chrome when counts are zero', async () => {
+		vi.spyOn(client, 'api').mockResolvedValue({
+			items: [{
+				id: 'res-empty', name: 'Idle', status: 'active',
+				accounts: 0, active: 0, suspended: 0, disk_bytes: 0, disk_limit: 0,
+				bandwidth_bytes: 0, bandwidth_limit: 0, bandwidth_holds: 0,
+			}],
+		})
+		renderPage('/resellers/usage', <ResellerUsagePage />)
+		expect(await screen.findByText('Idle')).toBeInTheDocument()
+		expect(screen.getAllByText(/0 B \/ No package limits/).length).toBe(2)
+		expect(screen.getByLabelText(/Disk/)).toBeInTheDocument()
+		expect(screen.queryByText('No resellers')).not.toBeInTheDocument()
 	})
 
 	test('external auth and link nodes are host-applied, not local banners', async () => {

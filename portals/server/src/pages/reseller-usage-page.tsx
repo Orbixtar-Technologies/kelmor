@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../client'
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '../components/ui'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
-import { formatBytes, messageFrom, percent } from '../helpers'
+import { UsageMeter } from '../components/usage-meter'
+import { messageFrom } from '../helpers'
 import { useCan } from '../rbac'
 
 interface ResellerUsageRow {
@@ -23,6 +24,8 @@ interface ResellerUsageRow {
 
 export function ResellerUsagePage () {
 	const canReset = useCan('accounts.modify')
+	const [params] = useSearchParams()
+	const focused = params.get('reseller') || ''
 	const [rows, setRows] = useState<ResellerUsageRow[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
@@ -62,7 +65,8 @@ export function ResellerUsagePage () {
 			</p>
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
 			{message ? <QueuedOpNotice message={message} jobId={jobId} /> : null}
-			{loading ? <LoadingState label="Loading reseller usage…" /> : (
+			{loading ? <LoadingState label="Loading reseller usage…" /> : null}
+			{!loading && rows.length ? (
 				<div className="table-wrap"><table className="dense-table">
 					<thead>
 						<tr>
@@ -77,24 +81,31 @@ export function ResellerUsagePage () {
 					</thead>
 					<tbody>
 						{rows.map((row) => (
-							<tr key={row.id}>
+							<tr key={row.id} className={focused === row.id ? 'task-focus' : undefined}>
 								<td><strong>{row.name}</strong><small>{row.brand_name || 'No brand'}</small></td>
 								<td><StatusBadge value={row.status} /></td>
 								<td>{row.accounts} · {row.active} active · {row.suspended} suspended</td>
-								<td>{formatBytes(row.disk_bytes)} / {formatBytes(row.disk_limit)} ({percent(row.disk_bytes, row.disk_limit)}%)</td>
-								<td>{formatBytes(row.bandwidth_bytes)} / {formatBytes(row.bandwidth_limit)} ({percent(row.bandwidth_bytes, row.bandwidth_limit)}%)</td>
+								<td><UsageMeter label="Disk" used={row.disk_bytes} limit={row.disk_limit} /></td>
+								<td><UsageMeter label="Bandwidth" used={row.bandwidth_bytes} limit={row.bandwidth_limit} /></td>
 								<td>{row.bandwidth_holds}</td>
 								<td><div className="row-actions">
 									<Link to="/accounts/ownership">Ownership</Link>
 									<Link to="/accounts/suspension">Suspension</Link>
+									<Link to="/resellers">Edit</Link>
 									{canReset ? <button type="button" onClick={() => handleReset(row.id)}>Reset bandwidth</button> : null}
 								</div></td>
 							</tr>
 						))}
 					</tbody>
 				</table></div>
-			)}
-			{!loading && !rows.length ? <EmptyState title="No resellers" detail="Create a reseller before reviewing usage." action={<Link className="button-link" to="/resellers">Open resellers</Link>} /> : null}
+			) : null}
+			{!loading && !rows.length ? (
+				<EmptyState
+					title="No resellers"
+					detail="Create a reseller before reviewing usage. Meters appear after a reseller exists, even when disk and bandwidth are still zero."
+					action={<Link className="button-link" to="/resellers">Create a reseller</Link>}
+				/>
+			) : null}
 		</>
 	)
 }

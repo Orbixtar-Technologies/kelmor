@@ -88,6 +88,86 @@ func (a *API) resetResellerBandwidth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"operations": operations, "cleared": len(operations)})
 }
 
+func (a *API) listRestoreInventory(w http.ResponseWriter, r *http.Request) {
+	ac := actor(r)
+	if !ac.Has(rbac.BackupsRead) && !ac.Has(rbac.AccountsRead) {
+		a.require(w, r, rbac.BackupsRead)
+		return
+	}
+	items := make([]map[string]any, 0)
+	for _, backup := range a.Store.ListBackups("") {
+		account := a.Store.GetAccount(backup.AccountID)
+		if account != nil && !ac.CanAccount(account.ID) {
+			continue
+		}
+		if account == nil && !ac.IsServerScope {
+			continue
+		}
+		username, domain, scope := "", "", "system"
+		if account != nil {
+			username = account.Username
+			domain = account.PrimaryDomain
+			scope = "account"
+		}
+		items = append(items, map[string]any{
+			"id":               backup.ID,
+			"account_id":       backup.AccountID,
+			"account_username": username,
+			"primary_domain":   domain,
+			"kind":             backup.Kind,
+			"state":            backup.State,
+			"destination":      backup.Destination,
+			"checksum":         backup.Checksum,
+			"size_bytes":       backup.SizeBytes,
+			"created_at":       backup.CreatedAt,
+			"finished_at":      backup.FinishedAt,
+			"scope":            scope,
+			"restorable":       backupReady(backup),
+		})
+	}
+	writeJSON(w, 200, map[string]any{"items": items})
+}
+
+func (a *API) resellerManagerRow(reseller *store.Reseller, accounts []store.Account) map[string]any {
+	row := a.resellerUsageRow(reseller, accounts)
+	row["user_id"] = reseller.UserID
+	row["privilege_mask"] = nonNilStrings(reseller.PrivilegeMask)
+	row["nameservers"] = nonNilStrings(reseller.Nameservers)
+	names := make([]string, 0)
+	seen := map[string]bool{}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	for _, pkg := range a.Store.ListPackages() {
+		if pkg.ResellerID == reseller.ID {
+			add(pkg.Name)
+		}
+	}
+	for _, acc := range accounts {
+		if acc.ResellerID != reseller.ID {
+			continue
+		}
+		if pkg := a.Store.GetPackage(acc.PackageID); pkg != nil {
+			add(pkg.Name)
+		}
+	}
+	row["packages"] = names
+	row["package_count"] = len(names)
+	return row
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
 func (a *API) resellerUsageRow(reseller *store.Reseller, accounts []store.Account) map[string]any {
 	var disk, diskLimit, bandwidth, bandwidthLimit int64
 	var total, active, suspended, held int

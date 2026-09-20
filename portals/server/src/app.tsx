@@ -40,6 +40,7 @@ import { SecurityToolPage } from './pages/security-tool-page'
 import { SqlToolPage } from './pages/sql-tool-page'
 import { ServiceStatusPage } from './pages/service-status-page'
 import { TrackDeliveryPage } from './pages/track-delivery-page'
+import { BackupRestorePage } from './pages/backup-restore-page'
 import { TransfersPage } from './pages/transfers-page'
 import { UpdateToolPage } from './pages/update-tool-page'
 import { UpdatesPage } from './pages/updates-page'
@@ -136,7 +137,7 @@ export function App () {
 					<Route path="security/reboot" element={allowed('server.read', <SecurityToolPage toolId="reboot" />)} />
 					<Route path="security/force-reboot" element={allowed('server.read', <SecurityToolPage toolId="force-reboot" />)} />
 					<Route path="transfers" element={allowed('accounts.read', <TransfersPage />)} />
-					<Route path="transfers/restore" element={allowed('accounts.read', <TransfersPage focus="restore" />)} />
+					<Route path="transfers/restore" element={allowed('accounts.read', <BackupRestorePage />)} />
 					<Route path="transfers/copy" element={allowed('accounts.create', <TransfersPage focus="copy" />)} />
 					<Route path="import" element={allowed('accounts.read', <TransfersPage />)} />
 					<Route path="jobs" element={(capabilities['server.read'] || capabilities['accounts.read']) ? <JobsPage /> : <Forbidden title="Jobs" />} />

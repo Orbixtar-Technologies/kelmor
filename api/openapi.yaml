@@ -556,6 +556,13 @@ paths:
       responses:
         "202": { description: per-account bandwidth.reset jobs queued }
         "404": { $ref: "#/components/responses/Error" }
+  /backups:
+    get:
+      operationId: listRestoreInventory
+      x-capability: backups.read
+      description: Host-wide restorable backup inventory from control-plane archive records (account and system backups). Readable with backups.read or accounts.read; restore still requires backups.restore.
+      responses:
+        "200": { description: restorable and historical backup archives }
   /accounts:
     post:
       operationId: createAccount
