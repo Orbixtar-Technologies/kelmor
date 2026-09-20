@@ -17,3 +17,30 @@ func TestHostConfigSpecMapsPostgresListenAndAuth(t *testing.T) {
 		t.Fatalf("postgres spec: %+v", spec)
 	}
 }
+
+func TestHostConfigSpecMapsFTPBannerAndPASV(t *testing.T) {
+	spec := hostConfigSpec(hostconfig.File{Values: map[string]map[string]string{
+		"ftp_server":    {"pasv_min": "41000", "pasv_max": "41100", "banner": "Kelmor FTP ready."},
+		"ftp_selection": {"daemon": "vsftpd"},
+	}})
+	if spec.PasvMin != 41000 || spec.PasvMax != 41100 {
+		t.Fatalf("pasv spec: %+v", spec)
+	}
+	if spec.FTPBanner != "Kelmor FTP ready." {
+		t.Fatalf("banner spec: %+v", spec)
+	}
+	if !spec.FTPEnabled {
+		t.Fatal("vsftpd selection must keep FTP enabled")
+	}
+
+	disabled := hostConfigSpec(hostconfig.File{Values: map[string]map[string]string{
+		"ftp_selection": {"daemon": "disabled"},
+		"ftp_server":    {"banner": "still stored"},
+	}})
+	if disabled.FTPEnabled {
+		t.Fatal("disabled daemon must turn FTP off")
+	}
+	if disabled.FTPBanner != "still stored" {
+		t.Fatalf("banner must still map when FTP is disabled: %+v", disabled)
+	}
+}

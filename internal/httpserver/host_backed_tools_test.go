@@ -61,6 +61,59 @@ func TestLanguageModulesRequireWriteCapability(t *testing.T) {
 	}
 }
 
+func TestFTPServerSettingsQueueHostApply(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	saved := doJSON(t, http.MethodPatch, srv.URL+"/api/v1/server/settings", token, map[string]any{
+		"values": map[string]any{
+			"ftp_server": map[string]string{
+				"pasv_min": "41000",
+				"pasv_max": "41100",
+				"banner":   "Kelmor FTP ready.",
+			},
+		},
+	})
+	if saved["operation_id"] == nil {
+		t.Fatalf("ftp server settings must queue host apply: %v", saved)
+	}
+	job := st.GetJob(saved["operation_id"].(string))
+	if job == nil || job.Type != "host.config.apply" {
+		t.Fatalf("job: %+v", job)
+	}
+	if job.ResourceID != "" {
+		t.Fatalf("resource_id must stay empty for host jobs: %q", job.ResourceID)
+	}
+	if job.Payload["target"] != "host-config" {
+		t.Fatalf("logical target must stay in payload: %+v", job.Payload)
+	}
+	if !payloadHasKey(job.Payload["keys"], "ftp_server") {
+		t.Fatalf("payload keys must name ftp_server: %+v", job.Payload)
+	}
+
+	again := get(t, srv.URL+"/api/v1/server/settings", token)
+	row, _ := again["values"].(map[string]any)["ftp_server"].(map[string]any)
+	if row["banner"] != "Kelmor FTP ready." || row["pasv_min"] != "41000" || row["pasv_max"] != "41100" {
+		t.Fatalf("ftp settings persist: %v", again)
+	}
+}
+
+func payloadHasKey(raw any, want string) bool {
+	switch keys := raw.(type) {
+	case []string:
+		for _, key := range keys {
+			if key == want {
+				return true
+			}
+		}
+	case []any:
+		for _, key := range keys {
+			if key == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestServerProfileSettingsQueueHostApply(t *testing.T) {
 	srv, st, token := directorFixture(t)
 	saved := doJSON(t, http.MethodPatch, srv.URL+"/api/v1/server/settings", token, map[string]any{

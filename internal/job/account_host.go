@@ -262,6 +262,7 @@ func hostConfigSpec(settings hostconfig.File) operations.HostConfigSpec {
 		FTPEnabled:        hostconfig.Field(settings, "ftp_selection", "daemon", "vsftpd") != "disabled",
 		PasvMin:           hostconfig.IntField(settings, "ftp_server", "pasv_min", 40000),
 		PasvMax:           hostconfig.IntField(settings, "ftp_server", "pasv_max", 40100),
+		FTPBanner:         hostconfig.Field(settings, "ftp_server", "banner", ""),
 		LogRetainDays:     hostconfig.IntField(settings, "log_rotation", "days", 14),
 		AllowCIDRs:        hostconfig.ValidIPList(hostconfig.Lines(settings, "host_access", "allow")),
 		DenyCIDRs:         hostconfig.ValidIPList(hostconfig.Lines(settings, "host_access", "deny")),

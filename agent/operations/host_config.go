@@ -37,6 +37,7 @@ type HostConfigSpec struct {
 	FTPEnabled        bool              `json:"ftp_enabled"`
 	PasvMin           int               `json:"pasv_min,omitempty"`
 	PasvMax           int               `json:"pasv_max,omitempty"`
+	FTPBanner         string            `json:"ftp_banner,omitempty"`
 	LogRetainDays     int               `json:"log_retain_days,omitempty"`
 	AllowCIDRs        []string          `json:"allow_cidrs,omitempty"`
 	DenyCIDRs         []string          `json:"deny_cidrs,omitempty"`
@@ -174,14 +175,8 @@ func (h *Host) applyHostConfig(spec HostConfigSpec) (Result, error) {
 		}
 		applied = append(applied, "backup-cron")
 	}
-	if spec.PasvMin > 0 && spec.PasvMax >= spec.PasvMin {
-		body := fmt.Sprintf("pasv_min_port=%d\npasv_max_port=%d\n", spec.PasvMin, spec.PasvMax)
-		if spec.FTPEnabled {
-			body += "listen=YES\n"
-		} else {
-			body += "listen=NO\n"
-		}
-		if _, err := h.ApplyFile("/etc/panel/vsftpd-panel.conf", []byte(body), 0o644); err != nil {
+	if (spec.PasvMin > 0 && spec.PasvMax >= spec.PasvMin) || spec.FTPBanner != "" {
+		if err := h.applyFTPServerConfig(spec); err != nil {
 			return Result{}, err
 		}
 		applied = append(applied, "ftp")
