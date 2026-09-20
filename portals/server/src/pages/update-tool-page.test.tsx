@@ -9,7 +9,7 @@ import { Sidebar } from '../layout/sidebar'
 import { toolCatalog } from '../tool-catalog'
 import type { Me } from '../types'
 import { UpdatesPage } from './updates-page'
-import { UpdateToolPage } from './update-tool-page'
+import { CHANGELOG_EMPTY_DETAIL, CHANGELOG_EMPTY_TITLE, SOFTWARE_UPDATES_CTA, UpdateToolPage } from './update-tool-page'
 import * as client from '../client'
 import * as rbac from '../rbac'
 
@@ -33,6 +33,19 @@ beforeEach(() => {
 				available_release: '0.2.0',
 				automatic: true,
 				channel: 'stable',
+			}
+		}
+		if (path === '/api/v1/server/updates/changelog') {
+			return {
+				installed_release: '0.1.0',
+				available_release: '0.2.0',
+				channel: 'stable',
+				items: [{
+					version: '0.2.0',
+					status: 'available',
+					source: 'update-feed',
+					notes: ['Host-backed Feature Showcase and Change Log notes.'],
+				}],
 			}
 		}
 		return { ok: true }
@@ -86,11 +99,35 @@ describe('dedicated update tool pages', () => {
 		expect(screen.getByRole('link', { name: 'Software Updates' })).not.toHaveAttribute('aria-current')
 		expect(screen.getByRole('link', { name: 'Update Preferences' })).not.toHaveAttribute('aria-current')
 		expect((await screen.findAllByText('0.1.0')).length).toBeGreaterThan(0)
-		expect(screen.getByText('0.2.0')).toBeInTheDocument()
-		expect(screen.getByText(/does not publish release notes/i)).toBeInTheDocument()
+		expect(screen.getAllByText('0.2.0').length).toBeGreaterThan(0)
+		expect(await screen.findByText('Host-backed Feature Showcase and Change Log notes.')).toBeInTheDocument()
+		expect(screen.getByText(/update-feed/)).toBeInTheDocument()
+		expect(screen.queryByText(/does not publish release notes/i)).not.toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: 'Install verified release' })).not.toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: 'Check now' })).not.toBeInTheDocument()
-		expect(screen.getByRole('link', { name: 'Open Software Updates' })).toHaveAttribute('href', '/updates')
+		expect(screen.getByRole('link', { name: SOFTWARE_UPDATES_CTA })).toHaveAttribute('href', '/updates')
+	})
+
+	test('Change Log empty state explains missing notes and points at Software Updates', async () => {
+		vi.spyOn(client, 'api').mockImplementation(async (path) => {
+			if (path === '/api/v1/server/updates') {
+				return {
+					state: 'idle',
+					installed_release: '0.1.0',
+					automatic: true,
+					channel: 'stable',
+				}
+			}
+			if (path === '/api/v1/server/updates/changelog') {
+				return { installed_release: '0.1.0', channel: 'stable', items: [] }
+			}
+			return { ok: true }
+		})
+		renderUpdateRoute('/updates/changelog')
+		expect(await screen.findByText(CHANGELOG_EMPTY_TITLE)).toBeInTheDocument()
+		expect(screen.getByText(CHANGELOG_EMPTY_DETAIL)).toBeInTheDocument()
+		expect(screen.getByRole('link', { name: SOFTWARE_UPDATES_CTA })).toHaveAttribute('href', '/updates')
+		expect(screen.queryByText(/does not publish release notes/i)).not.toBeInTheDocument()
 	})
 
 	test('Director breadcrumbs name the dedicated update tools', async () => {

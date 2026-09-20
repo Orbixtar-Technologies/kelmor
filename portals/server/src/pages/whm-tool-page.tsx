@@ -15,6 +15,7 @@ import { MySQLUpgradePanel } from './mysql-upgrade-panel'
 import { PostgresConfigPanel } from './postgres-config-panel'
 import { SupportAccessPanel } from './support-access-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
+import { FeatureShowcasePage } from './feature-showcase-page'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import {
 	CHROME_SETTINGS_SAVED,
@@ -310,6 +311,7 @@ function ToolField ({ field, value, packages, websites, onChange }: {
 }
 
 function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Account }) {
+	if (feature.id === 'feature-showcase') return <FeatureShowcasePage />
 	if (feature.id === 'terminal') return <HostConsolePanel />
 	if (feature.id === 'phpmyadmin') return <HostAppsPanel kind="sql" />
 	if (feature.id === 'market') return <HostAppsPanel kind="market" />

@@ -8,10 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +59,69 @@ func TestCheckAcceptsNewerSignedStableRelease(t *testing.T) {
 	}
 	if status.InstalledRelease != "1.9.0" || status.Channel != "stable" {
 		t.Fatalf("status lost configured values: %+v", status)
+	}
+}
+
+func TestCheckCachesUnsignedFeedChangelog(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("new panel")
+	sum := sha256.Sum256(payload)
+	manifest := &Manifest{
+		Release:        "1.10.0",
+		Channel:        "stable",
+		MinimumRelease: "1.0.0",
+		Artifacts: []Artifact{{
+			Path:   "panel-api",
+			Target: "bin/panel-api",
+			Size:   int64(len(payload)),
+			SHA256: hex.EncodeToString(sum[:]),
+			Mode:   0o755,
+		}},
+	}
+	if err := Sign(manifest, priv); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := json.Marshal(ChangelogDocument{Channel: "stable", Items: []ChangelogItem{{
+		Version: "1.10.0", Notes: []string{"Signed feed published this note."},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/stable/manifest.json":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(manifest)
+		case "/stable/changelog.json":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(notes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	withHTTPClient(t, server.Client())
+
+	root := t.TempDir()
+	statusPath := filepath.Join(root, "var/lib/panel/update-status.json")
+	_, err = Check(context.Background(), Config{
+		FeedURL:          server.URL,
+		Channel:          "stable",
+		InstalledRelease: "1.9.0",
+		PublicKey:        pub,
+		InstallRoot:      root,
+		StatusPath:       statusPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := ReadChangelogFile(ChangelogCachePath(statusPath, root), "update-feed")
+	if err != nil || len(doc.Items) != 1 || doc.Items[0].Notes[0] != "Signed feed published this note." {
+		t.Fatalf("cached changelog: %+v %v", doc, err)
 	}
 }
 

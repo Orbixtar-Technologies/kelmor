@@ -97,7 +97,31 @@ func main() {
 	if err := os.WriteFile(filepath.Join(channelDir, "manifest.json"), raw, 0o644); err != nil {
 		fatal(err)
 	}
+	if err := writeFeedChangelog(channelDir, *channel, *release); err != nil {
+		fatal(err)
+	}
 	fmt.Printf("signed %d artifacts for %s\n", len(artifacts), *release)
+}
+
+func writeFeedChangelog(channelDir, channel, release string) error {
+	doc := update.EmbeddedChangelogDocument()
+	item, ok := update.NotesForRelease(doc, release, release)
+	if !ok {
+		return nil
+	}
+	raw, err := json.MarshalIndent(update.ChangelogDocument{
+		Channel: channel,
+		Items: []update.ChangelogItem{{
+			Version: release,
+			Title:   item.Title,
+			Notes:   item.Notes,
+		}},
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	return os.WriteFile(filepath.Join(channelDir, "changelog.json"), raw, 0o644)
 }
 
 func fatal(err error) {

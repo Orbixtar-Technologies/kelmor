@@ -38,6 +38,20 @@ func TestUpdateStatusRequiresServerRead(t *testing.T) {
 	if body["running_release"] != releaseversion.Current() {
 		t.Fatalf("running release: %v", body)
 	}
+	code, body = requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates/changelog", server.auditor, nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("authorized changelog: %d %v", code, body)
+	}
+	if body["installed_release"] != releaseversion.Current() || body["channel"] != "stable" {
+		t.Fatalf("changelog identity: %v", body)
+	}
+	if _, ok := body["items"].([]any); !ok {
+		t.Fatalf("changelog items: %v", body)
+	}
+	code, body = requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates/changelog", server.customer, nil, nil)
+	assertAPIErrorCode(t, code, body, http.StatusForbidden, "FORBIDDEN")
+	code, body = requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates/changelog", "", nil, nil)
+	assertAPIErrorCode(t, code, body, http.StatusUnauthorized, "UNAUTHENTICATED")
 	code, body = requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates", server.customer, nil, nil)
 	assertAPIErrorCode(t, code, body, http.StatusForbidden, "FORBIDDEN")
 	code, body = requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates", "", nil, nil)
@@ -55,6 +69,43 @@ func TestUpdateStatusRequiresServerRead(t *testing.T) {
 	defer cookieResponse.Body.Close()
 	if cookieResponse.StatusCode != http.StatusOK {
 		t.Fatalf("cookie-authenticated status GET = %d", cookieResponse.StatusCode)
+	}
+}
+
+func TestUpdateChangelogPrefersCachedFeedNotes(t *testing.T) {
+	server := newUpdateTestServer(t)
+	statusPath := filepath.Join(server.root, "var/lib/panel/update-status.json")
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "available", InstalledRelease: "1.0.0", AvailableRelease: "1.1.0",
+		Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := update.WriteChangelogCache(update.ChangelogCachePath(statusPath, server.root), update.ChangelogDocument{
+		Items: []update.ChangelogItem{{
+			Version: releaseversion.Current(),
+			Notes:   []string{"Cached feed note for the running release."},
+			Source:  "update-feed",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := requestJSONStatus(t, http.MethodGet, server.url+"/api/v1/server/updates/changelog", server.auditor, nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("changelog: %d %v", code, body)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items: %v", body)
+	}
+	item := items[0].(map[string]any)
+	if item["version"] != releaseversion.Current() || item["source"] != "update-feed" {
+		t.Fatalf("item: %v", item)
+	}
+	notes, _ := item["notes"].([]any)
+	if len(notes) != 1 || notes[0] != "Cached feed note for the running release." {
+		t.Fatalf("notes: %v", item)
 	}
 }
 
@@ -437,6 +488,14 @@ func TestUpdateOpenAPIDocumentsSecurityAndAsyncResponses(t *testing.T) {
 		!strings.Contains(status, `"401": { $ref: "#/components/responses/Error" }`) ||
 		!strings.Contains(status, `$ref: "#/components/schemas/UpdateStatus"`) {
 		t.Fatalf("update status security/schema is incomplete:\n%s", status)
+	}
+
+	changelog := openAPIPathBlock(document, "/server/updates/changelog")
+	if !strings.Contains(changelog, "bearerAuth: []") ||
+		!strings.Contains(changelog, "cookieAuth: []") ||
+		!strings.Contains(changelog, `$ref: "#/components/schemas/UpdateChangelog"`) ||
+		!strings.Contains(changelog, `"401": { $ref: "#/components/responses/Error" }`) {
+		t.Fatalf("update changelog security/schema is incomplete:\n%s", changelog)
 	}
 
 	for _, path := range []string{"/server/updates/check", "/server/updates/install"} {

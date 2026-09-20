@@ -121,6 +121,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/server/remote-access-key", a.issueRemoteAccessKey)
 			r.Delete("/server/remote-access-key", a.revokeRemoteAccessKey)
 			r.Get("/server/updates", a.updateStatus)
+			r.Get("/server/updates/changelog", a.updateChangelog)
 			r.Post("/server/updates/check", a.checkUpdate)
 			r.Post("/server/updates/install", a.installUpdate)
 			r.Patch("/server/updates/settings", a.updateSettings)
