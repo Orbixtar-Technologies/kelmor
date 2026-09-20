@@ -49,6 +49,111 @@ func TestApplyUpdatePolicyRewritesExistingRelease(t *testing.T) {
 	}
 }
 
+func TestApplyUpdatePolicySeedsSignedStableManifest(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	if err := applyUpdatePolicy(Config{Dev: true, Channel: "stable"}); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(dir, "var/panel/host/usr/local/panel/share/updates/stable/manifest.json")
+	if _, err := os.ReadFile(manifestPath); err != nil {
+		t.Fatalf("signed feed missing: %v", err)
+	}
+	pubRaw, err := os.ReadFile(filepath.Join(dir, "var/panel/host/etc/panel/update.pub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := update.ParsePublicKey(string(pubRaw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := update.Load(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Channel != "stable" || manifest.Release != releaseversion.Current() {
+		t.Fatalf("seeded manifest %+v", manifest)
+	}
+	if err := update.Verify(manifest, pub); err != nil {
+		t.Fatalf("seeded feed signature: %v", err)
+	}
+}
+
+func TestApplyUpdatePolicyKeepsPublishedFeed(t *testing.T) {
+	root := t.TempDir()
+	existing := []byte(`{"release":"9.9.9","channel":"stable","signature":"keep-me"}` + "\n")
+	path := filepath.Join(root, "usr/local/panel/share/updates/stable/manifest.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyUpdatePolicy(Config{Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(existing) {
+		t.Fatalf("published feed was overwritten: %s", got)
+	}
+}
+
+func TestVerifyUpdateFeedRequiresSignedManifest(t *testing.T) {
+	root := t.TempDir()
+	if err := applyUpdatePolicy(Config{Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	err := verifyUpdateFeed(Config{Root: root})
+	if err == nil || !contains(err.Error(), "signed update feed") {
+		t.Fatalf("expected missing-feed verify error, got %v", err)
+	}
+
+	path := filepath.Join(root, "usr/local/panel/share/updates/stable/manifest.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"release":"0.2.415","channel":"stable"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyUpdateFeed(Config{Root: root}); err != nil {
+		t.Fatalf("valid feed should verify: %v", err)
+	}
+}
+
+func TestApplyUpdatePolicyCopiesBundledFeed(t *testing.T) {
+	src := t.TempDir()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "stable"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"release":"0.2.415","channel":"stable"}` + "\n")
+	if err := os.WriteFile(filepath.Join(src, "stable", "manifest.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PANEL_UPDATE_FEED_ROOT", src)
+	if err := applyUpdatePolicy(Config{Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "usr/local/panel/share/updates/stable/manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(body) {
+		t.Fatalf("bundled feed not installed: %s", got)
+	}
+}
+
 func TestDevInstallWritesHostStack(t *testing.T) {
 	t.Setenv("PANEL_PUBLIC_IPV4", "203.0.113.10")
 	dir := t.TempDir()
@@ -113,6 +218,7 @@ func TestDevInstallWritesHostStack(t *testing.T) {
 		"var/panel/host/etc/systemd/system/timers.target.wants/panel-update.timer",
 		"var/panel/host/etc/panel/update.env",
 		"var/panel/host/etc/panel/update.pub",
+		"var/panel/host/usr/local/panel/share/updates/stable/manifest.json",
 		"var/panel/host/usr/local/panel/current-release",
 		"var/panel/host/var/lib/panel/health-report.txt",
 		"var/panel/host/var/lib/panel/public.env",

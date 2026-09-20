@@ -1,9 +1,11 @@
 package phases
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -1035,7 +1037,7 @@ func verifySystemd(c Config) error {
 	if !strings.Contains(string(updateEnv), "PANEL_UPDATE_FEED_URL=https://127.0.0.1:2087/updates") {
 		return fmt.Errorf("update.env is not configured for the local signed feed")
 	}
-	return nil
+	return verifyUpdateFeed(c)
 }
 
 func applySystemd(c Config) error {
@@ -1108,9 +1110,73 @@ PANEL_UPDATE_PUBLIC_KEY_PATH=/etc/panel/update.pub
 	if err := os.MkdirAll(root(c, "usr/local/panel/share/updates"), 0o755); err != nil {
 		return err
 	}
+	if err := installLocalUpdateFeed(c, version); err != nil {
+		return err
+	}
 	releasePath := root(c, "usr/local/panel/current-release")
 	if err := os.WriteFile(releasePath, []byte(version+"\n"), 0o644); err != nil {
 		return err
+	}
+	return nil
+}
+
+func installLocalUpdateFeed(c Config, version string) error {
+	dest := root(c, "usr/local/panel/share/updates")
+	channel := strings.TrimSpace(c.Channel)
+	if channel == "" {
+		channel = "stable"
+	}
+	if _, err := os.Stat(filepath.Join(dest, channel, "manifest.json")); err == nil {
+		return nil
+	}
+	for _, src := range localFeedSources() {
+		if _, err := os.Stat(filepath.Join(src, channel, "manifest.json")); err != nil {
+			continue
+		}
+		return update.CopyFeedTree(src, dest)
+	}
+	if !c.Dev {
+		return nil
+	}
+	return seedDevUpdateFeed(c, dest, channel, version)
+}
+
+func localFeedSources() []string {
+	sources := make([]string, 0, 2)
+	if env := strings.TrimSpace(os.Getenv("PANEL_UPDATE_FEED_ROOT")); env != "" {
+		sources = append(sources, env)
+	}
+	if exe, err := os.Executable(); err == nil {
+		sources = append(sources, filepath.Join(filepath.Dir(filepath.Dir(exe)), "share", "updates"))
+	}
+	return sources
+}
+
+func seedDevUpdateFeed(c Config, dest, channel, version string) error {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	if err := update.WriteSignedCurrentReleaseFeed(dest, channel, version, priv); err != nil {
+		return err
+	}
+	return os.WriteFile(root(c, "etc/panel/update.pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o644)
+}
+
+func verifyUpdateFeed(c Config) error {
+	channel := strings.TrimSpace(c.Channel)
+	if channel == "" {
+		channel = "stable"
+	}
+	raw, err := os.ReadFile(root(c, "usr/local/panel/share/updates/"+channel+"/manifest.json"))
+	if err != nil {
+		return fmt.Errorf("signed update feed manifest missing")
+	}
+	var manifest update.Manifest
+	if json.Unmarshal(raw, &manifest) != nil ||
+		manifest.Channel != channel ||
+		strings.TrimSpace(manifest.Release) == "" {
+		return fmt.Errorf("signed update feed manifest is invalid")
 	}
 	return nil
 }
