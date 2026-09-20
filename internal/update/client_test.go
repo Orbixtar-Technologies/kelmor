@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -219,6 +220,46 @@ func TestCheckReportsIdleWhenFeedIsNotNewer(t *testing.T) {
 	}
 	if status.State != "idle" || status.AvailableRelease != "1.9.0" {
 		t.Fatalf("unexpected status: %#v", status)
+	}
+	if status.LastCheckedAt == "" {
+		t.Fatal("successful idle check did not record last_checked_at")
+	}
+	if _, err := time.Parse(time.RFC3339, status.LastCheckedAt); err != nil {
+		t.Fatalf("last_checked_at %q is not RFC3339: %v", status.LastCheckedAt, err)
+	}
+}
+
+func TestCheckPreservesLastCheckedAtWhenFeedFails(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), "update-status.json")
+	previous := "2026-09-09T16:00:00Z"
+	if err := WriteStatus(statusPath, Status{
+		State: "idle", InstalledRelease: "1.0.0", LastCheckedAt: previous,
+		Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Check(context.Background(), Config{
+		FeedURL: "http://updates.example.test", Channel: "stable",
+		InstalledRelease: "1.0.0", InstallRoot: t.TempDir(), StatusPath: statusPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("expected HTTPS error, got %v", err)
+	}
+
+	raw, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Status
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.LastCheckedAt != previous {
+		t.Fatalf("failed check overwrote last_checked_at: %+v", got)
+	}
+	if got.State != "error" || got.Error == "" {
+		t.Fatalf("failed check did not record an error: %+v", got)
 	}
 }
 

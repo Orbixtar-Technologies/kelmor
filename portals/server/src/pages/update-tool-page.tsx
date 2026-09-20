@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../client'
 import { EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
+import { formatLastChecked } from './updates-copy'
 import { useCan } from '../rbac'
 
 interface UpdateStatus {
@@ -146,7 +147,7 @@ function ChangeLogPage () {
 						<div><dt>Available</dt><dd>{status.available_release || '—'}</dd></div>
 						<div><dt>Channel</dt><dd>{status.channel}</dd></div>
 						<div><dt>State</dt><dd><code>{status.state}</code></dd></div>
-						<div><dt>Last checked</dt><dd>{status.last_checked_at || '—'}</dd></div>
+						<div><dt>Last checked</dt><dd>{formatLastChecked(status.last_checked_at)}</dd></div>
 					</dl>
 				) : null}
 				{status?.error ? <p className="field-error" role="alert">{status.error}</p> : null}

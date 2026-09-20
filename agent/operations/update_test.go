@@ -2,7 +2,13 @@ package operations
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,31 +35,40 @@ func TestManagePanelUpdateAcceptsFixedActions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, action := range []string{"check", "install"} {
-		t.Run(action, func(t *testing.T) {
-			raw, err := host.Dispatch(context.Background(), Request{
-				Method: "ManagePanelUpdate",
-				Params: mustRaw(map[string]any{"action": action}),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			result, ok := raw.(Result)
-			if !ok || !result.OK || result.ObservedState != action+"-requested" {
-				t.Fatalf("result = %#v", raw)
-			}
-		})
+	writeSignedUpdateHost(t, root, "1.0.0", "1.0.0")
+	raw, err := host.Dispatch(context.Background(), Request{
+		Method: "ManagePanelUpdate",
+		Params: mustRaw(map[string]any{"action": "check"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := raw.(Result)
+	if !ok || !result.OK || result.ObservedState != "idle" {
+		t.Fatalf("check result = %#v", raw)
+	}
+
+	raw, err = host.Dispatch(context.Background(), Request{
+		Method: "ManagePanelUpdate",
+		Params: mustRaw(map[string]any{"action": "install"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok = raw.(Result)
+	if !ok || !result.OK || result.ObservedState != "install-requested" {
+		t.Fatalf("install result = %#v", raw)
 	}
 
 	automatic := false
-	raw, err := host.Dispatch(context.Background(), Request{
+	raw, err = host.Dispatch(context.Background(), Request{
 		Method: "ManagePanelUpdate",
 		Params: mustRaw(map[string]any{"action": "settings", "automatic": automatic}),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, ok := raw.(Result)
+	result, ok = raw.(Result)
 	if !ok || !result.OK || result.ObservedState != "automatic-disabled" {
 		t.Fatalf("result = %#v", raw)
 	}
@@ -61,8 +76,9 @@ func TestManagePanelUpdateAcceptsFixedActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(config); got != "PANEL_UPDATE_CHANNEL=stable\nPANEL_UPDATE_AUTOMATIC=false\n" {
-		t.Fatalf("config = %q", got)
+	if !strings.Contains(string(config), "PANEL_UPDATE_AUTOMATIC=false") ||
+		strings.Contains(string(config), "PANEL_UPDATE_AUTOMATIC=true") {
+		t.Fatalf("config = %q", config)
 	}
 }
 
@@ -94,28 +110,92 @@ func TestManagePanelUpdateRejectsCommandsURLsAndPaths(t *testing.T) {
 	}
 }
 
-func TestPanelUpdateActionsSelectFixedAsynchronousUnits(t *testing.T) {
-	tests := []struct {
-		action string
-		unit   string
-	}{
-		{action: "check", unit: "panel-update@check.service"},
-		{action: "install", unit: "panel-update@install.service"},
+func TestPanelUpdateActionsSelectFixedUnits(t *testing.T) {
+	checkArgs, err := panelUpdateStartArgs("check")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range tests {
-		t.Run(test.action, func(t *testing.T) {
-			args, err := panelUpdateStartArgs(test.action)
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := []string{"start", "--no-block", test.unit}
-			if !slices.Equal(args, want) {
-				t.Fatalf("systemctl args = %q, want %q", args, want)
-			}
-		})
+	if !slices.Equal(checkArgs, []string{"start", "panel-update@check.service"}) {
+		t.Fatalf("check systemctl args = %q", checkArgs)
+	}
+	installArgs, err := panelUpdateStartArgs("install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(installArgs, []string{"start", "--no-block", "panel-update@install.service"}) {
+		t.Fatalf("install systemctl args = %q", installArgs)
 	}
 	if _, err := panelUpdateStartArgs("panel-update@attacker.service"); err == nil {
 		t.Fatal("caller-controlled unit was accepted")
+	}
+}
+
+func TestManagePanelUpdateCheckPersistsLastCheckedAt(t *testing.T) {
+	root := t.TempDir()
+	host := &Host{Root: root}
+	writeSignedUpdateHost(t, root, "1.0.0", "1.0.0")
+
+	result, err := host.ManagePanelUpdate(context.Background(), PanelUpdateRequest{Action: "check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK || result.ObservedState != "idle" {
+		t.Fatalf("result = %#v", result)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(root, "var/lib/panel/update-status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status update.Status
+	if err := json.Unmarshal(raw, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.LastCheckedAt == "" {
+		t.Fatalf("check did not persist last_checked_at: %+v", status)
+	}
+	if _, err := time.Parse(time.RFC3339, status.LastCheckedAt); err != nil {
+		t.Fatalf("last_checked_at %q: %v", status.LastCheckedAt, err)
+	}
+	if status.State != "idle" {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestManagePanelUpdateCheckFailureLeavesLastCheckedAt(t *testing.T) {
+	root := t.TempDir()
+	host := &Host{Root: root}
+	previous := "2026-09-09T16:00:00Z"
+	writeSignedUpdateHost(t, root, "1.0.0", "1.0.0")
+	statusPath := filepath.Join(root, "var/lib/panel/update-status.json")
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "idle", InstalledRelease: "1.0.0", LastCheckedAt: previous,
+		Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc/panel/update.env"), []byte(
+		"PANEL_UPDATE_FEED_URL=http://updates.example.test\n"+
+			"PANEL_UPDATE_CHANNEL=stable\n"+
+			"PANEL_UPDATE_AUTOMATIC=true\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := host.ManagePanelUpdate(context.Background(), PanelUpdateRequest{Action: "check"}); err == nil {
+		t.Fatal("expected check failure")
+	}
+
+	raw, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status update.Status
+	if err := json.Unmarshal(raw, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.LastCheckedAt != previous {
+		t.Fatalf("failed check overwrote last_checked_at: %+v", status)
 	}
 }
 
@@ -441,4 +521,62 @@ func (lockedUpdateTestRunner) Run(context.Context, string, ...string) error {
 func testUpdateRequestName(params map[string]any) string {
 	raw, _ := json.Marshal(params)
 	return strings.NewReplacer("/", "_", " ", "_").Replace(string(raw))
+}
+
+func writeSignedUpdateHost(t *testing.T, root, installed, available string) *httptest.Server {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("panel")
+	sum := sha256.Sum256(payload)
+	manifest := &update.Manifest{
+		Release: available, Channel: "stable", MinimumRelease: "1.0.0",
+		Artifacts: []update.Artifact{{
+			Path: "panel-api", Target: "bin/panel-api",
+			Size: int64(len(payload)), SHA256: hex.EncodeToString(sum[:]), Mode: 0o755,
+		}},
+	}
+	if err := update.Sign(manifest, priv); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/stable/manifest.json" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	}))
+	t.Cleanup(server.Close)
+
+	if err := os.MkdirAll(filepath.Join(root, "usr/local/panel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "usr/local/panel/current-release"), []byte(installed+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "etc/panel"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc/panel/update.pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := "PANEL_UPDATE_FEED_URL=" + server.URL + "\n" +
+		"PANEL_UPDATE_CHANNEL=stable\n" +
+		"PANEL_UPDATE_AUTOMATIC=true\n"
+	if err := os.WriteFile(filepath.Join(root, "etc/panel/update.env"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := update.WriteStatus(filepath.Join(root, "var/lib/panel/update-status.json"), update.Status{
+		State: "idle", InstalledRelease: installed, Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return server
 }

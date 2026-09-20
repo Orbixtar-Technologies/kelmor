@@ -49,7 +49,7 @@ func (h *Host) ManagePanelUpdate(ctx context.Context, request PanelUpdateRequest
 		if request.Automatic != nil {
 			return Result{}, fmt.Errorf("automatic is only valid for settings")
 		}
-		return h.startPanelUpdate("check")
+		return h.runPanelUpdateCheck(ctx)
 	case "install":
 		if request.Automatic != nil {
 			return Result{}, fmt.Errorf("automatic is only valid for settings")
@@ -75,12 +75,96 @@ func (h *Host) ManagePanelUpdate(ctx context.Context, request PanelUpdateRequest
 func panelUpdateStartArgs(action string) ([]string, error) {
 	switch action {
 	case "check":
-		return []string{"start", "--no-block", "panel-update@check.service"}, nil
+		return []string{"start", "panel-update@check.service"}, nil
 	case "install":
 		return []string{"start", "--no-block", "panel-update@install.service"}, nil
 	default:
 		return nil, fmt.Errorf("unsupported panel update action %q", action)
 	}
+}
+
+func (h *Host) runPanelUpdateCheck(ctx context.Context) (Result, error) {
+	if h.live() {
+		args, err := panelUpdateStartArgs("check")
+		if err != nil {
+			return Result{}, err
+		}
+		output, err := runFixed("/bin/systemctl", args...)
+		status, readErr := h.readResolvedUpdateStatus()
+		if err != nil {
+			if readErr == nil && status.Error != "" {
+				return Result{}, fmt.Errorf("%s", status.Error)
+			}
+			return Result{}, fmt.Errorf("start update check: %s", strings.TrimSpace(string(output)))
+		}
+		if readErr != nil {
+			return Result{}, readErr
+		}
+		return panelUpdateCheckResult(status)
+	}
+	if err := h.checkPanelUpdateLocal(ctx); err != nil {
+		return Result{}, err
+	}
+	status, err := h.readResolvedUpdateStatus()
+	if err != nil {
+		return Result{}, err
+	}
+	return panelUpdateCheckResult(status)
+}
+
+func (h *Host) checkPanelUpdateLocal(ctx context.Context) error {
+	configPath, err := h.resolve(panelUpdateConfigPath)
+	if err != nil {
+		return err
+	}
+	parsed, err := update.ParseConfigFile(configPath)
+	if err != nil {
+		return err
+	}
+	installRoot, err := h.resolvePanelInstallRoot(parsed.InstallRoot)
+	if err != nil {
+		return err
+	}
+	statusPath, err := h.resolve(parsed.StatusPath)
+	if err != nil {
+		return err
+	}
+	publicKeyPath, err := h.resolve(parsed.PublicKeyPath)
+	if err != nil {
+		return err
+	}
+	config, err := parsed.MaterializeAt(publicKeyPath, installRoot, statusPath)
+	if err != nil {
+		return err
+	}
+	_, err = update.Check(ctx, config)
+	return err
+}
+
+func (h *Host) readResolvedUpdateStatus() (update.Status, error) {
+	statusPath, err := h.resolve(panelUpdateStatusPath)
+	if err != nil {
+		return update.Status{}, err
+	}
+	status, _, err := readPanelUpdateStatus(statusPath)
+	return status, err
+}
+
+func panelUpdateCheckResult(status update.Status) (Result, error) {
+	if status.State == "error" && status.Error != "" {
+		return Result{}, fmt.Errorf("%s", status.Error)
+	}
+	message := "checked — host is up to date"
+	if status.State == "available" &&
+		status.AvailableRelease != "" &&
+		status.AvailableRelease != status.InstalledRelease {
+		message = "checked — update available"
+	}
+	return Result{
+		OK:            true,
+		Message:       message,
+		ObservedState: status.State,
+	}, nil
 }
 
 func (h *Host) startPanelUpdate(action string) (Result, error) {
