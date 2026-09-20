@@ -1629,6 +1629,25 @@ paths:
       x-capability: server.settings.write
       responses:
         "202": { description: Peer health probe queued }
+  /server/cluster/apply:
+    post:
+      operationId: applyClusterSnapshot
+      x-capability: server.settings.write
+      responses:
+        "202": { description: Snapshot apply to linked nodes queued }
+        "400": { $ref: "#/components/responses/Error" }
+  /server/ssl/service:
+    get:
+      operationId: listServiceCertificates
+      x-capability: websites.read
+      responses:
+        "200": { description: Host service certificate inventory }
+    post:
+      operationId: installServiceCertificate
+      x-capability: server.settings.write
+      responses:
+        "202": { description: Service certificate install queued }
+        "400": { $ref: "#/components/responses/Error" }
   /server/remote-access-key:
     get:
       operationId: getRemoteAccessKey

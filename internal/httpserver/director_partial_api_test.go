@@ -113,8 +113,11 @@ func TestRestoreInventoryListsHostBackups(t *testing.T) {
 		t.Fatalf("queued must not be restorable: %v", byID["bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb"])
 	}
 	system := byID["cccccccc-cccc-7ccc-8ccc-cccccccccccc"]
-	if system["scope"] != "system" || system["restorable"] != true {
+	if system["scope"] != "system" || system["restorable"] != false {
 		t.Fatalf("system archive: %v", system)
+	}
+	if system["restore_note"] == "" {
+		t.Fatalf("system archive needs an honest restore note: %v", system)
 	}
 }
 

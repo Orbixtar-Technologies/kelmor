@@ -25,7 +25,7 @@ branch implements as host-applied work (API → job → Agent) instead of
 | `theme-manager` / `locales` / `customization` | D | Done | Director chrome (`data-density`, `lang`) — no Agent job |
 | `module-installers` / `perl-modules` / `php-pear` / `php-pecl` / `ruby-gems` | Software | Done | `GET/POST /server/modules` → `host.module.install` → Agent apt/pecl/pear/cpan/gem |
 | `server-profile` | C | Done | `PATCH` settings → `host.config.apply` writes `/etc/panel/server-profile` and toggles tenant units |
-| `configuration-cluster` | Clusters | Done | Peer URLs on host + `POST /server/cluster/publish` snapshot. No live multi-node orchestration |
+| `configuration-cluster` | Clusters | Done | Peer URLs on host + publish/import/probe + `POST /server/cluster/apply` to linked nodes |
 | `grant-support-access` | Support | Done | Time-limited `server_operator` session for `kelmor-support` |
 | `diagnostics-log` | Support | Done | Authenticated `GET /server/diagnostics` tar.gz download |
 | `postgres-config` | SQL | Done | Auth method + listen → `host.config.apply` writes `pg_hba.conf` and `conf.d/kelmor.conf` |

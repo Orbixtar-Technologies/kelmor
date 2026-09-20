@@ -27,7 +27,7 @@ const CAPABILITY_ROWS: Array<{ key: string; label: string; available: boolean }>
 	{ key: 'snapshot_export', label: 'Export the current snapshot JSON', available: true },
 	{ key: 'snapshot_import', label: 'Import a snapshot and write it on the host', available: true },
 	{ key: 'peer_health_probe', label: 'Probe a peer Director /healthz', available: true },
-	{ key: 'live_multi_node', label: 'Live multi-node apply to all nodes', available: false },
+	{ key: 'live_multi_node', label: 'Live multi-node apply to linked nodes', available: false },
 ]
 
 export function ClusterPanel () {
@@ -36,6 +36,7 @@ export function ClusterPanel () {
 	const [snapshot, setSnapshot] = useState<ClusterSnapshot | null>(null)
 	const [probeRows, setProbeRows] = useState<ProbeRow[]>([])
 	const [importText, setImportText] = useState('')
+	const [applyToken, setApplyToken] = useState('')
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
 	const [jobId, setJobId] = useState('')
@@ -65,6 +66,7 @@ export function ClusterPanel () {
 			})
 			setMessage(queuedOpMessage(result, 'Cluster membership queued for the host.'))
 			setJobId(result.operation_id || '')
+			load()
 		} catch (reason) {
 			setError(messageFrom(reason))
 		} finally {
@@ -113,6 +115,26 @@ export function ClusterPanel () {
 		}
 	}
 
+	async function handleApply () {
+		setBusy(true)
+		setError('')
+		setMessage('')
+		setJobId('')
+		try {
+			const result = await api<{ items?: ProbeRow[]; operation_id?: string }>('/api/v1/server/cluster/apply', {
+				method: 'POST',
+				body: JSON.stringify(applyToken.trim() ? { token: applyToken.trim() } : {}),
+			})
+			setProbeRows(result.items || [])
+			setMessage(queuedOpMessage(result, 'Multi-node snapshot apply queued for linked Directors.'))
+			setJobId(result.operation_id || '')
+		} catch (reason) {
+			setError(messageFrom(reason))
+		} finally {
+			setBusy(false)
+		}
+	}
+
 	async function handleProbe () {
 		setBusy(true)
 		setError('')
@@ -135,11 +157,14 @@ export function ClusterPanel () {
 	}
 
 	const capabilities = snapshot?.capabilities || {}
+	const canApplyRemote = Boolean(capabilities.live_multi_node)
 
 	return (
 		<section className="panel">
 			<h2>Configuration cluster</h2>
-			<p>This node writes peer URLs and package snapshots on the host. It does not live-replicate every setting to other Directors.</p>
+			<p>{canApplyRemote
+				? 'This node writes peer URLs and package snapshots on the host. Linked Directors can receive the current snapshot through multi-node apply.'
+				: 'This node writes peer URLs and package snapshots on the host. Multi-node apply stays unavailable until at least one linked node or cluster peer is registered.'}</p>
 			<table className="dense-table" aria-label="Cluster capability matrix">
 				<thead><tr><th>Capability</th><th>This Ubuntu stack</th></tr></thead>
 				<tbody>
@@ -162,6 +187,15 @@ export function ClusterPanel () {
 				</label>
 				<button type="submit" disabled={!canWrite || busy}>{busy ? 'Saving…' : 'Apply peers on host'}</button>
 			</form>
+			<label>Peer API token
+				<input
+					type="password"
+					value={applyToken}
+					onChange={(event) => setApplyToken(event.target.value)}
+					autoComplete="off"
+					placeholder="Optional Bearer token on the peer Director"
+				/>
+			</label>
 			<div className="row-actions">
 				<button type="button" disabled={!canWrite || busy} onClick={() => { void handlePublish() }}>
 					Publish package snapshot
@@ -169,10 +203,14 @@ export function ClusterPanel () {
 				<button type="button" disabled={!canWrite || busy} onClick={() => { void handleProbe() }}>
 					Probe peer health
 				</button>
+				<button type="button" disabled={!canWrite || busy || !canApplyRemote} onClick={() => { void handleApply() }}>
+					Apply to linked nodes
+				</button>
 				<button type="button" disabled={!snapshot} onClick={() => downloadJSON('kelmor-cluster-snapshot.json', snapshot)}>
 					Export snapshot
 				</button>
 			</div>
+			{!canApplyRemote ? <p className="subtle">Register a peer on this page or in Link Server Nodes to enable live multi-node apply. Director does not invent remote nodes.</p> : null}
 			{probeRows.length ? (
 				<table className="dense-table" aria-label="Peer health">
 					<thead><tr><th>Peer</th><th>Result</th><th>Detail</th></tr></thead>

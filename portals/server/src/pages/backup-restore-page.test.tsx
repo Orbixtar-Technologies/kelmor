@@ -43,8 +43,9 @@ describe('BackupRestorePage', () => {
 		expect(await screen.findByRole('heading', { name: 'Backup Restoration' })).toBeInTheDocument()
 		expect(screen.getByText('No backups available to restore')).toBeInTheDocument()
 		expect(screen.getByRole('link', { name: 'Configure or run backups' })).toHaveAttribute('href', '/transfers')
+		expect(screen.getByRole('columnheader', { name: 'Archive' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 		expect(screen.queryByText(/Backups & restore · 0/)).not.toBeInTheDocument()
-		expect(screen.queryByRole('columnheader', { name: 'Archive' })).not.toBeInTheDocument()
 	})
 
 	test('lists restorable archives and queues an in-place restore job', async () => {
@@ -98,5 +99,24 @@ describe('BackupRestorePage', () => {
 			body: JSON.stringify({ backup_id: 'bak-ok', mode: 'in_place' }),
 		}))
 		expect(await screen.findByText(/Job job-restore-1/)).toBeInTheDocument()
+	})
+
+	test('keeps system archives visible but not selectable', async () => {
+		api.mockResolvedValue({
+			items: [{
+				id: 'sys-1',
+				kind: 'system',
+				state: 'succeeded',
+				destination: 'local',
+				scope: 'system',
+				restorable: false,
+				restore_note: 'System archives are listed from inventory. In-place restore requires an account-scoped archive.',
+			}],
+		})
+		renderRestore()
+		expect(await screen.findByText('sys-1')).toBeInTheDocument()
+		expect(screen.getByText(/System archives are listed/)).toBeInTheDocument()
+		expect(screen.getByRole('radio', { name: 'Select sys-1 for system' })).toBeDisabled()
+		expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 	})
 })

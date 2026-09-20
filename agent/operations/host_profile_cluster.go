@@ -183,3 +183,63 @@ func (h *Host) probeClusterPeers(urls []string) (any, error) {
 	}
 	return map[string]any{"items": items}, nil
 }
+
+func (h *Host) applyClusterSnapshot(urls []string, snapshot []byte, token string) (any, error) {
+	if _, err := h.writeClusterSnapshot(snapshot); err != nil {
+		return nil, err
+	}
+	var parsed any
+	if err := json.Unmarshal(snapshot, &parsed); err != nil {
+		return nil, fmt.Errorf("cluster snapshot must be JSON")
+	}
+	body, err := json.Marshal(map[string]any{"snapshot": parsed})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]map[string]any, 0, len(urls))
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+	for _, raw := range urls {
+		raw = strings.TrimSpace(raw)
+		if !clusterPeerOK(raw) {
+			return nil, fmt.Errorf("invalid cluster peer URL")
+		}
+		target := strings.TrimRight(raw, "/") + "/api/v1/server/cluster/snapshot/import"
+		started := time.Now()
+		req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(string(body)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		res, err := client.Do(req)
+		row := map[string]any{
+			"url":        raw,
+			"ok":         false,
+			"latency_ms": time.Since(started).Milliseconds(),
+		}
+		if err != nil {
+			row["error"] = err.Error()
+			items = append(items, row)
+			continue
+		}
+		_ = res.Body.Close()
+		row["status"] = res.StatusCode
+		row["ok"] = res.StatusCode < 400
+		if res.StatusCode >= 400 {
+			row["error"] = fmt.Sprintf("HTTP %d", res.StatusCode)
+		}
+		items = append(items, row)
+	}
+	return map[string]any{"items": items, "applied_local": true}, nil
+}

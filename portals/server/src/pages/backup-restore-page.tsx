@@ -19,12 +19,14 @@ interface RestoreArchive {
 	created_at?: string
 	scope?: string
 	restorable?: boolean
+	restore_note?: string
 }
 
 export function BackupRestorePage () {
 	const canRestore = useCan('backups.restore')
 	const [archives, setArchives] = useState<RestoreArchive[]>([])
 	const [selectedId, setSelectedId] = useState('')
+	const [accountFilter, setAccountFilter] = useState('')
 	const [step, setStep] = useState(0)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState('')
@@ -46,6 +48,17 @@ export function BackupRestorePage () {
 	}
 	useEffect(load, [])
 
+	const visible = useMemo(() => {
+		const query = accountFilter.trim().toLowerCase()
+		if (!query) return archives
+		return archives.filter((archive) => {
+			const haystack = [
+				archive.account_username, archive.primary_domain, archive.id,
+				archive.kind, archive.scope, archive.destination,
+			].join(' ').toLowerCase()
+			return haystack.includes(query)
+		})
+	}, [accountFilter, archives])
 	const selected = useMemo(
 		() => archives.find((archive) => archive.id === selectedId) || null,
 		[archives, selectedId],
@@ -90,14 +103,7 @@ export function BackupRestorePage () {
 			<QueuedOpNotice message={message} jobId={jobId} />
 			{error ? <ErrorState error={error} onRetry={load} /> : null}
 			{loading ? <LoadingState label="Loading restorable backups…" /> : null}
-			{!loading && !archives.length ? (
-				<EmptyState
-					title="No backups available to restore"
-					detail="Director has no account or system archives in inventory yet. Configure a destination and queue a backup before restore can run."
-					action={<Link className="button-link" to="/transfers">Configure or run backups</Link>}
-				/>
-			) : null}
-			{!loading && archives.length ? (
+			{!loading ? (
 				<form className="form-panel" onSubmit={handleSubmit}>
 					<ol className="steps" aria-label="Workflow">
 						{['Review archives', 'Review restore'].map((label, index) => (
@@ -110,48 +116,70 @@ export function BackupRestorePage () {
 						<h2>{isConfirm ? 'Review restore' : 'Restorable archives'}</h2>
 						<p>{isConfirm
 							? `Director will queue an in-place restore of ${selected?.id} onto ${selected?.account_username || 'the selected account'}. Current account files may be replaced.`
-							: 'Choose one succeeded archive. Queued or failed backups stay listed but cannot be restored.'}</p>
+							: 'Choose one succeeded account archive. Queued, failed, and system archives stay listed but cannot be restored in place.'}</p>
 					</div>
 					{!isConfirm ? (
-						<div className="table-wrap"><table className="dense-table">
-							<thead>
-								<tr>
-									<th>Select</th>
-									<th>Archive</th>
-									<th>Account</th>
-									<th>Kind</th>
-									<th>State</th>
-									<th>Size</th>
-									<th>Created</th>
-								</tr>
-							</thead>
-							<tbody>
-								{archives.map((archive) => {
-									const canSelect = Boolean(archive.restorable && archive.account_id)
-									const label = `Select ${archive.id} for ${archive.account_username || archive.scope || 'archive'}`
-									return (
-										<tr key={archive.id}>
-											<td>
-												<input
-													type="radio"
-													name="restore-archive"
-													checked={selectedId === archive.id}
-													disabled={!canSelect}
-													aria-label={label}
-													onChange={() => setSelectedId(archive.id)}
-												/>
-											</td>
-											<td><strong>{archive.id}</strong><small>{archive.destination} · {archive.scope || 'account'}</small></td>
-											<td>{archive.account_username || 'System'}{archive.primary_domain ? <small>{archive.primary_domain}</small> : null}</td>
-											<td>{archive.kind}</td>
-											<td><StatusBadge value={archive.state} /></td>
-											<td>{formatBytes(archive.size_bytes)}</td>
-											<td>{formatDate(archive.created_at)}</td>
-										</tr>
-									)
-								})}
-							</tbody>
-						</table></div>
+						<>
+							<label>Filter inventory
+								<input
+									value={accountFilter}
+									onChange={(event) => setAccountFilter(event.target.value)}
+									placeholder="Username, domain, or archive id"
+								/>
+							</label>
+							<div className="table-wrap"><table className="dense-table">
+								<thead>
+									<tr>
+										<th>Select</th>
+										<th>Archive</th>
+										<th>Account</th>
+										<th>Kind</th>
+										<th>State</th>
+										<th>Size</th>
+										<th>Created</th>
+									</tr>
+								</thead>
+								<tbody>
+									{visible.map((archive) => {
+										const canSelect = Boolean(archive.restorable && archive.account_id)
+										const label = `Select ${archive.id} for ${archive.account_username || archive.scope || 'archive'}`
+										return (
+											<tr key={archive.id}>
+												<td>
+													<input
+														type="radio"
+														name="restore-archive"
+														checked={selectedId === archive.id}
+														disabled={!canSelect}
+														aria-label={label}
+														onChange={() => setSelectedId(archive.id)}
+													/>
+												</td>
+												<td><strong>{archive.id}</strong><small>{archive.destination} · {archive.scope || 'account'}</small></td>
+												<td>{archive.account_username || 'System'}{archive.primary_domain ? <small>{archive.primary_domain}</small> : null}</td>
+												<td>{archive.kind}</td>
+												<td><StatusBadge value={archive.state} />{archive.restore_note ? <small>{archive.restore_note}</small> : null}</td>
+												<td>{formatBytes(archive.size_bytes)}</td>
+												<td>{formatDate(archive.created_at)}</td>
+											</tr>
+										)
+									})}
+								</tbody>
+							</table></div>
+							{!archives.length ? (
+								<EmptyState
+									title="No backups available to restore"
+									detail="Director has no account or system archives in inventory yet. The restore workflow stays here — configure a destination and queue a backup, then return to select an archive."
+									action={<Link className="secondary" to="/transfers">Configure or run backups</Link>}
+								/>
+							) : null}
+							{archives.length && !visible.length ? (
+								<EmptyState
+									title="No archives match this filter"
+									detail="Clear the filter to see the full host inventory."
+								/>
+							) : null}
+						</>
 					) : selected ? (
 						<dl className="detail-list">
 							<div><dt>Archive</dt><dd>{selected.id}</dd></div>
@@ -165,6 +193,7 @@ export function BackupRestorePage () {
 						<button type="submit" disabled={busy || !selected || (isConfirm && !canRestore)}>
 							{busy ? 'Working…' : isConfirm ? 'Queue restore' : 'Continue'}
 						</button>
+						{!isConfirm ? <Link className="secondary" to="/transfers">Configure backups</Link> : null}
 					</div>
 					{isConfirm && !canRestore ? <p className="subtle">Your role can review this inventory, but the API will refuse the restore.</p> : null}
 				</form>

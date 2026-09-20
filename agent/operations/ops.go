@@ -766,6 +766,33 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.probeClusterPeers(p.URLs)
+	case "ApplyClusterSnapshot":
+		var p struct {
+			URLs     []string        `json:"urls"`
+			Snapshot json.RawMessage `json:"snapshot"`
+			Token    string          `json:"token"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.applyClusterSnapshot(p.URLs, p.Snapshot, p.Token)
+	case "ListServiceCertificates":
+		var p struct {
+			Hostname string `json:"hostname"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.listServiceCertificates(p.Hostname)
+	case "InstallServiceCertificate":
+		var p struct {
+			Service  string `json:"service"`
+			Hostname string `json:"hostname"`
+			CertPEM  string `json:"cert_pem"`
+			KeyPEM   string `json:"key_pem"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.installServiceCertificate(p.Service, p.Hostname, p.CertPEM, p.KeyPEM)
 	case "WriteRemoteAccessKey":
 		var rec RemoteAccessRecord
 		if err := json.Unmarshal(req.Params, &rec); err != nil {

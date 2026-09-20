@@ -40,6 +40,9 @@ beforeEach(() => {
 		if (path === '/api/v1/server/cluster/probe') {
 			return { operation_id: 'job-cluster-probe', items: [{ url: 'https://peer.example.test:2087', ok: true, status: 200 }] }
 		}
+		if (path === '/api/v1/server/cluster/apply') {
+			return { operation_id: 'job-cluster-apply', items: [{ url: 'https://peer.example.test:2087', ok: true, status: 202 }] }
+		}
 		if (path === '/api/v1/server/cluster/snapshot') {
 			return {
 				packages: [{ name: 'Starter' }],
@@ -148,13 +151,42 @@ describe('host-backed Director tools', () => {
 	test('configuration cluster publishes a host snapshot', async () => {
 		const user = userEvent.setup()
 		renderTool('/section/server?tool=configuration-cluster')
-		expect(await screen.findByText(/not live-replicate/i)).toBeInTheDocument()
+		expect(await screen.findByText(/writes peer URLs and package snapshots/i)).toBeInTheDocument()
 		expect(screen.getByRole('table', { name: 'Cluster capability matrix' })).toHaveTextContent('Unavailable')
-		expect(screen.queryByRole('button', { name: /apply to all nodes/i })).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Apply to linked nodes' })).toBeDisabled()
 		await user.click(screen.getByRole('button', { name: 'Publish package snapshot' }))
 		expect(await screen.findByText(/Job job-cluster-1/)).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Probe peer health' }))
 		expect(client.api).toHaveBeenCalledWith('/api/v1/server/cluster/probe', expect.objectContaining({ method: 'POST' }))
+	})
+
+	test('configuration cluster applies to linked nodes when the host reports peers', async () => {
+		const user = userEvent.setup()
+		vi.mocked(client.api).mockImplementation(async (path, init) => {
+			if (path === '/api/v1/server/cluster/snapshot') {
+				return {
+					packages: [{ name: 'Starter' }],
+					feature_sets: [{ name: 'full-hosting' }],
+					capabilities: {
+						peer_membership: true, snapshot_publish: true, snapshot_export: true,
+						snapshot_import: true, peer_health_probe: true, live_multi_node: true,
+					},
+				}
+			}
+			if (path === '/api/v1/server/cluster/apply') {
+				return { operation_id: 'job-cluster-apply', items: [{ url: 'https://peer.example.test:2087', ok: true }] }
+			}
+			if (path === '/api/v1/server/settings') {
+				return { values: { configuration_cluster: { peers: 'https://peer.example.test:2087' } } }
+			}
+			return { items: [], values: {}, operation_id: 'job-host-1' }
+		})
+		renderTool('/section/server?tool=configuration-cluster')
+		const apply = await screen.findByRole('button', { name: 'Apply to linked nodes' })
+		expect(apply).toBeEnabled()
+		await user.click(apply)
+		expect(client.api).toHaveBeenCalledWith('/api/v1/server/cluster/apply', expect.objectContaining({ method: 'POST' }))
+		expect(await screen.findByText(/Job job-cluster-apply/)).toBeInTheDocument()
 	})
 
 	test('remote access key issues and revokes a host-applied secret', async () => {

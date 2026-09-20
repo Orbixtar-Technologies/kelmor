@@ -83,6 +83,39 @@ func TestProbeClusterPeersHitsHealthz(t *testing.T) {
 	}
 }
 
+func TestApplyClusterSnapshotWritesLocalAndPostsPeers(t *testing.T) {
+	var gotAuth string
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/server/cluster/snapshot/import" {
+			http.NotFound(w, r)
+			return
+		}
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(peer.Close)
+	h := &Host{Root: t.TempDir()}
+	raw, err := h.applyClusterSnapshot([]string{peer.URL}, []byte(`{"packages":[{"name":"shared"}]}`), "peer-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer peer-token" {
+		t.Fatalf("auth: %q", gotAuth)
+	}
+	got, err := h.readClusterSnapshot()
+	if err != nil || !strings.Contains(string(got), "shared") {
+		t.Fatalf("local snapshot: %s %v", got, err)
+	}
+	payload, _ := raw.(map[string]any)
+	items, _ := payload["items"].([]map[string]any)
+	if len(items) != 1 || items[0]["ok"] != true {
+		t.Fatalf("apply: %#v", raw)
+	}
+	if _, err := h.applyClusterSnapshot([]string{"https://evil.test;rm"}, []byte(`{}`), ""); err == nil {
+		t.Fatal("expected hostile URL rejection")
+	}
+}
+
 func TestWriteRemoteAccessKeyPersistsHostFile(t *testing.T) {
 	h := &Host{Root: t.TempDir()}
 	if _, err := h.writeRemoteAccessKey(RemoteAccessRecord{Prefix: "nope", Hash: strings.Repeat("a", 64)}); err == nil {
