@@ -21,25 +21,78 @@ func (a *API) updateStatus(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.ServerRead) {
 		return
 	}
-	statusPath := panelUpdateStatusPath
-	if a.Agent != nil && a.Agent.Sock == "" && a.Agent.Root != "" {
-		statusPath = filepath.Join(a.Agent.Root, "var/lib/panel/update-status.json")
-	}
-	raw, err := os.ReadFile(statusPath)
+	status, err := a.readUpdateStatus()
 	if err != nil {
-		a.fail(w, r, http.StatusInternalServerError, "UPDATE_STATUS_ERROR", "Could not read update status", false)
+		a.fail(w, r, http.StatusInternalServerError, "UPDATE_STATUS_ERROR", err.Error(), false)
 		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (a *API) updateChangelog(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, rbac.ServerRead) {
+		return
+	}
+	status, err := a.readUpdateStatus()
+	if err != nil {
+		a.fail(w, r, http.StatusInternalServerError, "UPDATE_STATUS_ERROR", err.Error(), false)
+		return
+	}
+	writeJSON(w, http.StatusOK, a.changelogView(status))
+}
+
+func (a *API) readUpdateStatus() (update.Status, error) {
+	raw, err := os.ReadFile(a.updateStatusPath())
+	if err != nil {
+		return update.Status{}, fmt.Errorf("Could not read update status")
 	}
 	var status update.Status
 	if err := json.Unmarshal(raw, &status); err != nil {
-		a.fail(w, r, http.StatusInternalServerError, "UPDATE_STATUS_ERROR", "Could not decode update status", false)
-		return
+		return update.Status{}, fmt.Errorf("Could not decode update status")
 	}
 	if a.Version != "" {
 		status.RunningRelease = a.Version
 		status.InstalledRelease = a.Version
 	}
-	writeJSON(w, http.StatusOK, status)
+	return status, nil
+}
+
+func (a *API) updateStatusPath() string {
+	if a.Agent != nil && a.Agent.Sock == "" && a.Agent.Root != "" {
+		return filepath.Join(a.Agent.Root, "var/lib/panel/update-status.json")
+	}
+	return panelUpdateStatusPath
+}
+
+func (a *API) updateInstallRoot() string {
+	if a.Agent != nil && a.Agent.Sock == "" && a.Agent.Root != "" {
+		return a.Agent.Root
+	}
+	return ""
+}
+
+func (a *API) changelogView(status update.Status) update.ChangelogView {
+	docs := make([]update.ChangelogDocument, 0, 3)
+	if cached, err := update.ReadChangelogFile(
+		update.ChangelogCachePath(a.updateStatusPath(), a.updateInstallRoot()),
+		"update-feed",
+	); err == nil && len(cached.Items) > 0 {
+		docs = append(docs, cached)
+	}
+	if local, err := update.ReadChangelogFile(
+		update.FeedChangelogPath(a.updateInstallRoot(), status.Channel),
+		"update-feed",
+	); err == nil && len(local.Items) > 0 {
+		docs = append(docs, local)
+	}
+	if embedded := update.EmbeddedChangelogDocument(); len(embedded.Items) > 0 {
+		docs = append(docs, embedded)
+	}
+	running := status.RunningRelease
+	if running == "" {
+		running = a.Version
+	}
+	return update.BuildChangelogView(status, running, docs...)
 }
 
 func (a *API) checkUpdate(w http.ResponseWriter, r *http.Request) {

@@ -306,6 +306,23 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "500": { $ref: "#/components/responses/Error" }
+  /server/updates/changelog:
+    get:
+      operationId: getServerUpdateChangelog
+      x-capability: server.read
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Operator-facing notes for the installed and available releases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateChangelog"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "500": { $ref: "#/components/responses/Error" }
   /server/updates/check:
     post:
       operationId: checkServerUpdates
@@ -1883,6 +1900,31 @@ components:
         error: { type: string }
         automatic: { type: boolean }
         channel: { type: string }
+    UpdateChangelog:
+      type: object
+      additionalProperties: false
+      required: [installed_release, channel, items]
+      properties:
+        installed_release: { type: string }
+        available_release: { type: string }
+        running_release: { type: string }
+        channel: { type: string }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpdateChangelogItem"
+    UpdateChangelogItem:
+      type: object
+      additionalProperties: false
+      required: [version, status, source, notes]
+      properties:
+        version: { type: string }
+        status: { type: string }
+        source: { type: string }
+        title: { type: string }
+        notes:
+          type: array
+          items: { type: string }
     PanelUpdateResult:
       type: object
       additionalProperties: false

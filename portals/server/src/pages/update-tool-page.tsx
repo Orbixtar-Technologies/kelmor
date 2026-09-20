@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../client'
-import { ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
+import { EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
 import { useCan } from '../rbac'
 
@@ -15,6 +15,26 @@ interface UpdateStatus {
 	automatic: boolean
 	channel: string
 }
+
+interface ChangelogItem {
+	version: string
+	status: string
+	source: string
+	title?: string
+	notes: string[]
+}
+
+interface ChangelogView {
+	installed_release: string
+	available_release?: string
+	running_release?: string
+	channel: string
+	items: ChangelogItem[]
+}
+
+export const CHANGELOG_EMPTY_TITLE = 'No release notes yet'
+export const CHANGELOG_EMPTY_DETAIL = 'The signed update feed and the installed changelog have not published notes for the installed or available release. Software Updates still shows what this host would install next.'
+export const SOFTWARE_UPDATES_CTA = 'Open Software Updates'
 
 interface UpdateToolPageProps {
 	toolId: 'preferences' | 'changelog'
@@ -95,6 +115,19 @@ function UpdatePreferencesPage () {
 
 function ChangeLogPage () {
 	const { status, loading, error, updatedAt, load } = useUpdateStatus()
+	const [changelog, setChangelog] = useState<ChangelogView | null>(null)
+	const [notesError, setNotesError] = useState('')
+	const loadNotes = useCallback(async () => {
+		setNotesError('')
+		try {
+			setChangelog(await api<ChangelogView>('/api/v1/server/updates/changelog'))
+		} catch (requestError) {
+			setNotesError(messageFrom(requestError))
+			setChangelog(null)
+		}
+	}, [])
+	useEffect(() => { void loadNotes() }, [loadNotes])
+	const items = changelog?.items || []
 	return (
 		<>
 			<PageHeader
@@ -117,8 +150,34 @@ function ChangeLogPage () {
 					</dl>
 				) : null}
 				{status?.error ? <p className="field-error" role="alert">{status.error}</p> : null}
-				<p>The update API does not publish release notes or a signed change log. This page shows the installed and available releases on the configured channel so operators can see what the host would install next.</p>
-				<p><Link to="/updates">Open Software Updates</Link></p>
+			</section>
+			<section className="panel">
+				<SectionHeading
+					title="Release notes"
+					detail="Notes come from the update feed changelog, a cached check, or the changelog compiled into this release. Director does not invent entries."
+				/>
+				{notesError ? <ErrorState error={notesError} onRetry={() => { void loadNotes() }} /> : null}
+				{!notesError && items.length ? (
+					<ol className="list-plain">
+						{items.map((item) => (
+							<li key={`${item.status}:${item.version}`}>
+								<h3>{item.version} <small>{item.status} · {item.source}</small></h3>
+								{item.title ? <p>{item.title}</p> : null}
+								<ul>
+									{item.notes.map((note) => <li key={note}>{note}</li>)}
+								</ul>
+							</li>
+						))}
+					</ol>
+				) : null}
+				{!notesError && changelog && !items.length ? (
+					<EmptyState
+						title={CHANGELOG_EMPTY_TITLE}
+						detail={CHANGELOG_EMPTY_DETAIL}
+						action={<Link className="button-link" to="/updates">{SOFTWARE_UPDATES_CTA}</Link>}
+					/>
+				) : null}
+				{items.length ? <p><Link to="/updates">{SOFTWARE_UPDATES_CTA}</Link></p> : null}
 			</section>
 		</>
 	)

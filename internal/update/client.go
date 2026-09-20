@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -90,9 +91,11 @@ func checkLocked(ctx context.Context, config Config, status Status) (*Status, er
 	}
 	if compareVersions(available, installed) <= 0 {
 		status.State = "idle"
+		refreshChangelogCache(ctx, config)
 		return finishStatus(config.StatusPath, status, nil)
 	}
 	status.State = "available"
+	refreshChangelogCache(ctx, config)
 	return finishStatus(config.StatusPath, status, nil)
 }
 
@@ -142,6 +145,67 @@ func fetchManifest(ctx context.Context, config Config) (*Manifest, error) {
 		return nil, fmt.Errorf("decode manifest: trailing data")
 	}
 	return &manifest, nil
+}
+
+func refreshChangelogCache(ctx context.Context, config Config) {
+	cachePath := ChangelogCachePath(config.StatusPath, config.InstallRoot)
+	if cachePath == "" {
+		return
+	}
+	doc, err := fetchFeedChangelog(ctx, config)
+	if err != nil {
+		if os.IsNotExist(err) {
+			_ = os.Remove(cachePath)
+		}
+		return
+	}
+	if len(doc.Items) == 0 {
+		_ = os.Remove(cachePath)
+		return
+	}
+	_ = WriteChangelogCache(cachePath, doc)
+}
+
+func fetchFeedChangelog(ctx context.Context, config Config) (ChangelogDocument, error) {
+	base, err := validateFeedURL(config.FeedURL)
+	if err != nil {
+		return ChangelogDocument{}, err
+	}
+	if !validRelativePath(config.Channel) || strings.Contains(config.Channel, "/") {
+		return ChangelogDocument{}, fmt.Errorf("invalid update channel")
+	}
+	changelogURL, err := url.JoinPath(base.String(), config.Channel, "changelog.json")
+	if err != nil {
+		return ChangelogDocument{}, fmt.Errorf("build changelog URL: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, changelogURL, nil)
+	if err != nil {
+		return ChangelogDocument{}, err
+	}
+	requestContext, cancel := context.WithTimeout(request.Context(), manifestRequestTimeout)
+	defer cancel()
+	request = request.WithContext(requestContext)
+	client := feedClientFactory(base, manifestRequestTimeout)
+	response, err := client.Do(request)
+	if err != nil {
+		return ChangelogDocument{}, fmt.Errorf("fetch changelog: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return ChangelogDocument{}, os.ErrNotExist
+	}
+	if response.StatusCode != http.StatusOK {
+		return ChangelogDocument{}, fmt.Errorf("fetch changelog: HTTP %d", response.StatusCode)
+	}
+	reader := io.LimitReader(response.Body, maxChangelogBytes+1)
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return ChangelogDocument{}, fmt.Errorf("read changelog: %w", err)
+	}
+	if len(raw) > maxChangelogBytes {
+		return ChangelogDocument{}, fmt.Errorf("changelog exceeds size limit")
+	}
+	return ParseJSONChangelog(raw, "update-feed")
 }
 
 func validateManifestForCheck(manifest *Manifest, config Config) error {
