@@ -135,6 +135,28 @@ func TestApplyFTPServerConfigRejectsHostileBanner(t *testing.T) {
 	}
 }
 
+func TestApplyFTPServerConfigWritesPanelOverlayWhenDaemonConfigMissing(t *testing.T) {
+	h := &Host{Root: t.TempDir()}
+	res, err := h.applyHostConfig(HostConfigSpec{
+		FTPEnabled: true,
+		PasvMin:    40000,
+		PasvMax:    40100,
+	})
+	if err != nil || !res.OK {
+		t.Fatalf("PASV-only apply must not fail the rest of host config: %+v %v", res, err)
+	}
+	panel, err := os.ReadFile(filepath.Join(h.Root, "etc/panel/vsftpd-panel.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(panel), "pasv_min_port=40000") {
+		t.Fatalf("sidecar: %s", panel)
+	}
+	if _, err := os.Stat(filepath.Join(h.Root, "etc/vsftpd.conf")); !os.IsNotExist(err) {
+		t.Fatalf("must not invent vsftpd.conf: %v", err)
+	}
+}
+
 func TestApplyFTPServerConfigFailsWhenDaemonConfigMissing(t *testing.T) {
 	h := &Host{Root: t.TempDir()}
 	_, err := h.applyHostConfig(HostConfigSpec{

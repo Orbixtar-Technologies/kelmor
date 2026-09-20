@@ -31,7 +31,13 @@ func (h *Host) applyFTPServerConfig(spec HostConfigSpec) error {
 	}
 	existing, err := h.readManaged("/etc/vsftpd.conf", 1<<20)
 	if err != nil {
-		return fmt.Errorf("vsftpd configuration is not present")
+		if spec.FTPBanner != "" {
+			return fmt.Errorf("vsftpd configuration is not present")
+		}
+		if _, writeErr := h.ApplyFile("/etc/panel/vsftpd-panel.conf", []byte(overlay), 0o644); writeErr != nil {
+			return writeErr
+		}
+		return nil
 	}
 	if _, err := h.ApplyFile("/etc/panel/vsftpd-panel.conf", []byte(overlay), 0o644); err != nil {
 		return err
