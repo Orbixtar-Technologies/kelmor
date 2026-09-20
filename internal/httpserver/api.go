@@ -140,6 +140,7 @@ func (a *API) Handler() http.Handler {
 			r.Get("/resellers/{resellerID}", a.getReseller)
 			r.Patch("/resellers/{resellerID}", a.updateReseller)
 			r.Post("/resellers/{resellerID}/bandwidth/reset", a.resetResellerBandwidth)
+			r.Get("/backups", a.listRestoreInventory)
 			r.Get("/accounts", a.listAccounts)
 			r.Post("/accounts", a.createAccount)
 			r.Get("/accounts/{accountID}", a.getAccount)
@@ -1437,7 +1438,13 @@ func (a *API) listResellers(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.ResellersRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": a.Store.ListResellers()})
+	accounts := a.Store.ListAccounts("", "")
+	items := make([]map[string]any, 0)
+	for _, reseller := range a.Store.ListResellers() {
+		cp := reseller
+		items = append(items, a.resellerManagerRow(&cp, accounts))
+	}
+	writeJSON(w, 200, map[string]any{"items": items})
 }
 
 func (a *API) getReseller(w http.ResponseWriter, r *http.Request) {

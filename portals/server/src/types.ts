@@ -107,6 +107,16 @@ export interface Reseller {
 	privilege_mask: string[]
 	nameservers: string[]
 	status: string
+	accounts?: number
+	active?: number
+	suspended?: number
+	disk_bytes?: number
+	disk_limit?: number
+	bandwidth_bytes?: number
+	bandwidth_limit?: number
+	bandwidth_holds?: number
+	packages?: string[]
+	package_count?: number
 }
 
 export interface Job {

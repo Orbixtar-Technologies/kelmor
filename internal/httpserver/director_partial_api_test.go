@@ -29,6 +29,103 @@ func TestResetAccountBandwidthQueuesAgentJob(t *testing.T) {
 	}
 }
 
+func TestResellerListIncludesAccountsPackagesAndUsage(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	pkg := firstPackageID(t, srv, token)
+	aid := seedAccount(t, srv, token, "reslist", "reslist.example.test", pkg)
+	created := post(t, srv.URL+"/api/v1/resellers", token, map[string]any{
+		"name": "North Desk", "username": "northdesk", "password": "ResellerPass!2026",
+		"brand_name": "North Host",
+	})
+	rid := created["id"].(string)
+	owned := post(t, srv.URL+"/api/v1/packages", token, map[string]any{
+		"name": "North Desk Plan", "reseller_id": rid,
+	})
+	acc := st.GetAccount(aid)
+	acc.ResellerID = rid
+	st.PutAccount(acc)
+	st.PutUsage(&store.Usage{AccountID: aid, DiskBytes: 512, BandwidthBytes: 1024})
+
+	listed := get(t, srv.URL+"/api/v1/resellers", token)
+	items := listed["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("reseller rows: %v", listed)
+	}
+	row := items[0].(map[string]any)
+	if row["id"] != rid || row["name"] != "North Desk" || row["status"] != "active" {
+		t.Fatalf("identity: %v", row)
+	}
+	if row["accounts"].(float64) != 1 {
+		t.Fatalf("accounts: %v", row)
+	}
+	if row["disk_bytes"].(float64) != 512 || row["bandwidth_bytes"].(float64) != 1024 {
+		t.Fatalf("usage: %v", row)
+	}
+	if row["disk_limit"].(float64) <= 0 || row["bandwidth_limit"].(float64) <= 0 {
+		t.Fatalf("limits: %v", row)
+	}
+	packages, _ := row["packages"].([]any)
+	foundOwned := false
+	for _, name := range packages {
+		if name == owned["name"] {
+			foundOwned = true
+		}
+	}
+	if !foundOwned {
+		t.Fatalf("packages: %v", row["packages"])
+	}
+}
+
+func TestRestoreInventoryListsHostBackups(t *testing.T) {
+	srv, st, token := directorFixture(t)
+	pkg := firstPackageID(t, srv, token)
+	aid := seedAccount(t, srv, token, "rstinv", "rstinv.example.test", pkg)
+	st.PutBackup(&store.BackupRun{
+		ID: "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa", AccountID: aid,
+		Kind: "full", State: "succeeded", Destination: "local", SizeBytes: 2048,
+		Checksum: "abc", CreatedAt: time.Now().UTC(),
+	})
+	st.PutBackup(&store.BackupRun{
+		ID: "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb", AccountID: aid,
+		Kind: "full", State: "queued", Destination: "local",
+	})
+	st.PutBackup(&store.BackupRun{
+		ID:   "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+		Kind: "system", State: "succeeded", Destination: "local", SizeBytes: 99,
+	})
+
+	listed := get(t, srv.URL+"/api/v1/backups", token)
+	items := listed["items"].([]any)
+	if len(items) != 3 {
+		t.Fatalf("inventory: %v", listed)
+	}
+	byID := map[string]map[string]any{}
+	for _, raw := range items {
+		row := raw.(map[string]any)
+		byID[row["id"].(string)] = row
+	}
+	ready := byID["aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"]
+	if ready["restorable"] != true || ready["account_username"] != "rstinv" || ready["scope"] != "account" {
+		t.Fatalf("account archive: %v", ready)
+	}
+	if byID["bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb"]["restorable"] != false {
+		t.Fatalf("queued must not be restorable: %v", byID["bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb"])
+	}
+	system := byID["cccccccc-cccc-7ccc-8ccc-cccccccccccc"]
+	if system["scope"] != "system" || system["restorable"] != true {
+		t.Fatalf("system archive: %v", system)
+	}
+}
+
+func TestRestoreInventoryEmptyWhenNone(t *testing.T) {
+	srv, _, token := directorFixture(t)
+	listed := get(t, srv.URL+"/api/v1/backups", token)
+	items, _ := listed["items"].([]any)
+	if items == nil || len(items) != 0 {
+		t.Fatalf("empty inventory must be []: %v", listed)
+	}
+}
+
 func TestResellerUsageMetersAndReset(t *testing.T) {
 	srv, st, token := directorFixture(t)
 	pkg := firstPackageID(t, srv, token)
