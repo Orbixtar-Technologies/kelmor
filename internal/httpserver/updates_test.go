@@ -2,6 +2,10 @@ package httpserver
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -152,6 +156,7 @@ func TestUpdateMutationsRejectAccountScopedToken(t *testing.T) {
 
 func TestUpdateMutationIsAudited(t *testing.T) {
 	server := newUpdateTestServer(t)
+	writeSignedUpdateAPIHost(t, server.root, "1.0.0", "1.0.0")
 	code, body := requestJSONStatus(
 		t,
 		http.MethodPost,
@@ -160,7 +165,7 @@ func TestUpdateMutationIsAudited(t *testing.T) {
 		nil,
 		map[string]string{"X-Request-ID": "update-audit-request"},
 	)
-	if code != http.StatusAccepted {
+	if code != http.StatusOK {
 		t.Fatalf("check update: %d %v", code, body)
 	}
 
@@ -231,6 +236,7 @@ func TestUpdateMutationIntentIsAuditedBeforeAgentFailure(t *testing.T) {
 
 func TestUpdateMutationsRequireBearerAndSameOrigin(t *testing.T) {
 	server := newUpdateTestServer(t)
+	writeSignedUpdateAPIHost(t, server.root, "1.0.0", "1.0.0")
 	sessionCookie := loginUpdateTestCookie(t, server.url)
 	if sessionCookie.Secure {
 		t.Fatal("HTTP development login issued a Secure cookie")
@@ -259,7 +265,7 @@ func TestUpdateMutationsRequireBearerAndSameOrigin(t *testing.T) {
 		nil,
 		map[string]string{"Origin": server.url},
 	)
-	if code != http.StatusAccepted {
+	if code != http.StatusOK {
 		t.Fatalf("same-origin bearer update: %d %v", code, body)
 	}
 	code, body = requestJSONStatus(
@@ -275,6 +281,7 @@ func TestUpdateMutationsRequireBearerAndSameOrigin(t *testing.T) {
 
 func TestUpdateMutationOriginBehindProductionProxy(t *testing.T) {
 	server := newUpdateTestServer(t)
+	writeSignedUpdateAPIHost(t, server.root, "1.0.0", "1.0.0")
 	code, body := proxiedUpdateRequest(
 		t,
 		server,
@@ -283,7 +290,7 @@ func TestUpdateMutationOriginBehindProductionProxy(t *testing.T) {
 		"panel.example:8443",
 		"https://panel.example:8443",
 	)
-	if code != http.StatusAccepted {
+	if code != http.StatusOK {
 		t.Fatalf("production proxy origin: %d %v", code, body)
 	}
 	code, body = proxiedUpdateRequest(
@@ -294,7 +301,7 @@ func TestUpdateMutationOriginBehindProductionProxy(t *testing.T) {
 		"panel.example:9443",
 		"https://panel.example:9443",
 	)
-	if code != http.StatusAccepted {
+	if code != http.StatusOK {
 		t.Fatalf("matching alternate proxy authority: %d %v", code, body)
 	}
 	code, body = proxiedUpdateRequest(
@@ -305,7 +312,7 @@ func TestUpdateMutationOriginBehindProductionProxy(t *testing.T) {
 		"panel.example",
 		"https://panel.example:443",
 	)
-	if code != http.StatusAccepted {
+	if code != http.StatusOK {
 		t.Fatalf("default HTTPS port normalization: %d %v", code, body)
 	}
 
@@ -374,6 +381,91 @@ func proxiedUpdateRequest(
 	var body map[string]any
 	_ = json.NewDecoder(response.Body).Decode(&body)
 	return response.StatusCode, body
+}
+
+func TestUpdateCheckPersistsLastCheckedAndReturnsIt(t *testing.T) {
+	server := newUpdateTestServer(t)
+	writeSignedUpdateAPIHost(t, server.root, "1.0.0", "1.0.0")
+
+	code, body := requestJSONStatus(
+		t,
+		http.MethodPost,
+		server.url+"/api/v1/server/updates/check",
+		server.admin,
+		nil,
+		nil,
+	)
+	if code != http.StatusOK {
+		t.Fatalf("check update: %d %v", code, body)
+	}
+	checkedAt, _ := body["last_checked_at"].(string)
+	if checkedAt == "" {
+		t.Fatalf("check response missing last_checked_at: %v", body)
+	}
+	if body["state"] != "idle" {
+		t.Fatalf("check state: %v", body)
+	}
+
+	code, body = requestJSONStatus(
+		t,
+		http.MethodGet,
+		server.url+"/api/v1/server/updates",
+		server.auditor,
+		nil,
+		nil,
+	)
+	if code != http.StatusOK || body["last_checked_at"] != checkedAt {
+		t.Fatalf("status after check: %d %v", code, body)
+	}
+}
+
+func TestUpdateCheckFailureLeavesLastCheckedUnchanged(t *testing.T) {
+	server := newUpdateTestServer(t)
+	writeSignedUpdateAPIHost(t, server.root, "1.0.0", "1.0.0")
+	previous := "2026-09-09T16:00:00Z"
+	statusPath := filepath.Join(server.root, "var/lib/panel/update-status.json")
+	if err := update.WriteStatus(statusPath, update.Status{
+		State: "idle", InstalledRelease: "1.0.0", LastCheckedAt: previous,
+		Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(server.root, "etc/panel/update.env"), []byte(
+		"PANEL_UPDATE_FEED_URL=http://updates.example.test\n"+
+			"PANEL_UPDATE_CHANNEL=stable\n"+
+			"PANEL_UPDATE_AUTOMATIC=true\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := requestJSONStatus(
+		t,
+		http.MethodPost,
+		server.url+"/api/v1/server/updates/check",
+		server.admin,
+		nil,
+		nil,
+	)
+	if code == http.StatusOK {
+		t.Fatalf("expected failed check, got %d %v", code, body)
+	}
+	errorBody, _ := body["error"].(map[string]any)
+	message, _ := errorBody["message"].(string)
+	if message == "" || message == "Could not manage server update" {
+		t.Fatalf("expected honest check error, got %d %v", code, body)
+	}
+
+	code, body = requestJSONStatus(
+		t,
+		http.MethodGet,
+		server.url+"/api/v1/server/updates",
+		server.auditor,
+		nil,
+		nil,
+	)
+	if code != http.StatusOK || body["last_checked_at"] != previous {
+		t.Fatalf("status after failed check: %d %v", code, body)
+	}
 }
 
 func TestUpdateSettingsAreReflectedInStatus(t *testing.T) {
@@ -498,15 +590,21 @@ func TestUpdateOpenAPIDocumentsSecurityAndAsyncResponses(t *testing.T) {
 		t.Fatalf("update changelog security/schema is incomplete:\n%s", changelog)
 	}
 
-	for _, path := range []string{"/server/updates/check", "/server/updates/install"} {
-		block := openAPIPathBlock(document, path)
-		if !strings.Contains(block, "security:\n        - bearerAuth: []") ||
-			strings.Contains(block, "cookieAuth: []") ||
-			!strings.Contains(block, `"202":`) ||
-			!strings.Contains(block, `$ref: "#/components/schemas/PanelUpdateResult"`) ||
-			!strings.Contains(block, `"401": { $ref: "#/components/responses/Error" }`) {
-			t.Fatalf("%s security/202 schema is incomplete:\n%s", path, block)
-		}
+	check := openAPIPathBlock(document, "/server/updates/check")
+	if !strings.Contains(check, "security:\n        - bearerAuth: []") ||
+		strings.Contains(check, "cookieAuth: []") ||
+		!strings.Contains(check, `"200":`) ||
+		!strings.Contains(check, `$ref: "#/components/schemas/UpdateStatus"`) ||
+		!strings.Contains(check, `"401": { $ref: "#/components/responses/Error" }`) {
+		t.Fatalf("update check security/200 schema is incomplete:\n%s", check)
+	}
+	install := openAPIPathBlock(document, "/server/updates/install")
+	if !strings.Contains(install, "security:\n        - bearerAuth: []") ||
+		strings.Contains(install, "cookieAuth: []") ||
+		!strings.Contains(install, `"202":`) ||
+		!strings.Contains(install, `$ref: "#/components/schemas/PanelUpdateResult"`) ||
+		!strings.Contains(install, `"401": { $ref: "#/components/responses/Error" }`) {
+		t.Fatalf("update install security/202 schema is incomplete:\n%s", install)
 	}
 
 	settings := openAPIPathBlock(document, "/server/updates/settings")
@@ -562,6 +660,63 @@ func newUpdateTestServer(t *testing.T) updateTestServer {
 		admin:    loginUpdateTestUser(t, server.URL, "admin", "ChangeMeOnce!2026"),
 		auditor:  loginUpdateTestUser(t, server.URL, "update-auditor", "UpdateTestPass!2026"),
 		customer: loginUpdateTestUser(t, server.URL, "update-customer", "UpdateTestPass!2026"),
+	}
+}
+
+func writeSignedUpdateAPIHost(t *testing.T, root, installed, available string) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("panel")
+	sum := sha256.Sum256(payload)
+	manifest := &update.Manifest{
+		Release: available, Channel: "stable", MinimumRelease: "1.0.0",
+		Artifacts: []update.Artifact{{
+			Path: "panel-api", Target: "bin/panel-api",
+			Size: int64(len(payload)), SHA256: hex.EncodeToString(sum[:]), Mode: 0o755,
+		}},
+	}
+	if err := update.Sign(manifest, priv); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/stable/manifest.json" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	}))
+	t.Cleanup(feed.Close)
+
+	if err := os.MkdirAll(filepath.Join(root, "usr/local/panel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "usr/local/panel/current-release"), []byte(installed+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "etc/panel"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc/panel/update.pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := "PANEL_UPDATE_FEED_URL=" + feed.URL + "\n" +
+		"PANEL_UPDATE_CHANNEL=stable\n" +
+		"PANEL_UPDATE_AUTOMATIC=true\n"
+	if err := os.WriteFile(filepath.Join(root, "etc/panel/update.env"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := update.WriteStatus(filepath.Join(root, "var/lib/panel/update-status.json"), update.Status{
+		State: "idle", InstalledRelease: installed, Automatic: true, Channel: "stable",
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -96,7 +96,30 @@ func (a *API) changelogView(status update.Status) update.ChangelogView {
 }
 
 func (a *API) checkUpdate(w http.ResponseWriter, r *http.Request) {
-	a.mutateUpdate(w, r, "check", nil, http.StatusAccepted)
+	if !a.requireUpdateMutation(w, r) {
+		return
+	}
+	var empty struct{}
+	if err := decodeStrictJSON(r.Body, &empty, true); err != nil {
+		a.fail(w, r, http.StatusBadRequest, "INVALID_JSON", "Update action does not accept input", false)
+		return
+	}
+	a.audit(r, "server.update.check.intent", "server_update", "", true, nil, map[string]any{"action": "check"})
+	if a.Agent == nil {
+		a.fail(w, r, http.StatusInternalServerError, "AGENT_ERROR", "Update agent is unavailable", false)
+		return
+	}
+	if _, err := a.Agent.ManagePanelUpdate(r.Context(), operations.PanelUpdateRequest{Action: "check"}); err != nil {
+		a.fail(w, r, http.StatusInternalServerError, "AGENT_ERROR", err.Error(), false)
+		return
+	}
+	status, err := a.readUpdateStatus()
+	if err != nil {
+		a.fail(w, r, http.StatusInternalServerError, "UPDATE_STATUS_ERROR", err.Error(), false)
+		return
+	}
+	a.audit(r, "server.update.check", "server_update", "", true, nil, map[string]any{"action": "check"})
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (a *API) installUpdate(w http.ResponseWriter, r *http.Request) {

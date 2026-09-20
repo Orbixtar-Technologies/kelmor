@@ -144,7 +144,7 @@ func loadUpdateConfig(path string) (update.Config, error) {
 	if path != "/etc/panel/update.env" {
 		return update.Config{}, fmt.Errorf("production config must be /etc/panel/update.env")
 	}
-	config, err := parseUpdateConfigFile(path)
+	config, err := update.LoadConfig(path)
 	if err != nil {
 		return update.Config{}, err
 	}
@@ -165,82 +165,7 @@ func validateProductionConfig(config update.Config) error {
 }
 
 func parseUpdateConfigFile(path string) (update.Config, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return update.Config{}, err
-	}
-	values := make(map[string]string)
-	for lineNumber, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, value, found := strings.Cut(line, "=")
-		if !found {
-			return update.Config{}, fmt.Errorf("invalid config line %d", lineNumber+1)
-		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if len(value) >= 2 &&
-			((value[0] == '"' && value[len(value)-1] == '"') ||
-				(value[0] == '\'' && value[len(value)-1] == '\'')) {
-			value = value[1 : len(value)-1]
-		}
-		if _, duplicate := values[key]; duplicate {
-			return update.Config{}, fmt.Errorf("duplicate config key %s", key)
-		}
-		values[key] = value
-	}
-
-	automatic := false
-	if value, exists := values["PANEL_UPDATE_AUTOMATIC"]; exists {
-		switch value {
-		case "true":
-			automatic = true
-		case "false":
-		default:
-			return update.Config{}, fmt.Errorf("PANEL_UPDATE_AUTOMATIC must be true or false")
-		}
-	}
-	installRoot := valueOrDefault(values["PANEL_UPDATE_INSTALL_ROOT"], defaultInstallRoot)
-	statusPath := valueOrDefault(values["PANEL_UPDATE_STATUS_PATH"], defaultStatusPath)
-	publicKeyPath := values["PANEL_UPDATE_PUBLIC_KEY"]
-	if publicKeyPath == "" {
-		publicKeyPath = valueOrDefault(values["PANEL_UPDATE_PUBLIC_KEY_PATH"], defaultPublicKeyPath)
-	}
-	publicKeyRaw, err := os.ReadFile(publicKeyPath)
-	if err != nil {
-		return update.Config{}, fmt.Errorf("read pinned public key: %w", err)
-	}
-	publicKey, err := update.ParsePublicKey(string(publicKeyRaw))
-	if err != nil {
-		return update.Config{}, err
-	}
-	currentRelease, err := os.ReadFile(filepath.Join(installRoot, "current-release"))
-	if err != nil {
-		return update.Config{}, fmt.Errorf("read installed release: %w", err)
-	}
-	feedURL := values["PANEL_UPDATE_FEED_URL"]
-	if feedURL == "" {
-		return update.Config{}, fmt.Errorf("PANEL_UPDATE_FEED_URL is required")
-	}
-	channel := values["PANEL_UPDATE_CHANNEL"]
-	if channel == "" {
-		return update.Config{}, fmt.Errorf("PANEL_UPDATE_CHANNEL is required")
-	}
-	return update.Config{
-		FeedURL: feedURL, Channel: channel,
-		InstalledRelease: strings.TrimSpace(string(currentRelease)),
-		PublicKey:        publicKey, InstallRoot: installRoot,
-		StatusPath: statusPath, Automatic: automatic,
-	}, nil
-}
-
-func valueOrDefault(value, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-	return value
+	return update.LoadConfig(path)
 }
 
 func writeJSON(value any) {

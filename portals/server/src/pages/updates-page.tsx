@@ -3,6 +3,7 @@ import { api } from '../client'
 import { ErrorState, LoadingState, PageHeader, SectionHeading } from '../components/ui'
 import { formatDate, messageFrom } from '../helpers'
 import { updateInstallDisabledReason } from './service-control-copy'
+import { formatLastChecked, updateCheckFeedback } from './updates-copy'
 import { useCan } from '../rbac'
 
 interface UpdateStatus {
@@ -42,6 +43,13 @@ export function UpdatesPage () {
 		setBusy(true)
 		setMessage('')
 		try {
+			if (path === '/api/v1/server/updates/check') {
+				const next = await api<UpdateStatus>(path, { method: 'POST', body: '{}' })
+				setStatus(next)
+				setUpdatedAt(new Date().toISOString())
+				setMessage(updateCheckFeedback(next))
+				return
+			}
 			await api(path, { method: 'POST', body: '{}' })
 			setMessage('Update request accepted.')
 			await load()
@@ -86,7 +94,7 @@ export function UpdatesPage () {
 					<div><dt>Channel</dt><dd><code>{status.channel}</code></dd></div>
 					<div><dt>State</dt><dd><code>{status.state}</code></dd></div>
 					<div><dt>Automatic install</dt><dd>{status.automatic ? 'Enabled' : 'Disabled'}</dd></div>
-					<div><dt>Last checked</dt><dd>{status.last_checked_at || '—'}</dd></div>
+					<div><dt>Last checked</dt><dd>{formatLastChecked(status.last_checked_at)}</dd></div>
 				</dl>
 				{status.error ? <p className="field-error" role="alert">{status.error}</p> : null}
 				<p className="subtle">Release notes, signature manifests, and the next automatic-install time are not published by the update API. Install uses the signed stable feed already configured on the host. Rollback is a later install of a previous release, not an in-page undo. Plan a short maintenance window before installing because services restart after verification.</p>

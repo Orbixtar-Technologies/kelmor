@@ -41,7 +41,6 @@ func Check(ctx context.Context, config Config) (*Status, error) {
 	status := Status{
 		State: "error", InstalledRelease: config.InstalledRelease,
 		Automatic: config.Automatic, Channel: config.Channel,
-		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if config.InstallRoot == "" {
 		return &status, fmt.Errorf("install root is required")
@@ -60,7 +59,6 @@ func checkWithOperationLock(ctx context.Context, config Config, lock *operationL
 	status := Status{
 		State: "error", InstalledRelease: config.InstalledRelease,
 		Automatic: config.Automatic, Channel: config.Channel,
-		LastCheckedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := recoverInterruptedTransaction(lock.root, config.RecoveryRunner, true); err != nil {
 		return finishStatus(config.StatusPath, status, fmt.Errorf("recover interrupted update: %w", err))
@@ -91,10 +89,12 @@ func checkLocked(ctx context.Context, config Config, status Status) (*Status, er
 	}
 	if compareVersions(available, installed) <= 0 {
 		status.State = "idle"
+		status.LastCheckedAt = time.Now().UTC().Format(time.RFC3339)
 		refreshChangelogCache(ctx, config)
 		return finishStatus(config.StatusPath, status, nil)
 	}
 	status.State = "available"
+	status.LastCheckedAt = time.Now().UTC().Format(time.RFC3339)
 	refreshChangelogCache(ctx, config)
 	return finishStatus(config.StatusPath, status, nil)
 }
@@ -347,6 +347,9 @@ func finishStatus(path string, status Status, operationErr error) (*Status, erro
 	if operationErr != nil {
 		status.State = "error"
 		status.Error = operationErr.Error()
+		if status.LastCheckedAt == "" {
+			status.LastCheckedAt = previousLastCheckedAt(path)
+		}
 	}
 	if path != "" {
 		if err := WriteStatus(path, status); err != nil {
@@ -357,6 +360,21 @@ func finishStatus(path string, status Status, operationErr error) (*Status, erro
 		}
 	}
 	return &status, operationErr
+}
+
+func previousLastCheckedAt(path string) string {
+	if path == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var previous Status
+	if json.Unmarshal(raw, &previous) != nil {
+		return ""
+	}
+	return previous.LastCheckedAt
 }
 
 type semanticVersion struct {

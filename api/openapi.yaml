@@ -329,16 +329,16 @@ paths:
       x-capability: server.settings.write
       x-server-scope: true
       x-audit-action: server.update.check
-      description: Starts the configured update checker. This operation accepts no caller-supplied update configuration.
+      description: Runs the configured update checker to completion and returns the persisted host status, including last_checked_at. This operation accepts no caller-supplied update configuration.
       security:
         - bearerAuth: []
       responses:
-        "202":
-          description: configured update check accepted asynchronously
+        "200":
+          description: configured update check completed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PanelUpdateResult"
+                $ref: "#/components/schemas/UpdateStatus"
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
