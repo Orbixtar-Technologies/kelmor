@@ -96,6 +96,27 @@ func TestValidateManagedPath(t *testing.T) {
 	if _, err := ValidateManagedPath("/etc/vsftpd.conf.d/evil.conf"); err == nil {
 		t.Fatal("only the vsftpd main config is writable")
 	}
+	if _, err := ValidateManagedPath("/etc/powerdns/pdns.conf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/powerdns/pdns.d/99-panel-listen.conf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/powerdns/pdns.d/evil.conf"); err == nil {
+		t.Fatal("only the panel PowerDNS listen overlay is writable")
+	}
+	if _, err := ValidateManagedPath("/etc/dovecot/conf.d/99-panel-ports.conf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/dovecot/dovecot.conf"); err == nil {
+		t.Fatal("must not rewrite the vendor dovecot.conf")
+	}
+	if _, err := ValidateManagedPath("/etc/postfix/master.cf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateManagedPath("/etc/postfix/main.cf"); err == nil {
+		t.Fatal("must not rewrite Postfix main.cf")
+	}
 }
 
 func TestWithinAccount(t *testing.T) {

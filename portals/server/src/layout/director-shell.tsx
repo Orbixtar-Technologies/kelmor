@@ -12,6 +12,7 @@ import { HubTabs } from '../pages/hub-page'
 import { GlobalFind } from './global-find'
 import { directorBreadcrumbs, directorCrumbLabels } from './breadcrumbs'
 import { Sidebar } from './sidebar'
+import { parseFavoriteIds, THEME_CHANGED_EVENT } from '../pages/theme-favorites'
 import type { Account, Me, ServerOverview } from '../types'
 
 interface DirectorShellProps {
@@ -30,6 +31,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const [resourcesCollapsed, setResourcesCollapsed] = useState(false)
 	const [notificationsOpen, setNotificationsOpen] = useState(false)
 	const [adminOpen, setAdminOpen] = useState(false)
+	const [favoriteIds, setFavoriteIds] = useState<string[]>([])
 	const menuButtonRef = useRef<HTMLButtonElement>(null)
 	const notificationsRef = useRef<HTMLDivElement>(null)
 	const adminRef = useRef<HTMLDivElement>(null)
@@ -39,16 +41,26 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 	const showResources = canViewResources && location.pathname === '/'
 
 	useEffect(() => {
-		if (capabilities['server.read'] || capabilities['server.settings.write']) {
-			api<{ values?: Record<string, Record<string, string>> }>('/api/v1/server/settings').then((result) => {
-				const density = result.values?.theme?.density || 'comfortable'
-				const locale = result.values?.locale?.locale || ''
-				const product = result.values?.customization?.product_name || ''
-				document.documentElement.dataset.density = density
-				if (locale) document.documentElement.lang = locale
-				if (product) document.documentElement.dataset.productName = product
-			}).catch(() => undefined)
+		function applyTheme (result: { values?: Record<string, Record<string, string>> }) {
+			const density = result.values?.theme?.density || 'comfortable'
+			const locale = result.values?.locale?.locale || ''
+			const product = result.values?.customization?.product_name || ''
+			document.documentElement.dataset.density = density
+			if (locale) document.documentElement.lang = locale
+			if (product) document.documentElement.dataset.productName = product
+			setFavoriteIds(parseFavoriteIds(result.values?.theme?.favorites))
 		}
+		function loadTheme () {
+			if (capabilities['server.read'] || capabilities['server.settings.write']) {
+				api<{ values?: Record<string, Record<string, string>> }>('/api/v1/server/settings').then(applyTheme).catch(() => undefined)
+			}
+		}
+		loadTheme()
+		window.addEventListener(THEME_CHANGED_EVENT, loadTheme)
+		return () => window.removeEventListener(THEME_CHANGED_EVENT, loadTheme)
+	}, [capabilities])
+
+	useEffect(() => {
 		if (capabilities['accounts.read']) api<{ items: Account[] }>('/api/v1/accounts').then((result) => setAccounts(asList(result))).catch(() => setAccounts([]))
 		if (capabilities['server.read']) {
 			api<ServerOverview>('/api/v1/server').then((result) => {
@@ -113,7 +125,7 @@ export function DirectorShell ({ me, onSignOut }: DirectorShellProps) {
 
 	return (
 		<div className={`director ${collapsed ? 'nav-collapsed' : ''} ${showResources && resourcesCollapsed ? 'resources-collapsed' : ''}`}>
-			<Sidebar tools={tools} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} />
+			<Sidebar tools={tools} favoriteIds={favoriteIds} collapsed={collapsed} onCollapse={() => setCollapsed(!collapsed)} mobileOpen={mobileOpen} onNavigate={handleSidebarNavigation} onMobileDismiss={dismissMobileNavigation} />
 			<div className="workspace">
 				<header className="topbar">
 					<button ref={menuButtonRef} type="button" className="mobile-menu icon-button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="director-sidebar" onClick={() => setMobileOpen((open) => !open)}>

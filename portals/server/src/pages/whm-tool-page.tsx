@@ -13,6 +13,7 @@ import { HostAppsPanel, PHPRuntimePanel } from './host-apps-panel'
 import { HostModulesPanel, moduleKindForFeature } from './host-modules-panel'
 import { MySQLUpgradePanel } from './mysql-upgrade-panel'
 import { PostgresConfigPanel } from './postgres-config-panel'
+import { ThemeManagerPanel } from './theme-manager-panel'
 import { SupportAccessPanel } from './support-access-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
 import { FeatureShowcasePage } from './feature-showcase-page'
@@ -163,7 +164,9 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 				</section>
 			) : null}
 
-			{feature.layout !== 'status' && feature.layout !== 'restart' ? (
+			{feature.id === 'theme-manager' ? <ThemeManagerPanel /> : null}
+
+			{feature.id !== 'theme-manager' && feature.layout !== 'status' && feature.layout !== 'restart' ? (
 				<form className="form-panel" onSubmit={handleSubmit}>
 					<ol className="steps" aria-label="Workflow">
 						{steps.map((label, index) => (

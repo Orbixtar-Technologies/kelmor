@@ -44,3 +44,37 @@ func TestHostConfigSpecMapsFTPBannerAndPASV(t *testing.T) {
 		t.Fatalf("banner must still map when FTP is disabled: %+v", disabled)
 	}
 }
+
+func TestHostConfigSpecMapsNameserverListen(t *testing.T) {
+	spec := hostConfigSpec(hostconfig.File{Values: map[string]map[string]string{
+		"nameserver_selection": {"software": "pdns", "listen_address": "127.0.0.1,203.0.113.10"},
+	}})
+	if !spec.WriteNameserver {
+		t.Fatal("nameserver settings must mark WriteNameserver")
+	}
+	if spec.NameserverSoftware != "pdns" {
+		t.Fatalf("software %q", spec.NameserverSoftware)
+	}
+	if spec.NameserverListen != "127.0.0.1,203.0.113.10" {
+		t.Fatalf("listen %q", spec.NameserverListen)
+	}
+
+	disabled := hostConfigSpec(hostconfig.File{Values: map[string]map[string]string{
+		"nameserver_selection": {"software": "disabled"},
+	}})
+	if !disabled.WriteNameserver || disabled.NameserverSoftware != "disabled" {
+		t.Fatalf("disabled nameserver spec: %+v", disabled)
+	}
+}
+
+func TestHostConfigSpecMapsMailserverPorts(t *testing.T) {
+	spec := hostConfigSpec(hostconfig.File{Values: map[string]map[string]string{
+		"mailserver": {"imap": "994", "submission": "2587"},
+	}})
+	if !spec.WriteMailserver {
+		t.Fatal("mailserver settings must mark WriteMailserver")
+	}
+	if spec.IMAPPort != 994 || spec.SubmissionPort != 2587 {
+		t.Fatalf("mail ports: %+v", spec)
+	}
+}

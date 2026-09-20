@@ -11,12 +11,8 @@ import { discoverTools, toolCatalog } from '../tool-catalog'
 import { featureById } from '../whm-catalog'
 import { hasCapabilities, useCapabilities } from '../rbac'
 import { describeJobFailure, formatJobType } from './job-copy'
+import { resolveFavoriteIds } from './theme-favorites'
 import type { Account, Job, ServerOverview } from '../types'
-
-const featuredToolIds = [
-	'list-accounts', 'create-account', 'jobs', 'services',
-	'packages', 'dns', 'email', 'sql',
-]
 
 export function HomePage () {
 	const capabilities = useCapabilities()
@@ -27,9 +23,12 @@ export function HomePage () {
 	const [failedJobItems, setFailedJobItems] = useState<Job[]>([])
 	const [error, setError] = useState('')
 	const [loading, setLoading] = useState(true)
+	const [favoriteRaw, setFavoriteRaw] = useState<string | undefined>()
 	const tools = discoverTools(toolCatalog, capabilities)
 	const toolById = new Map(tools.map((tool) => [tool.id, tool]))
-	const featured = featuredToolIds.map((id) => toolById.get(id)).filter(Boolean)
+	const featuredIds = resolveFavoriteIds(favoriteRaw)
+	const featured = featuredIds.map((id) => toolById.get(id)).filter(Boolean)
+	const hasCustomFavorites = Boolean(favoriteRaw && favoriteRaw.trim())
 	const grouped = operatorNavGroups(tools)
 	const failedJobs = failedJobDisplay(server?.stats.failedJobs)
 	const runningServices = server
@@ -48,6 +47,11 @@ export function HomePage () {
 		}
 		if (capabilities['server.read'] || capabilities['accounts.read']) {
 			requests.push(api<{ items: Job[] }>('/api/v1/jobs?state=failed').then((result) => setFailedJobItems(asList(result))).catch(() => setFailedJobItems([])))
+		}
+		if (capabilities['server.read'] || capabilities['server.settings.write']) {
+			requests.push(api<{ values?: Record<string, Record<string, string>> }>('/api/v1/server/settings')
+				.then((result) => setFavoriteRaw(result.values?.theme?.favorites))
+				.catch(() => setFavoriteRaw(undefined)))
 		}
 		Promise.allSettled(requests).finally(() => setLoading(false))
 	}
@@ -130,8 +134,8 @@ export function HomePage () {
 				{toolById.has('jobs') ? <Link to="/jobs?state=failed"><strong>Failed jobs</strong><span>{failedJobs.detail}</span></Link> : null}
 				{toolById.has('services') ? <Link to="/status"><strong>Service health</strong><span>Managed services and host probes</span></Link> : null}
 			</nav>
-			<SectionHeading title="Frequent tools" detail="Account, job, and service work first. Firewall and reboot stay under Security." />
-			<div className="widget-grid">
+			<SectionHeading title={hasCustomFavorites ? 'Favorite tools' : 'Frequent tools'} detail={hasCustomFavorites ? 'Pinned in Theme Manager. Firewall and reboot stay under Security.' : 'Account, job, and service work first. Firewall and reboot stay under Security.'} />
+			<div className="widget-grid" aria-label={hasCustomFavorites ? 'Favorite tools' : 'Frequent tools'}>
 				{featured.map((tool, index) => {
 					const feature = featureById(tool!.id)
 					return (

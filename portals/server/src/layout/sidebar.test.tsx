@@ -213,6 +213,30 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: 'Change Hostname' })).toBeVisible()
 	})
 
+	test('pins saved favorites above catalog groups', () => {
+		render(
+			<MemoryRouter>
+				<Sidebar
+					tools={tools}
+					favoriteIds={['change-hostname', 'list-accounts']}
+					collapsed={false}
+					onCollapse={vi.fn()}
+					mobileOpen
+					onNavigate={vi.fn()}
+					onMobileDismiss={vi.fn()}
+				/>
+			</MemoryRouter>,
+		)
+
+		const favorites = screen.getByRole('navigation', { name: 'Favorite tools' })
+		const favoriteLinks = within(favorites).getAllByRole('link')
+		expect(favoriteLinks.map((link) => link.getAttribute('aria-label'))).toEqual([
+			'Change Hostname',
+			'List Accounts',
+		])
+		expect(screen.getAllByRole('link', { name: 'List Accounts' })).toHaveLength(2)
+	})
+
 	test('does not render Account or Host badges on sidebar categories', () => {
 		render(
 			<MemoryRouter>
