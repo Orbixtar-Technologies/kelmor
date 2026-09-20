@@ -346,14 +346,40 @@ func (a *API) convertAddon(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, 400, "VALIDATION", msg, false)
 		return
 	}
-	created := a.createAccountFromConvert(w, r, in.Username, ascii, in.PackageID, source.ResellerID, in.OwnerPassword)
+	if err := validate.Username(in.Username); err != nil {
+		a.fail(w, r, 400, "VALIDATION", err.Error(), false)
+		return
+	}
+	if a.Store.AccountByUsername(in.Username) != nil || a.Store.UserByUsername(in.Username) != nil {
+		a.fail(w, r, 400, "VALIDATION", "New username is missing or already taken", false)
+		return
+	}
+	if a.Store.GetPackage(in.PackageID) == nil {
+		a.fail(w, r, 400, "VALIDATION", "Unknown package", false)
+		return
+	}
+	a.releaseConvertedAddon(source.ID, sourceDomain)
+	created, operationID := a.createAccountFromConvert(w, r, in.Username, ascii, in.PackageID, source.ResellerID, in.OwnerPassword)
 	if created == "" {
 		return
 	}
-	writeJSON(w, 202, map[string]any{"resource_id": created, "username": in.Username, "primary_domain": ascii})
+	out := map[string]any{"resource_id": created, "username": in.Username, "primary_domain": ascii}
+	if operationID != "" {
+		out["operation_id"] = operationID
+	}
+	writeJSON(w, 202, out)
 }
 
-func (a *API) createAccountFromConvert(w http.ResponseWriter, r *http.Request, username, domain, packageID, resellerID, ownerPassword string) string {
+func (a *API) releaseConvertedAddon(accountID string, sourceDomain *store.Domain) {
+	for _, site := range a.Store.ListWebsites(accountID) {
+		if site.DomainID == sourceDomain.ID {
+			a.Store.DeleteWebsite(site.ID)
+		}
+	}
+	a.Store.DeleteDomain(sourceDomain.ID)
+}
+
+func (a *API) createAccountFromConvert(w http.ResponseWriter, r *http.Request, username, domain, packageID, resellerID, ownerPassword string) (string, string) {
 	body := map[string]any{
 		"username": username, "primary_domain": domain, "package_id": packageID,
 		"owner_email": "owner@" + domain, "owner_password": ownerPassword,
@@ -368,17 +394,24 @@ func (a *API) createAccountFromConvert(w http.ResponseWriter, r *http.Request, u
 	a.createAccount(rec, r2)
 	if rec.status != 0 && rec.status != http.StatusAccepted && rec.status != http.StatusOK && rec.status != http.StatusCreated {
 		writeJSON(w, rec.status, rec.body)
-		return ""
+		return "", ""
 	}
+	resourceID := ""
+	operationID := ""
 	if id, ok := rec.body["resource_id"].(string); ok {
-		return id
+		resourceID = id
 	}
-	if acc, ok := rec.body["account"].(map[string]any); ok {
-		if id, ok := acc["id"].(string); ok {
-			return id
+	if id, ok := rec.body["operation_id"].(string); ok {
+		operationID = id
+	}
+	if resourceID == "" {
+		if acc, ok := rec.body["account"].(map[string]any); ok {
+			if id, ok := acc["id"].(string); ok {
+				resourceID = id
+			}
 		}
 	}
-	return ""
+	return resourceID, operationID
 }
 
 type nopCloser struct{ *strings.Reader }
