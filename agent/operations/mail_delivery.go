@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -132,6 +133,15 @@ func parsePostfixMailLog(body string, year, month, day int, query string) []Mail
 }
 
 func parsePostqueue(body string) []MailQueueEntry {
+	trimAll := strings.TrimSpace(body)
+	if trimAll == "" || strings.HasPrefix(trimAll, "Mail queue is empty") {
+		return []MailQueueEntry{}
+	}
+	if strings.HasPrefix(trimAll, "{") {
+		if items := parsePostqueueJSON(body); items != nil {
+			return items
+		}
+	}
 	var items []MailQueueEntry
 	var current *MailQueueEntry
 	flush := func() {
@@ -148,7 +158,7 @@ func parsePostqueue(body string) []MailQueueEntry {
 			continue
 		}
 		if strings.HasPrefix(trim, "Mail queue is empty") {
-			return nil
+			return []MailQueueEntry{}
 		}
 		fields := strings.Fields(line)
 		if len(fields) >= 2 && mailQueueRe.MatchString(fields[0]) {
@@ -179,6 +189,58 @@ func parsePostqueue(body string) []MailQueueEntry {
 		}
 	}
 	flush()
+	if items == nil {
+		return []MailQueueEntry{}
+	}
+	return items
+}
+
+type postqueueJSON struct {
+	QueueName   string `json:"queue_name"`
+	QueueID     string `json:"queue_id"`
+	ArrivalTime int64  `json:"arrival_time"`
+	MessageSize int    `json:"message_size"`
+	Sender      string `json:"sender"`
+	Recipients  []struct {
+		Address string `json:"address"`
+	} `json:"recipients"`
+}
+
+func parsePostqueueJSON(body string) []MailQueueEntry {
+	items := []MailQueueEntry{}
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		var row postqueueJSON
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			return nil
+		}
+		if row.QueueID == "" {
+			continue
+		}
+		recipient := ""
+		if len(row.Recipients) > 0 {
+			recipient = row.Recipients[0].Address
+		}
+		arrival := ""
+		if row.ArrivalTime > 0 {
+			arrival = time.Unix(row.ArrivalTime, 0).UTC().Format(time.RFC3339)
+		}
+		state := strings.TrimSpace(row.QueueName)
+		if state == "" {
+			state = "queued"
+		}
+		items = append(items, MailQueueEntry{
+			QueueID:   row.QueueID,
+			Size:      row.MessageSize,
+			Sender:    row.Sender,
+			Recipient: recipient,
+			Arrival:   arrival,
+			State:     state,
+		})
+	}
 	return items
 }
 
@@ -251,14 +313,38 @@ func (h *Host) readMailDelivery(p MailDeliveryParams) (MailDeliveryResult, error
 }
 
 func (h *Host) readMailQueue() ([]MailQueueEntry, string, error) {
-	if !h.live() {
-		return nil, "", nil
+	if h == nil || h.Root != "" {
+		return []MailQueueEntry{}, "", nil
+	}
+	out, src, err := runPostqueueList()
+	if err != nil {
+		return []MailQueueEntry{}, "", err
+	}
+	return parsePostqueue(string(out)), src, nil
+}
+
+func runPostqueueList() ([]byte, string, error) {
+	if out, err := runFixed("/usr/sbin/postqueue", "-j"); err == nil {
+		return out, "postqueue -j", nil
+	} else if !isPostqueueFlagError(err, string(out)) {
+		return nil, "", err
 	}
 	out, err := runFixed("/usr/sbin/postqueue", "-p")
 	if err != nil {
 		return nil, "", err
 	}
-	return parsePostqueue(string(out)), "postqueue", nil
+	return out, "postqueue -p", nil
+}
+
+func isPostqueueFlagError(err error, out string) bool {
+	if err == nil {
+		return false
+	}
+	blob := strings.ToLower(err.Error() + " " + out)
+	return strings.Contains(blob, "invalid option") ||
+		strings.Contains(blob, "illegal option") ||
+		strings.Contains(blob, "unrecognized option") ||
+		strings.Contains(blob, "leading option")
 }
 
 func validateMailReportDate(year, month, day int) error {

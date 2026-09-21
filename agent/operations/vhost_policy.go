@@ -254,8 +254,5 @@ func (h *Host) listMailQueue() MailQueueResult {
 		result.Message = "Could not read the live Postfix queue. Showing an empty list."
 		return result
 	}
-	if source == "" && len(items) == 0 {
-		result.Message = "Postfix queue is empty. Live listings need a privileged Agent running postqueue."
-	}
 	return result
 }

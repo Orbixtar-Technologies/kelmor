@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const sampleMailLog = `Sep 19 04:12:00 host postfix/qmgr[11]: ABC123: from=<shop@shop.test>, size=512, nrcpt=1 (queue active)
@@ -60,13 +61,38 @@ func TestParsePostqueueExtractsRecipient(t *testing.T) {
 	}
 }
 
+func TestParsePostqueueJSONExtractsRecipients(t *testing.T) {
+	body := `{"queue_name":"deferred","queue_id":"4CBL5S0N0QZ","arrival_time":1474400354,"message_size":451,"sender":"sender@shop.test","recipients":[{"address":"dest@example.com"}]}`
+	items := parsePostqueue(body)
+	if len(items) != 1 {
+		t.Fatalf("json queue %#v", items)
+	}
+	if items[0].QueueID != "4CBL5S0N0QZ" || items[0].Recipient != "dest@example.com" {
+		t.Fatalf("entry %#v", items[0])
+	}
+	if items[0].Sender != "sender@shop.test" || items[0].Size != 451 || items[0].State != "deferred" {
+		t.Fatalf("fields %#v", items[0])
+	}
+}
+
+func TestParsePostqueueEmptyIsEmpty(t *testing.T) {
+	if items := parsePostqueue("Mail queue is empty\n"); len(items) != 0 {
+		t.Fatalf("text empty %#v", items)
+	}
+	if items := parsePostqueue(""); items == nil || len(items) != 0 {
+		t.Fatalf("json empty %#v", items)
+	}
+}
+
 func TestReadMailDeliveryUsesSandboxLog(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "var/log/mail.log")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(sampleMailLog), 0o644); err != nil {
+	today := time.Now().UTC().Format("Jan _2 15:04:05")
+	logBody := sampleMailLog + today + " host postfix/smtp[16]: DEF456: to=<late@example.com>, relay=none, delay=30, dsn=4.4.1, status=deferred (connect timed out)\n"
+	if err := os.WriteFile(path, []byte(logBody), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	host := &Host{Root: root}

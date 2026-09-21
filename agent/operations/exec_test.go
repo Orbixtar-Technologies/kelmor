@@ -15,6 +15,14 @@ func TestUseraddAllowsSupplementaryGroup(t *testing.T) {
 	}
 }
 
+func TestPostqueueFlagsAreAllowListed(t *testing.T) {
+	for _, arg := range []string{"-p", "-j", "-f"} {
+		if err := validateFixedCommand("/usr/sbin/postqueue", nil, []string{arg}); err != nil {
+			t.Fatalf("postqueue %s must be allow-listed under privilege separation: %v", arg, err)
+		}
+	}
+}
+
 func TestCommandFailureUsesErrWhenOutputEmpty(t *testing.T) {
 	err := commandFailure("useradd", nil, fmt.Errorf("leading option"))
 	if err == nil || err.Error() != "useradd: leading option" {

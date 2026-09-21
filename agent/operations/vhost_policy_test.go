@@ -3,6 +3,7 @@ package operations
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,12 @@ func TestListMailQueueNeverErrors(t *testing.T) {
 	}
 	if len(result.Items) != 0 {
 		t.Fatalf("empty host queue %v", result)
+	}
+	if result.Partial {
+		t.Fatalf("sandbox must not report a live read failure: %+v", result)
+	}
+	if strings.Contains(result.Message, "Could not read") {
+		t.Fatalf("sandbox empty must not be a read failure: %+v", result)
 	}
 }
 

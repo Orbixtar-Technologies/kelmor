@@ -136,6 +136,46 @@ func (w *Worker) applyClusterSnapshotJob(j *store.Job) error {
 	return err
 }
 
+func (w *Worker) applyAccountCertificateJob(j *store.Job) error {
+	if w.Agent == nil {
+		return fmt.Errorf("agent missing")
+	}
+	acc := w.jobAccount(j)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	hostname := str(j.Payload["hostname"])
+	if hostname == "" {
+		hostname = str(j.Payload["target"])
+	}
+	if str(j.Payload["cert_pem"]) != "" {
+		if _, err := w.Agent.Dispatch(context.Background(), operations.Request{
+			Method: "InstallAccountCertificate",
+			Params: mustJSON(map[string]any{
+				"hostname": hostname,
+				"cert_pem": str(j.Payload["cert_pem"]),
+				"key_pem":  str(j.Payload["key_pem"]),
+				"ca_pem":   str(j.Payload["ca_pem"]),
+			}),
+		}); err != nil {
+			return err
+		}
+	}
+	for _, site := range w.Store.ListWebsites(acc.ID) {
+		domain := w.Store.GetDomain(site.DomainID)
+		if domain == nil {
+			continue
+		}
+		if hostname != "" && domain.ASCII != hostname {
+			continue
+		}
+		if err := w.applyWebsiteDispatch(acc, &site, domain); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (w *Worker) applyServiceCertificateJob(j *store.Job) error {
 	if w.Agent == nil {
 		return fmt.Errorf("agent missing")
