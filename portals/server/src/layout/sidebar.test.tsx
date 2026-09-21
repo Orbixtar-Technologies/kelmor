@@ -106,6 +106,8 @@ describe('Sidebar interactions', () => {
 		expect(screen.getByRole('link', { name: 'Mail Delivery Reports' })).toHaveAttribute('href', '/mail/delivery-reports')
 		expect(screen.getByRole('link', { name: 'Track Delivery' })).toHaveAttribute('href', '/mail/track-delivery')
 		expect(screen.getByRole('link', { name: 'Show IP Address Usage' })).toHaveAttribute('href', '/ip-usage')
+		expect(screen.getByRole('link', { name: 'IP Migration Wizard' })).toHaveAttribute('href', '/section/server?tool=ip-migration')
+		expect(screen.getByRole('link', { name: 'File and Directory Restoration' })).toHaveAttribute('href', '/section/backups?tool=file-dir-restore')
 		expect(screen.getByRole('link', { name: 'Perform a DNS Cleanup' })).toHaveAttribute('href', '/dns/cleanup')
 		expect(screen.getByRole('link', { name: 'Synchronize DNS Records' })).toHaveAttribute('href', '/dns/synchronize')
 		expect(screen.getByRole('button', { name: 'Account Functions' })).toBeVisible()

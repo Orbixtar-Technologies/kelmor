@@ -1,8 +1,10 @@
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import {
+	canonicalToolHref,
 	hubById,
 	hubForToolId,
 	hubToolHref,
+	misplacedSectionRedirect,
 	toolsForHub,
 	usesDedicatedManager,
 } from '../nav-hubs'
@@ -65,8 +67,11 @@ export function HubPage () {
 	const hub = hubById(hubId)
 	if (!hub || hub.id === 'home') return <Navigate to="/" replace />
 
-	const requested = params.get('tool') || hub.defaultToolId
-	const feature = featureById(requested)
+	const requested = params.get('tool')
+	const misplaced = requested ? misplacedSectionRedirect(hub.id, requested) : null
+	if (misplaced) return <Navigate to={misplaced} replace />
+
+	const feature = featureById(requested || hub.defaultToolId)
 	if (!feature || hubForToolId(feature.id)?.id !== hub.id) {
 		return (
 			<>
@@ -83,9 +88,8 @@ export function HubPage () {
 
 export function ToolRedirect () {
 	const { toolId = '' } = useParams()
-	const hub = hubForToolId(toolId)
-	const feature = featureById(toolId)
-	if (!hub || !feature) {
+	const href = canonicalToolHref(toolId)
+	if (!href) {
 		return (
 			<>
 				<PageHeader title="Tool not found" description="This path is not in the Director catalog." />
@@ -93,5 +97,5 @@ export function ToolRedirect () {
 			</>
 		)
 	}
-	return <Navigate to={hubToolHref(hub, feature)} replace />
+	return <Navigate to={href} replace />
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+	canonicalToolHref,
 	hubById,
 	hubEntryPath,
 	hubForCategory,
@@ -7,6 +8,7 @@ import {
 	hubForToolId,
 	hrefForFeature,
 	isDirectorHubActive,
+	misplacedSectionRedirect,
 	navHubs,
 	shouldShowHubTabs,
 	sidebarToolGroups,
@@ -54,6 +56,36 @@ describe('nav hubs', () => {
 		expect(hubEntryPath(hubById('email')!)).toBe('/email')
 		expect(hrefForFeature(featureById('list-accounts')!)).toBe('/accounts')
 		expect(hrefForFeature(featureById('limit-bandwidth')!)).toBe('/section/accounts?tool=limit-bandwidth')
+		expect(hrefForFeature(featureById('ip-migration')!)).toBe('/section/server?tool=ip-migration')
+		expect(hrefForFeature(featureById('file-dir-restore')!)).toBe('/section/backups?tool=file-dir-restore')
+	})
+
+	test('redirects a tool query on the wrong section to its owner hub', () => {
+		expect(canonicalToolHref('ip-migration')).toBe('/section/server?tool=ip-migration')
+		expect(canonicalToolHref('file-dir-restore')).toBe('/section/backups?tool=file-dir-restore')
+		expect(canonicalToolHref('list-accounts')).toBe('/accounts')
+		expect(canonicalToolHref('missing-tool')).toBeNull()
+		expect(misplacedSectionRedirect('accounts', 'ip-migration')).toBe('/section/server?tool=ip-migration')
+		expect(misplacedSectionRedirect('accounts', 'file-dir-restore')).toBe('/section/backups?tool=file-dir-restore')
+		expect(misplacedSectionRedirect('dns', 'ip-migration')).toBe('/section/server?tool=ip-migration')
+		expect(misplacedSectionRedirect('server', 'ip-migration')).toBeNull()
+		expect(misplacedSectionRedirect('backups', 'file-dir-restore')).toBeNull()
+		expect(misplacedSectionRedirect('accounts', 'change-site-ip')).toBeNull()
+		expect(misplacedSectionRedirect('accounts', 'list-accounts')).toBeNull()
+		expect(misplacedSectionRedirect('accounts', 'not-a-real-tool')).toBeNull()
+	})
+
+	test('every catalog tool on a foreign section resolves to its canonical href', () => {
+		for (const feature of whmFeatures) {
+			const owner = hubForToolId(feature.id)
+			expect(owner, feature.id).toBeDefined()
+			expect(canonicalToolHref(feature.id)).toBe(hrefForFeature(feature))
+			expect(misplacedSectionRedirect(owner!.id, feature.id)).toBeNull()
+			for (const hub of navHubs) {
+				if (hub.id === 'home' || hub.id === owner!.id) continue
+				expect(misplacedSectionRedirect(hub.id, feature.id), `${feature.id} on ${hub.id}`).toBe(hrefForFeature(feature))
+			}
+		}
 	})
 
 	test('resolves the current hub from dedicated, section, and tool paths', () => {

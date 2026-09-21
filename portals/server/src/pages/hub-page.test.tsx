@@ -36,7 +36,7 @@ afterEach(() => {
 function renderPath (path: string) {
 	return render(
 		<MemoryRouter initialEntries={[path]}>
-			<CapProvider caps={{ 'server.settings.write': true, 'server.read': true, 'accounts.read': true }}>
+			<CapProvider caps={{ 'server.settings.write': true, 'server.read': true, 'accounts.read': true, 'accounts.modify': true, 'backups.restore': true }}>
 				<Routes>
 					<Route path="section/:hubId" element={<HubPage />} />
 					<Route path="tools/:toolId" element={<ToolRedirect />} />
@@ -76,6 +76,27 @@ describe('HubPage', () => {
 	test('sends legacy /tools/:id links to the combined hub', async () => {
 		renderPath('/tools/change-hostname')
 		expect(await screen.findByRole('heading', { name: 'Change Hostname' })).toBeInTheDocument()
+	})
+
+	test('moves IP migration and file restore off the Accounts section', async () => {
+		renderPath('/section/accounts?tool=ip-migration')
+		expect(screen.queryByText(/This tool is not part of Accounts/)).not.toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: 'IP Migration Wizard' })).toBeInTheDocument()
+		cleanup()
+		renderPath('/section/accounts?tool=file-dir-restore')
+		expect(screen.queryByText(/This tool is not part of Accounts/)).not.toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: 'File and Directory Restoration' })).toBeInTheDocument()
+		cleanup()
+		renderPath('/tools/ip-migration')
+		expect(await screen.findByRole('heading', { name: 'IP Migration Wizard' })).toBeInTheDocument()
+		cleanup()
+		renderPath('/tools/file-dir-restore')
+		expect(await screen.findByRole('heading', { name: 'File and Directory Restoration' })).toBeInTheDocument()
+	})
+
+	test('keeps unknown tools on the requested section', () => {
+		renderPath('/section/accounts?tool=not-a-real-tool')
+		expect(screen.getByText('This tool is not part of Accounts.')).toBeInTheDocument()
 	})
 
 	test('Security and Websites and Files deep links are catalog members', async () => {
