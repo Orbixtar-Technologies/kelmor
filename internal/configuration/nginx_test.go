@@ -79,6 +79,30 @@ func TestNginxBandwidthHoldReturns509(t *testing.T) {
 	}
 }
 
+func TestNginxPathRedirectsAndHotlink(t *testing.T) {
+	conf := NginxSite(WebsiteSpec{
+		WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html",
+		Runtime: "php", Enabled: true,
+		Redirects: []PathRedirect{
+			{Source: "/old", Target: "https://acme.test/new", Status: 301},
+		},
+		Hotlink: &HotlinkPolicy{
+			Enabled: true, AllowDirect: true,
+			Extensions:      []string{"jpg", "png"},
+			AllowedReferers: []string{"acme.test"},
+		},
+	})
+	if err := ValidateNginx(conf); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(conf, "location = /old { return 301 https://acme.test/new; }") {
+		t.Fatal(conf)
+	}
+	if !contains(conf, "valid_referers") || !contains(conf, "acme.test") {
+		t.Fatal(conf)
+	}
+}
+
 func TestNginxHTTPSRedirectKeepsHTTP01(t *testing.T) {
 	conf := NginxSite(WebsiteSpec{
 		WebsiteID: "abc", Domain: "acme.test", DocumentRoot: "/home/acme/public_html",

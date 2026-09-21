@@ -860,6 +860,104 @@ paths:
       responses:
         "202": { description: retire queued }
         "409": { description: primary domain website }
+  /accounts/{accountID}/websites/{websiteID}/hotlink:
+    get:
+      operationId: getWebsiteHotlink
+      x-capability: websites.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: websiteID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: nginx hotlink / leech policy }
+    put:
+      operationId: putWebsiteHotlink
+      x-capability: websites.write
+      x-audit-action: website.hotlink.apply
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: websiteID
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                allow_direct: { type: boolean }
+                extensions:
+                  type: array
+                  items: { type: string }
+                allowed_referers:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200": { description: hotlink policy saved and nginx apply attempted }
+  /accounts/{accountID}/redirects:
+    get:
+      operationId: listAccountRedirects
+      x-capability: websites.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: nginx path redirects for the account }
+    post:
+      operationId: createAccountRedirect
+      x-capability: websites.write
+      x-audit-action: website.redirect.create
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [website_id, source, target]
+              properties:
+                website_id: { type: string }
+                source: { type: string }
+                target: { type: string }
+                status: { type: integer }
+                wildcard: { type: boolean }
+      responses:
+        "200": { description: redirect saved and nginx apply attempted }
+  /accounts/{accountID}/redirects/{redirectID}:
+    delete:
+      operationId: deleteAccountRedirect
+      x-capability: websites.write
+      x-audit-action: website.redirect.delete
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - name: redirectID
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: redirect removed and nginx apply attempted }
+  /accounts/{accountID}/images:
+    get:
+      operationId: listAccountImages
+      x-capability: files.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+        - { name: website_id, in: query, schema: { type: string } }
+      responses:
+        "200": { description: image files under the website document root }
+  /accounts/{accountID}/git:
+    get:
+      operationId: listAccountGit
+      x-capability: files.read
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      responses:
+        "200": { description: discovered .git repositories under the account home }
   /accounts/{accountID}/wordpress:
     post:
       operationId: installWordPress
@@ -1841,6 +1939,12 @@ paths:
         - { name: q, in: query, schema: { type: string } }
       responses:
         "200": { description: live Postfix queue plus recent delivery attempts }
+  /mail/queue:
+    get:
+      operationId: listMailQueue
+      x-capability: mail.read
+      responses:
+        "200": { description: live Postfix queue or an honest empty list }
   /accounts/export:
     get:
       operationId: exportAccounts

@@ -17,6 +17,7 @@ export const directorCrumbLabels: Record<string, string> = {
 	ssl: 'SSL / TLS', webmail: 'Webmail', updates: 'Software Updates',
 	domains: 'List Domains', websites: 'MultiPHP Manager', features: 'Feature Manager',
 	ftp: 'FTP Accounts', cron: 'Cron Jobs', deliverability: 'Email Deliverability',
+	redirects: 'Redirects', git: 'Git Version Control',
 	processes: 'Process Manager',
 	mail: 'Email',
 	'delivery-reports': 'Mail Delivery Reports',

@@ -24,6 +24,22 @@ type WebsiteSpec struct {
 	Aliases               []string
 	ListenIPv4            string
 	ListenIPv6            string
+	Redirects             []PathRedirect
+	Hotlink               *HotlinkPolicy
+}
+
+type PathRedirect struct {
+	Source   string
+	Target   string
+	Status   int
+	Wildcard bool
+}
+
+type HotlinkPolicy struct {
+	Enabled         bool
+	AllowDirect     bool
+	Extensions      []string
+	AllowedReferers []string
 }
 
 func NginxSiteChecked(s WebsiteSpec) (string, error) {
@@ -111,6 +127,7 @@ func NginxSite(s WebsiteSpec) string {
 	fmt.Fprintf(&b, "    error_log /var/log/nginx/%s.error.log;\n", s.WebsiteID)
 	b.WriteString(connLimitLines(s))
 	b.WriteString(nginxACMEChallengeLocation)
+	writeVhostPolicyLocations(&b, s)
 	if s.HTTPSRedirect && s.TLSCert != "" {
 		b.WriteString("    location / { return 301 https://$host$request_uri; }\n")
 	} else {
@@ -127,6 +144,7 @@ func NginxSite(s WebsiteSpec) string {
 		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.TLSKey)
 		b.WriteString(connLimitLines(s))
 		b.WriteString(nginxACMEChallengeLocation)
+		writeVhostPolicyLocations(&b, s)
 		writeRuntimeLocations(&b, s)
 		b.WriteString("}\n")
 	}
@@ -156,6 +174,91 @@ func NginxACMEDefaultServer() string {
     location / { default_type text/plain; return 404 'no such site\n'; }
 }
 `
+}
+
+func writeVhostPolicyLocations(b *strings.Builder, s WebsiteSpec) {
+	for _, redirect := range sanitizedRedirects(s.Redirects) {
+		matcher := "="
+		if redirect.Wildcard {
+			matcher = "^~"
+		}
+		fmt.Fprintf(b, "    location %s %s { return %d %s; }\n", matcher, redirect.Source, redirect.Status, redirect.Target)
+	}
+	if s.Hotlink == nil || !s.Hotlink.Enabled {
+		return
+	}
+	exts := sanitizedHotlinkExtensions(s.Hotlink.Extensions)
+	if len(exts) == 0 {
+		return
+	}
+	referers := sanitizedHotlinkReferers(s.Hotlink.AllowedReferers)
+	if s.Hotlink.AllowDirect {
+		referers = append([]string{"none", "blocked", "server_names"}, referers...)
+	} else {
+		referers = append([]string{"blocked", "server_names"}, referers...)
+	}
+	fmt.Fprintf(b, "    location ~* \\.(%s)$ {\n", strings.Join(exts, "|"))
+	fmt.Fprintf(b, "        valid_referers %s;\n", strings.Join(referers, " "))
+	b.WriteString("        if ($invalid_referer) { return 403; }\n")
+	b.WriteString("    }\n")
+}
+
+func sanitizedRedirects(items []PathRedirect) []PathRedirect {
+	out := make([]PathRedirect, 0, len(items))
+	for _, item := range items {
+		source := strings.TrimSpace(item.Source)
+		target := strings.TrimSpace(item.Target)
+		if !strings.HasPrefix(source, "/") || strings.ContainsAny(source, " \t\n{};$\"'`|&") {
+			continue
+		}
+		if target == "" || strings.ContainsAny(target, " \t\n{};$\"'`|&") {
+			continue
+		}
+		status := item.Status
+		if status != 302 {
+			status = 301
+		}
+		out = append(out, PathRedirect{Source: source, Target: target, Status: status, Wildcard: item.Wildcard})
+	}
+	return out
+}
+
+func sanitizedHotlinkExtensions(items []string) []string {
+	out := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, raw := range items {
+		ext := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(raw), "."))
+		if ext == "" || seen[ext] {
+			continue
+		}
+		ok := true
+		for _, r := range ext {
+			if r < 'a' || r > 'z' {
+				if r < '0' || r > '9' {
+					ok = false
+					break
+				}
+			}
+		}
+		if !ok {
+			continue
+		}
+		seen[ext] = true
+		out = append(out, ext)
+	}
+	return out
+}
+
+func sanitizedHotlinkReferers(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, raw := range items {
+		value := strings.TrimSpace(raw)
+		if value == "" || strings.ContainsAny(value, " \t\n{};$\"'`|&") {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 func writeRuntimeLocations(b *strings.Builder, s WebsiteSpec) {

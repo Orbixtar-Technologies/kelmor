@@ -104,6 +104,8 @@ describe('directorBreadcrumbs', () => {
 		])
 		expect(directorBreadcrumbs('/mail/delivery-reports', directorCrumbLabels).at(-1)?.label).toBe('Mail Delivery Reports')
 		expect(directorBreadcrumbs('/mail/track-delivery', directorCrumbLabels).at(-1)?.label).toBe('Track Delivery')
+		expect(directorBreadcrumbs('/redirects', directorCrumbLabels).at(-1)?.label).toBe('Redirects')
+		expect(directorBreadcrumbs('/git', directorCrumbLabels).at(-1)?.label).toBe('Git Version Control')
 	})
 
 	test('update preference and changelog crumbs stay exclusive of Software Updates', () => {

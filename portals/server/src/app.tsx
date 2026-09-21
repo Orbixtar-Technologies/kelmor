@@ -19,6 +19,8 @@ import { MailDeliveryReportsPage } from './pages/mail-delivery-reports-page'
 import { FeatureManagerPage } from './pages/feature-manager-page'
 import { FileManagerPage } from './pages/file-manager-page'
 import { FTPPage } from './pages/ftp-page'
+import { GitPage } from './pages/git-page'
+import { RedirectsPage } from './pages/redirects-page'
 import { HomePage } from './pages/home-page'
 import { ProcessManagerPage } from './pages/process-manager-page'
 import { SQLManagerPage } from './pages/sql-manager-page'
@@ -104,6 +106,8 @@ export function App () {
 					<Route path="dns/synchronize" element={allowed('dns.read', <DnsSynchronizePage />)} />
 					<Route path="files" element={allowed(['accounts.read', 'files.read'], <FileManagerPage />)} />
 					<Route path="ftp" element={allowed(['accounts.read', 'files.read'], <FTPPage />)} />
+					<Route path="git" element={allowed(['accounts.read', 'files.read'], <GitPage />)} />
+					<Route path="redirects" element={allowed(['accounts.read', 'websites.read'], <RedirectsPage />)} />
 					<Route path="cron" element={allowed(['accounts.read', 'cron.read'], <CronPage />)} />
 					<Route path="sql" element={allowed(['accounts.read', 'databases.read'], <SQLManagerPage />)} />
 					<Route path="sql/password" element={allowed('databases.write', <SqlToolPage toolId="password" />)} />

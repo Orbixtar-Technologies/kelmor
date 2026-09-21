@@ -175,6 +175,7 @@ func (a *API) Handler() http.Handler {
 			r.Post("/mail/notify", a.notifyMail)
 			r.Get("/mail/delivery-reports", a.mailDeliveryReports)
 			r.Get("/mail/delivery-track", a.mailDeliveryTrack)
+			r.Get("/mail/queue", a.listMailQueue)
 			r.Get("/accounts/export", a.exportAccounts)
 			r.Post("/accounts/import", a.importAccount)
 			r.Post("/accounts/import/cpanel", a.importCPanel)
@@ -187,6 +188,13 @@ func (a *API) Handler() http.Handler {
 				r.Get("/websites", a.listWebsites)
 				r.Post("/websites", a.createWebsite)
 				r.Delete("/websites/{websiteID}", a.deleteWebsite)
+				r.Get("/redirects", a.listAccountRedirects)
+				r.Post("/redirects", a.createAccountRedirect)
+				r.Delete("/redirects/{redirectID}", a.deleteAccountRedirect)
+				r.Get("/websites/{websiteID}/hotlink", a.getWebsiteHotlink)
+				r.Put("/websites/{websiteID}/hotlink", a.putWebsiteHotlink)
+				r.Get("/images", a.listAccountImages)
+				r.Get("/git", a.listAccountGit)
 				r.Get("/applications", a.listApps)
 				r.Post("/applications", a.createApp)
 				r.Delete("/applications/{applicationID}", a.deleteApp)
@@ -800,7 +808,11 @@ func (a *API) getFirewall(w http.ResponseWriter, r *http.Request) {
 	if !a.require(w, r, rbac.ServerFirewallRead) {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"table": "inet panel", "file": "/etc/panel/nftables-panel.nft"})
+	writeJSON(w, 200, map[string]any{
+		"table": "inet panel", "file": "/etc/panel/nftables-panel.nft",
+		"stack": "nftables", "csf_installed": false,
+		"label": "Kelmor firewall",
+	})
 }
 
 func (a *API) listJobs(w http.ResponseWriter, r *http.Request) {
