@@ -322,6 +322,7 @@ var chromeOrDeferredKeys = map[string]bool{
 	"locale":          true,
 	"customization":   true,
 	"mariadb_upgrade": true,
+	"demo_accounts":   true,
 }
 
 func TwoFactorRequired(f File) bool {
