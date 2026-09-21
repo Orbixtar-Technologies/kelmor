@@ -2536,11 +2536,20 @@ func (a *API) createWebsite(w http.ResponseWriter, r *http.Request) {
 		in.Runtime = "php"
 	}
 	if in.Runtime == "php" {
+		installed, err := a.installedPHPVersions(r.Context())
+		if err != nil {
+			a.fail(w, r, 502, "AGENT_ERROR", err.Error(), false)
+			return
+		}
 		if in.RuntimeVersion == "" {
-			in.RuntimeVersion = "8.3"
+			in.RuntimeVersion = defaultInstalledPHP(installed)
 		}
 		if !supportedPHPVersion(in.RuntimeVersion) {
 			a.fail(w, r, 400, "VALIDATION", "unsupported PHP version", false)
+			return
+		}
+		if !phpVersionInstalled(installed, in.RuntimeVersion) {
+			a.fail(w, r, 400, "VALIDATION", phpFPMNotInstalledMessage(in.RuntimeVersion), false)
 			return
 		}
 	}

@@ -12,7 +12,13 @@ import {
 	websitePhpVersion,
 	type PhpWebsiteRow,
 } from '../multiphp-staging'
-import { isSupportedPHPVersion, SUPPORTED_PHP_VERSIONS } from '../php-runtimes'
+import {
+	installedPHPVersions,
+	isInstalledPHPVersion,
+	isSupportedPHPVersion,
+	missingHostPHPVersion,
+	type PHPRuntime,
+} from '../php-runtimes'
 import { RequestSequence } from '../request-sequence'
 import { useCan } from '../rbac'
 import type { Account, ResourceItem } from '../types'
@@ -33,7 +39,9 @@ export function WebsitesPage () {
 	const [jobId, setJobId] = useState('')
 	const [drafts, setDrafts] = useState<Record<string, string>>({})
 	const [selected, setSelected] = useState<Record<string, boolean>>({})
-	const [bulkVersion, setBulkVersion] = useState<string>(SUPPORTED_PHP_VERSIONS[1] || SUPPORTED_PHP_VERSIONS[0])
+	const [phpRuntimes, setPhpRuntimes] = useState<PHPRuntime[]>([])
+	const [inventoryError, setInventoryError] = useState('')
+	const [bulkVersion, setBulkVersion] = useState('')
 	const [step, setStep] = useState(0)
 	const [busy, setBusy] = useState(false)
 	const [updatedAt, setUpdatedAt] = useState('')
@@ -44,6 +52,16 @@ export function WebsitesPage () {
 	currentAccountId.current = accountId
 	const account = accounts.find((entry) => entry.id === accountId)
 	const pending = useMemo(() => pendingPhpChanges(rows, drafts), [drafts, rows])
+	const installed = useMemo(() => installedPHPVersions(phpRuntimes), [phpRuntimes])
+	const missingHostVersions = useMemo(() => {
+		const found = new Set<string>()
+		for (const website of rows) {
+			if (String(website.runtime || 'php') !== 'php') continue
+			const missing = missingHostPHPVersion(websitePhpVersion(website), installed)
+			if (missing) found.add(missing)
+		}
+		return [...found]
+	}, [installed, rows])
 	const isReview = step === 1
 	const selectedCount = rows.filter((website) => selected[website.id]).length
 	const allSelected = rows.length > 0 && selectedCount === rows.length
@@ -61,6 +79,23 @@ export function WebsitesPage () {
 			setAccounts(asList(result))
 		}).catch((requestError) => {
 			if (requests.isCurrent(request)) setError(messageFrom(requestError))
+		})
+	}, [requests])
+
+	useEffect(() => {
+		const request = requests.begin('runtimes')
+		setInventoryError('')
+		api<{ items?: PHPRuntime[] }>('/api/v1/server/runtimes').then((result) => {
+			if (!requests.isCurrent(request)) return
+			const next = asList(result)
+			setPhpRuntimes(next)
+			const versions = installedPHPVersions(next)
+			setBulkVersion((current) => versions.includes(current) ? current : (versions[0] || ''))
+		}).catch((requestError) => {
+			if (!requests.isCurrent(request)) return
+			setPhpRuntimes([])
+			setBulkVersion('')
+			setInventoryError(messageFrom(requestError) || 'Could not load installed PHP versions.')
 		})
 	}, [requests])
 
@@ -123,13 +158,22 @@ export function WebsitesPage () {
 		event.preventDefault()
 		if (!accountId) return
 		const data = new FormData(event.currentTarget)
+		const runtime = String(data.get('runtime') || 'php')
+		const runtimeVersion = String(data.get('runtime_version') || '')
+		if (runtime === 'php') {
+			const problem = phpVersionMessage(runtimeVersion)
+			if (problem) {
+				setMessage(problem)
+				return
+			}
+		}
 		try {
 			await api(`/api/v1/accounts/${accountId}/websites`, {
 				method: 'POST',
 				body: JSON.stringify({
 					domain_id: data.get('domain_id'),
-					runtime: data.get('runtime'),
-					runtime_version: data.get('runtime_version') || undefined,
+					runtime,
+					runtime_version: runtimeVersion || undefined,
 					document_root: `${account?.home_path || ''}/public_html`,
 				}),
 			})
@@ -141,18 +185,29 @@ export function WebsitesPage () {
 		}
 	}
 
+	function phpVersionMessage (version: string) {
+		if (!installed.length) return 'php-fpm is not installed'
+		if (!isSupportedPHPVersion(version)) return `Unsupported PHP version ${version}.`
+		if (!isInstalledPHPVersion(version, installed)) return `php-fpm ${version} is not installed`
+		return ''
+	}
+
 	function stageVersion (website: WebsiteRow, version: string) {
-		if (String(website.runtime || 'php') === 'php' && !isSupportedPHPVersion(version)) {
-			setMessage(`Unsupported PHP version ${version}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
-			return
+		if (String(website.runtime || 'php') === 'php') {
+			const problem = phpVersionMessage(version)
+			if (problem) {
+				setMessage(problem)
+				return
+			}
 		}
 		setMessage('')
 		setDrafts((current) => ({ ...current, [website.id]: version }))
 	}
 
 	function handleStageSelected () {
-		if (!isSupportedPHPVersion(bulkVersion)) {
-			setMessage(`Unsupported PHP version ${bulkVersion}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
+		const problem = phpVersionMessage(bulkVersion)
+		if (problem) {
+			setMessage(problem)
 			return
 		}
 		setMessage('')
@@ -174,9 +229,12 @@ export function WebsitesPage () {
 	async function applyPending () {
 		if (!pending.length) return
 		for (const change of pending) {
-			if (change.runtime === 'php' && !isSupportedPHPVersion(change.proposed)) {
-				setMessage(`Unsupported PHP version ${change.proposed}. Use ${SUPPORTED_PHP_VERSIONS.join(', ')}.`)
-				return
+			if (change.runtime === 'php') {
+				const problem = phpVersionMessage(change.proposed)
+				if (problem) {
+					setMessage(problem)
+					return
+				}
 			}
 		}
 		setBusy(true)
@@ -239,13 +297,19 @@ export function WebsitesPage () {
 				<p className="subtle">Select an account to create a site or change its PHP version. The inventory can list every visible website. PHP selector changes stay local until you Review and Apply.</p>
 			</div>
 			<QueuedOpNotice message={message} accountId={accountId || undefined} jobId={jobId} />
+			{inventoryError ? <ErrorState title="Could not load PHP inventory" error={inventoryError} /> : null}
+			{missingHostVersions.length ? (
+				<p className="feedback" role="alert">
+					PHP {missingHostVersions.join(', ')} is not installed on this host. Choose an installed version.
+				</p>
+			) : null}
 			{error ? <ErrorState error={error} onRetry={() => loadWebsites(accountId, accounts)} /> : null}
 			{canWrite && accountId ? <section className="panel">
 				<h2>Create or update a website</h2>
 				<form className="inline-form" onSubmit={createWebsite}>
 					<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label>
 					<label>Runtime<select name="runtime"><option value="php">PHP</option><option value="static">Static</option><option value="node">Node</option><option value="python">Python</option></select></label>
-					<label>PHP version<select name="runtime_version">{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}</select></label>
+					<label>PHP version<select name="runtime_version">{installed.map((version) => <option key={version} value={version}>{version}</option>)}</select></label>
 					<button type="submit" disabled={!domains.length}>Save website</button>
 				</form>
 			</section> : null}
@@ -276,7 +340,7 @@ export function WebsitesPage () {
 										value={bulkVersion}
 										onChange={(event) => setBulkVersion(event.target.value)}
 									>
-										{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
+										{installed.map((version) => <option key={version} value={version}>{version}</option>)}
 									</select>
 								</label>
 								<button type="button" disabled={!selectedCount} onClick={handleStageSelected}>Stage selected</button>
@@ -307,6 +371,8 @@ export function WebsitesPage () {
 									const root = valueOf(website, 'document_root')
 									const current = websitePhpVersion(website)
 									const proposed = drafts[website.id] || current
+									const selectedVersion = isInstalledPHPVersion(proposed, installed) ? proposed : ''
+									const recordedMissing = Boolean(missingHostPHPVersion(current, installed))
 									return (
 										<tr key={`${ownerId}:${website.id}`}>
 											{!isReview ? (
@@ -329,10 +395,11 @@ export function WebsitesPage () {
 														<label className="inline-select">
 															<span className="sr-only">PHP version for {root}</span>
 															<select
-																value={proposed}
+																value={selectedVersion}
 																onChange={(event) => stageVersion(website, event.target.value)}
 															>
-																{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
+																{recordedMissing ? <option value="">Choose installed PHP</option> : null}
+																{installed.map((version) => <option key={version} value={version}>{version}</option>)}
 															</select>
 														</label>
 													</td>

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -21,12 +21,17 @@ afterEach(() => {
 function mockMultiPHP (sites = [
 	{ id: 'site-1', domain_id: 'dom-1', document_root: '/home/alpha/public_html', runtime: 'php', runtime_version: '8.3', enabled: true },
 	{ id: 'site-2', domain_id: 'dom-2', document_root: '/home/alpha/shop.alpha.test', runtime: 'php', runtime_version: '8.3', enabled: true },
+], runtimes = [
+	{ version: '8.3', status: 'installed' },
+	{ version: '8.4', status: 'installed' },
+	{ version: '8.5', status: 'installed' },
 ]) {
 	vi.mocked(api).mockImplementation((path: string, init?: RequestInit) => {
 		const url = String(path)
 		if (url === '/api/v1/accounts') {
 			return Promise.resolve({ items: [{ id: 'acc-1', username: 'alpha', primary_domain: 'a.test', home_path: '/home/alpha', status: 'active' }] })
 		}
+		if (url === '/api/v1/server/runtimes') return Promise.resolve({ items: runtimes })
 		if (url.endsWith('/domains')) return Promise.resolve({ items: [{ id: 'dom-1', ascii_fqdn: 'a.test' }] })
 		if (url.endsWith('/websites') && (!init || !init.method || init.method === 'GET')) {
 			return Promise.resolve({ items: sites })
@@ -109,8 +114,41 @@ describe('WebsitesPage MultiPHP', () => {
 		const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set
 		nativeSetter?.call(version, '8.1')
 		version.dispatchEvent(new Event('change', { bubbles: true }))
-		await screen.findByText(/unsupported PHP version/i)
+		await screen.findByText(/unsupported PHP version|not installed/i)
 		expect(screen.queryByRole('button', { name: 'Review' })).not.toBeInTheDocument()
 		expect(postCalls()).toHaveLength(0)
+	})
+
+	it('offers only host-installed PHP versions in MultiPHP selectors', async () => {
+		mockMultiPHP([
+			{ id: 'site-1', domain_id: 'dom-1', document_root: '/home/alpha/public_html', runtime: 'php', runtime_version: '8.3', enabled: true },
+		], [
+			{ version: '8.3', status: 'installed' },
+			{ version: '8.4', status: 'available' },
+			{ version: '8.5', status: 'available' },
+		])
+		renderWebsites()
+		const version = await screen.findByLabelText('PHP version for /home/alpha/public_html')
+		expect(within(version).getByRole('option', { name: '8.3' })).toBeInTheDocument()
+		expect(within(version).queryByRole('option', { name: '8.4' })).not.toBeInTheDocument()
+		expect(within(version).queryByRole('option', { name: '8.5' })).not.toBeInTheDocument()
+		expect(version).toHaveValue('8.3')
+	})
+
+	it('warns when a site is recorded on a PHP version the host lacks', async () => {
+		mockMultiPHP([
+			{ id: 'site-1', domain_id: 'dom-1', document_root: '/home/alpha/public_html', runtime: 'php', runtime_version: '8.4', enabled: true },
+		], [
+			{ version: '8.3', status: 'installed' },
+			{ version: '8.4', status: 'available' },
+			{ version: '8.5', status: 'available' },
+		])
+		renderWebsites()
+		await screen.findByText(/PHP 8\.4 is not installed on this host/i)
+		const version = await screen.findByLabelText('PHP version for /home/alpha/public_html')
+		expect(within(version).queryByRole('option', { name: '8.4' })).not.toBeInTheDocument()
+		expect(within(version).getByRole('option', { name: '8.3' })).toBeInTheDocument()
+		expect(version).not.toHaveValue('8.4')
+		expect(screen.queryByRole('button', { name: 'Review' })).not.toBeInTheDocument()
 	})
 })

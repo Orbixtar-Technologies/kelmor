@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -301,7 +302,7 @@ func (a *API) setDatabaseRootPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listPHPRuntimes(w http.ResponseWriter, r *http.Request) {
-	if !a.require(w, r, rbac.ServerRead) {
+	if !a.requireAny(w, r, rbac.ServerRead, rbac.WebsitesRead) {
 		return
 	}
 	raw, err := a.Agent.Dispatch(r.Context(), operations.Request{Method: "ListPHPRuntimes"})
@@ -635,4 +636,73 @@ func supportedPHPVersion(version string) bool {
 	default:
 		return false
 	}
+}
+
+func (a *API) installedPHPVersions(ctx context.Context) ([]string, error) {
+	if a.Agent == nil {
+		return nil, fmt.Errorf("agent unavailable")
+	}
+	raw, err := a.Agent.Dispatch(ctx, operations.Request{Method: "ListPHPRuntimes"})
+	if err != nil {
+		return nil, err
+	}
+	return installedPHPVersionsFrom(raw), nil
+}
+
+func installedPHPVersionsFrom(raw any) []string {
+	var items []any
+	switch typed := raw.(type) {
+	case []map[string]any:
+		for _, item := range typed {
+			items = append(items, item)
+		}
+	case []any:
+		items = typed
+	default:
+		return nil
+	}
+	var out []string
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if fmt.Sprint(entry["status"]) != "installed" {
+			continue
+		}
+		version := strings.TrimSpace(fmt.Sprint(entry["version"]))
+		if !supportedPHPVersion(version) {
+			continue
+		}
+		out = append(out, version)
+	}
+	return out
+}
+
+func defaultInstalledPHP(installed []string) string {
+	for _, version := range installed {
+		if version == "8.3" {
+			return version
+		}
+	}
+	if len(installed) > 0 {
+		return installed[0]
+	}
+	return ""
+}
+
+func phpVersionInstalled(installed []string, version string) bool {
+	for _, item := range installed {
+		if item == version {
+			return true
+		}
+	}
+	return false
+}
+
+func phpFPMNotInstalledMessage(version string) string {
+	if version == "" {
+		return "php-fpm is not installed"
+	}
+	return "php-fpm " + version + " is not installed"
 }

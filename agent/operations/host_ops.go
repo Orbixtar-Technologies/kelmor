@@ -454,7 +454,7 @@ func (h *Host) listPHPRuntimes() []map[string]any {
 	for _, version := range []string{"8.3", "8.4", "8.5"} {
 		bin := "/usr/sbin/php-fpm" + version
 		status := "available"
-		if _, err := os.Stat(bin); err == nil {
+		if h.hostFileExists(bin) {
 			status = "installed"
 		}
 		out = append(out, map[string]any{"version": version, "status": status, "binary": bin})

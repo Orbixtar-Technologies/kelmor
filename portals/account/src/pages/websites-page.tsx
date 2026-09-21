@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, asList } from '../client'
-import { isSupportedPHPVersion, SUPPORTED_PHP_VERSIONS } from '../php-runtimes'
+import {
+	installedPHPVersions,
+	isInstalledPHPVersion,
+	isSupportedPHPVersion,
+	missingHostPHPVersion,
+	type PHPRuntime,
+} from '../php-runtimes'
 import { Can } from '../rbac'
 import { RequestSequence } from '../request-sequence'
 
@@ -22,27 +28,48 @@ interface DomainItem {
 export function WebsitesPage ({ accountId }: { accountId: string }) {
 	const [items, setItems] = useState<WebsiteItem[]>([])
 	const [domains, setDomains] = useState<DomainItem[]>([])
+	const [phpRuntimes, setPhpRuntimes] = useState<PHPRuntime[]>([])
 	const [msg, setMsg] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const currentAccountId = useRef(accountId)
 	currentAccountId.current = accountId
+	const installed = useMemo(() => installedPHPVersions(phpRuntimes), [phpRuntimes])
+	const missingHostVersions = useMemo(() => {
+		const found = new Set<string>()
+		for (const item of items) {
+			if (String(item.runtime || 'php') !== 'php') continue
+			const missing = missingHostPHPVersion(item.runtime_version || '', installed)
+			if (missing) found.add(missing)
+		}
+		return [...found]
+	}, [installed, items])
 
 	const load = async (requestedAccountId: string) => {
 		const request = requests.begin('websites')
-		const [sites, nextDomains] = await Promise.all([
+		const [sites, nextDomains, runtimes] = await Promise.all([
 			api<{ items: WebsiteItem[] }>(`/api/v1/accounts/${requestedAccountId}/websites`),
 			api<{ items: DomainItem[] }>(`/api/v1/accounts/${requestedAccountId}/domains`),
+			api<{ items?: PHPRuntime[] }>('/api/v1/server/runtimes').catch(() => ({ items: [] })),
 		])
 		if (!requests.isCurrent(request) || currentAccountId.current !== requestedAccountId) return
 		setItems(asList(sites))
 		setDomains(nextDomains.items || [])
+		setPhpRuntimes(asList(runtimes))
 	}
 
 	useEffect(() => { void load(accountId) }, [accountId])
 
+	function phpVersionMessage (version: string) {
+		if (!installed.length) return 'php-fpm is not installed'
+		if (!isSupportedPHPVersion(version)) return `Unsupported PHP version ${version}`
+		if (!isInstalledPHPVersion(version, installed)) return `php-fpm ${version} is not installed`
+		return ''
+	}
+
 	async function persistRuntime (website: WebsiteItem, runtimeVersion: string) {
-		if (!isSupportedPHPVersion(runtimeVersion)) {
-			setMsg(`Unsupported PHP version ${runtimeVersion}`)
+		const problem = phpVersionMessage(runtimeVersion)
+		if (problem) {
+			setMsg(problem)
 			return
 		}
 		await api(`/api/v1/accounts/${accountId}/websites`, {
@@ -62,14 +89,20 @@ export function WebsitesPage ({ accountId }: { accountId: string }) {
 		<>
 			<h1>Websites</h1>
 			<p>PHP-FPM, static files, or a Node/Python unit applied through the privileged agent.</p>
+			{missingHostVersions.length ? (
+				<p role="alert">PHP {missingHostVersions.join(', ')} is not installed on this host. Choose an installed version.</p>
+			) : null}
 			<Can cap="websites.write">
 			<form onSubmit={async (event) => {
 				event.preventDefault()
 				const data = new FormData(event.currentTarget)
 				const runtimeVersion = String(data.get('runtime_version') || '')
-				if (String(data.get('runtime')) === 'php' && !isSupportedPHPVersion(runtimeVersion)) {
-					setMsg(`Unsupported PHP version ${runtimeVersion}`)
-					return
+				if (String(data.get('runtime')) === 'php') {
+					const problem = phpVersionMessage(runtimeVersion)
+					if (problem) {
+						setMsg(problem)
+						return
+					}
 				}
 				await api(`/api/v1/accounts/${accountId}/websites`, { method: 'POST', body: JSON.stringify({
 					domain_id: data.get('domain_id'), runtime: data.get('runtime'), runtime_version: runtimeVersion || undefined,
@@ -85,7 +118,7 @@ export function WebsitesPage ({ accountId }: { accountId: string }) {
 					<option value="python">Python</option>
 				</select>
 				<select name="runtime_version" aria-label="PHP version">
-					{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
+					{installed.map((version) => <option key={version} value={version}>{version}</option>)}
 				</select>
 				<button type="submit">Apply website</button>
 			</form>
@@ -118,6 +151,8 @@ export function WebsitesPage ({ accountId }: { accountId: string }) {
 					<thead><tr><th>Hostname</th><th>Runtime</th><th>Document root</th><th>State</th></tr></thead>
 					<tbody>{items.map((item) => {
 						const domain = domains.find((entry) => entry.id === item.domain_id)
+						const recorded = item.runtime_version || '8.3'
+						const selectedVersion = isInstalledPHPVersion(recorded, installed) ? recorded : ''
 						return (
 							<tr key={item.id}>
 								<td>{domain?.ascii_fqdn || item.domain_id}</td>
@@ -127,10 +162,11 @@ export function WebsitesPage ({ accountId }: { accountId: string }) {
 										<label>
 											PHP version for {item.document_root}
 											<select
-												defaultValue={item.runtime_version || '8.3'}
+												value={selectedVersion}
 												onChange={(event) => void persistRuntime(item, event.target.value)}
 											>
-												{SUPPORTED_PHP_VERSIONS.map((version) => <option key={version} value={version}>{version}</option>)}
+												{missingHostPHPVersion(recorded, installed) ? <option value="">Choose installed PHP</option> : null}
+												{installed.map((version) => <option key={version} value={version}>{version}</option>)}
 											</select>
 										</label>
 									</Can>
