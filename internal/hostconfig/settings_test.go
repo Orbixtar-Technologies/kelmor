@@ -41,8 +41,8 @@ func TestNeedsHostApplyForFormerDeferredKeys(t *testing.T) {
 	if !NeedsHostApply([]string{"external_auth"}) || !NeedsHostApply([]string{"two_factor"}) || !NeedsHostApply([]string{"linked_nodes"}) || !NeedsHostApply([]string{"initial_quota"}) {
 		t.Fatal("former PARTIAL keys must queue host apply")
 	}
-	if NeedsHostApply([]string{"theme"}) || NeedsHostApply([]string{"mariadb_upgrade"}) {
-		t.Fatal("chrome and remaining deferred keys must stay local")
+	if NeedsHostApply([]string{"theme"}) || NeedsHostApply([]string{"mariadb_upgrade"}) || NeedsHostApply([]string{"demo_accounts"}) {
+		t.Fatal("chrome, remaining deferred, and demo-mode keys must stay local")
 	}
 }
 

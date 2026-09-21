@@ -7,6 +7,16 @@ import { addonDomainsFrom, convertAddonDomainsHref, domainFqdn } from '../conver
 import { messageFrom } from '../helpers'
 import { hasCapabilities, useCapabilities } from '../rbac'
 import type { Account, Package, ResourceItem } from '../types'
+import {
+	type BackupItem,
+	type MailRecipient,
+	type NginxLogItem,
+	GenericReviewRows,
+	ToolReviewExtras,
+	fieldsForConfigureStep,
+	isReviewStepLabel,
+	restorableBackups,
+} from './tool-review'
 import { ClusterPanel } from './cluster-panel'
 import { RemoteAccessPanel } from './remote-access-panel'
 import { DiagnosticsPanel } from './diagnostics-panel'
@@ -27,12 +37,19 @@ import {
 	DEFERRED_SETTINGS_SAVED,
 	HOST_SETTINGS_BANNER,
 	LOCAL_SETTINGS_BANNER,
+	MAIL_NOTIFY_BANNER,
+	POLICY_SETTINGS_BANNER,
+	POLICY_SETTINGS_SAVED,
 	QUOTA_PACKAGE_COPY,
+	REARRANGE_NOT_IMPLEMENTED,
 	confirmLabelForFeature,
 	isChromeSettingsKey,
 	isDeferredSettingsKey,
 	isHostSettingsFeature,
 	isLocalSettingsFeature,
+	isMailNotifyFeature,
+	isPolicySettingsFeature,
+	isPolicySettingsKey,
 } from '../catalog-honesty'
 import { hrefForFeature } from '../nav-hubs'
 import { featureById, type WhmFeature, type WhmField } from '../whm-catalog'
@@ -73,6 +90,10 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 	const [websites, setWebsites] = useState<Website[]>([])
 	const [addonDomains, setAddonDomains] = useState<ResourceItem[]>([])
 	const [addonsLoading, setAddonsLoading] = useState(false)
+	const [nginxLogs, setNginxLogs] = useState<NginxLogItem[]>([])
+	const [recipients, setRecipients] = useState<MailRecipient[]>([])
+	const [backups, setBackups] = useState<BackupItem[]>([])
+	const [migrationAccounts, setMigrationAccounts] = useState<Account[]>([])
 	const [settings, setSettings] = useState<Record<string, string>>({})
 	const [error, setError] = useState('')
 	const [message, setMessage] = useState('')
@@ -80,14 +101,19 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 	const [busy, setBusy] = useState(false)
 	const steps = feature.steps.length ? feature.steps : ['Configure', 'Review']
 	const isLast = step >= steps.length - 1
+	const isReview = isLast || isReviewStepLabel(steps[step])
 	const selectedAccount = accounts.find((account) => account.id === accountId)
 	const canSubmit = canSubmitFeature(feature, capabilities)
 	const isConvertAddon = feature.id === 'convert-addon'
 	const convertEmpty = isConvertAddon && Boolean(accountId) && !addonsLoading && addonDomains.length === 0
 	const convertReady = !isConvertAddon || (Boolean(accountId) && !addonsLoading && addonDomains.length > 0)
+	const readyBackups = restorableBackups(backups)
+	const applyBlockedReason = applyBlocked({
+		feature, accountId, isLast, selectedAccount, migrationAccounts, recipients, readyBackups, values,
+	})
 
 	useEffect(() => {
-		const needsAccounts = feature.layout === 'account-action' || feature.fields?.some((field) => field.type === 'account')
+		const needsAccounts = featureNeedsAccounts(feature)
 		const needsPackages = feature.fields?.some((field) => field.type === 'package')
 		const requests: Array<Promise<void>> = []
 		if (needsAccounts) {
@@ -95,6 +121,10 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 		}
 		if (needsPackages) {
 			requests.push(api<{ items: Package[] }>('/api/v1/packages').then((result) => setPackages(asList(result))).catch((reason) => setError(messageFrom(reason))))
+		}
+		if (isMailNotifyFeature(feature)) {
+			const audience = feature.id === 'email-resellers' ? 'resellers' : 'owners'
+			requests.push(api<{ items: MailRecipient[] }>(`/api/v1/mail/notify?audience=${audience}`).then((result) => setRecipients(asList(result))).catch(() => setRecipients([])))
 		}
 		if (feature.layout === 'settings' || feature.settingKey || feature.layout === 'form' || feature.layout === 'wizard') {
 			requests.push(api<ServerSettings>('/api/v1/server/settings').then((result) => {
@@ -137,6 +167,41 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 			.finally(() => setAddonsLoading(false))
 	}, [accountId, feature.id])
 
+	useEffect(() => {
+		if (feature.id !== 'raw-nginx-log' || !accountId) {
+			setNginxLogs([])
+			return
+		}
+		api<{ items: NginxLogItem[] }>(`/api/v1/accounts/${accountId}/nginx-logs`)
+			.then((result) => setNginxLogs(asList(result)))
+			.catch(() => setNginxLogs([]))
+	}, [accountId, feature.id])
+
+	useEffect(() => {
+		if (feature.id !== 'file-dir-restore' || !accountId) {
+			setBackups([])
+			return
+		}
+		api<{ items: BackupItem[] }>(`/api/v1/accounts/${accountId}/backups`)
+			.then((result) => setBackups(asList(result)))
+			.catch(() => {
+				api<{ items: BackupItem[] }>('/api/v1/backups')
+					.then((result) => setBackups(asList(result).filter((item) => !item.account_id || item.account_id === accountId)))
+					.catch(() => setBackups([]))
+			})
+	}, [accountId, feature.id])
+
+	useEffect(() => {
+		if (feature.id !== 'ip-migration' || !isReview) {
+			setMigrationAccounts([])
+			return
+		}
+		const fromIP = values.from_ip || ''
+		api<{ items: Account[] }>(`/api/v1/accounts/ip-migration?from_ip=${encodeURIComponent(fromIP)}`)
+			.then((result) => setMigrationAccounts(asList(result)))
+			.catch(() => setMigrationAccounts(accounts.filter((account) => (account.ip_address || '') === fromIP)))
+	}, [accounts, feature.id, isReview, values.from_ip])
+
 	function handleField (name: string, value: string) {
 		setValues((current) => ({ ...current, [name]: value }))
 		if (name === 'account_id') setAccountId(value)
@@ -170,11 +235,13 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 			<p className="subtle">{feature.category} · {feature.layout} journey</p>
 			{isLocalSettingsFeature(feature) ? <p className="settings-local-banner" role="status">{LOCAL_SETTINGS_BANNER}</p> : null}
 			{isHostSettingsFeature(feature) ? <p className="settings-local-banner host-applied" role="status">{HOST_SETTINGS_BANNER}</p> : null}
+			{isPolicySettingsFeature(feature) ? <p className="settings-local-banner" role="status">{POLICY_SETTINGS_BANNER}</p> : null}
+			{isMailNotifyFeature(feature) ? <p className="settings-local-banner" role="status">{MAIL_NOTIFY_BANNER}</p> : null}
 			<QueuedOpNotice message={message} accountId={accountId || undefined} jobId={jobId} />
 			{feature.id === 'quota-modification' || feature.id === 'limit-bandwidth' ? <p className="settings-local-banner host-applied" role="status">{QUOTA_PACKAGE_COPY}</p> : null}
 			{error ? <ErrorState error={error} /> : null}
 
-			{feature.layout === 'status' ? <StatusPanel feature={feature} account={selectedAccount} /> : null}
+			{feature.layout === 'status' ? <StatusPanel feature={feature} /> : null}
 
 			{feature.layout === 'restart' ? (
 				<section className="form-panel">
@@ -205,7 +272,7 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 							</li>
 						))}
 					</ol>
-					{!isLast ? (
+					{!isReview ? (
 						<div className="form-section-heading">
 							<h2>{steps[step]}</h2>
 							<p>{feature.description}</p>
@@ -213,7 +280,9 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 					) : (
 						<div className="form-section-heading">
 							<h2>Review</h2>
-							<p>Confirm the change before Director writes it. Privileged work still goes through the API and typed agent jobs.</p>
+							<p>{isLast
+								? 'Confirm the change before Director writes it. Privileged work still goes through the API and typed agent jobs.'
+								: 'Review the real list or paths for this change before continuing.'}</p>
 						</div>
 					)}
 					{needsAccountPicker(feature) ? (
@@ -234,9 +303,9 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 							action={<Link to={convertAddonDomainsHref(accountId)}>Create or manage domains</Link>}
 						/>
 					) : null}
-					{!isLast && convertReady ? (
+					{!isReview && convertReady ? (
 						<div className="form-grid">
-							{(feature.fields ?? []).filter((field) => field.type !== 'account').map((field) => {
+							{fieldsForConfigureStep(feature, step).map((field) => {
 								if (isConvertAddon && field.name === 'addon_domain') {
 									return (
 										<label key={field.name}>
@@ -255,6 +324,24 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 										</label>
 									)
 								}
+								if (feature.id === 'file-dir-restore' && field.name === 'backup_id') {
+									return (
+										<label key={field.name}>
+											{field.label}
+											<select
+												value={values.backup_id || ''}
+												onChange={(event) => handleField('backup_id', event.target.value)}
+											>
+												<option value="">Latest restorable backup</option>
+												{readyBackups.map((backup) => (
+													<option key={backup.id} value={backup.id}>
+														{backup.id} · {backup.kind || 'full'} · {backup.state || 'ready'}
+													</option>
+												))}
+											</select>
+										</label>
+									)
+								}
 								return (
 									<ToolField
 										key={field.name}
@@ -268,23 +355,35 @@ export function WhmToolBody ({ feature }: { feature: WhmFeature }) {
 							})}
 						</div>
 					) : null}
-					{isLast && convertReady ? (
-						<dl className="detail-list">
-							{needsAccountPicker(feature) ? <div><dt>Account</dt><dd>{selectedAccount ? `${selectedAccount.username} · ${selectedAccount.primary_domain}` : 'Not selected'}</dd></div> : null}
-							{Object.entries(values).filter(([key, value]) => key !== 'account_id' && value).map(([key, value]) => (
-								<div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{SECRET_FIELD.test(key) ? '••••••••' : value}</dd></div>
-							))}
-						</dl>
+					{isReview && convertReady ? (
+						usesCustomReview(feature.id) ? (
+							<ToolReviewExtras
+								feature={feature}
+								account={selectedAccount}
+								accounts={accounts}
+								packages={packages}
+								values={values}
+								nginxLogs={nginxLogs}
+								recipients={recipients}
+								backups={backups}
+								migrationAccounts={migrationAccounts}
+								onDownloadError={setError}
+							/>
+						) : (
+							<GenericReviewRows feature={feature} account={needsAccountPicker(feature) ? selectedAccount : undefined} packages={packages} values={values} />
+						)
 					) : null}
 					<div className="page-actions">
 						{step > 0 && convertReady ? <button type="button" className="secondary" onClick={() => setStep((current) => current - 1)}>Back</button> : null}
-						{convertReady ? (
-							<button type="submit" disabled={busy || (isLast && !canSubmit)}>
+						{convertReady && !(feature.inspectOnly && isLast) ? (
+							<button type="submit" disabled={busy || (isLast && (!canSubmit || Boolean(applyBlockedReason)))}>
 								{busy ? 'Working…' : isLast ? confirmLabel(feature) : 'Continue'}
 							</button>
 						) : null}
 					</div>
-					{isLast && convertReady && !canSubmit ? <p className="subtle">Your role can open this journey, but the API will refuse the write.</p> : null}
+					{isLast && convertReady && feature.inspectOnly ? <p className="subtle">{inspectOnlyCopy(feature)}</p> : null}
+					{isLast && convertReady && applyBlockedReason ? <p className="subtle">{applyBlockedReason}</p> : null}
+					{isLast && convertReady && !canSubmit && !feature.inspectOnly ? <p className="subtle">Your role can open this journey, but the API will refuse the write.</p> : null}
 				</form>
 			) : null}
 
@@ -375,7 +474,7 @@ function ToolField ({ field, value, packages, websites, onChange }: {
 	)
 }
 
-function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Account }) {
+function StatusPanel ({ feature }: { feature: WhmFeature }) {
 	if (feature.id === 'feature-showcase') return <FeatureShowcasePage />
 	if (feature.id === 'terminal') return <HostConsolePanel />
 	if (feature.id === 'phpmyadmin') return <HostAppsPanel kind="sql" />
@@ -436,27 +535,6 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 	if (feature.id === 'module-installers' || feature.id === 'perl-modules' || feature.id === 'php-pear' || feature.id === 'php-pecl' || feature.id === 'ruby-gems') {
 		return <HostModulesPanel kind={moduleKindForFeature(feature.id)} />
 	}
-	if (feature.id === 'rearrange-account' && account) {
-		return (
-			<section className="panel">
-				<dl className="detail-list">
-					<div><dt>Home</dt><dd><code>{account.home_path}</code></dd></div>
-					<div><dt>UID/GID</dt><dd>{account.linux_uid}/{account.linux_gid}</dd></div>
-				</dl>
-			</section>
-		)
-	}
-	if (feature.id === 'raw-nginx-log' && account) {
-		return (
-			<section className="panel">
-				<p>nginx writes account vhost logs next to the home tree. Copy these paths into File Manager or a signed-in host session.</p>
-				<dl className="detail-list">
-					<div><dt>Access</dt><dd><code>{account.home_path}/logs/access.log</code></dd></div>
-					<div><dt>Error</dt><dd><code>{account.home_path}/logs/error.log</code></dd></div>
-				</dl>
-			</section>
-		)
-	}
 	return (
 		<section className="panel">
 			<p>{feature.description}</p>
@@ -501,6 +579,10 @@ async function applyFeature ({
 			body: JSON.stringify({ path: values.path, backup_id: values.backup_id || undefined }),
 		})
 		return applied(result, 'Path restore queued.')
+	}
+
+	if (feature.inspectOnly) {
+		throw new Error(inspectOnlyCopy(feature))
 	}
 
 	if (feature.id === 'email-all-users' || feature.id === 'email-resellers') {
@@ -655,6 +737,7 @@ async function applyFeature ({
 		const result = await saveSetting(feature.settingKey, values)
 		if (isDeferredSettingsKey(feature.settingKey)) return { message: DEFERRED_SETTINGS_SAVED, jobId: result.operation_id }
 		if (isChromeSettingsKey(feature.settingKey)) return { message: CHROME_SETTINGS_SAVED, jobId: result.operation_id }
+		if (isPolicySettingsKey(feature.settingKey)) return { message: POLICY_SETTINGS_SAVED, jobId: result.operation_id }
 		return applied(result, 'Host apply queued.')
 	}
 
@@ -663,6 +746,7 @@ async function applyFeature ({
 		return applied(result, 'Host apply queued.')
 	}
 
+	if (feature.inspectOnly) throw new Error(inspectOnlyCopy(feature))
 	return { message: 'Nothing to apply.' }
 }
 
@@ -690,11 +774,67 @@ function needsAccountPicker (feature: WhmFeature) {
 	return feature.layout === 'account-action' || Boolean(feature.fields?.some((field) => field.type === 'account'))
 }
 
+function featureNeedsAccounts (feature: WhmFeature) {
+	return needsAccountPicker(feature)
+		|| feature.id === 'ip-migration'
+		|| feature.id === 'manage-demo-mode'
+		|| isMailNotifyFeature(feature)
+}
+
+function usesCustomReview (id: string) {
+	return id === 'raw-nginx-log'
+		|| id === 'rearrange-account'
+		|| id === 'ip-migration'
+		|| id === 'email-all-users'
+		|| id === 'email-resellers'
+		|| id === 'manage-demo-mode'
+		|| id === 'file-dir-restore'
+		|| id === 'quota-modification'
+		|| id === 'limit-bandwidth'
+}
+
+function inspectOnlyCopy (feature: WhmFeature) {
+	if (feature.id === 'raw-nginx-log') return 'Use Download or copy a listed path. This tool does not apply a host change.'
+	if (feature.id === 'rearrange-account') return REARRANGE_NOT_IMPLEMENTED
+	return 'This tool is review-only and does not apply a host change.'
+}
+
+function applyBlocked ({
+	feature, accountId, isLast, selectedAccount, migrationAccounts, recipients, readyBackups, values,
+}: {
+	feature: WhmFeature
+	accountId: string
+	isLast: boolean
+	selectedAccount?: Account
+	migrationAccounts: Account[]
+	recipients: MailRecipient[]
+	readyBackups: BackupItem[]
+	values: Record<string, string>
+}) {
+	if (!isLast || feature.inspectOnly) return ''
+	if (feature.id === 'ip-migration' && !migrationAccounts.length) {
+		return 'No accounts on this source IP. Apply is disabled so a shared or unset address is not migrated.'
+	}
+	if (isMailNotifyFeature(feature) && !recipients.length) {
+		return 'No recipients to notify. Apply is disabled.'
+	}
+	if (feature.id === 'file-dir-restore') {
+		if (!accountId || !selectedAccount) return 'Choose an account first.'
+		if (!readyBackups.length) return 'No restorable backups. Configure or run backups first.'
+		if (!values.path) return 'Enter a path under home.'
+	}
+	if ((feature.id === 'quota-modification' || feature.id === 'limit-bandwidth') && !values.package_id) {
+		return 'Choose a package first.'
+	}
+	return ''
+}
+
 function serviceName (feature: WhmFeature) {
 	return feature.fields?.find((field) => field.name === 'service')?.defaultValue || feature.id.replace('restart-', '')
 }
 
 function confirmLabel (feature: WhmFeature) {
+	if (feature.inspectOnly) return 'Review only'
 	if (feature.layout === 'confirm' || feature.layout === 'restart') return 'Confirm'
 	if (feature.accountAction === 'terminate') return 'Terminate account'
 	if (feature.accountAction === 'remove') return 'Remove account'

@@ -3,11 +3,16 @@ import {
 	HOST_SETTINGS_BANNER,
 	LOCAL_SETTINGS_BANNER,
 	LOCAL_SETTINGS_LABEL,
+	MAIL_NOTIFY_BANNER,
+	POLICY_SETTINGS_BANNER,
 	QUOTA_PACKAGE_COPY,
+	confirmLabelForFeature,
 	isChromeSettingsKey,
 	isHostSettingsFeature,
 	isLocalSettingsFeature,
 	isLocalSettingsToolId,
+	isMailNotifyFeature,
+	isPolicySettingsFeature,
 	localSettingsBadgeTitle,
 } from './catalog-honesty'
 import { featureById, whmFeatures } from './whm-catalog'
@@ -89,5 +94,20 @@ describe('catalog honesty', () => {
 	test('banner copy does not claim host enforcement for deferred records', () => {
 		expect(LOCAL_SETTINGS_BANNER).toMatch(/Not applied to host/i)
 		expect(LOCAL_SETTINGS_BANNER).not.toMatch(/Agent enforces/i)
+	})
+
+	test('keeps mail notify and demo mode honest about the real write path', () => {
+		expect(featureById('email-all-users')?.settingKey).toBeUndefined()
+		expect(isHostSettingsFeature(featureById('email-all-users')!)).toBe(false)
+		expect(isMailNotifyFeature(featureById('email-all-users')!)).toBe(true)
+		expect(confirmLabelForFeature(featureById('email-all-users')!)).toBe('Queue mail')
+		expect(MAIL_NOTIFY_BANNER).toMatch(/POST \/mail\/notify/)
+		expect(MAIL_NOTIFY_BANNER).toMatch(/not an nginx or Postfix configuration apply/)
+		expect(isPolicySettingsFeature(featureById('manage-demo-mode')!)).toBe(true)
+		expect(isHostSettingsFeature(featureById('manage-demo-mode')!)).toBe(false)
+		expect(POLICY_SETTINGS_BANNER).not.toMatch(/host apply job/i)
+		expect(confirmLabelForFeature(featureById('manage-demo-mode')!)).toBe('Save demo set')
+		expect(featureById('raw-nginx-log')?.inspectOnly).toBe(true)
+		expect(featureById('rearrange-account')?.inspectOnly).toBe(true)
 	})
 })

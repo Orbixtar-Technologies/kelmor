@@ -8,15 +8,18 @@ import { HubPage } from './hub-page'
 import { WhmToolPage } from './whm-tool-page'
 
 const api = vi.fn().mockResolvedValue({ values: {}, items: [] })
+const download = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('../client', () => ({
 	api: (...args: unknown[]) => api(...args),
 	asList: (value: { items?: unknown[] }) => value.items || [],
+	download: (...args: unknown[]) => download(...args),
 }))
 
 afterEach(() => {
 	cleanup()
 	api.mockClear()
+	download.mockClear()
 })
 
 function renderTool (path: string, caps: Record<string, boolean> = { 'server.settings.write': true, 'server.read': true }) {
@@ -120,7 +123,7 @@ describe('WhmToolPage', () => {
 				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
 			}
 			if (String(path) === '/api/v1/packages') {
-				return Promise.resolve({ items: [{ id: 'pkg-2', name: 'Business' }] })
+				return Promise.resolve({ items: [{ id: 'pkg-2', name: 'Business', disk_bytes: 10 * 1024 * 1024 * 1024, bandwidth_bytes_monthly: 100 * 1024 * 1024 * 1024 }] })
 			}
 			if (String(path) === '/api/v1/accounts/acc-1' && options?.method === 'PATCH') {
 				return Promise.resolve({ operation_id: 'rec-1' })
@@ -134,6 +137,11 @@ describe('WhmToolPage', () => {
 		await user.selectOptions(screen.getByLabelText('Package'), 'pkg-2')
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(screen.getByRole('heading', { name: 'Review' })).toBeInTheDocument()
+		expect(screen.getByText('Business')).toBeInTheDocument()
+		expect(screen.queryByText('pkg-2')).not.toBeInTheDocument()
+		expect(screen.getByText('10.0 GB')).toBeInTheDocument()
+		expect(screen.getByText('100.0 GB')).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Apply host change' }))
 		expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-1', expect.objectContaining({
 			method: 'PATCH',
@@ -148,6 +156,9 @@ describe('WhmToolPage', () => {
 			if (String(path) === '/api/v1/accounts') {
 				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
 			}
+			if (String(path) === '/api/v1/accounts/acc-1/backups') {
+				return Promise.resolve({ items: [{ id: 'bak-9', kind: 'full', state: 'succeeded', created_at: '2026-09-20T12:00:00Z', restorable: true }] })
+			}
 			if (String(path) === '/api/v1/accounts/acc-1/restores' && options?.method === 'POST') {
 				return Promise.resolve({ operation_id: 'restore-1' })
 			}
@@ -159,6 +170,9 @@ describe('WhmToolPage', () => {
 		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
 		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(screen.getByRole('heading', { name: 'Review' })).toBeInTheDocument()
+		expect(screen.getAllByText(/bak-9/).length).toBeGreaterThan(0)
+		expect(screen.getByText(/public_html/)).toBeInTheDocument()
 		await user.click(screen.getByRole('button', { name: 'Apply' }))
 		expect(api).toHaveBeenCalledWith('/api/v1/accounts/acc-1/restores', expect.objectContaining({
 			method: 'POST',
@@ -291,5 +305,175 @@ describe('WhmToolPage', () => {
 			}),
 		}))
 		expect(await screen.findByText(/Addon conversion queued/)).toBeInTheDocument()
+	})
+
+	test('raw nginx log review lists host paths and downloads without a dead Apply', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'orbixtar', primary_domain: 'orbixtar.dpdns.org', home_path: '/home/orbixtar' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1/nginx-logs') {
+				return Promise.resolve({ items: [
+					{ kind: 'access', path: '/home/orbixtar/logs/access.log', present: true, size_bytes: 32 },
+					{ kind: 'error', path: '/home/orbixtar/logs/error.log', present: false, size_bytes: 0 },
+					{ kind: 'access', path: '/var/log/nginx/site-1.access.log', website_id: 'site-1', domain: 'orbixtar.dpdns.org', present: true, size_bytes: 128 },
+				] })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/raw-nginx-log', { 'accounts.read': true })
+		await screen.findByRole('option', { name: /orbixtar/ })
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(await screen.findByRole('heading', { name: 'Review' })).toBeInTheDocument()
+		expect(await screen.findByText('/home/orbixtar/logs/access.log')).toBeInTheDocument()
+		expect(screen.getByText('/home/orbixtar/logs/error.log')).toBeInTheDocument()
+		expect(screen.getByText('/var/log/nginx/site-1.access.log')).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument()
+		expect(screen.queryByText('Nothing to apply.')).not.toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Download access.log' }))
+		expect(download).toHaveBeenCalledWith(
+			'/api/v1/accounts/acc-1/nginx-logs/content?path=%2Fhome%2Forbixtar%2Flogs%2Faccess.log',
+			'access.log',
+		)
+	})
+
+	test('ip migration review lists tenants on the source IP', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [
+					{ id: 'acc-1', username: 'orbixtar', primary_domain: 'orbixtar.dpdns.org', ip_address: '203.0.113.40' },
+					{ id: 'acc-2', username: 'other', primary_domain: 'other.test', ip_address: '' },
+				] })
+			}
+			if (String(path).startsWith('/api/v1/accounts/ip-migration') && !options?.method) {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'orbixtar', primary_domain: 'orbixtar.dpdns.org', ip_address: '203.0.113.40' }] })
+			}
+			if (String(path) === '/api/v1/accounts/ip-migration' && options?.method === 'POST') {
+				return Promise.resolve({ operations: ['job-ip-1'] })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/ip-migration', { 'accounts.modify': true, 'accounts.read': true })
+		await user.type(screen.getByLabelText('Source IP'), '203.0.113.40')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.type(screen.getByLabelText('Destination IP'), '203.0.113.50')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(await screen.findByRole('heading', { name: 'Review' })).toBeInTheDocument()
+		expect(await screen.findByText(/orbixtar · orbixtar.dpdns.org/)).toBeInTheDocument()
+		expect(screen.queryByText(/other\.test/)).not.toBeInTheDocument()
+		expect(screen.queryByLabelText('Source IP')).not.toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Apply' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/accounts/ip-migration', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({ from_ip: '203.0.113.40', to_ip: '203.0.113.50' }),
+		}))
+	})
+
+	test('email all users review lists recipients and queues POST /mail/notify', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'orbixtar', primary_domain: 'orbixtar.dpdns.org' }] })
+			}
+			if (String(path).startsWith('/api/v1/mail/notify') && !options?.method) {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'orbixtar', email: 'owner@orbixtar.dpdns.org', primary_domain: 'orbixtar.dpdns.org' }] })
+			}
+			if (String(path) === '/api/v1/mail/notify' && options?.method === 'POST') {
+				return Promise.resolve({ operation_id: 'mail-1' })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/email-all-users', { 'accounts.read': true, 'server.settings.write': true })
+		expect(await screen.findByRole('status')).toHaveTextContent(/POST \/mail\/notify/)
+		expect(screen.queryByText(/Save queues a host apply job/)).not.toBeInTheDocument()
+		await user.type(screen.getByLabelText('Subject'), 'Host notice')
+		await user.type(screen.getByLabelText('Message'), 'Maintenance window tonight.')
+		await user.type(screen.getByLabelText('From address'), 'ops@kelmor.host')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(screen.getByRole('heading', { name: 'Review' })).toBeInTheDocument()
+		expect(screen.getByText(/orbixtar · owner@orbixtar.dpdns.org/)).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Queue mail' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/mail/notify', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({
+				from: 'ops@kelmor.host',
+				subject: 'Host notice',
+				body: 'Maintenance window tonight.',
+				audience: 'owners',
+			}),
+		}))
+		expect(api).not.toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({ method: 'PATCH' }))
+	})
+
+	test('rearrange account review shows the home path and disables Apply', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'orbixtar', primary_domain: 'orbixtar.dpdns.org', home_path: '/home/orbixtar', linux_uid: 20001, linux_gid: 20001 }] })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/rearrange-account', { 'accounts.read': true })
+		await screen.findByRole('option', { name: /orbixtar/ })
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(screen.getByText('/home/orbixtar')).toBeInTheDocument()
+		expect(screen.getByText(/not implemented/i)).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument()
+	})
+
+	test('manage demo mode review shows the current set without a host-apply banner', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string, options?: { method?: string }) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'orbixtar', primary_domain: 'orbixtar.dpdns.org', home_path: '/home/orbixtar' }] })
+			}
+			if (String(path) === '/api/v1/server/settings' && options?.method === 'PATCH') {
+				return Promise.resolve({ values: {} })
+			}
+			if (String(path) === '/api/v1/server/settings') {
+				return Promise.resolve({ values: { demo_accounts: { usernames: 'orbixtar' } } })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/manage-demo-mode', { 'accounts.modify': true, 'server.settings.write': true })
+		expect(await screen.findByText(/Director policy/)).toBeInTheDocument()
+		expect(await screen.findByDisplayValue('orbixtar')).toBeInTheDocument()
+		expect(screen.queryByText(/Save queues a host apply job/)).not.toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(screen.getByRole('heading', { name: 'Review' })).toBeInTheDocument()
+		expect(screen.getByText(/orbixtar · orbixtar.dpdns.org/)).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Save demo set' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/server/settings', expect.objectContaining({
+			method: 'PATCH',
+			body: JSON.stringify({ values: { demo_accounts: { usernames: 'orbixtar' } } }),
+		}))
+	})
+
+	test('file restore review shows an honest empty inventory', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/accounts') {
+				return Promise.resolve({ items: [{ id: 'acc-1', username: 'shop', primary_domain: 'shop.test' }] })
+			}
+			if (String(path) === '/api/v1/accounts/acc-1/backups') {
+				return Promise.resolve({ items: [] })
+			}
+			return Promise.resolve({ values: {}, items: [] })
+		})
+		renderTool('/tools/file-dir-restore', { 'backups.restore': true, 'accounts.read': true })
+		await screen.findByRole('option', { name: /shop/ })
+		await user.selectOptions(screen.getByLabelText('Account'), 'acc-1')
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		await user.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(screen.getByText('No restorable backups')).toBeInTheDocument()
+		expect(screen.getByRole('link', { name: 'Configure or run backups' })).toHaveAttribute('href', '/transfers')
+		expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
 	})
 })

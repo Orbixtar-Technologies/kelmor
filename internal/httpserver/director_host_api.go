@@ -171,13 +171,7 @@ func (a *API) migrateAccountIPs(w http.ResponseWriter, r *http.Request) {
 	}
 	from := strings.TrimSpace(in.FromIP)
 	var operations []string
-	for _, acc := range a.Store.ListAccounts("", "") {
-		if !actor(r).CanAccount(acc.ID) {
-			continue
-		}
-		if strings.TrimSpace(acc.IPAddress) != from {
-			continue
-		}
+	for _, acc := range a.accountsOnIP(r, from) {
 		acc.IPAddress = strings.TrimSpace(in.ToIP)
 		acc.DesiredRevision++
 		job, err := a.Store.UpdateAccountWithJobAndAudit(&acc, &store.Job{
