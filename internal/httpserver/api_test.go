@@ -407,7 +407,9 @@ func TestPackageLimitsAndDiskQuota(t *testing.T) {
 	if err := store.SeedDev(st, "admin", "ChangeMeOnce!2026", "admin@localhost"); err != nil {
 		t.Fatal(err)
 	}
-	api := New(st, logging.New("test"), &operations.Host{Root: t.TempDir()})
+	host := &operations.Host{Root: t.TempDir()}
+	seedPHPFPM(t, host, "8.3")
+	api := New(st, logging.New("test"), host)
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	token := post(t, srv.URL+"/api/v1/auth/login", "", map[string]string{"username": "admin", "password": "ChangeMeOnce!2026"})["token"].(string)

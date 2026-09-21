@@ -757,10 +757,7 @@ func (w *Worker) provisionWebsite(j *store.Job) error {
 func (w *Worker) applySiteRuntime(site *store.Website, acc *store.Account) error {
 	switch site.Runtime {
 	case "php":
-		ver := site.RuntimeVersion
-		if ver == "" || ver == "8.5" {
-			ver = "8.3"
-		}
+		ver := phpPoolVersion(site.RuntimeVersion)
 		children := w.concurrentWebRequests(acc)
 		if children < 1 {
 			children = 8
@@ -2580,6 +2577,13 @@ func gone(err error) bool {
 	}
 	s := err.Error()
 	return strings.Contains(s, "missing")
+}
+
+func phpPoolVersion(ver string) string {
+	if ver == "" {
+		return "8.3"
+	}
+	return ver
 }
 
 func findSite(st store.Store, domainID string) *store.Website {
