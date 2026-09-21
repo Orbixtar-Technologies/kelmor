@@ -13,7 +13,7 @@ describe('deepen batch 3 catalog membership', () => {
 		expect(hrefForFeature(firewall!)).toBe('/section/security?tool=firewall')
 		expect(hrefForFeature(csf!)).toBe('/section/security?tool=csf')
 		expect(firewall!.label).toBe('Firewall')
-		expect(csf!.label).toBe('Firewall')
+		expect(csf!.label).toBe('Firewall (CSF link)')
 		expect(firewall!.description).toMatch(/nftables/i)
 		expect(firewall!.description).not.toMatch(/\bCSF\b/)
 		expect(csf!.description).toMatch(/not (the Kelmor stack|installed)|nftables/i)

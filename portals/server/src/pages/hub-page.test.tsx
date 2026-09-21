@@ -85,7 +85,7 @@ describe('HubPage', () => {
 		cleanup()
 		renderPath('/section/security?tool=csf')
 		expect(screen.queryByText(/This tool is not part of Security/)).not.toBeInTheDocument()
-		expect(await screen.findByRole('heading', { name: 'Firewall' })).toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: 'Firewall (CSF link)' })).toBeInTheDocument()
 		cleanup()
 		renderPath('/section/websites?tool=hotlink')
 		expect(screen.queryByText(/This tool is not part of Websites/)).not.toBeInTheDocument()
