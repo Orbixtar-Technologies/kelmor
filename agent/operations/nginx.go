@@ -41,6 +41,7 @@ func (h *Host) applyWebsite(websiteID, account, domain, docroot, runtime, phpVer
 		BandwidthHold: bandwidthHold, ConcurrentWebRequests: concurrent,
 		Aliases: cleanAliases, ListenIPv4: listenIPv4, ListenIPv6: listenIPv6,
 	}
+	h.applyLoadedVhostPolicy(&spec)
 	if certAbs, err := h.resolve("/var/lib/panel/certs/" + domain + ".crt"); err == nil {
 		if _, err := os.Stat(certAbs); err == nil {
 			spec.TLSCert = "/var/lib/panel/certs/" + domain + ".crt"

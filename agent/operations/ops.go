@@ -630,6 +630,32 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			}
 		}
 		return h.readMailDelivery(p)
+	case "ListMailQueue":
+		return h.listMailQueue(), nil
+	case "ReadVhostPolicy":
+		var p struct {
+			WebsiteID string `json:"website_id"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.readVhostPolicy(p.WebsiteID)
+	case "WriteVhostPolicy":
+		var p VhostPolicy
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.writeVhostPolicy(p)
+	case "ListGitRepos":
+		var p struct {
+			Home string `json:"home"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.listGitRepos(p.Home)
+	case "ListImages":
+		var p struct {
+			Root string `json:"root"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.listImages(p.Root)
 	case "GetServiceStatus":
 		var p struct {
 			Name string `json:"name"`

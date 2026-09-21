@@ -17,6 +17,9 @@ import { PostgresConfigPanel } from './postgres-config-panel'
 import { ThemeManagerPanel } from './theme-manager-panel'
 import { SupportAccessPanel } from './support-access-panel'
 import { HostConsolePanel, HostPasswordForm } from './host-console-panel'
+import { FirewallPanel } from './firewall-panel'
+import { MailQueuePanel } from './mail-queue-panel'
+import { HotlinkPanel, ImageManagerPanel } from './site-policy-panels'
 import { FeatureShowcasePage } from './feature-showcase-page'
 import { QueuedOpNotice, queuedOpMessage } from '../components/queued-op-notice'
 import {
@@ -386,7 +389,11 @@ function StatusPanel ({ feature, account }: { feature: WhmFeature; account?: Acc
 			</section>
 		)
 	}
-	if (feature.id === 'mail-queue' || feature.id === 'mail-troubleshooter') {
+	if (feature.id === 'mail-queue') return <MailQueuePanel />
+	if (feature.id === 'firewall' || feature.id === 'csf') return <FirewallPanel />
+	if (feature.id === 'hotlink') return <HotlinkPanel />
+	if (feature.id === 'image-manager') return <ImageManagerPanel />
+	if (feature.id === 'mail-troubleshooter') {
 		return (
 			<>
 				<section className="panel">

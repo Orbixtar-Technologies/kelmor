@@ -186,17 +186,31 @@ describe('WhmToolPage', () => {
 		expect(api).not.toHaveBeenCalledWith('/api/v1/accounts/bulk/unsuspend-bandwidth', expect.anything())
 	})
 
-	test('mail queue only mounts Postfix recipes', async () => {
-		api.mockResolvedValue({ items: [
-			{ id: 'nginx-test', label: 'Test nginx configuration', description: 'Run nginx -t without reloading.' },
-			{ id: 'postfix-queue', label: 'Show mail queue', description: 'List deferred and active Postfix queue entries.' },
-			{ id: 'postfix-flush', label: 'Flush mail queue', description: 'Ask Postfix to retry deferred mail.' },
-			{ id: 'postfix-status', label: 'Postfix status', description: 'Show Postfix service status.' },
-		] })
-		renderTool('/tools/mail-queue')
-		expect(await screen.findByText('Show mail queue')).toBeInTheDocument()
+	test('mail queue Show reads GET /mail/queue and does not POST the console recipe', async () => {
+		const user = userEvent.setup()
+		api.mockImplementation((path: string) => {
+			if (String(path) === '/api/v1/mail/queue') {
+				return Promise.resolve({ items: [], message: 'Postfix queue is empty.' })
+			}
+			if (String(path) === '/api/v1/server/console/recipes') {
+				return Promise.resolve({ items: [
+					{ id: 'nginx-test', label: 'Test nginx configuration', description: 'Run nginx -t without reloading.' },
+					{ id: 'postfix-queue', label: 'Show mail queue', description: 'List deferred and active Postfix queue entries.' },
+					{ id: 'postfix-flush', label: 'Flush mail queue', description: 'Ask Postfix to retry deferred mail.' },
+					{ id: 'postfix-status', label: 'Postfix status', description: 'Show Postfix service status.' },
+				] })
+			}
+			return Promise.resolve({ items: [] })
+		})
+		renderTool('/tools/mail-queue', { 'mail.read': true, 'server.settings.write': true })
+		expect(await screen.findByRole('heading', { name: 'Mail Queue Manager' })).toBeInTheDocument()
+		expect(await screen.findByRole('button', { name: 'Show mail queue' })).toBeInTheDocument()
+		expect(await screen.findByText('Mail queue is empty')).toBeInTheDocument()
 		expect(screen.getByText('Flush mail queue')).toBeInTheDocument()
 		expect(screen.queryByText('Test nginx configuration')).not.toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'Show mail queue' }))
+		expect(api).toHaveBeenCalledWith('/api/v1/mail/queue')
+		expect(api).not.toHaveBeenCalledWith('/api/v1/server/console', expect.anything())
 	})
 
 	test('convert addon shows an honest empty state when the account has no addons', async () => {

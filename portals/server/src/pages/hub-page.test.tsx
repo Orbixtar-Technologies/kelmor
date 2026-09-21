@@ -78,6 +78,50 @@ describe('HubPage', () => {
 		expect(await screen.findByRole('heading', { name: 'Change Hostname' })).toBeInTheDocument()
 	})
 
+	test('Security and Websites and Files deep links are catalog members', async () => {
+		renderPath('/section/security?tool=firewall')
+		expect(screen.queryByText(/This tool is not part of Security/)).not.toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: 'Firewall' })).toBeInTheDocument()
+		cleanup()
+		renderPath('/section/security?tool=csf')
+		expect(screen.queryByText(/This tool is not part of Security/)).not.toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: 'Firewall (CSF link)' })).toBeInTheDocument()
+		cleanup()
+		renderPath('/section/websites?tool=hotlink')
+		expect(screen.queryByText(/This tool is not part of Websites/)).not.toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: /Hotlink/ })).toBeInTheDocument()
+		cleanup()
+		renderPath('/section/files?tool=image-manager')
+		expect(screen.queryByText(/This tool is not part of Files/)).not.toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: /Image Manager/ })).toBeInTheDocument()
+	})
+
+	test('redirects dedicated Redirects and Git tools off the hub stub', () => {
+		render(
+			<MemoryRouter initialEntries={['/section/websites?tool=redirects']}>
+				<CapProvider caps={{ 'websites.read': true, 'accounts.read': true }}>
+					<Routes>
+						<Route path="section/:hubId" element={<HubPage />} />
+						<Route path="redirects" element={<p>Redirects manager</p>} />
+					</Routes>
+				</CapProvider>
+			</MemoryRouter>,
+		)
+		expect(screen.getByText('Redirects manager')).toBeInTheDocument()
+		cleanup()
+		render(
+			<MemoryRouter initialEntries={['/section/files?tool=git']}>
+				<CapProvider caps={{ 'files.read': true, 'accounts.read': true }}>
+					<Routes>
+						<Route path="section/:hubId" element={<HubPage />} />
+						<Route path="git" element={<p>Git Version Control</p>} />
+					</Routes>
+				</CapProvider>
+			</MemoryRouter>,
+		)
+		expect(screen.getByText('Git Version Control')).toBeInTheDocument()
+	})
+
 	test('selected section tools render the journey without hub catalogs', async () => {
 		function renderTool (path: string) {
 			return render(

@@ -39,6 +39,12 @@ const COLLIDED_PAIRS = [
 	['park-domain', 'list-parked'],
 	['install-ssl', 'generate-csr'],
 	['update-preferences', 'change-log'],
+	['firewall', 'csf'],
+	['firewall', 'security'],
+	['redirects', 'websites'],
+	['hotlink', 'websites'],
+	['git', 'file-manager'],
+	['image-manager', 'file-manager'],
 ] as const
 
 describe('Director nav collisions', () => {
