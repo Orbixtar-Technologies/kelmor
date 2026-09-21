@@ -20,8 +20,6 @@ export const QUOTA_PACKAGE_COPY = 'Disk and monthly bandwidth caps come from the
 
 export const MAILBOX_PASSWORD_STUB = 'Mailbox password and quota changes queue a mailbox reconcile. Maps apply the new hash and Dovecot quota.'
 
-export const CUSTOM_PEM_STUB = 'Custom PEM install is not available. Kelmor issues certificates through AutoSSL. There is no certificate upload API.'
-
 export const DATABASE_USER_MODEL = 'Kelmor provisions one database user per engine for the account. Extra MySQL users and GRANTs are not supported.'
 
 const DEFERRED_SETTING_KEYS = new Set<string>([])

@@ -91,7 +91,7 @@ export function MailQueuePanel () {
 				{!loading && !error && !items.length ? (
 					<EmptyState
 						title="Mail queue is empty"
-						detail={note || 'No deferred or active Postfix messages. Live listings need a privileged Agent running postqueue.'}
+						detail={note || 'No deferred or active Postfix messages.'}
 					/>
 				) : null}
 				{partial && note ? <p className="subtle" role="status">{note}</p> : null}

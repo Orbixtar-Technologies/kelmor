@@ -1506,6 +1506,27 @@ paths:
         - $ref: "#/components/parameters/accountID"
       responses:
         "202": { description: ACME or dev certificate queued }
+  /accounts/{accountID}/certificates/install:
+    post:
+      operationId: installAccountCertificate
+      x-capability: websites.write
+      parameters:
+        - $ref: "#/components/parameters/accountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostname, cert_pem, key_pem]
+              properties:
+                hostname: { type: string }
+                cert_pem: { type: string }
+                key_pem: { type: string }
+                ca_pem: { type: string, description: "Optional CA bundle PEM" }
+      responses:
+        "202": { description: custom certificate written on the host and apply queued }
+        "400": { description: invalid PEM, hostname, or materials }
   /accounts/{accountID}/backups:
     get:
       operationId: listBackups

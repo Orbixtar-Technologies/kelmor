@@ -353,6 +353,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.probeClusterPeersJob(j)
 	case "host.ssl.service.apply":
 		return w.applyServiceCertificateJob(j)
+	case "host.ssl.account.apply":
+		return w.applyAccountCertificateJob(j)
 	case "host.remote_access.apply":
 		return w.applyRemoteAccessKeyJob(j)
 	case "host.app.control":

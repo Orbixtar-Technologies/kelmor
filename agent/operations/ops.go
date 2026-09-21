@@ -828,6 +828,17 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return h.installServiceCertificate(p.Service, p.Hostname, p.CertPEM, p.KeyPEM)
+	case "InstallAccountCertificate":
+		var p struct {
+			Hostname string `json:"hostname"`
+			CertPEM  string `json:"cert_pem"`
+			KeyPEM   string `json:"key_pem"`
+			CAPEM    string `json:"ca_pem"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, err
+		}
+		return h.installAccountCertificate(p.Hostname, p.CertPEM, p.KeyPEM, p.CAPEM)
 	case "WriteRemoteAccessKey":
 		var rec RemoteAccessRecord
 		if err := json.Unmarshal(req.Params, &rec); err != nil {

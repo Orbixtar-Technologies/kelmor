@@ -27,6 +27,9 @@ func TestMailQueueShowReturnsEmptyList(t *testing.T) {
 	if body["error"] != nil {
 		t.Fatalf("empty queue must not be an error: %v", body)
 	}
+	if body["partial"] == true {
+		t.Fatalf("idle sandbox queue must be a true empty list, not a read failure: %v", body)
+	}
 }
 
 func TestFirewallMetadataNamesNftablesNotCSF(t *testing.T) {

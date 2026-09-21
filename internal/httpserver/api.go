@@ -224,6 +224,7 @@ func (a *API) Handler() http.Handler {
 				r.Post("/mail/lists/{listID}/reset-password", a.resetMailingListPassword)
 				r.Get("/certificates", a.listCerts)
 				r.Post("/certificates", a.requestCert)
+				r.Post("/certificates/install", a.installAccountCertificate)
 				r.Get("/backups", a.listBackups)
 				r.Post("/backups", a.createBackup)
 				r.Post("/restores", a.restoreBackup)
@@ -974,7 +975,7 @@ func containsSensitiveJobFieldValue(value any) bool {
 
 func sensitiveJobField(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
-	for _, marker := range []string{"password", "secret", "token", "credential", "private_key", "hash"} {
+	for _, marker := range []string{"password", "secret", "token", "credential", "private_key", "hash", "cert_pem", "key_pem", "ca_pem"} {
 		if strings.Contains(normalized, marker) {
 			return true
 		}
@@ -1006,7 +1007,7 @@ func retryCapability(jobType string) string {
 		return rbac.ServerSettingsWrite
 	case "backup.schedule":
 		return rbac.BackupsCreate
-	case "certificate.provision":
+	case "certificate.provision", "host.ssl.account.apply":
 		return rbac.WebsitesWrite
 	case "certificate.portal":
 		return rbac.ServerSettingsWrite

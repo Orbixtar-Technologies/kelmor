@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { CUSTOM_PEM_STUB } from '../catalog-honesty'
 import { api, asList } from '../client'
 import { AccountPicker } from '../components/account-picker'
 import { AccountScopeBar } from '../components/account-scope-bar'
@@ -121,6 +120,29 @@ export function SSLManagerPage () {
 		}
 	}
 
+	async function installCustomCertificate (event: React.FormEvent<HTMLFormElement>) {
+		event.preventDefault()
+		if (!accountId) return
+		const data = new FormData(event.currentTarget)
+		try {
+			const result = await api<{ operation_id?: string }>(`/api/v1/accounts/${accountId}/certificates/install`, {
+				method: 'POST',
+				body: JSON.stringify({
+					hostname: data.get('hostname'),
+					cert_pem: data.get('cert_pem'),
+					key_pem: data.get('key_pem'),
+					ca_pem: data.get('ca_pem'),
+				}),
+			})
+			setJobId(result.operation_id || '')
+			setMessage(queuedOpMessage(result, 'Custom certificate installed on the host.'))
+			event.currentTarget.reset()
+			loadCertificates(accountId)
+		} catch (requestError) {
+			setMessage(messageFrom(requestError))
+		}
+	}
+
 	type CertificateRow = ResourceItem & { account_id: string; account_name: string }
 	const rows: CertificateRow[] = viewAll ? allCertificates : certificates.map((certificate) => ({
 		...certificate,
@@ -169,9 +191,25 @@ export function SSLManagerPage () {
 					<button type="submit">Request AutoSSL</button>
 				</form>
 				<p className="subtle">Kelmor issues the certificate through ACME and applies it to the account nginx vhost. There is no separate CSR download or bounce through Account Services.</p>
-				<aside className="settings-local-banner" role="note">
-					<strong>Custom PEM — labeled stub.</strong> {CUSTOM_PEM_STUB}
-				</aside>
+			</section> : null}
+			{!viewAll && accountId && canWrite && task === 'install' ? <section className="panel">
+				<h2>Install a custom certificate</h2>
+				<form className="form-grid" onSubmit={installCustomCertificate}>
+					<label>Hostname<input name="hostname" defaultValue={account?.primary_domain} required /></label>
+					<label>Certificate PEM
+						<textarea name="cert_pem" rows={6} aria-label="Certificate PEM" required />
+					</label>
+					<label>Private key PEM
+						<textarea name="key_pem" rows={6} aria-label="Private key PEM" required />
+					</label>
+					<label>CA bundle PEM (optional)
+						<textarea name="ca_pem" rows={4} aria-label="CA bundle PEM" />
+					</label>
+					<div className="page-actions">
+						<button type="submit">Install certificate</button>
+					</div>
+				</form>
+				<p className="subtle">Paste a certificate, matching private key, and optional CA bundle. Kelmor validates the PEMs, writes them on the host, and reloads nginx. Invalid materials are rejected.</p>
 			</section> : null}
 			{task === 'service' ? <ServiceSSLPanel /> : null}
 			{task !== 'service' && (viewAll || accountId) ? <section className="panel">
@@ -218,7 +256,7 @@ function sslToolDescription (task: string): string {
 		case 'request':
 			return 'Request an account certificate for a hostname through AutoSSL. Account picker is on this tool.'
 		case 'install':
-			return 'Request a certificate for a hostname. Kelmor installs through ACME, not a custom PEM upload.'
+			return 'Request AutoSSL or install a pasted certificate and private key for a hostname on this account.'
 		case 'autossl':
 			return 'Request and renew account certificates through ACME on this dedicated AutoSSL tool.'
 		case 'inventory':

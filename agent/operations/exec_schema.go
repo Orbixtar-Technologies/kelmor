@@ -44,7 +44,7 @@ var allowedFlags = map[string]map[string]bool{
 	"/usr/bin/psql":            {"d": true, "v": true, "c": true},
 	"/usr/sbin/runuser":        {"u": true},
 	"/usr/bin/pdnsutil":        {},
-	"/usr/sbin/postqueue":      {},
+	"/usr/sbin/postqueue":      {"p": true, "j": true, "f": true},
 	"/usr/sbin/postsuper":      {},
 	"/usr/sbin/postmap":        {},
 	"/usr/sbin/postconf":       {},

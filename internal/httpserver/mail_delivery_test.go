@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hosting-panel/panel/agent/operations"
 	"github.com/hosting-panel/panel/internal/pkg/logging"
@@ -22,8 +23,10 @@ func TestMailDeliveryReportAndTrack(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	today := time.Now().UTC().Format("Jan _2 15:04:05")
 	body := "Sep 19 04:12:00 host postfix/qmgr[11]: ABC123: from=<shop@shop.test>, size=512, nrcpt=1 (queue active)\n" +
-		"Sep 19 04:12:01 host postfix/smtp[12]: ABC123: to=<user@example.com>, relay=mx.example.com[203.0.113.10]:25, dsn=2.0.0, status=sent (250 OK)\n"
+		"Sep 19 04:12:01 host postfix/smtp[12]: ABC123: to=<user@example.com>, relay=mx.example.com[203.0.113.10]:25, dsn=2.0.0, status=sent (250 OK)\n" +
+		today + " host postfix/smtp[12]: ABC123: to=<user@example.com>, relay=mx.example.com[203.0.113.10]:25, dsn=2.0.0, status=sent (250 OK)\n"
 	if err := os.WriteFile(logPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
