@@ -209,6 +209,19 @@ export function hrefForFeature (feature: WhmFeature): string {
 	return hub ? hubToolHref(hub, feature) : feature.path
 }
 
+export function canonicalToolHref (toolId: string): string | null {
+	const feature = featureById(toolId)
+	if (!feature) return null
+	return hrefForFeature(feature)
+}
+
+export function misplacedSectionRedirect (sectionId: string, toolId: string): string | null {
+	const feature = featureById(toolId)
+	const owner = feature ? hubForToolId(feature.id) : undefined
+	if (!feature || !owner || owner.id === sectionId) return null
+	return hubToolHref(owner, feature)
+}
+
 export function hrefForTool (tool: ToolDefinition): string {
 	const feature = featureById(tool.id)
 	return feature ? hrefForFeature(feature) : tool.path

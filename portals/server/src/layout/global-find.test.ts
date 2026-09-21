@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import { rankFindResults, resourcesFromAccountCollections, shouldHandleFindShortcut } from './global-find'
 import type { Account, ToolDefinition } from '../types'
+import { hrefForFeature } from '../nav-hubs'
+import { featureById, toToolDefinition } from '../whm-catalog'
 
 const tools: ToolDefinition[] = [
 	{
@@ -64,6 +66,18 @@ describe('global find ranking', () => {
 		expect(shouldHandleFindShortcut('/', false, div)).toBe(true)
 		expect(shouldHandleFindShortcut('/', false, input)).toBe(false)
 		expect(shouldHandleFindShortcut('/', true, div)).toBe(false)
+	})
+
+	test('opens IP migration and file restore on their owner hubs', () => {
+		const catalogTools = ['ip-migration', 'file-dir-restore'].map((id) => toToolDefinition(featureById(id)!))
+		const migration = rankFindResults('IP Migration', catalogTools, [])[0]
+		const restore = rankFindResults('File and Directory', catalogTools, [])[0]
+		expect(migration?.id).toBe('ip-migration')
+		expect(migration?.path).toBe(hrefForFeature(featureById('ip-migration')!))
+		expect(migration?.path).toBe('/section/server?tool=ip-migration')
+		expect(restore?.id).toBe('file-dir-restore')
+		expect(restore?.path).toBe(hrefForFeature(featureById('file-dir-restore')!))
+		expect(restore?.path).toBe('/section/backups?tool=file-dir-restore')
 	})
 
 	test('matches an exact database name and opens the account database manager', () => {
