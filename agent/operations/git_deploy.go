@@ -166,20 +166,27 @@ func redactGitSecrets(msg string, secrets ...string) string {
 		}
 		msg = strings.ReplaceAll(msg, s, "[redacted]")
 	}
+	var out strings.Builder
+	remaining := msg
 	for {
-		start := strings.Index(msg, "https://")
+		start := strings.Index(remaining, "https://")
 		if start < 0 {
+			out.WriteString(remaining)
 			break
 		}
-		rest := msg[start+len("https://"):]
+		out.WriteString(remaining[:start])
+		rest := remaining[start+len("https://"):]
 		at := strings.IndexByte(rest, '@')
 		slash := strings.IndexByte(rest, '/')
-		if at < 0 || (slash >= 0 && at > slash) {
-			break
+		if at >= 0 && (slash < 0 || at < slash) {
+			out.WriteString("https://[redacted]@")
+			remaining = rest[at+1:]
+			continue
 		}
-		msg = msg[:start] + "https://[redacted]@" + rest[at+1:]
+		out.WriteString("https://")
+		remaining = rest
 	}
-	return msg
+	return out.String()
 }
 
 func validateGitURL(rawURL string) error {

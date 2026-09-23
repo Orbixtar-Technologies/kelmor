@@ -17,7 +17,7 @@ type DetectResult struct {
 	Reasons    []string `json:"reasons,omitempty"`
 }
 
-const panelStaticServer = "/usr/lib/panel/static-socket-server.cjs"
+const panelStaticServer = "/var/lib/panel/static-socket-server.cjs"
 
 func nodeManagerBin(manager string) string {
 	switch manager {
