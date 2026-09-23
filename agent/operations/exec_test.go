@@ -52,10 +52,21 @@ func TestRunFixedBoundsOutputAndHonorsCancel(t *testing.T) {
 	}
 }
 
+func gitSafeDirectoryEnvForTest() []string {
+	return []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"HOME=/tmp",
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=*",
+	}
+}
+
 func TestGitDeployCommandsAreAllowListed(t *testing.T) {
-	env := []string{"GIT_TERMINAL_PROMPT=0", "HOME=/tmp"}
+	env := gitSafeDirectoryEnvForTest()
 	cases := [][]string{
-		{"-C", "/home/acme/app", "fetch", "--depth=1", "origin", "main"},
+		{"-C", "/home/acme/app", "fetch", "--depth=1", "https://github.com/example/repo.git", "main"},
+		{"-C", "/home/acme/app", "fetch", "--depth=1", "https://x-access-token:tok@github.com/example/repo.git", "main"},
 		{"-C", "/home/acme/app", "reset", "--hard", "FETCH_HEAD"},
 		{"clone", "--depth=1", "--branch", "main", "https://github.com/example/repo.git", "/home/acme/app"},
 	}
@@ -72,5 +83,11 @@ func TestGitRejectsHostileEnvAndFlags(t *testing.T) {
 	}
 	if err := validateFixedCommand("/usr/bin/git", nil, []string{"-c", "core.sshCommand=id"}); err == nil {
 		t.Fatal("unlisted git flag -c must be rejected")
+	}
+	if err := validateFixedCommand("/usr/bin/git", []string{
+		"GIT_TERMINAL_PROMPT=0", "HOME=/tmp",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.sshCommand", "GIT_CONFIG_VALUE_0=id",
+	}, []string{"fetch"}); err == nil {
+		t.Fatal("GIT_CONFIG core.sshCommand must be rejected")
 	}
 }

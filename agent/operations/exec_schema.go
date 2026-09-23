@@ -9,46 +9,59 @@ import (
 const maxCommandOutput = 1 << 20
 
 var allowedEnvKeys = map[string]bool{
-	"DEBIAN_FRONTEND": true,
+	"DEBIAN_FRONTEND":     true,
 	"GIT_TERMINAL_PROMPT": true,
-	"HOME": true,
+	"HOME":                true,
+	// Narrow GIT_CONFIG_* allow-list for safe.directory only (see validateGitConfigEnv).
+	"GIT_CONFIG_COUNT":   true,
+	"GIT_CONFIG_KEY_0":   true,
+	"GIT_CONFIG_VALUE_0": true,
 }
 
 var allowedFlags = map[string]map[string]bool{
-	"/usr/sbin/nft":         {"f": true},
-	"/usr/bin/setfacl":      {"m": true},
-	"/usr/bin/pgrep":        {"x": true},
-	"/usr/sbin/useradd":     {"u": true, "g": true, "G": true, "d": true, "s": true, "M": true, "r": true, "m": true},
-	"/usr/sbin/userdel":     {"f": true, "r": true},
-	"/usr/sbin/usermod":     {"aG": true, "L": true, "U": true, "s": true, "f": true, "a": true, "G": true},
-	"/usr/sbin/groupadd":    {"g": true},
-	"/usr/sbin/nginx":       {"s": true, "t": true, "c": true},
-	"/usr/bin/nginx":        {"s": true, "t": true, "c": true},
-	"/bin/systemctl":        {},
-	"/usr/bin/systemctl":    {},
+	"/usr/sbin/nft":            {"f": true},
+	"/usr/bin/setfacl":         {"m": true},
+	"/usr/bin/pgrep":           {"x": true},
+	"/usr/sbin/useradd":        {"u": true, "g": true, "G": true, "d": true, "s": true, "M": true, "r": true, "m": true},
+	"/usr/sbin/userdel":        {"f": true, "r": true},
+	"/usr/sbin/usermod":        {"aG": true, "L": true, "U": true, "s": true, "f": true, "a": true, "G": true},
+	"/usr/sbin/groupadd":       {"g": true},
+	"/usr/sbin/nginx":          {"s": true, "t": true, "c": true},
+	"/usr/bin/nginx":           {"s": true, "t": true, "c": true},
+	"/bin/systemctl":           {},
+	"/usr/bin/systemctl":       {},
 	"/usr/bin/git":               {"C": true, "depth": true, "branch": true, "hard": true},
-	"/usr/sbin/setquota":    {"u": true, "a": true},
-	"/usr/bin/mysql":        {"e": true},
-	"/usr/bin/mysqladmin":   {},
-	"/usr/bin/apt-get":      {"o": true, "y": true},
-	"/usr/bin/mariadb":      {"e": true},
-	"/usr/bin/mariadb-dump": {"single-transaction": true},
-	"/usr/bin/mysqldump":    {"single-transaction": true},
-	"/usr/bin/pg_dump":      {"d": true, "no-owner": true, "clean": true, "if-exists": true},
-	"/usr/bin/psql":         {"d": true, "v": true, "c": true},
-	"/usr/sbin/runuser":     {"u": true},
-	"/usr/bin/pdnsutil":     {},
-	"/usr/sbin/postqueue":   {},
-	"/usr/sbin/postsuper":   {},
-	"/usr/sbin/postmap":     {},
-	"/usr/sbin/postconf":    {},
-	"/usr/sbin/postfix":     {},
-	"/usr/bin/doveadm":      {},
-	"/usr/bin/pdns_control": {},
-	"/sbin/shutdown":        {"r": true},
-	"/usr/sbin/shutdown":    {"r": true},
-	"/usr/sbin/sshd":        {"t": true},
-	"/bin/kill":             {"HUP": true},
+	"/usr/sbin/setquota":       {"u": true, "a": true},
+	"/usr/bin/mysql":           {"e": true},
+	"/usr/bin/mysqladmin":      {},
+	"/usr/bin/apt-get":         {"o": true, "y": true},
+	"/usr/bin/apt-cache":       {},
+	"/usr/bin/mariadb-upgrade": {"force": true},
+	"/usr/bin/mysql_upgrade":   {"force": true},
+	"/usr/sbin/mariadbd":       {"version": true},
+	"/usr/sbin/mysqld":         {"version": true},
+	"/usr/bin/pecl":            {},
+	"/usr/bin/pear":            {},
+	"/usr/bin/gem":             {"no-document": true},
+	"/usr/bin/cpan":            {"T": true},
+	"/usr/bin/mariadb":         {"e": true},
+	"/usr/bin/mariadb-dump":    {"single-transaction": true},
+	"/usr/bin/mysqldump":       {"single-transaction": true},
+	"/usr/bin/pg_dump":         {"d": true, "no-owner": true, "clean": true, "if-exists": true},
+	"/usr/bin/psql":            {"d": true, "v": true, "c": true},
+	"/usr/sbin/runuser":        {"u": true},
+	"/usr/bin/pdnsutil":        {},
+	"/usr/sbin/postqueue":      {"p": true, "j": true, "f": true},
+	"/usr/sbin/postsuper":      {},
+	"/usr/sbin/postmap":        {},
+	"/usr/sbin/postconf":       {},
+	"/usr/sbin/postfix":        {},
+	"/usr/bin/doveadm":         {},
+	"/usr/bin/pdns_control":    {},
+	"/sbin/shutdown":           {"r": true},
+	"/usr/sbin/shutdown":       {"r": true},
+	"/usr/sbin/sshd":           {"t": true},
+	"/bin/kill":                {"HUP": true},
 }
 
 func validateFixedCommand(bin string, env []string, args []string) error {
@@ -67,6 +80,29 @@ func validateFixedCommand(bin string, env []string, args []string) error {
 			return fmt.Errorf("hostile environment")
 		}
 		if containsCommandControl(value) || strings.ContainsAny(value, ";|&$`") {
+			return fmt.Errorf("hostile environment")
+		}
+		if err := validateGitConfigEnv(key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateGitConfigEnv restricts GIT_CONFIG_* to safe.directory overrides only so
+// callers cannot inject core.sshCommand or similar via the config env protocol.
+func validateGitConfigEnv(key, value string) error {
+	switch key {
+	case "GIT_CONFIG_COUNT":
+		if value != "1" {
+			return fmt.Errorf("hostile environment")
+		}
+	case "GIT_CONFIG_KEY_0":
+		if value != "safe.directory" {
+			return fmt.Errorf("hostile environment")
+		}
+	case "GIT_CONFIG_VALUE_0":
+		if value != "*" && !strings.HasPrefix(value, "/") {
 			return fmt.Errorf("hostile environment")
 		}
 	}
