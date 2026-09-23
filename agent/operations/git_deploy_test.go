@@ -90,13 +90,13 @@ func TestDeployApplicationStaticSPAUnit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "ExecStart=/usr/bin/node "+panelStaticServer) {
+	if !strings.Contains(string(body), "ExecStart=/usr/bin/node "+panelStaticServerName) {
 		t.Fatalf("unit: %s", body)
 	}
 	if !strings.Contains(string(body), "STATIC_ROOT=dist") {
 		t.Fatalf("missing STATIC_ROOT: %s", body)
 	}
-	helper, err := h.readManaged(panelStaticServer, 10000)
+	helper, err := h.readManaged("/home/acme/app/"+panelStaticServerName, 10000)
 	if err != nil || !strings.Contains(string(helper), "SOCKET_PATH") {
 		t.Fatalf("static helper missing: %s %v", helper, err)
 	}

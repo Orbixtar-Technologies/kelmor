@@ -114,10 +114,13 @@ func (h *Host) deployApplication(websiteID, account, runtime, workDir, command s
 	if _, err := h.CreateDirectoryTree("/run/panel/apps", 0o1777); err != nil {
 		return Result{}, err
 	}
-	if strings.Contains(command, panelStaticServer) {
-		if _, err := h.ApplyFile(panelStaticServer, staticSocketServerSource, 0o644); err != nil {
+	if strings.Contains(command, panelStaticServerName) || detected.Kind == "spa" {
+		helperPath := strings.TrimRight(workDir, "/") + "/" + panelStaticServerName
+		if _, err := h.ApplyFile(helperPath, staticSocketServerSource, 0o644); err != nil {
 			return Result{}, fmt.Errorf("requirements: could not install static socket server: %w", err)
 		}
+		// Normalize ExecStart to the workdir-local helper (absolute node, relative script).
+		command = "/usr/bin/node " + panelStaticServerName
 	}
 	if h.live() {
 		if err := h.prepareApplicationTree(account, workDir, detected); err != nil {
@@ -127,7 +130,7 @@ func (h *Host) deployApplication(websiteID, account, runtime, workDir, command s
 
 	unit := "panel-app-" + websiteID + ".service"
 	extraEnv := ""
-	if detected.Kind == "spa" || strings.Contains(command, panelStaticServer) {
+	if detected.Kind == "spa" || strings.Contains(command, panelStaticServerName) {
 		extraEnv = "Environment=STATIC_ROOT=dist\n"
 	}
 	body := fmt.Sprintf("[Unit]\nDescription=Kelmor application %s\nStartLimitIntervalSec=60\nStartLimitBurst=3\n[Service]\nUser=%s\nWorkingDirectory=%s\nExecStart=%s\nEnvironment=SOCKET_PATH=/run/panel/apps/%s.sock\n%sRestart=on-failure\nRestartSec=5\nNoNewPrivileges=yes\nSlice=panel-account-%s.slice\n[Install]\nWantedBy=multi-user.target\n", websiteID, account, workDir, command, websiteID, extraEnv, account)

@@ -23,7 +23,7 @@ func TestDetectApplicationNodeStartAndSPA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Kind != "spa" || got.Manager != "pnpm" || got.StartCmd != "/usr/bin/node "+panelStaticServer {
+	if got.Kind != "spa" || got.Manager != "pnpm" || got.StartCmd != "/usr/bin/node "+panelStaticServerName {
 		t.Fatalf("spa detect: %+v", got)
 	}
 	if got.BuildCmd == "" {

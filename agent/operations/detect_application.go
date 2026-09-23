@@ -17,7 +17,9 @@ type DetectResult struct {
 	Reasons    []string `json:"reasons,omitempty"`
 }
 
-const panelStaticServer = "/var/lib/panel/static-socket-server.cjs"
+// panelStaticServerName is written into the application working directory
+// (always under /home/<account>/…) so ApplyFile stays inside approved prefixes.
+const panelStaticServerName = "panel-static-server.cjs"
 
 func nodeManagerBin(manager string) string {
 	switch manager {
@@ -94,7 +96,7 @@ func (h *Host) DetectApplication(workDir string) (DetectResult, error) {
 		}
 		if result.StartCmd == "" && result.BuildCmd != "" {
 			result.Kind = "spa"
-			result.StartCmd = "/usr/bin/node " + panelStaticServer
+			result.StartCmd = "/usr/bin/node " + panelStaticServerName
 			result.Reasons = append(result.Reasons, "static SPA: build script without start/server entry")
 		}
 		return result, nil
