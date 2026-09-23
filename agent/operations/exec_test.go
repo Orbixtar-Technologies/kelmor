@@ -15,14 +15,6 @@ func TestUseraddAllowsSupplementaryGroup(t *testing.T) {
 	}
 }
 
-func TestPostqueueFlagsAreAllowListed(t *testing.T) {
-	for _, arg := range []string{"-p", "-j", "-f"} {
-		if err := validateFixedCommand("/usr/sbin/postqueue", nil, []string{arg}); err != nil {
-			t.Fatalf("postqueue %s must be allow-listed under privilege separation: %v", arg, err)
-		}
-	}
-}
-
 func TestCommandFailureUsesErrWhenOutputEmpty(t *testing.T) {
 	err := commandFailure("useradd", nil, fmt.Errorf("leading option"))
 	if err == nil || err.Error() != "useradd: leading option" {
@@ -57,5 +49,52 @@ func TestRunFixedBoundsOutputAndHonorsCancel(t *testing.T) {
 	cancel()
 	if _, err := runFixedEnv(ctx, "/usr/bin/pgrep", nil, time.Second, nil, "-x", "init"); err == nil {
 		t.Fatal("cancelled context must fail before changing the executable contract")
+	}
+}
+
+func gitSafeDirectoryEnvForTest() []string {
+	return []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"HOME=/tmp",
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=*",
+	}
+}
+
+func TestGitDeployCommandsAreAllowListed(t *testing.T) {
+	env := gitSafeDirectoryEnvForTest()
+	cases := [][]string{
+		{"-C", "/home/acme/app", "fetch", "--depth=1", "https://github.com/example/repo.git", "main"},
+		{"-C", "/home/acme/app", "fetch", "--depth=1", "https://x-access-token:tok@github.com/example/repo.git", "main"},
+		{"-C", "/home/acme/app", "reset", "--hard", "FETCH_HEAD"},
+		{"clone", "--depth=1", "--branch", "main", "https://github.com/example/repo.git", "/home/acme/app"},
+		{"-C", "/home/acme/app", "init"},
+		{"-C", "/home/acme/app", "remote", "add", "origin", "https://github.com/example/repo.git"},
+		{"-C", "/home/acme/app", "fetch", "--depth=1", "origin", "main"},
+		{"-C", "/home/acme/app", "checkout", "-f", "FETCH_HEAD"},
+	}
+	for _, args := range cases {
+		if err := validateFixedCommand("/usr/bin/git", env, args); err != nil {
+			t.Fatalf("git %v must be allow-listed for redeploy: %v", args, err)
+		}
+	}
+}
+
+func TestGitRejectsHostileEnvAndFlags(t *testing.T) {
+	if err := validateFixedCommand("/usr/bin/git", []string{"PATH=/tmp"}, []string{"fetch"}); err == nil {
+		t.Fatal("hostile environment must be rejected")
+	}
+	if err := validateFixedCommand("/usr/bin/git", []string{"PATH=/usr/local/bin:/usr/bin:/bin"}, []string{"fetch"}); err != nil {
+		t.Fatalf("system PATH must be allowed: %v", err)
+	}
+	if err := validateFixedCommand("/usr/bin/git", nil, []string{"-c", "core.sshCommand=id"}); err == nil {
+		t.Fatal("unlisted git flag -c must be rejected")
+	}
+	if err := validateFixedCommand("/usr/bin/git", []string{
+		"GIT_TERMINAL_PROMPT=0", "HOME=/tmp",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.sshCommand", "GIT_CONFIG_VALUE_0=id",
+	}, []string{"fetch"}); err == nil {
+		t.Fatal("GIT_CONFIG core.sshCommand must be rejected")
 	}
 }

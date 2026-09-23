@@ -305,10 +305,11 @@ export function WebsitesPage () {
 			) : null}
 			{error ? <ErrorState error={error} onRetry={() => loadWebsites(accountId, accounts)} /> : null}
 			{canWrite && accountId ? <section className="panel">
-				<h2>Create or update a website</h2>
+				<h2>Create or update a PHP site</h2>
+				<p className="subtle">This panel manages PHP and static sites. To deploy a Node.js or Python app, use <Link to={`/deploy-apps?account=${accountId}`}>Deploy Apps</Link>.</p>
 				<form className="inline-form" onSubmit={createWebsite}>
 					<label>Domain<select name="domain_id" required>{domains.map((item) => <option key={item.id} value={item.id}>{valueOf(item, 'ascii_fqdn')}</option>)}</select></label>
-					<label>Runtime<select name="runtime"><option value="php">PHP</option><option value="static">Static</option><option value="node">Node</option><option value="python">Python</option></select></label>
+					<label>Runtime<select name="runtime"><option value="php">PHP</option><option value="static">Static</option></select></label>
 					<label>PHP version<select name="runtime_version">{installed.map((version) => <option key={version} value={version}>{version}</option>)}</select></label>
 					<button type="submit" disabled={!domains.length}>Save website</button>
 				</form>

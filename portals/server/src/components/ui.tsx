@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+﻿import { useEffect, useId, useRef, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useCapabilities } from '../rbac'
@@ -28,7 +28,7 @@ export function EmptyState ({ title, detail, action }: EmptyStateProps) {
 	return <div className="empty-state"><strong>{title}</strong><p>{detail}</p>{action}</div>
 }
 
-export function LoadingState ({ label = 'Loading data…' }: { label?: string }) {
+export function LoadingState ({ label = 'Loading dataâ€¦' }: { label?: string }) {
 	return <div className="loading-state" role="status"><span aria-hidden="true" />{label}</div>
 }
 
@@ -111,7 +111,7 @@ export function Dialog ({ open, title, children, onClose, actions }: DialogProps
 	return (
 		<div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
 			<div ref={panelRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
-				<header><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button></header>
+				<header><h2 id={titleId}>{title}</h2><button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}>Ã—</button></header>
 				<div className="dialog-body">{children}</div>
 				{actions ? <footer>{actions}</footer> : null}
 			</div>
@@ -122,7 +122,7 @@ export function Dialog ({ open, title, children, onClose, actions }: DialogProps
 export function Pagination ({ page, pageCount, total, onPage }: { page: number; pageCount: number; total: number; onPage: (page: number) => void }) {
 	return (
 		<nav className="pagination" aria-label="Pagination">
-			<span>{total} results · Page {page} of {pageCount}</span>
+			<span>{total} results Â· Page {page} of {pageCount}</span>
 			<div>
 				<button type="button" className="secondary compact" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
 				<button type="button" className="secondary compact" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>Next</button>
@@ -141,7 +141,8 @@ export function AccountTabs ({ id }: { id: string }) {
 		<nav className="tabs" aria-label="Account sections">
 			<NavLink to={`/accounts/${id}`} end>Overview</NavLink>
 			{capabilities['domains.read'] ? <NavLink to={`/domains?account=${id}`}>Domains</NavLink> : null}
-			{capabilities['websites.read'] ? <NavLink to={`/websites?account=${id}`}>PHP</NavLink> : null}
+			{capabilities['websites.read'] ? <NavLink to={`/websites?account=${id}`}>Sites</NavLink> : null}
+			{capabilities['applications.read'] ? <NavLink to={`/deploy-apps?account=${id}`}>Apps</NavLink> : null}
 			{capabilities['websites.read'] ? <NavLink to={`/ssl?account=${id}`}>SSL</NavLink> : null}
 			{capabilities['mail.read'] ? <NavLink to={`/email?account=${id}`}>Email</NavLink> : null}
 			{capabilities['databases.read'] ? <NavLink to={`/sql?account=${id}`}>SQL</NavLink> : null}
@@ -162,7 +163,7 @@ interface CopyableValueProps {
 
 export function CopyableValue ({ value, label }: CopyableValueProps) {
 	const [copied, setCopied] = useState(false)
-	if (!value) return <span>—</span>
+	if (!value) return <span>â€”</span>
 	return (
 		<span className="copyable-value">
 			<span>{value}</span>
@@ -186,10 +187,10 @@ interface SecretValueProps {
 export function SecretValue ({ value, label = 'password' }: SecretValueProps) {
 	const [revealed, setRevealed] = useState(false)
 	const [copied, setCopied] = useState(false)
-	if (!value) return <span>—</span>
+	if (!value) return <span>â€”</span>
 	return (
 		<span className="secret-value">
-			<code>{revealed ? value : '••••••••'}</code>
+			<code>{revealed ? value : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}</code>
 			<button type="button" className="link-button" onClick={() => setRevealed((current) => !current)}>
 				{revealed ? `Hide ${label}` : `Reveal ${label}`}
 			</button>

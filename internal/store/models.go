@@ -127,6 +127,12 @@ type Application struct {
 	StartCommand     string `json:"start_command"`
 	ListenTarget     string `json:"listen_target"`
 	Status           string `json:"status"`
+	// Git connect fields. AuthToken and WebhookToken are never serialised to JSON.
+	GitURL             string `json:"git_url,omitempty"`
+	GitBranch          string `json:"git_branch,omitempty"`
+	AutoDeploy         bool   `json:"auto_deploy,omitempty"`
+	GitAuthToken       string `json:"-"`
+	DeployWebhookToken string `json:"-"`
 }
 
 type HostedDatabase struct {

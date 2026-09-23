@@ -88,6 +88,7 @@ var allowedBins = map[string]bool{
 	"/usr/sbin/sendmail":       true,
 	"/usr/bin/hostnamectl":     true,
 	"/usr/bin/timedatectl":     true,
+	"/usr/bin/git":               true,
 }
 
 var allowedServices = map[string]bool{

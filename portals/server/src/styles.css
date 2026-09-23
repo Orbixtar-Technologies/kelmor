@@ -446,6 +446,9 @@ progress { width: 100px; height: 8px; accent-color: #287eb8; }
 	.task-guidance > span { white-space: normal; }
 	.bulk-actions { margin-left: 0; }
 }
+.app-deploy-hints { margin: 4px 0 14px; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.app-deploy-hints li { margin: 4px 0; }
+
 .feature-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 0 0 16px; padding: 0; list-style: none; }
 .feature-list li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .deliverability-card { border: 1px solid var(--soft-border); border-radius: 4px; padding: 12px; margin-bottom: 12px; background: #f8fafc; }

@@ -213,7 +213,7 @@ export function AccountServicesPage () {
 					))}
 				</div>
 			</div> : null}
-			{message ? <p className="feedback" role="status">{message}</p> : null}
+			{message ? <p className="feedback" role="status">{message}{active === 'applications' ? <> · <Link to={`/jobs?account=${id}`}>Open Jobs</Link></> : null}</p> : null}
 			<section className="panel service-panel">
 				<div className="section-heading"><div><h2>{definition?.label} · {items.length}</h2><p>These access tools are managed here. Certificates, mail, SQL, files, and websites open their own managers.</p></div></div>
 				{definition?.writeCapability && capabilities[definition.writeCapability] ? <ServiceCreateForm service={definition.id} resources={resources} canListWebsites={Boolean(capabilities['websites.read'])} onCreate={create} /> : <p className="subtle">Available resources are read-only for your current role.</p>}
@@ -223,7 +223,6 @@ export function AccountServicesPage () {
 				{!loading && !errors[active] && definition ? <div className="table-wrap"><table className="dense-table"><thead><tr><th>Resource</th>{definition.columns.map((column) => <th key={column} scope="col">{column.replaceAll('_', ' ')}</th>)}<th scope="col">Actions</th></tr></thead>
 					<tbody>{items.map((item) => <tr key={item.id}><td><button type="button" className="link-button resource-name" onClick={() => setDetail(item)}>{resourcePrimaryLabel(definition.id, item)}</button></td>{definition.columns.map((column) => <td key={column}>{column === 'status' || column === 'state' ? <StatusBadge value={valueOf(item, column)} /> : column.includes('bytes') || column === 'size' ? formatBytes(Number(item[column])) : valueOf(item, column)}</td>)}<td><div className="row-actions">
 						<button type="button" className="link-button" onClick={() => setDetail(item)}>Details</button>
-						{active === 'applications' && capabilities['applications.write'] && ['node', 'python'].includes(String(item.runtime)) ? <button type="button" className="link-button" onClick={() => create('applications', { website_id: item.id, runtime: item.runtime })}>Deploy application</button> : null}
 						{active === 'backups' && item.state === 'succeeded' && capabilities['backups.restore'] ? <button type="button" className="link-button" onClick={() => setRestoreBackup(item)}>Review restore</button> : null}
 						{definition.isDeletable && definition.writeCapability && capabilities[definition.writeCapability] ? <button type="button" className="link-button danger-text" onClick={() => remove(definition.endpoint, item.id)}>Delete</button> : null}
 					</div></td></tr>)}</tbody>
@@ -237,10 +236,30 @@ export function AccountServicesPage () {
 				/> : null}
 			</section>
 			<Dialog open={Boolean(detail)} title={detail ? resourcePrimaryLabel(definition?.id || '', detail) : 'Resource details'} onClose={() => setDetail(null)}>
-				{detail ? <dl className="detail-list">{Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl> : null}
-				<footer className="dialog-form-actions">
-					<button type="button" className="secondary" onClick={() => setDetail(null)}>Close</button>
-				</footer>
+				{detail && definition?.id === 'applications' ? (
+					<>
+						<dl className="detail-list">
+							{(['runtime', 'working_directory', 'status', 'socket_path', 'unit_name'] as const).map((key) => detail[key] != null && detail[key] !== '' ? (
+								<div key={key}>
+									<dt>{key.replaceAll('_', ' ')}</dt>
+									<dd>{key === 'status' ? <StatusBadge value={String(detail[key])} /> : String(detail[key])}</dd>
+								</div>
+							) : null)}
+							{detail.job_error ? <div><dt>job error</dt><dd style={{ color: 'var(--danger)', overflowWrap: 'anywhere' }}>{String(detail.job_error)}</dd></div> : null}
+						</dl>
+						<footer className="dialog-form-actions">
+							<Link className="button-link secondary-link" to={`/jobs?account=${id}`}>Open Jobs</Link>
+							<button type="button" onClick={() => setDetail(null)}>Close</button>
+						</footer>
+					</>
+				) : detail ? (
+					<>
+						<dl className="detail-list">{Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl>
+						<footer className="dialog-form-actions">
+							<button type="button" className="secondary" onClick={() => setDetail(null)}>Close</button>
+						</footer>
+					</>
+				) : null}
 			</Dialog>
 			<Dialog open={Boolean(restoreBackup)} title="Review in-place restore" onClose={() => setRestoreBackup(null)}>
 				<p>This queues an in-place restore from backup <strong>{restoreBackup?.id}</strong>. Current account files and service configuration may be replaced.</p>
@@ -272,6 +291,55 @@ function BackupCreateForm ({ onCreate }: { onCreate: (endpoint: string, body: Re
 	)
 }
 
+function ApplicationDeployForm ({ websites, onCreate }: { websites: ResourceItem[]; onCreate: (endpoint: string, body: Record<string, unknown>) => Promise<void> }) {
+	return (
+		<div>
+			<div className="section-heading">
+				<div>
+					<h3 style={{ margin: '0 0 3px' }}>Deploy application</h3>
+					<p className="subtle" style={{ margin: 0 }}>Deploy a Node.js or Python application to your hosting account using automatic runtime detection.</p>
+				</div>
+			</div>
+			<ol className="steps">
+				<li><span>1</span>Upload code</li>
+				<li><span>2</span>Select website</li>
+				<li><span>3</span>Configure</li>
+				<li><span>4</span>Deploy</li>
+			</ol>
+			<form className="stack-form" onSubmit={(event) => {
+				event.preventDefault()
+				const data = new FormData(event.currentTarget)
+				const website = websites.find((item) => item.id === data.get('website_id'))!
+				onCreate('applications', { website_id: website.id, runtime: website.runtime, start_command: String(data.get('start_command') ?? '') })
+			}}>
+				<label>Website
+					<select name="website_id" required>
+						{websites.map((site) => (
+							<option key={site.id} value={site.id}>
+								{String(site.document_root)} · {String(site.runtime).toUpperCase()}
+							</option>
+						))}
+					</select>
+				</label>
+				<details>
+					<summary style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: '13px', marginBottom: '6px' }}>Advanced options</summary>
+					<label style={{ marginTop: '8px' }}>Start command <small>(optional — auto-detected if empty)</small>
+						<input name="start_command" placeholder="e.g. /usr/bin/node app.js" />
+					</label>
+				</details>
+				<ul className="app-deploy-hints">
+					<li>Upload your code to the website's document root first</li>
+					<li>Detects package.json start script, server.js, or app.py automatically</li>
+					<li>Your app must listen on the path in <code>SOCKET_PATH</code> environment variable</li>
+					<li>HTTP readiness is not verified — check Jobs for deployment status</li>
+					<li>Failures appear in the Jobs panel with full logs</li>
+				</ul>
+				<div><button type="submit">Detect and deploy</button></div>
+			</form>
+		</div>
+	)
+}
+
 interface ServiceCreateFormProps {
 	service: string
 	resources: Record<string, ResourceItem[]>
@@ -290,8 +358,17 @@ export function ServiceCreateForm ({ service, resources, canListWebsites, onCrea
 	if (service === 'tokens') return <form className="stack-form" onSubmit={(event) => submit(event, 'api-tokens', (data) => ({ name: data.get('name'), scope: 'account', capabilities: data.getAll('capability') }))}><label>Name<input name="name" required /></label><p className="subtle"><strong>Scope:</strong> Account. Tokens cannot be granted host-wide or arbitrary capabilities.</p><fieldset><legend>Account-safe capabilities</legend><div className="checkbox-grid">{accountTokenCapabilities.filter((capability) => capabilities[capability]).map((capability) => <label className="checkbox-label" key={capability}><input type="checkbox" name="capability" value={capability} />{capability}</label>)}</div></fieldset><button type="submit">Create token</button></form>
 	if (service === 'applications') {
 		if (!canListWebsites) return <p className="subtle">Application creation is disabled because your role cannot list account websites.</p>
-		if (!(resources.websites || []).some((item) => ['node', 'python'].includes(String(item.runtime)))) return <p className="subtle">Create a Node or Python website in MultiPHP Manager before creating its application deployment.</p>
-		return <p className="subtle">Choose <strong>Deploy application</strong> beside an account-owned Node or Python website. Runtime settings and working directory are derived from that website.</p>
+		const allEligible = (resources.websites || []).filter((item) => ['node', 'python'].includes(String(item.runtime)))
+		if (!allEligible.length) return (
+			<EmptyState
+				title="No eligible websites"
+				detail="No Node.js or Python websites found. Create a website first, then deploy your application."
+			/>
+		)
+		const deployedIds = new Set((resources.applications || []).map((app) => String(app.website_id)))
+		const websites = allEligible.filter((item) => item.enabled && !deployedIds.has(String(item.id)))
+		if (!websites.length) return <p className="subtle">Application already deployed. To redeploy, retry from Jobs.</p>
+		return <ApplicationDeployForm websites={websites} onCreate={onCreate} />
 	}
 	return null
 }

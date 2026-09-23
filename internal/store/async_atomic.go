@@ -266,13 +266,17 @@ func (p *PG) UpsertApplicationWithJob(application *Application, job *Job, audit 
 		return nil, fmt.Errorf("application is required")
 	}
 	return p.commitResourceMutation(job, audit, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO applications (id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-			ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, start_command=EXCLUDED.start_command`,
+		_, err := tx.Exec(ctx,
+			"INSERT INTO applications (id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status, git_url, git_branch, git_auth_token, auto_deploy, deploy_webhook_token) "+
+				"VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) "+
+				"ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, start_command=EXCLUDED.start_command, "+
+				"git_url=EXCLUDED.git_url, git_branch=EXCLUDED.git_branch, git_auth_token=EXCLUDED.git_auth_token, "+
+				"auto_deploy=EXCLUDED.auto_deploy, deploy_webhook_token=EXCLUDED.deploy_webhook_token",
 			application.ID, application.WebsiteID, application.AccountID, application.Runtime,
 			application.RuntimeVersion, application.WorkingDirectory, application.StartCommand,
-			application.ListenTarget, application.Status)
+			application.ListenTarget, application.Status,
+			application.GitURL, application.GitBranch, application.GitAuthToken,
+			application.AutoDeploy, application.DeployWebhookToken)
 		return err
 	})
 }

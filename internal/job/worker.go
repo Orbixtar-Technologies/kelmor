@@ -301,6 +301,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.deleteWebsite(j)
 	case "application.deploy":
 		return w.deployApp(j)
+	case "application.git_deploy":
+		return w.gitDeployApp(j)
 	case "wordpress.install":
 		return w.installWordPress(j)
 	case "php.runtime.ensure":
@@ -770,6 +772,13 @@ func (w *Worker) applySiteRuntime(site *store.Website, acc *store.Account) error
 		})
 		return err
 	case "node", "python":
+		for _, app := range w.Store.ListApps(acc.ID) {
+			if app.WebsiteID == site.ID {
+				// A real deployment owns this service; website reconciliation
+				// must not replace it with the demonstration application.
+				return nil
+			}
+		}
 		_, err := w.Agent.Dispatch(context.Background(), operations.Request{
 			Method: "ApplyAppUnit",
 			Params: mustJSON(map[string]any{
@@ -810,12 +819,28 @@ func (w *Worker) retireApplication(ctx context.Context, j *store.Job) error {
 	return nil
 }
 
-func (w *Worker) deployApp(j *store.Job) error {
+func (w *Worker) deployApp(j *store.Job) (deployErr error) {
 	app := w.Store.GetApp(str(j.Payload["application_id"]))
 	if app == nil {
 		return fmt.Errorf("application missing")
 	}
+	defer func() {
+		if deployErr != nil {
+			app.Status = "failed"
+			w.Store.PutApp(app)
+		}
+	}()
+	if w.Agent == nil {
+		return fmt.Errorf("deployment agent unavailable")
+	}
 	acc := w.Store.GetAccount(app.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	site := w.Store.GetWebsite(app.WebsiteID)
+	if site == nil || site.AccountID != app.AccountID || site.Runtime != app.Runtime || !site.Enabled {
+		return fmt.Errorf("requirements: select an enabled account website with the matching runtime")
+	}
 	account := ""
 	if acc != nil {
 		account = acc.Username
@@ -824,8 +849,10 @@ func (w *Worker) deployApp(j *store.Job) error {
 	if wid == "" {
 		wid = app.ID
 	}
-	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
-		Method: "ApplyAppUnit",
+	app.Status = "provisioning"
+	w.Store.PutApp(app)
+	response, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "DeployApplication",
 		Params: mustJSON(map[string]any{
 			"website_id": wid, "account": account, "runtime": app.Runtime,
 			"working_directory": app.WorkingDirectory, "start_command": app.StartCommand,
@@ -834,7 +861,81 @@ func (w *Worker) deployApp(j *store.Job) error {
 	if err != nil {
 		return err
 	}
-	app.Status = "running"
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	var result operations.Result
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return err
+	}
+	if !result.OK || (result.ObservedState != "running" && result.ObservedState != "configured") {
+		return fmt.Errorf("deployment agent did not confirm service state")
+	}
+	app.Status = result.ObservedState
+	j.Logs = append(j.Logs, result.Message)
+	w.Store.PutApp(app)
+	return nil
+}
+
+func (w *Worker) gitDeployApp(j *store.Job) (deployErr error) {
+	app := w.Store.GetApp(str(j.Payload["application_id"]))
+	if app == nil {
+		return fmt.Errorf("application missing")
+	}
+	defer func() {
+		if deployErr != nil {
+			app.Status = "failed"
+			w.Store.PutApp(app)
+		}
+	}()
+	if w.Agent == nil {
+		return fmt.Errorf("deployment agent unavailable")
+	}
+	acc := w.Store.GetAccount(app.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	site := w.Store.GetWebsite(app.WebsiteID)
+	if site == nil || site.AccountID != app.AccountID || !site.Enabled {
+		return fmt.Errorf("requirements: select an enabled account website")
+	}
+	account := acc.Username
+	wid := app.WebsiteID
+	if wid == "" {
+		wid = app.ID
+	}
+	app.Status = "provisioning"
+	w.Store.PutApp(app)
+	response, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "GitDeployApplication",
+		Params: mustJSON(map[string]any{
+			"website_id":        wid,
+			"account":           account,
+			"runtime":           app.Runtime,
+			"working_directory": app.WorkingDirectory,
+			"git_url":           app.GitURL,
+			"git_branch":        app.GitBranch,
+			"git_auth":          app.GitAuthToken,
+			"start_command":     app.StartCommand,
+		}),
+	})
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	var result operations.Result
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return err
+	}
+	if !result.OK || (result.ObservedState != "running" && result.ObservedState != "configured") {
+		return fmt.Errorf("deployment agent did not confirm service state")
+	}
+	app.Status = result.ObservedState
+	j.Logs = append(j.Logs, result.Message)
 	w.Store.PutApp(app)
 	return nil
 }

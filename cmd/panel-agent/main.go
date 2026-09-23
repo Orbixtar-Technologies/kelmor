@@ -30,6 +30,12 @@ func main() {
 	// nginx (www-data) must traverse to /run/panel/apps/*.sock;
 	// the agent socket itself stays 0660 root:panel.
 	_ = os.Chmod(dir(sock), 0o751)
+	// /run is tmpfs: recreate the sticky apps dir on every agent start so
+	// account units can bind SOCKET_PATH after reboot or agent restart.
+	appsDir := dir(sock) + "/apps"
+	if err := os.MkdirAll(appsDir, 0o1777); err == nil {
+		_ = os.Chmod(appsDir, 0o1777)
+	}
 	_ = os.Remove(sock)
 	ln, err := net.Listen("unix", sock)
 	if err != nil {

@@ -849,16 +849,19 @@ func (p *PG) ListWebsites(accountID string) []Website {
 
 func (p *PG) PutApp(a *Application) {
 	_, _ = p.pool.Exec(p.ctx(), `
-		INSERT INTO applications (id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, start_command=EXCLUDED.start_command`,
-		a.ID, a.WebsiteID, a.AccountID, a.Runtime, a.RuntimeVersion, a.WorkingDirectory, a.StartCommand, a.ListenTarget, a.Status)
+		INSERT INTO applications (id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status, git_url, git_branch, git_auth_token, auto_deploy, deploy_webhook_token)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, start_command=EXCLUDED.start_command,
+		  git_url=EXCLUDED.git_url, git_branch=EXCLUDED.git_branch, git_auth_token=EXCLUDED.git_auth_token,
+		  auto_deploy=EXCLUDED.auto_deploy, deploy_webhook_token=EXCLUDED.deploy_webhook_token`,
+		a.ID, a.WebsiteID, a.AccountID, a.Runtime, a.RuntimeVersion, a.WorkingDirectory, a.StartCommand, a.ListenTarget, a.Status,
+		a.GitURL, a.GitBranch, a.GitAuthToken, a.AutoDeploy, a.DeployWebhookToken)
 }
 
 func (p *PG) GetApp(aid string) *Application {
 	a := &Application{}
-	if err := p.pool.QueryRow(p.ctx(), `SELECT id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status FROM applications WHERE id=$1`, aid).
-		Scan(&a.ID, &a.WebsiteID, &a.AccountID, &a.Runtime, &a.RuntimeVersion, &a.WorkingDirectory, &a.StartCommand, &a.ListenTarget, &a.Status); err != nil {
+	if err := p.pool.QueryRow(p.ctx(), `SELECT id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status, COALESCE(git_url,''), COALESCE(git_branch,''), COALESCE(git_auth_token,''), COALESCE(auto_deploy,false), COALESCE(deploy_webhook_token,'') FROM applications WHERE id=$1`, aid).
+		Scan(&a.ID, &a.WebsiteID, &a.AccountID, &a.Runtime, &a.RuntimeVersion, &a.WorkingDirectory, &a.StartCommand, &a.ListenTarget, &a.Status, &a.GitURL, &a.GitBranch, &a.GitAuthToken, &a.AutoDeploy, &a.DeployWebhookToken); err != nil {
 		return nil
 	}
 	return a
@@ -869,7 +872,7 @@ func (p *PG) DeleteApp(id string) {
 }
 
 func (p *PG) ListApps(accountID string) []Application {
-	rows, err := p.pool.Query(p.ctx(), `SELECT id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status FROM applications WHERE $1='' OR account_id::text=$1`, accountID)
+	rows, err := p.pool.Query(p.ctx(), `SELECT id, website_id, account_id, runtime, runtime_version, working_directory, start_command, listen_target, status, COALESCE(git_url,''), COALESCE(git_branch,''), COALESCE(git_auth_token,''), COALESCE(auto_deploy,false), COALESCE(deploy_webhook_token,'') FROM applications WHERE $1='' OR account_id::text=$1`, accountID)
 	if err != nil {
 		return nil
 	}
@@ -877,7 +880,7 @@ func (p *PG) ListApps(accountID string) []Application {
 	var out []Application
 	for rows.Next() {
 		var a Application
-		_ = rows.Scan(&a.ID, &a.WebsiteID, &a.AccountID, &a.Runtime, &a.RuntimeVersion, &a.WorkingDirectory, &a.StartCommand, &a.ListenTarget, &a.Status)
+		_ = rows.Scan(&a.ID, &a.WebsiteID, &a.AccountID, &a.Runtime, &a.RuntimeVersion, &a.WorkingDirectory, &a.StartCommand, &a.ListenTarget, &a.Status, &a.GitURL, &a.GitBranch, &a.GitAuthToken, &a.AutoDeploy, &a.DeployWebhookToken)
 		out = append(out, a)
 	}
 	return out
