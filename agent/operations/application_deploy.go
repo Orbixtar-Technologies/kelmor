@@ -167,7 +167,22 @@ func (h *Host) prepareApplicationTree(account, workDir string, detected DetectRe
 	if err != nil {
 		return err
 	}
-	envPrefix := []string{"HOME=" + home, "NODE_OPTIONS=--max-old-space-size=384", "PATH=/usr/local/bin:/usr/bin:/bin"}
+	storeDir := filepath.Join(home, "apps", ".pnpm-store")
+	corepackHome := filepath.Join(home, ".cache", "node", "corepack")
+	_ = os.MkdirAll(storeDir, 0o750)
+	_ = os.MkdirAll(corepackHome, 0o750)
+	h.chownTree(account, filepath.Join(home, "apps"))
+	h.chownTree(account, filepath.Join(home, ".cache"))
+	envPrefix := []string{
+		"HOME=" + home,
+		"USER=" + account,
+		"LOGNAME=" + account,
+		"CI=1",
+		"NODE_OPTIONS=--max-old-space-size=384",
+		"PATH=/usr/local/bin:/usr/bin:/bin",
+		"PNPM_STORE_DIR=" + storeDir,
+		"COREPACK_HOME=" + corepackHome,
+	}
 	run := func(pkgArgs ...string) ([]byte, error) {
 		args := []string{"-u", account, "--", "/usr/bin/env"}
 		args = append(args, envPrefix...)
@@ -180,27 +195,67 @@ func (h *Host) prepareApplicationTree(account, workDir string, detected DetectRe
 		args = append(args, pkgArgs...)
 		return runFixedEnv(h.commandContext(), "/usr/sbin/runuser", nil, 5*time.Minute, nil, args...)
 	}
+	pkgFail := func(kind string, out []byte, err error) error {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" && err != nil {
+			msg = err.Error()
+		}
+		if msg == "" {
+			msg = "unknown error"
+		}
+		// Keep job UI readable: strip ANSI and collapse whitespace.
+		msg = stripANSI(msg)
+		if len(msg) > 800 {
+			msg = msg[:800] + "…"
+		}
+		return fmt.Errorf("requirements: %s failed: %s", kind, msg)
+	}
 	if detected.InstallCmd != "" {
 		var pkgArgs []string
 		switch manager {
-		case "pnpm", "yarn":
+		case "pnpm":
+			// --force avoids interactive "reinstall node_modules?" prompts under CI.
+			pkgArgs = []string{"install", "--frozen-lockfile", "--force"}
+		case "yarn":
 			pkgArgs = []string{"install", "--frozen-lockfile"}
 		default:
 			pkgArgs = []string{"ci"}
 		}
 		out, err := run(pkgArgs...)
 		if err != nil {
-			return fmt.Errorf("requirements: dependency install failed: %s", strings.TrimSpace(string(out)))
+			return pkgFail("dependency install", out, err)
 		}
 	}
 	if detected.BuildCmd != "" {
 		out, err := run("run", "build")
 		if err != nil {
-			return fmt.Errorf("requirements: build failed: %s", strings.TrimSpace(string(out)))
+			return pkgFail("build", out, err)
 		}
 	}
 	h.chownTree(account, workDir)
 	return nil
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && !((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z')) {
+				j++
+			}
+			if j < len(s) {
+				i = j
+				continue
+			}
+		}
+		if s[i] == '\r' {
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 func (h *Host) chownTree(account, workDir string) {
