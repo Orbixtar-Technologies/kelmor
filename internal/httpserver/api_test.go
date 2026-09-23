@@ -1399,8 +1399,8 @@ func TestCreateApplicationValidatesAccountInputs(t *testing.T) {
 		"username": "appsecond", "primary_domain": "app-second.test", "package_id": pkgID,
 		"owner_email": "owner@app-second.test", "owner_password": "TenantPass!2026",
 	})["resource_id"].(string)
-	ownSite := &store.Website{ID: id.New(), AccountID: first, DocumentRoot: "/home/appfirst/public_html"}
-	foreignSite := &store.Website{ID: id.New(), AccountID: second, DocumentRoot: "/home/appsecond/public_html"}
+	ownSite := &store.Website{ID: id.New(), AccountID: first, Runtime: "node", DocumentRoot: "/home/appfirst/public_html", Enabled: true}
+	foreignSite := &store.Website{ID: id.New(), AccountID: second, Runtime: "node", DocumentRoot: "/home/appsecond/public_html", Enabled: true}
 	st.PutWebsite(ownSite)
 	st.PutWebsite(foreignSite)
 	url := srv.URL + "/api/v1/accounts/" + first + "/applications"

@@ -29,6 +29,7 @@ import { TransfersPage } from './pages/transfers-page'
 import { UpdatesPage } from './pages/updates-page'
 import { UsagePage } from './pages/usage-page'
 import { WebsitesPage } from './pages/websites-page'
+import { DeployAppsPage } from './pages/deploy-apps-page'
 import { HubPage, ToolRedirect } from './pages/hub-page'
 import { CapProvider, Forbidden, hasCapabilities } from './rbac'
 import type { ReactNode } from 'react'
@@ -62,6 +63,7 @@ export function App () {
 					<Route path="resellers" element={allowed('resellers.read', <ResellersPage />)} />
 					<Route path="domains" element={allowed(['accounts.read', 'domains.read'], <DomainsPage />)} />
 					<Route path="websites" element={allowed(['accounts.read', 'websites.read'], <WebsitesPage />)} />
+					<Route path="deploy-apps" element={allowed(['accounts.read', 'applications.read'], <DeployAppsPage />)} />
 					<Route path="dns" element={allowed('dns.read', <DNSPage />)} />
 					<Route path="files" element={allowed(['accounts.read', 'files.read'], <FileManagerPage />)} />
 					<Route path="ftp" element={allowed(['accounts.read', 'files.read'], <FTPPage />)} />

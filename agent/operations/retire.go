@@ -16,7 +16,7 @@ type retireJournal struct {
 	Completed []string `json:"completed"`
 }
 
-func (h *Host) retireApplication(websiteID, account string) (Result, error) {
+func (h *Host) retireApplication(websiteID, account string, workDirs ...string) (Result, error) {
 	websiteID = strings.TrimSpace(websiteID)
 	if websiteID == "" || strings.ContainsAny(websiteID, "/\\.;|&$`\n") {
 		return Result{}, fmt.Errorf("invalid website id")
@@ -50,6 +50,21 @@ func (h *Host) retireApplication(websiteID, account string) (Result, error) {
 		}},
 		{"remove_files", func() error {
 			h.removeManaged("/home/" + account + "/apps/" + websiteID)
+			for _, workDir := range workDirs {
+				workDir = strings.TrimSpace(workDir)
+				if workDir == "" {
+					continue
+				}
+				appsPrefix := "/home/" + account + "/apps/"
+				if strings.HasPrefix(workDir, appsPrefix) {
+					h.removeManaged(workDir)
+					continue
+				}
+				// Director-managed checkout in public_html: drop .git so recreate is empty-enough.
+				if strings.HasPrefix(workDir, "/home/"+account+"/public_html") {
+					h.removeManaged(strings.TrimRight(workDir, "/") + "/.git")
+				}
+			}
 			return nil
 		}},
 	}

@@ -298,6 +298,8 @@ func (w *Worker) handle(ctx context.Context, j *store.Job) error {
 		return w.deleteWebsite(j)
 	case "application.deploy":
 		return w.deployApp(j)
+	case "application.git_deploy":
+		return w.gitDeployApp(j)
 	case "wordpress.install":
 		return w.installWordPress(j)
 	case "php.runtime.ensure":
@@ -757,9 +759,13 @@ func (w *Worker) retireApplication(ctx context.Context, j *store.Job) error {
 	if w.Agent == nil {
 		return fmt.Errorf("agent required")
 	}
+	workDir := ""
+	if app != nil {
+		workDir = app.WorkingDirectory
+	}
 	_, err := w.Agent.Dispatch(ctx, operations.Request{
 		Method: "RetireApplication",
-		Params: mustJSON(map[string]any{"website_id": wid, "account": account}),
+		Params: mustJSON(map[string]any{"website_id": wid, "account": account, "working_directory": workDir}),
 	})
 	if err != nil {
 		return err
@@ -782,17 +788,91 @@ func (w *Worker) deployApp(j *store.Job) error {
 	if wid == "" {
 		wid = app.ID
 	}
-	_, err := w.Agent.Dispatch(context.Background(), operations.Request{
-		Method: "ApplyAppUnit",
-		Params: mustJSON(map[string]any{
-			"website_id": wid, "account": account, "runtime": app.Runtime,
-			"working_directory": app.WorkingDirectory, "start_command": app.StartCommand,
-		}),
+	method := "DeployApplication"
+	params := map[string]any{
+		"website_id": wid, "account": account, "runtime": app.Runtime,
+		"working_directory": app.WorkingDirectory, "start_command": app.StartCommand,
+	}
+	response, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: method,
+		Params: mustJSON(params),
 	})
+	if err != nil {
+		app.Status = "failed"
+		w.Store.PutApp(app)
+		return err
+	}
+	encoded, err := json.Marshal(response)
 	if err != nil {
 		return err
 	}
-	app.Status = "running"
+	var result operations.Result
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return err
+	}
+	if !result.OK || (result.ObservedState != "running" && result.ObservedState != "configured") {
+		app.Status = "failed"
+		w.Store.PutApp(app)
+		return fmt.Errorf("deployment agent did not confirm service state")
+	}
+	app.Status = result.ObservedState
+	j.Logs = append(j.Logs, result.Message)
+	w.Store.PutApp(app)
+	return nil
+}
+
+func (w *Worker) gitDeployApp(j *store.Job) error {
+	app := w.Store.GetApp(str(j.Payload["application_id"]))
+	if app == nil {
+		return fmt.Errorf("application missing")
+	}
+	acc := w.Store.GetAccount(app.AccountID)
+	if acc == nil {
+		return fmt.Errorf("account missing")
+	}
+	site := w.Store.GetWebsite(app.WebsiteID)
+	if site == nil || site.AccountID != app.AccountID || !site.Enabled {
+		return fmt.Errorf("requirements: select an enabled account website")
+	}
+	wid := app.WebsiteID
+	if wid == "" {
+		wid = app.ID
+	}
+	app.Status = "provisioning"
+	w.Store.PutApp(app)
+	response, err := w.Agent.Dispatch(context.Background(), operations.Request{
+		Method: "GitDeployApplication",
+		Params: mustJSON(map[string]any{
+			"website_id":        wid,
+			"account":           acc.Username,
+			"runtime":           app.Runtime,
+			"working_directory": app.WorkingDirectory,
+			"git_url":           app.GitURL,
+			"git_branch":        app.GitBranch,
+			"git_auth":          app.GitAuthToken,
+			"start_command":     app.StartCommand,
+		}),
+	})
+	if err != nil {
+		app.Status = "failed"
+		w.Store.PutApp(app)
+		return err
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	var result operations.Result
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return err
+	}
+	if !result.OK || (result.ObservedState != "running" && result.ObservedState != "configured") {
+		app.Status = "failed"
+		w.Store.PutApp(app)
+		return fmt.Errorf("deployment agent did not confirm service state")
+	}
+	app.Status = result.ObservedState
+	j.Logs = append(j.Logs, result.Message)
 	w.Store.PutApp(app)
 	return nil
 }

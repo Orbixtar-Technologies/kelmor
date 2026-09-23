@@ -68,11 +68,18 @@ func (a *API) Handler() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", a.login)
 		r.Post("/auth/complete-password-change", a.completePasswordChange)
+		r.Post("/hooks/application-deploy/{token}", a.webhookDeploy)
+		r.Get("/integrations/github/callback", a.githubOAuthCallback)
 		r.Post("/auth/logout", a.logout)
 		r.Post("/auth/refresh", a.refresh)
 		r.Group(func(r chi.Router) {
 			r.Use(a.authenticate)
 			r.Get("/me", a.me)
+			r.Get("/integrations/github/status", a.githubOAuthStatus)
+			r.Get("/integrations/github/authorize", a.githubOAuthAuthorize)
+			r.Get("/integrations/github/repos", a.githubRepos)
+			r.Delete("/integrations/github/connection", a.githubOAuthDisconnect)
+			r.Put("/integrations/github/app", a.putGitHubOAuthApp)
 			r.Get("/server", a.serverOverview)
 			r.Get("/server/settings", a.getDirectorSettings)
 			r.Patch("/server/settings", a.patchDirectorSettings)
@@ -141,6 +148,7 @@ func (a *API) Handler() http.Handler {
 				r.Get("/applications", a.listApps)
 				r.Post("/applications", a.createApp)
 				r.Delete("/applications/{applicationID}", a.deleteApp)
+				r.Post("/applications/{applicationID}/redeploy", a.redeployApp)
 				r.Post("/wordpress", a.installWordPress)
 				r.Get("/databases", a.listDBs)
 				r.Post("/databases", a.createDB)
@@ -2476,68 +2484,6 @@ func (a *API) listApps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"items": a.Store.ListApps(aid)})
-}
-
-func (a *API) createApp(w http.ResponseWriter, r *http.Request) {
-	aid := chi.URLParam(r, "accountID")
-	if !a.requireAccount(w, r, aid, rbac.ApplicationsWrite) {
-		return
-	}
-	var in store.Application
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		a.fail(w, r, 400, "INVALID_JSON", "Invalid application", false)
-		return
-	}
-	in.ID = id.New()
-	in.AccountID = aid
-	account := a.Store.GetAccount(aid)
-	if account == nil {
-		a.fail(w, r, 404, "NOT_FOUND", "account missing", false)
-		return
-	}
-	website := a.Store.GetWebsite(in.WebsiteID)
-	if website == nil || website.AccountID != aid {
-		a.fail(w, r, 400, "VALIDATION", "website_id must belong to the account", false)
-		return
-	}
-	if in.Runtime != "node" && in.Runtime != "python" {
-		a.fail(w, r, 400, "VALIDATION", "runtime must be node or python", false)
-		return
-	}
-	if containsControlCharacters(in.Runtime) || containsControlCharacters(in.RuntimeVersion) ||
-		containsControlCharacters(in.WorkingDirectory) || containsControlCharacters(in.StartCommand) {
-		a.fail(w, r, 400, "VALIDATION", "application fields cannot contain control characters", false)
-		return
-	}
-	if in.WorkingDirectory == "" {
-		in.WorkingDirectory = website.DocumentRoot
-		if in.WorkingDirectory == "" {
-			in.WorkingDirectory = "/home/" + account.Username + "/apps/" + in.ID
-		}
-	}
-	workDir, err := policy.WithinAccount(account.Username, in.WorkingDirectory)
-	if err != nil || workDir != in.WorkingDirectory {
-		a.fail(w, r, 400, "VALIDATION", "working_directory must be canonical and within the account", false)
-		return
-	}
-	if err := a.enforceCountLimit(aid, "applications", len(a.Store.ListApps(aid)), func(p *store.Package) int { return p.ApplicationInstances }); err != nil {
-		a.rejectLimit(w, r, err)
-		return
-	}
-	if in.Status == "" {
-		in.Status = "provisioning"
-	}
-	job, err := a.Store.UpsertApplicationWithJob(&in, &store.Job{
-		Type: "application.deploy", ResourceType: "application", ResourceID: in.ID,
-		Payload: map[string]any{"application_id": in.ID, "account_id": aid},
-		State:   "queued", ActorID: actor(r).UserID, RequestID: logging.RequestID(r.Context()),
-		IdempotencyKey: r.Header.Get("Idempotency-Key"),
-	}, a.auditEvent(r, aid, "application.create", "application", in.ID, nil, map[string]any{"runtime": in.Runtime}))
-	if err != nil {
-		a.fail(w, r, 500, "APPLICATION_CREATE_ERROR", "Could not persist application deployment", true)
-		return
-	}
-	writeJSON(w, 202, map[string]any{"operation_id": job.ID, "application": in})
 }
 
 func containsControlCharacters(value string) bool {

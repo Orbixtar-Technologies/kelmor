@@ -278,9 +278,10 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 		var p struct {
 			WebsiteID string `json:"website_id"`
 			Account   string `json:"account"`
+			WorkDir   string `json:"working_directory"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.retireApplication(p.WebsiteID, p.Account)
+		return h.retireApplication(p.WebsiteID, p.Account, p.WorkDir)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`
@@ -288,7 +289,7 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return h.applyACMEChallenge(p.Token, p.Body)
-	case "ApplyAppUnit":
+	case "ApplyAppUnit", "DeployApplication":
 		var p struct {
 			WebsiteID string `json:"website_id"`
 			Account   string `json:"account"`
@@ -297,7 +298,33 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 			Command   string `json:"start_command"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
+		if req.Method == "DeployApplication" {
+			return h.deployApplication(p.WebsiteID, p.Account, p.Runtime, p.WorkDir, p.Command)
+		}
 		return h.applyAppUnit(p.WebsiteID, p.Account, p.Runtime, p.WorkDir, p.Command)
+	case "GitDeployApplication":
+		var p struct {
+			WebsiteID string `json:"website_id"`
+			Account   string `json:"account"`
+			Runtime   string `json:"runtime"`
+			WorkDir   string `json:"working_directory"`
+			GitURL    string `json:"git_url"`
+			GitBranch string `json:"git_branch"`
+			GitAuth   string `json:"git_auth"`
+			Command   string `json:"start_command"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return h.gitDeployApplication(p.WebsiteID, p.Account, p.Runtime, p.WorkDir, p.GitURL, p.GitBranch, p.GitAuth, p.Command)
+	case "DetectApplication":
+		var p struct {
+			WorkDir string `json:"working_directory"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		result, err := h.DetectApplication(p.WorkDir)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
 	case "ApplySystemdSlice":
 		var p struct {
 			Username    string `json:"username"`

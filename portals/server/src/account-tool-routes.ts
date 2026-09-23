@@ -53,7 +53,7 @@ export function canonicalAccountToolPath (serviceId: string, accountId: string):
 		case 'tokens':
 			return `/accounts/${accountId}/services?service=tokens`
 		case 'applications':
-			return `/accounts/${accountId}/services?service=applications`
+			return `/deploy-apps?account=${accountId}`
 		default:
 			return undefined
 	}

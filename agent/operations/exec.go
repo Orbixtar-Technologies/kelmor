@@ -77,7 +77,16 @@ var allowedBins = map[string]bool{
 	"/sbin/shutdown":        true,
 	"/usr/sbin/shutdown":    true,
 	"/usr/bin/git":               true,
+	"/usr/bin/env":               true,
+	"/usr/bin/npm":               true,
+	"/usr/local/bin/npm":         true,
+	"/usr/bin/pnpm":              true,
+	"/usr/local/bin/pnpm":        true,
+	"/usr/bin/yarn":              true,
+	"/usr/local/bin/yarn":        true,
+	"/usr/local/bin/node":        true,
 }
+
 
 var allowedServices = map[string]bool{
 	"nginx": true, "php-fpm": true, "php8.3-fpm": true, "php8.4-fpm": true, "php8.5-fpm": true,

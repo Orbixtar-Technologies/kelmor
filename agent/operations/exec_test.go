@@ -69,6 +69,10 @@ func TestGitDeployCommandsAreAllowListed(t *testing.T) {
 		{"-C", "/home/acme/app", "fetch", "--depth=1", "https://x-access-token:tok@github.com/example/repo.git", "main"},
 		{"-C", "/home/acme/app", "reset", "--hard", "FETCH_HEAD"},
 		{"clone", "--depth=1", "--branch", "main", "https://github.com/example/repo.git", "/home/acme/app"},
+		{"-C", "/home/acme/app", "init"},
+		{"-C", "/home/acme/app", "remote", "add", "origin", "https://github.com/example/repo.git"},
+		{"-C", "/home/acme/app", "fetch", "--depth=1", "origin", "main"},
+		{"-C", "/home/acme/app", "checkout", "-f", "FETCH_HEAD"},
 	}
 	for _, args := range cases {
 		if err := validateFixedCommand("/usr/bin/git", env, args); err != nil {
