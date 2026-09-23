@@ -76,6 +76,7 @@ var allowedBins = map[string]bool{
 	"/usr/sbin/vsftpd":      true,
 	"/sbin/shutdown":        true,
 	"/usr/sbin/shutdown":    true,
+	"/usr/bin/git":               true,
 }
 
 var allowedServices = map[string]bool{

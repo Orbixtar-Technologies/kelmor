@@ -10,6 +10,8 @@ const maxCommandOutput = 1 << 20
 
 var allowedEnvKeys = map[string]bool{
 	"DEBIAN_FRONTEND": true,
+	"GIT_TERMINAL_PROMPT": true,
+	"HOME": true,
 }
 
 var allowedFlags = map[string]map[string]bool{
@@ -24,6 +26,7 @@ var allowedFlags = map[string]map[string]bool{
 	"/usr/bin/nginx":        {"s": true, "t": true, "c": true},
 	"/bin/systemctl":        {},
 	"/usr/bin/systemctl":    {},
+	"/usr/bin/git":               {"C": true, "depth": true, "branch": true, "hard": true},
 	"/usr/sbin/setquota":    {"u": true, "a": true},
 	"/usr/bin/mysql":        {"e": true},
 	"/usr/bin/mysqladmin":   {},

@@ -51,3 +51,26 @@ func TestRunFixedBoundsOutputAndHonorsCancel(t *testing.T) {
 		t.Fatal("cancelled context must fail before changing the executable contract")
 	}
 }
+
+func TestGitDeployCommandsAreAllowListed(t *testing.T) {
+	env := []string{"GIT_TERMINAL_PROMPT=0", "HOME=/tmp"}
+	cases := [][]string{
+		{"-C", "/home/acme/app", "fetch", "--depth=1", "origin", "main"},
+		{"-C", "/home/acme/app", "reset", "--hard", "FETCH_HEAD"},
+		{"clone", "--depth=1", "--branch", "main", "https://github.com/example/repo.git", "/home/acme/app"},
+	}
+	for _, args := range cases {
+		if err := validateFixedCommand("/usr/bin/git", env, args); err != nil {
+			t.Fatalf("git %v must be allow-listed for redeploy: %v", args, err)
+		}
+	}
+}
+
+func TestGitRejectsHostileEnvAndFlags(t *testing.T) {
+	if err := validateFixedCommand("/usr/bin/git", []string{"PATH=/tmp"}, []string{"fetch"}); err == nil {
+		t.Fatal("hostile environment must be rejected")
+	}
+	if err := validateFixedCommand("/usr/bin/git", nil, []string{"-c", "core.sshCommand=id"}); err == nil {
+		t.Fatal("unlisted git flag -c must be rejected")
+	}
+}
