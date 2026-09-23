@@ -68,6 +68,7 @@ func (a *API) Handler() http.Handler {
 	r.Get("/api/v1/openapi", a.openapiUI)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/hooks/application-deploy/{token}", a.webhookDeploy)
+		r.Get("/integrations/github/callback", a.githubOAuthCallback)
 		r.Post("/auth/login", a.login)
 		r.Post("/auth/complete-password-change", a.completePasswordChange)
 		r.Post("/auth/logout", a.logout)
@@ -75,6 +76,11 @@ func (a *API) Handler() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(a.authenticate)
 			r.Get("/me", a.me)
+			r.Get("/integrations/github/status", a.githubOAuthStatus)
+			r.Get("/integrations/github/authorize", a.githubOAuthAuthorize)
+			r.Get("/integrations/github/repos", a.githubRepos)
+			r.Delete("/integrations/github/connection", a.githubOAuthDisconnect)
+			r.Put("/integrations/github/app", a.putGitHubOAuthApp)
 			r.Post("/auth/totp/enroll", a.enrollTOTP)
 			r.Post("/auth/totp/confirm", a.confirmTOTP)
 			r.Post("/auth/totp/disable", a.disableTOTP)

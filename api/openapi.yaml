@@ -9,6 +9,65 @@ security:
   - bearerAuth: []
   - cookieAuth: []
 paths:
+  /integrations/github/status:
+    get:
+      operationId: githubOAuthStatus
+      tags: [integrations]
+      summary: GitHub OAuth connection status
+      responses:
+        '200':
+          description: Status
+  /integrations/github/authorize:
+    get:
+      operationId: githubOAuthAuthorize
+      tags: [integrations]
+      summary: Begin GitHub OAuth authorize redirect
+      responses:
+        '200':
+          description: Authorize URL
+  /integrations/github/callback:
+    get:
+      operationId: githubOAuthCallback
+      tags: [integrations]
+      summary: GitHub OAuth callback
+      responses:
+        '302':
+          description: Redirect after connect
+  /integrations/github/repos:
+    get:
+      operationId: githubRepos
+      tags: [integrations]
+      summary: List repositories for the connected GitHub user
+      responses:
+        '200':
+          description: Repository list
+  /integrations/github/connection:
+    delete:
+      operationId: githubOAuthDisconnect
+      tags: [integrations]
+      summary: Disconnect GitHub OAuth
+      responses:
+        '200':
+          description: Disconnected
+  /integrations/github/app:
+    put:
+      operationId: putGitHubOAuthApp
+      tags: [integrations]
+      summary: Configure GitHub OAuth application credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_id, client_secret]
+              properties:
+                client_id: { type: string }
+                client_secret: { type: string }
+                redirect_url: { type: string }
+      responses:
+        '200':
+          description: Saved
   /:
     servers:
       - url: /

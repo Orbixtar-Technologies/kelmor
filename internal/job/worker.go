@@ -808,9 +808,13 @@ func (w *Worker) retireApplication(ctx context.Context, j *store.Job) error {
 	if w.Agent == nil {
 		return fmt.Errorf("agent required")
 	}
+	workDir := ""
+	if app != nil {
+		workDir = app.WorkingDirectory
+	}
 	_, err := w.Agent.Dispatch(ctx, operations.Request{
 		Method: "RetireApplication",
-		Params: mustJSON(map[string]any{"website_id": wid, "account": account}),
+		Params: mustJSON(map[string]any{"website_id": wid, "account": account, "working_directory": workDir}),
 	})
 	if err != nil {
 		return err

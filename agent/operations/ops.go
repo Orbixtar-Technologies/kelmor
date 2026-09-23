@@ -303,9 +303,10 @@ func (h *Host) dispatchMethod(ctx context.Context, req Request) (any, error) {
 		var p struct {
 			WebsiteID string `json:"website_id"`
 			Account   string `json:"account"`
+			WorkDir   string `json:"working_directory"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return h.retireApplication(p.WebsiteID, p.Account)
+		return h.retireApplication(p.WebsiteID, p.Account, p.WorkDir)
 	case "ApplyACMEChallenge":
 		var p struct {
 			Token string `json:"token"`

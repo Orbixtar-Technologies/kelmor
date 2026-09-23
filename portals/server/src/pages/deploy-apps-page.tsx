@@ -51,6 +51,11 @@ export function DeployAppsPage () {
 	const [message, setMessage] = useState('')
 	const [lastJobId, setLastJobId] = useState('')
 	const [webhookUrl, setWebhookUrl] = useState('')
+	const [github, setGithub] = useState<{ app_configured?: boolean; connected?: boolean; login?: string; client_id?: string }>({})
+	const [githubRepos, setGithubRepos] = useState<Array<{ full_name: string; clone_url: string; default_branch: string; private?: boolean }>>([])
+	const [githubBusy, setGithubBusy] = useState(false)
+	const [githubAppId, setGithubAppId] = useState('')
+	const [githubAppSecret, setGithubAppSecret] = useState('')
 	const requests = useRef(new RequestSequence()).current
 	const canWrite = useCan('applications.write')
 	const canRead = useCan('applications.read')
@@ -59,7 +64,64 @@ export function DeployAppsPage () {
 		api<{ items: Account[] }>('/api/v1/accounts').then((result) => {
 			setAllAccounts(asList(result))
 		}).catch(() => {})
+		refreshGithub()
 	}, [])
+
+	async function refreshGithub () {
+		try {
+			const status = await api<{ app_configured?: boolean; connected?: boolean; login?: string; client_id?: string }>('/api/v1/integrations/github/status')
+			setGithub(status)
+			if (status.connected) {
+				const repos = await api<{ items: Array<{ full_name: string; clone_url: string; default_branch: string; private?: boolean }> }>('/api/v1/integrations/github/repos')
+				setGithubRepos(repos.items || [])
+			} else {
+				setGithubRepos([])
+			}
+		} catch {
+			setGithub({})
+		}
+	}
+
+	async function connectGithub () {
+		setGithubBusy(true)
+		setError('')
+		try {
+			const result = await api<{ authorize_url: string }>('/api/v1/integrations/github/authorize')
+			if (result.authorize_url) window.location.href = result.authorize_url
+		} catch (err) {
+			setError(messageFrom(err))
+		} finally {
+			setGithubBusy(false)
+		}
+	}
+
+	async function disconnectGithub () {
+		setGithubBusy(true)
+		try {
+			await api('/api/v1/integrations/github/connection', { method: 'DELETE' })
+			await refreshGithub()
+		} catch (err) {
+			setError(messageFrom(err))
+		} finally {
+			setGithubBusy(false)
+		}
+	}
+
+	async function saveGithubApp (e: React.FormEvent) {
+		e.preventDefault()
+		setGithubBusy(true)
+		setError('')
+		try {
+			await api('/api/v1/integrations/github/app', { method: 'PUT', body: JSON.stringify({ client_id: githubAppId, client_secret: githubAppSecret }) })
+			setGithubAppSecret('')
+			setMessage('GitHub OAuth app saved. Users can now connect GitHub.')
+			await refreshGithub()
+		} catch (err) {
+			setError(messageFrom(err))
+		} finally {
+			setGithubBusy(false)
+		}
+	}
 
 	const loadAccount = useCallback((aid: string) => {
 		if (!aid) { setAccount(null); setDomains([]); setApps([]); return }
@@ -282,6 +344,50 @@ export function DeployAppsPage () {
 				<section className="panel">
 					<div className="section-heading"><div><h2>Repository</h2><p>The repository will be cloned into the application working directory at deploy time.</p></div></div>
 					<form className="stack-form" onSubmit={(e) => { e.preventDefault(); setStep('detect') }}>
+						<section className="panel" style={{ marginBottom: '16px' }}>
+							<div className="section-heading"><div><h3>GitHub OAuth</h3><p>Connect GitHub and pick a repository instead of pasting a URL.</p></div></div>
+							{github.app_configured ? (
+								<div className="row-actions">
+									{github.connected ? (
+										<>
+											<p className="subtle">Connected as <strong>{github.login || 'GitHub user'}</strong></p>
+											<button type="button" className="secondary" disabled={githubBusy} onClick={disconnectGithub}>Disconnect</button>
+										</>
+									) : (
+										<button type="button" disabled={githubBusy} onClick={connectGithub}>Connect GitHub</button>
+									)}
+								</div>
+							) : (
+								<div>
+									<p className="subtle">Configure a GitHub OAuth App (callback <code>/api/v1/integrations/github/callback</code>) to enable one-click connect. URL paste still works.</p>
+									<div className="stack-form" onSubmit={saveGithubApp as never}>
+										<label>Client ID
+											<input value={githubAppId} onChange={(e) => setGithubAppId(e.target.value)} placeholder="Iv1... or client id" />
+										</label>
+										<label>Client secret
+											<input type="password" value={githubAppSecret} onChange={(e) => setGithubAppSecret(e.target.value)} autoComplete="off" />
+										</label>
+										<button type="button" disabled={githubBusy || !githubAppId || !githubAppSecret} onClick={(e) => saveGithubApp(e as unknown as React.FormEvent)}>Save OAuth app</button>
+									</div>
+								</div>
+							)}
+							{github.connected && githubRepos.length ? (
+								<label>Connected repositories
+									<select
+										value={wizard.gitUrl}
+										onChange={(e) => {
+											const repo = githubRepos.find((item) => item.clone_url === e.target.value)
+											set({ gitUrl: e.target.value, gitBranch: repo?.default_branch || wizard.gitBranch || 'main' })
+										}}
+									>
+										<option value="">— pick a repo —</option>
+										{githubRepos.map((repo) => (
+											<option key={repo.full_name} value={repo.clone_url}>{repo.full_name}{repo.private ? ' (private)' : ''}</option>
+										))}
+									</select>
+								</label>
+							) : null}
+						</section>
 						<label>Git URL <small>(HTTPS or SSH)</small>
 							<input
 								type="url"
@@ -390,8 +496,9 @@ export function DeployAppsPage () {
 						</details>
 						<ul className="app-deploy-hints">
 							<li>App must listen on the path in the <code>SOCKET_PATH</code> environment variable</li>
-							<li>Detects: package.json start script, server.js, app.py, go.mod, Gemfile</li>
-							<li>HTTP readiness is not verified — check Jobs for deployment status</li>
+							<li>Detects Node servers, Vite/SPA build scripts, Python, Go, and Ruby</li>
+							<li>First deploy installs dependencies, builds static apps, and starts the process on SOCKET_PATH</li>
+							<li>Check Jobs for deployment status after queueing</li>
 						</ul>
 						{error ? <p className="feedback feedback--error" role="alert">{error}</p> : null}
 						<div className="row-actions">

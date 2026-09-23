@@ -89,6 +89,14 @@ var allowedBins = map[string]bool{
 	"/usr/bin/hostnamectl":     true,
 	"/usr/bin/timedatectl":     true,
 	"/usr/bin/git":               true,
+	"/usr/bin/env":               true,
+	"/usr/bin/npm":               true,
+	"/usr/local/bin/npm":         true,
+	"/usr/bin/pnpm":              true,
+	"/usr/local/bin/pnpm":        true,
+	"/usr/bin/yarn":              true,
+	"/usr/local/bin/yarn":        true,
+	"/usr/local/bin/node":        true,
 }
 
 var allowedServices = map[string]bool{
